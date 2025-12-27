@@ -436,6 +436,8 @@ export default function EcoSimUI() {
   const [logs, setLogs] = useState([]);
   const logsEndRef = useRef(null);
   const ws = useRef(null);
+  const configUpdateTimer = useRef(null);
+  const pendingConfigRef = useRef(null);
   const [isInitializing, setIsInitializing] = useState(false);
 
   // Simulation State
@@ -580,6 +582,14 @@ export default function EcoSimUI() {
     logsEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [logs]);
 
+  useEffect(() => {
+    return () => {
+      if (configUpdateTimer.current) {
+        clearTimeout(configUpdateTimer.current);
+      }
+    };
+  }, []);
+
   // WebSocket Connection
   useEffect(() => {
     ws.current = new WebSocket("ws://localhost:8002/ws");
@@ -650,6 +660,10 @@ export default function EcoSimUI() {
         setActiveView('CONFIG'); // Go back to config on reset
       } else if (data.type === "STABILIZERS_UPDATED") {
         console.log("Stabilizers updated:", data.state);
+      } else if (data.type === "STARTED") {
+        setIsRunning(true);
+      } else if (data.type === "STOPPED") {
+        setIsRunning(false);
       } else if (data.metrics) {
         setTick(data.tick);
         // Merge with existing metrics to preserve defaults if backend is missing keys
@@ -698,7 +712,7 @@ export default function EcoSimUI() {
       } else {
         ws.current.send(JSON.stringify({ command: "START" }));
       }
-      setIsRunning(!isRunning);
+      // Don't update state here - wait for backend confirmation
     }
   };
 
@@ -708,12 +722,27 @@ export default function EcoSimUI() {
     }
   };
 
+  const flushConfigUpdates = () => {
+    if (
+      pendingConfigRef.current &&
+      ws.current &&
+      ws.current.readyState === WebSocket.OPEN &&
+      isInitialized
+    ) {
+      ws.current.send(JSON.stringify({ command: "CONFIG", config: pendingConfigRef.current }));
+    }
+    pendingConfigRef.current = null;
+    configUpdateTimer.current = null;
+  };
+
   const handleConfigChange = (key, value) => {
     const newConfig = { ...config, [key]: value };
     setConfig(newConfig);
-    if (ws.current && ws.current.readyState === WebSocket.OPEN && isInitialized) {
-      ws.current.send(JSON.stringify({ command: "CONFIG", config: newConfig }));
+    pendingConfigRef.current = newConfig;
+    if (configUpdateTimer.current) {
+      clearTimeout(configUpdateTimer.current);
     }
+    configUpdateTimer.current = setTimeout(flushConfigUpdates, 400);
   };
 
   // Helper to update setup config

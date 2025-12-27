@@ -9,7 +9,7 @@ import argparse
 import json
 import sqlite3
 import time
-from collections import deque
+from collections import deque, defaultdict
 from pathlib import Path
 from typing import Dict, List, Optional
 
@@ -82,6 +82,13 @@ def create_large_economy(num_households: int = 10000, num_firms_per_category: in
             max_rental_units=baseline_units
         )
         baseline_firm.set_personality("conservative")
+
+        # Initialize hidden happiness boost for service firms only
+        if category == "Services":
+            import random
+            # Baseline service has low happiness boost (government service quality)
+            baseline_firm.happiness_boost_per_unit = random.uniform(0.002, 0.01)
+
         gov.register_baseline_firm(category, baseline_firm.firm_id)
         baseline_firms.append(baseline_firm)
         next_firm_id += 1
@@ -127,6 +134,14 @@ def create_large_economy(num_households: int = 10000, num_firms_per_category: in
                 is_baseline=False
             )
             competitive_firm.set_personality(personality)
+
+            # Initialize hidden happiness boost for service firms only
+            if category == "Services":
+                import random
+                # Random happiness boost between 0.005 and 0.03 per unit consumed
+                # Households don't know this value - they discover it through consumption
+                competitive_firm.happiness_boost_per_unit = random.uniform(0.005, 0.03)
+
             queued_firms.append(competitive_firm)
             next_firm_id += 1
 
@@ -161,12 +176,12 @@ def create_large_economy(num_households: int = 10000, num_firms_per_category: in
     # This creates a wealth recycling mechanism where firm profits flow back to households
     print(f"Assigning ownership of {len(baseline_firms) + len(queued_firms)} firms...")
     import random
-    random.seed(42)  # Deterministic for reproducibility
+    # NOTE: No seed - ownership is stochastic for run-to-run variation
 
     for firm in baseline_firms + queued_firms:
-        # Randomly assign 1-3 owners per firm
+        # Randomly assign 1-3 owners per firm (stochastic)
         num_owners = random.randint(1, 3)
-        # Select owners from household population
+        # Select owners from household population (stochastic)
         owner_ids = random.sample(range(num_households), num_owners)
         firm.owners = owner_ids
 
@@ -333,6 +348,110 @@ def compute_household_stats(households: List[HouseholdAgent]) -> Dict[str, float
         "mean_morale": float(morale.mean()),
         "mean_health": float(health.mean()),
         "mean_performance": float(performance.mean())
+    }
+
+
+def compute_firm_stats(firms: List[FirmAgent], top_n: int = 12) -> Dict[str, object]:
+    """Aggregate firm-level statistics plus leaderboards."""
+    if not firms:
+        return {
+            "total_firms": 0,
+            "total_employees": 0,
+            "avg_employees": 0.0,
+            "avg_price": 0.0,
+            "avg_wage_offer": 0.0,
+            "avg_inventory": 0.0,
+            "avg_quality": 0.0,
+            "mean_cash": 0.0,
+            "median_cash": 0.0,
+            "struggling_firms": 0,
+            "categories": [],
+            "top_cash": [],
+            "top_employers": []
+        }
+
+    cash = np.array([f.cash_balance for f in firms], dtype=float)
+    prices = np.array([max(f.price, 0.0) for f in firms], dtype=float)
+    wages = np.array([max(f.wage_offer, 0.0) for f in firms], dtype=float)
+    inventories = np.array([max(f.inventory_units, 0.0) for f in firms], dtype=float)
+    qualities = np.array([max(f.quality_level, 0.0) for f in firms], dtype=float)
+    employee_counts = np.array([len(f.employees) for f in firms], dtype=float)
+
+    total_employees = int(employee_counts.sum())
+    avg_employees = float(total_employees / len(firms)) if firms else 0.0
+
+    category_map = defaultdict(lambda: {
+        "firm_count": 0,
+        "cash": 0.0,
+        "price": 0.0,
+        "inventory": 0.0,
+        "quality": 0.0,
+        "wage": 0.0,
+        "employees": 0
+    })
+
+    for f in firms:
+        cat = f.good_category or "Other"
+        data = category_map[cat]
+        data["firm_count"] += 1
+        data["cash"] += f.cash_balance
+        data["price"] += max(f.price, 0.0)
+        data["inventory"] += max(f.inventory_units, 0.0)
+        data["quality"] += max(f.quality_level, 0.0)
+        data["wage"] += max(f.wage_offer, 0.0)
+        data["employees"] += len(f.employees)
+
+    categories = []
+    for cat, data in category_map.items():
+        count = data["firm_count"] or 1
+        categories.append({
+            "category": cat,
+            "firm_count": data["firm_count"],
+            "avg_cash": data["cash"] / count,
+            "avg_price": data["price"] / count,
+            "avg_inventory": data["inventory"] / count,
+            "avg_quality": data["quality"] / count,
+            "avg_wage": data["wage"] / count,
+            "total_employees": data["employees"]
+        })
+
+    categories.sort(key=lambda c: c["firm_count"], reverse=True)
+
+    def serialize_firm(f: FirmAgent) -> Dict[str, object]:
+        return {
+            "id": f.firm_id,
+            "name": f.good_name,
+            "category": f.good_category,
+            "cash": f.cash_balance,
+            "price": f.price,
+            "wageOffer": f.wage_offer,
+            "inventory": f.inventory_units,
+            "quality": f.quality_level,
+            "employees": len(f.employees),
+            "lastRevenue": getattr(f, "last_revenue", 0.0),
+            "lastProfit": getattr(f, "last_profit", 0.0),
+            "state": "BURN" if getattr(f, "burn_mode", False) else "ACTIVE"
+        }
+
+    top_cash = [serialize_firm(f) for f in sorted(firms, key=lambda f: f.cash_balance, reverse=True)[:top_n]]
+    top_employers = [serialize_firm(f) for f in sorted(firms, key=lambda f: len(f.employees), reverse=True)[:top_n]]
+
+    struggling = sum(1 for f in firms if f.cash_balance <= 0)
+
+    return {
+        "total_firms": len(firms),
+        "total_employees": total_employees,
+        "avg_employees": avg_employees,
+        "avg_price": float(prices.mean()) if prices.size else 0.0,
+        "avg_wage_offer": float(wages.mean()) if wages.size else 0.0,
+        "avg_inventory": float(inventories.mean()) if inventories.size else 0.0,
+        "avg_quality": float(qualities.mean()) if qualities.size else 0.0,
+        "mean_cash": float(cash.mean()) if cash.size else 0.0,
+        "median_cash": float(np.median(cash)) if cash.size else 0.0,
+        "struggling_firms": struggling,
+        "categories": categories,
+        "top_cash": top_cash,
+        "top_employers": top_employers
     }
 
 

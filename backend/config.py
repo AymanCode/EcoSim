@@ -405,6 +405,9 @@ class LaborMarketConfig:
     max_skill_bonus: float = 0.25  # 25% productivity from skills
     experience_bonus_per_year: float = 0.05  # 5% per year
 
+    # Regulatory
+    minimum_wage_floor: float = 20.0
+
 
 @dataclass
 class MarketMechanicsConfig:

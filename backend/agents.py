@@ -53,6 +53,7 @@ class HouseholdAgent:
     owns_housing: bool = False  # Track if household already owns housing
     renting_from_firm_id: Optional[int] = None  # Firm ID of housing provider (rental)
     monthly_rent: float = 0.0  # Current rent amount paid per tick
+    stabilization_disabled: bool = False  # Experiment flag
 
     # H4: Income breakdown tracking (for debugging and anomaly detection)
     last_wage_income: float = 0.0
@@ -371,8 +372,8 @@ class HouseholdAgent:
                 self.quality_lavishness * qualities -
                 self.price_sensitivity * (prices / max(price_cap, 1e-6))
             )
-            rng = random.Random(hash((self.household_id, category)))
-            utilities += np.array([rng.uniform(-0.25, 0.25) for _ in range(len(utilities))])
+            # Add stochastic noise to purchasing decisions (not seeded - truly random)
+            utilities += np.array([random.uniform(-0.25, 0.25) for _ in range(len(utilities))])
             max_u = utilities.max()
             weights = np.exp(utilities - max_u)
             weight_sum = weights.sum()
@@ -1275,6 +1276,9 @@ class FirmAgent:
     quality_decay_rate: float = 0.0  # quality decay removed
     accumulated_rd_investment: float = 0.0  # total R&D spending lifetime
 
+    # Hidden happiness boost (Services category only) - households don't know this value
+    happiness_boost_per_unit: float = 0.0  # 0.0 to 0.05 happiness gain per unit consumed
+
     # Config / tuning
     sales_expectation_alpha: float = 0.3  # [0,1] for smoothing sales
     price_adjustment_rate: float = 0.05  # small positive adjustment rate
@@ -1321,6 +1325,7 @@ class FirmAgent:
     last_profit: float = 0.0
     burn_mode_active: bool = False  # Track whether firm is in inventory burn mode
     zero_cash_streak: int = 0  # Consecutive ticks with zero or negative cash
+    stabilization_disabled: bool = False  # Experiment flag
 
     def __post_init__(self):
         """Validate invariants after initialization."""
@@ -1529,6 +1534,26 @@ class FirmAgent:
                 best_workers = workers
         return best_workers
 
+    def _destabilized_production_plan(self) -> Dict[str, object]:
+        """Simplified aggressive plan when stabilizers are disabled."""
+        current_workers = len(self.employees)
+        target_output = max(self.production_capacity_units, self.expected_sales_units)
+        target_workers = self._workers_for_sales(target_output)
+        if not self.is_baseline:
+            target_workers = max(target_workers, current_workers + 1)
+        planned_hires = max(0, target_workers - current_workers)
+        planned_production_units = min(
+            self._capacity_for_workers(max(target_workers, 1)),
+            self.production_capacity_units
+        )
+        return {
+            "firm_id": self.firm_id,
+            "planned_production_units": planned_production_units,
+            "planned_hires_count": planned_hires,
+            "planned_layoffs_ids": [],
+            "updated_expected_sales": self.expected_sales_units,
+        }
+
     def plan_production_and_labor(
         self,
         last_tick_sales_units: float,
@@ -1595,6 +1620,9 @@ class FirmAgent:
                 "planned_layoffs_ids": planned_layoffs,
                 "updated_expected_sales": self.expected_sales_units,
             }
+
+        if self.stabilization_disabled:
+            return self._destabilized_production_plan()
 
         housing_market_saturated = False
         if total_households > 0:
@@ -1801,6 +1829,13 @@ class FirmAgent:
                 "markup_next": (target_price / self.unit_cost - 1.0) if self.unit_cost > 0 else self.markup,
             }
 
+        if self.stabilization_disabled:
+            price_next = max(self.min_price, self.price)
+            if not self.is_baseline:
+                price_next = max(self.min_price * 0.5, price_next * 1.02)
+            markup_next = (price_next / self.unit_cost - 1.0) if self.unit_cost > 0 else self.markup
+            return {"price_next": price_next, "markup_next": markup_next}
+
         import random
 
         capacity = self._capacity_for_workers(max(len(self.employees), 1))
@@ -1845,6 +1880,9 @@ class FirmAgent:
     def plan_wage(self, unemployment_rate: float = 0.0, unemployment_benefit: float = 0.0) -> Dict[str, float]:
         firm_config = self._firm_config()
         if self.is_baseline and self.last_tick_planned_hires >= 1_000_000:
+            return {"wage_offer_next": self.wage_offer}
+
+        if self.stabilization_disabled:
             return {"wage_offer_next": self.wage_offer}
 
         expected_skill_premium = self._expected_skill_premium()
@@ -2239,6 +2277,11 @@ class GovernmentAgent:
     unemployment_benefit_level: float = 30.0  # per-tick payment to unemployed
     min_cash_threshold: float = 100.0  # safety net threshold
     transfer_budget: float = 10000.0  # max total transfers per tick
+    ubi_amount: float = 0.0  # optional universal basic income payment per tick
+    wealth_tax_threshold: float = 1_000_000.0
+    wealth_tax_rate: float = 0.0
+    target_inflation_rate: float = 0.02
+    birth_rate: float = 0.0
 
     # Government baseline firm tracking (category -> firm_id)
     baseline_firm_ids: Dict[str, int] = field(default_factory=dict)
@@ -2247,6 +2290,7 @@ class GovernmentAgent:
     infrastructure_investment_budget: float = 1000.0  # Budget for infrastructure per tick
     technology_investment_budget: float = 500.0  # Budget for technology per tick
     social_investment_budget: float = 750.0  # Budget for social programs per tick
+    stabilization_disabled: bool = False
 
     # Economic multipliers from government investment
     infrastructure_productivity_multiplier: float = 1.0  # Affects all worker productivity
@@ -2294,6 +2338,11 @@ class GovernmentAgent:
             "unemployment_benefit_level": self.unemployment_benefit_level,
             "min_cash_threshold": self.min_cash_threshold,
             "transfer_budget": self.transfer_budget,
+            "ubi_amount": self.ubi_amount,
+            "wealth_tax_threshold": self.wealth_tax_threshold,
+            "wealth_tax_rate": self.wealth_tax_rate,
+            "target_inflation_rate": self.target_inflation_rate,
+            "birth_rate": self.birth_rate,
             "baseline_firm_ids": dict(self.baseline_firm_ids),
         }
 
@@ -2603,6 +2652,9 @@ class GovernmentAgent:
             deficit_ratio: Government deficit as ratio of total economic activity
             num_unemployed: Actual count of unemployed households (for budget calculation)
         """
+        if self.stabilization_disabled:
+            return
+
         # COUNTER-CYCLICAL UNEMPLOYMENT BENEFITS
         # During recessions, governments increase benefits to stabilize demand
         if unemployment_rate > 0.30:  # Severe recession (>30%)
@@ -2620,19 +2672,19 @@ class GovernmentAgent:
         gov_cfg = CONFIG.government
 
         if gdp > 0.0 and total_tax_revenue < -gdp:
-            rng = random.Random(777)
-            bump = rng.uniform(0.0, 0.08)
+            # Stochastic policy response to deficit (truly random)
+            bump = random.uniform(0.0, 0.08)
             self.wage_tax_rate = min(gov_cfg.deficit_wage_tax_max, self.wage_tax_rate * (1.0 + bump))
             self.profit_tax_rate = min(gov_cfg.deficit_profit_tax_max, self.profit_tax_rate * (1.0 + bump))
         elif self.cash_balance > 0.0:
-            rng = random.Random(778)
-            cut = rng.uniform(0.0, 0.08)
+            # Stochastic policy response to surplus (truly random)
+            cut = random.uniform(0.0, 0.08)
             self.wage_tax_rate = max(gov_cfg.surplus_wage_tax_min, self.wage_tax_rate * (1.0 - cut))
             self.profit_tax_rate = max(gov_cfg.surplus_profit_tax_min, self.profit_tax_rate * (1.0 - cut))
 
         if num_bankrupt_firms > 0:
-            rng = random.Random(779)
-            relief = rng.uniform(0.0, 0.04)
+            # Stochastic policy response to bankruptcies (truly random)
+            relief = random.uniform(0.0, 0.04)
             self.wage_tax_rate = max(gov_cfg.surplus_wage_tax_min, self.wage_tax_rate * (1.0 - relief))
             self.profit_tax_rate = max(gov_cfg.surplus_profit_tax_min, self.profit_tax_rate * (1.0 - relief))
 
@@ -2658,6 +2710,9 @@ class GovernmentAgent:
         Returns:
             Amount invested in infrastructure
         """
+        if self.stabilization_disabled:
+            return 0.0
+
         if self.cash_balance >= self.infrastructure_investment_budget:
             investment = self.infrastructure_investment_budget
             self.cash_balance -= investment
@@ -2681,6 +2736,9 @@ class GovernmentAgent:
         Returns:
             Amount invested in technology
         """
+        if self.stabilization_disabled:
+            return 0.0
+
         if self.cash_balance >= self.technology_investment_budget:
             investment = self.technology_investment_budget
             self.cash_balance -= investment
@@ -2734,6 +2792,9 @@ class GovernmentAgent:
             Dict with "bonds" key containing amount spent on bond purchases
         """
         investments = {"bonds": 0.0}
+
+        if self.stabilization_disabled:
+            return investments
 
         # Define surplus threshold as percentage of cash balance
         surplus_threshold_pct = 0.20  # Consider 20%+ above baseline as surplus

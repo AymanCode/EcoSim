@@ -46,10 +46,16 @@ class Economy:
         self.households = households
         self.firms = firms
         self.government = government
+        self.config = CONFIG
         self.queued_firms: List[FirmAgent] = queued_firms or []
         self.target_total_firms = 0
         self._refresh_target_total_firms()
         self.large_market = len(self.households) >= CONFIG.firms.large_market_household_threshold
+
+        mode_cfg = CONFIG.modes
+        self.enable_household_stabilizers = mode_cfg.stabilization_enabled and mode_cfg.household_stabilizers
+        self.enable_firm_stabilizers = mode_cfg.stabilization_enabled and mode_cfg.firm_stabilizers
+        self.enable_government_stabilizers = mode_cfg.stabilization_enabled and mode_cfg.government_stabilizers
 
         # Track simulation progression and warm-up period state
         self.current_tick = 0
@@ -83,6 +89,50 @@ class Economy:
         self._initialize_misc_firm_beneficiaries()
         self.post_warmup_stimulus_ticks: int = 0
         self.post_warmup_stimulus_duration: int = 0
+        self._propagate_stabilizer_flags()
+
+    def _propagate_stabilizer_flags(self) -> None:
+        """Push stabilizer flags down to agents."""
+        self.government.stabilization_disabled = not self.enable_government_stabilizers
+        for household in self.households:
+            household.stabilization_disabled = not self.enable_household_stabilizers
+        for firm in self.firms:
+            firm.stabilization_disabled = not self.enable_firm_stabilizers
+        for firm in self.queued_firms:
+            firm.stabilization_disabled = not self.enable_firm_stabilizers
+
+    def configure_stabilizers(
+        self,
+        households: Optional[bool] = None,
+        firms: Optional[bool] = None,
+        government: Optional[bool] = None
+    ) -> None:
+        """Enable or disable stabilizers for each agent type."""
+        if households is not None:
+            self.enable_household_stabilizers = households
+        if firms is not None:
+            self.enable_firm_stabilizers = firms
+        if government is not None:
+            self.enable_government_stabilizers = government
+        self._propagate_stabilizer_flags()
+
+    def apply_stabilization_overrides(self, disabled_agents: List[str]) -> None:
+        """
+        Disable stabilizers for selected agent groups.
+
+        Args:
+            disabled_agents: Iterable of agent labels ("households", "firms", "government", "all")
+        """
+        disabled = {agent.lower() for agent in disabled_agents}
+        disable_all = "all" in disabled
+        households_enabled = not (disable_all or "households" in disabled)
+        firms_enabled = not (disable_all or "firms" in disabled)
+        government_enabled = not (disable_all or "government" in disabled)
+        self.configure_stabilizers(
+            households=households_enabled,
+            firms=firms_enabled,
+            government=government_enabled
+        )
 
     def _batch_plan_consumption(
         self,
@@ -178,6 +228,13 @@ class Economy:
         discretionary_cash = np.maximum(0.0, cash_balances - subsistence)
         discretionary_budget = discretionary_cash * spend_fraction
         budgets = subsistence + discretionary_budget
+
+        if not getattr(self, "enable_household_stabilizers", True):
+            max_frac = CONFIG.households.max_spend_fraction
+            budgets = np.maximum(
+                subsistence,
+                cash_balances * max_frac
+            )
 
         # Precompute price caches per category for reuse
         price_cache: Dict[str, tuple] = {}
@@ -417,6 +474,15 @@ class Economy:
                         consumed = current_qty * consumption_rate
                         household.goods_inventory[good] = max(0.0, current_qty - consumed)
 
+                        # Apply hidden happiness boost for service goods
+                        if category == "services":
+                            # Find which firm produced this good to get their happiness boost
+                            for firm in self.firms:
+                                if firm.good_name == good and firm.happiness_boost_per_unit > 0:
+                                    happiness_gain = consumed * firm.happiness_boost_per_unit
+                                    household.happiness = min(1.0, household.happiness + happiness_gain)
+                                    break
+
                     if household.goods_inventory[good] < 0.001:
                         del household.goods_inventory[good]
 
@@ -471,6 +537,10 @@ class Economy:
             self._activate_queued_firms()
         if self.post_warmup_stimulus_ticks > 0:
             self._apply_post_warmup_stimulus()
+
+        # Random economic shocks (stochastic events)
+        self._apply_random_shocks()
+
         good_category_lookup = self._build_good_category_lookup()
         total_households = len(self.households)
         housing_private_inventory = 0.0
@@ -487,11 +557,12 @@ class Economy:
 
         gov_benefit = self.government.get_unemployment_benefit_level()
 
-        # Update outstanding emergency-loan commitments before offering new aid
-        self._update_loan_commitments()
-        self._offer_emergency_loans(unemployment_rate)
-        self._offer_inventory_liquidation_loans()  # No unemployment trigger
-        self._ensure_public_works_capacity(unemployment_rate)
+        if self.enable_government_stabilizers:
+            # Update outstanding emergency-loan commitments before offering new aid
+            self._update_loan_commitments()
+            self._offer_emergency_loans(unemployment_rate)
+            self._offer_inventory_liquidation_loans()  # No unemployment trigger
+            self._ensure_public_works_capacity(unemployment_rate)
 
         # Phase 1: Firms plan
         firm_production_plans = {}
@@ -746,7 +817,8 @@ class Economy:
         self._maybe_create_new_firms()
 
         # Phase 14: Government adjusts policies based on economic conditions
-        self._adjust_government_policy()
+        if self.enable_government_stabilizers:
+            self._adjust_government_policy()
 
         # Phase 15: Update world-level statistics
         self._update_statistics(per_firm_sales)
@@ -1113,6 +1185,7 @@ class Economy:
 
         for _ in range(firms_to_activate):
             firm = self.queued_firms.pop(0)
+            firm.stabilization_disabled = not self.enable_firm_stabilizers
             self.firms.append(firm)
             self.firm_lookup[firm.firm_id] = firm
             self.last_tick_sales_units[firm.firm_id] = 0.0
@@ -1829,6 +1902,57 @@ class Economy:
 
         self.post_warmup_stimulus_ticks -= 1
 
+    def _apply_random_shocks(self) -> None:
+        """
+        Apply random economic shocks each tick to introduce stochasticity.
+
+        Shocks include:
+        - Demand shocks (random cash injections/withdrawals to households)
+        - Supply shocks (temporary productivity changes to random firms)
+        - Price shocks (random price pressures on specific goods)
+
+        These shocks ensure that identical policy configurations produce
+        different outcomes across runs, enabling statistical analysis.
+        """
+        import random
+
+        # Skip shocks during warm-up period to allow stable initialization
+        if self.in_warmup:
+            return
+
+        # 1. DEMAND SHOCK (5% chance per tick)
+        # Random cash injection or withdrawal affecting 5-15% of households
+        if random.random() < 0.05:
+            shock_magnitude = random.uniform(-50, 100)  # Asymmetric: more likely positive
+            affected_households = random.sample(
+                self.households,
+                k=min(len(self.households), max(1, int(len(self.households) * random.uniform(0.05, 0.15))))
+            )
+            for h in affected_households:
+                h.cash_balance = max(0, h.cash_balance + shock_magnitude)
+
+        # 2. SUPPLY SHOCK (3% chance per tick)
+        # Random productivity change affecting 1-3 firms
+        if random.random() < 0.03 and self.firms:
+            num_affected = min(len(self.firms), random.randint(1, 3))
+            affected_firms = random.sample(self.firms, k=num_affected)
+            productivity_change = random.uniform(0.85, 1.15)  # ±15% productivity
+            for firm in affected_firms:
+                # Temporarily adjust production capacity
+                if hasattr(firm, 'last_units_produced') and firm.last_units_produced > 0:
+                    firm.last_units_produced = int(firm.last_units_produced * productivity_change)
+
+        # 3. HEALTH SHOCK (2% chance per tick)
+        # Random health crisis affecting 1-5% of population
+        if random.random() < 0.02:
+            health_shock = random.uniform(-0.05, -0.20)  # Health loss
+            affected_households = random.sample(
+                self.households,
+                k=min(len(self.households), max(1, int(len(self.households) * random.uniform(0.01, 0.05))))
+            )
+            for h in affected_households:
+                h.health = max(0.0, min(1.0, h.health + health_shock))
+
     def _clear_housing_rental_market(self) -> None:
         """
         Match households with housing firms for rental agreements.
@@ -2020,8 +2144,8 @@ class Economy:
             return
 
         import random
-        rng = random.Random(self.current_tick + 1234)
-        tax_rate = rng.uniform(0.0, 0.20)
+        # Stochastic tax rate on miscellaneous transactions (truly random)
+        tax_rate = random.uniform(0.0, 0.20)
         tax = amount * tax_rate
         net = amount - tax
         if tax > 0:
@@ -2141,6 +2265,45 @@ class Economy:
         for good_name, prices in good_prices.items():
             self.last_tick_prices[good_name] = sum(prices) / len(prices)
 
+    def _calculate_gini_coefficient(self, values: List[float]) -> float:
+        """
+        Calculate the Gini coefficient for wealth inequality.
+
+        The Gini coefficient ranges from 0 (perfect equality) to 1 (perfect inequality).
+        Uses the standard formula: G = (2 * sum(i * x_i)) / (n * sum(x_i)) - (n + 1) / n
+
+        Args:
+            values: List of wealth values (e.g., household cash balances)
+
+        Returns:
+            Gini coefficient between 0.0 and 1.0
+        """
+        if not values or len(values) == 0:
+            return 0.0
+
+        # Sort values in ascending order
+        sorted_values = sorted(values)
+        n = len(sorted_values)
+
+        # Handle edge cases
+        if n == 1:
+            return 0.0
+
+        total_wealth = sum(sorted_values)
+        if total_wealth <= 0:
+            return 0.0
+
+        # Calculate Gini using the standard formula
+        # G = (2 * sum(i * x_i)) / (n * sum(x_i)) - (n + 1) / n
+        cumsum = 0.0
+        for i, value in enumerate(sorted_values, start=1):
+            cumsum += i * value
+
+        gini = (2.0 * cumsum) / (n * total_wealth) - (n + 1.0) / n
+
+        # Clamp to valid range [0, 1]
+        return max(0.0, min(1.0, gini))
+
     def get_economic_metrics(self) -> Dict[str, float]:
         """
         Calculate comprehensive economic metrics for monitoring and display.
@@ -2180,6 +2343,30 @@ class Economy:
             metrics["mean_household_cash"] = sum(household_cash) / len(household_cash)
             metrics["median_household_cash"] = sorted(household_cash)[len(household_cash) // 2]
 
+            # Wealth inequality - Gini coefficient
+            metrics["gini_coefficient"] = self._calculate_gini_coefficient(household_cash)
+
+            # Wealth distribution percentiles
+            sorted_cash = sorted(household_cash)
+            n = len(sorted_cash)
+            metrics["wealth_p10"] = sorted_cash[int(n * 0.1)]  # 10th percentile
+            metrics["wealth_p25"] = sorted_cash[int(n * 0.25)]  # 25th percentile
+            metrics["wealth_p50"] = sorted_cash[int(n * 0.50)]  # 50th percentile (median)
+            metrics["wealth_p75"] = sorted_cash[int(n * 0.75)]  # 75th percentile
+            metrics["wealth_p90"] = sorted_cash[int(n * 0.90)]  # 90th percentile
+            metrics["wealth_p99"] = sorted_cash[int(n * 0.99)]  # 99th percentile
+
+            # Top vs bottom wealth shares
+            total_wealth = sum(household_cash)
+            if total_wealth > 0:
+                top_10_percent = sorted_cash[int(n * 0.9):]
+                bottom_50_percent = sorted_cash[:int(n * 0.5)]
+                metrics["top_10_percent_share"] = sum(top_10_percent) / total_wealth
+                metrics["bottom_50_percent_share"] = sum(bottom_50_percent) / total_wealth
+            else:
+                metrics["top_10_percent_share"] = 0.0
+                metrics["bottom_50_percent_share"] = 0.0
+
             # Wellbeing metrics
             metrics["mean_happiness"] = sum(h.happiness for h in self.households) / len(self.households)
             metrics["mean_morale"] = sum(h.morale for h in self.households) / len(self.households)
@@ -2193,6 +2380,9 @@ class Economy:
                 "unemployment_rate": 0.0, "mean_wage": 0.0, "median_wage": 0.0,
                 "min_wage": 0.0, "max_wage": 0.0, "total_household_cash": 0.0,
                 "mean_household_cash": 0.0, "median_household_cash": 0.0,
+                "gini_coefficient": 0.0, "wealth_p10": 0.0, "wealth_p25": 0.0,
+                "wealth_p50": 0.0, "wealth_p75": 0.0, "wealth_p90": 0.0, "wealth_p99": 0.0,
+                "top_10_percent_share": 0.0, "bottom_50_percent_share": 0.0,
                 "mean_happiness": 0.0, "mean_morale": 0.0, "mean_health": 0.0,
                 "mean_skills": 0.0
             })

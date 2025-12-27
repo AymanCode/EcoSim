@@ -46,6 +46,7 @@ class SimulationManager:
             "firms": True,
             "government": True
         }
+        self.pending_config_updates: Dict[str, Any] | None = None
 
     def initialize(self, config: Dict[str, Any] = None):
         if config is None:
@@ -222,12 +223,17 @@ class SimulationManager:
         if not self.economy:
             logger.warning("Attempted to run loop without economy. Waiting for SETUP.")
             return
-        
+
         logger.info("Starting simulation loop")
         try:
             while self.is_running and self.active_websocket:
                 start_time = asyncio.get_event_loop().time()
-                
+
+                # Apply any pending config updates from the client
+                if self.pending_config_updates:
+                    await self._apply_config_updates(self.pending_config_updates)
+                    self.pending_config_updates = None
+
                 # Run one step
                 self.economy.step()
                 self.tick += 1
@@ -483,75 +489,65 @@ class SimulationManager:
             if self.active_websocket:
                 await self.active_websocket.send_json({"error": str(e)})
 
-    def update_config(self, config_data):
-        if not self.economy:
+    async def _apply_config_updates(self, config_data: Dict[str, Any]):
+        if not self.economy or not config_data:
             return
 
-        # Tax rates
         if "wageTax" in config_data:
             self.economy.government.wage_tax_rate = config_data["wageTax"]
         if "profitTax" in config_data:
             self.economy.government.profit_tax_rate = config_data["profitTax"]
 
-        # Minimum wage - enforce on all firms
         if "minimumWage" in config_data:
             min_wage = config_data["minimumWage"]
             self.economy.config.labor_market.minimum_wage_floor = min_wage
-            # Update all firm wage offers to meet minimum
-            for firm in self.economy.firms:
+            # Update firms in batches to avoid blocking
+            for i, firm in enumerate(self.economy.firms):
                 if firm.wage_offer < min_wage:
                     firm.wage_offer = min_wage
+                # Yield control every 100 firms to prevent blocking
+                if i % 100 == 0:
+                    await asyncio.sleep(0)
 
-        # Unemployment benefits (percentage of average wage)
         if "unemploymentBenefitRate" in config_data:
             rate = config_data["unemploymentBenefitRate"]
-            # Calculate average wage
-            total_wages = sum(h.wage for h in self.economy.households if h.is_employed)
-            employed_count = sum(1 for h in self.economy.households if h.is_employed)
+            # Calculate in batches to avoid blocking
+            total_wages = 0
+            employed_count = 0
+            for i, h in enumerate(self.economy.households):
+                if h.is_employed:
+                    total_wages += h.wage
+                    employed_count += 1
+                # Yield control every 200 households to prevent blocking
+                if i % 200 == 0:
+                    await asyncio.sleep(0)
             avg_wage = total_wages / employed_count if employed_count > 0 else 30.0
-            # Set benefit as percentage of average wage
             self.economy.government.unemployment_benefit_level = avg_wage * rate
 
-        # Universal Basic Income (flat payment to all)
         if "universalBasicIncome" in config_data:
-            ubi_amount = config_data["universalBasicIncome"]
-            # Store UBI amount (will be distributed in economy step)
-            if not hasattr(self.economy.government, 'ubi_amount'):
-                self.economy.government.ubi_amount = ubi_amount
-            else:
-                self.economy.government.ubi_amount = ubi_amount
+            self.economy.government.ubi_amount = config_data["universalBasicIncome"]
 
-        # Wealth tax threshold
         if "wealthTaxThreshold" in config_data:
-            threshold = config_data["wealthTaxThreshold"]
-            if not hasattr(self.economy.government, 'wealth_tax_threshold'):
-                self.economy.government.wealth_tax_threshold = threshold
-            else:
-                self.economy.government.wealth_tax_threshold = threshold
-
-        # Wealth tax rate
+            self.economy.government.wealth_tax_threshold = config_data["wealthTaxThreshold"]
         if "wealthTaxRate" in config_data:
-            rate = config_data["wealthTaxRate"]
-            if not hasattr(self.economy.government, 'wealth_tax_rate'):
-                self.economy.government.wealth_tax_rate = rate
-            else:
-                self.economy.government.wealth_tax_rate = rate
+            self.economy.government.wealth_tax_rate = config_data["wealthTaxRate"]
 
-        # Inflation rate (annual rate applied gradually)
         if "inflationRate" in config_data:
-            inflation = config_data["inflationRate"]
-            if not hasattr(self.economy.government, 'target_inflation_rate'):
-                self.economy.government.target_inflation_rate = inflation
-            else:
-                self.economy.government.target_inflation_rate = inflation
-
-        # Birth rate (population growth every 36 ticks)
+            self.economy.government.target_inflation_rate = config_data["inflationRate"]
         if "birthRate" in config_data:
-            birth_rate = config_data["birthRate"]
-            if not hasattr(self.economy.government, 'birth_rate'):
-                self.economy.government.birth_rate = birth_rate
+            self.economy.government.birth_rate = config_data["birthRate"]
+
+    async def update_config(self, config_data):
+        if not self.economy:
+            return
+
+        if not self.is_running:
+            await self._apply_config_updates(config_data)
+        else:
+            if self.pending_config_updates is None:
+                self.pending_config_updates = dict(config_data)
             else:
-                self.economy.government.birth_rate = birth_rate
+                self.pending_config_updates.update(config_data)
 
 manager = SimulationManager()
 
@@ -574,12 +570,14 @@ async def websocket_endpoint(websocket: WebSocket):
                 if not manager.economy:
                      # Auto-initialize if not done yet (fallback)
                      manager.initialize()
-                
+
                 if not manager.is_running:
                     manager.is_running = True
                     asyncio.create_task(manager.run_loop())
+                    await websocket.send_json({"type": "STARTED"})
             elif command == "STOP":
                 manager.is_running = False
+                await websocket.send_json({"type": "STOPPED"})
             elif command == "RESET":
                 manager.is_running = False
                 # Don't re-initialize immediately, let user go back to setup if they want
@@ -591,7 +589,7 @@ async def websocket_endpoint(websocket: WebSocket):
                 await websocket.send_json({"type": "RESET", "tick": 0})
             elif command == "CONFIG":
                 config_data = data.get("config", {})
-                manager.update_config(config_data)
+                await manager.update_config(config_data)
             elif command == "STABILIZERS":
                 disable_flag = data.get("disable_stabilizers", False)
                 disabled_agents = data.get("disabled_agents", [])
