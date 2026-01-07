@@ -1,0 +1,28 @@
+======================================================================
+IMPROVED ML TRAINING DATA GENERATION - STARTING
+======================================================================
+
+Started: December 27, 2025 at 12:30 PM
+
+Configuration:
+  - 500 samples (policy configurations)
+  - 100 ticks per simulation (2 simulated years - PRE-EQUILIBRIUM)
+  - 1000 households per economy
+  - 5 firms per category
+  - WIDER policy ranges for diverse outcomes
+
+Estimated Runtime: ~40 minutes
+
+Improvements:
+  ✓ Reduced ticks (300→100) to capture pre-equilibrium dynamics
+  ✓ Wider policy ranges (e.g., UBI: $0-$1000, MinWage: $5-$90)
+  ✓ Should produce varied outcomes for better ML training
+
+Task Status: STARTING
+
+Check progress by looking for new checkpoint files:
+  - training_data_checkpoint_50.csv (should appear ~2 min)
+  - training_data_checkpoint_100.csv (should appear ~4 min)
+  - etc.
+
+======================================================================

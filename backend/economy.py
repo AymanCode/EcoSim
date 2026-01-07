@@ -75,6 +75,11 @@ class Economy:
         self.last_tick_revenue: Dict[int, float] = {}
         self.last_tick_sell_through_rate: Dict[int, float] = {}
         self.last_tick_prices: Dict[str, float] = {}
+        self.last_consumption_timings: Dict[str, Dict[str, float]] = {}
+        self.consumption_timing_totals: Dict[str, float] = {}
+        self.consumption_timing_counts: Dict[str, int] = {}
+        self.performance_mode = False
+        self._cached_consumption_plans: Dict[int, Dict] = {}
 
         # Set initial defaults
         for firm in firms:
@@ -252,6 +257,18 @@ class Economy:
             median_price = prices[len(prices) // 2]
             price_cache[category] = (min_price, median_price, max_price)
             category_option_cache[category] = affordable_opts
+        category_array_cache: Dict[str, Dict[str, np.ndarray]] = {}
+        for category, options in category_option_cache.items():
+            firm_ids = np.array([opt["firm_id"] for opt in options], dtype=np.int32)
+            prices = np.array([opt["price"] for opt in options], dtype=np.float64)
+            qualities = np.array([opt["quality"] for opt in options], dtype=np.float64)
+            if firm_ids.size == 0:
+                continue
+            category_array_cache[category] = {
+                "firm_ids": firm_ids,
+                "prices": prices,
+                "qualities": qualities,
+            }
 
         standard_categories = ["food", "housing", "services"]
         category_weights_matrix = np.array([
@@ -280,6 +297,18 @@ class Economy:
 
         # Build consumption plans (fallback to Python loop for now due to complex logic)
         household_consumption_plans = {}
+        timing_totals = {
+            "price_cap": 0.0,
+            "affordability": 0.0,
+            "firm_selection": 0.0,
+            "quantity_calc": 0.0,
+        }
+        timing_counts = {
+            "price_cap": 0,
+            "affordability": 0,
+            "firm_selection": 0,
+            "quantity_calc": 0,
+        }
 
         for idx, household in enumerate(self.households):
             budget = budgets[idx]
@@ -294,13 +323,18 @@ class Economy:
 
             # Use category weights if available
             if household.category_weights and sum(household.category_weights.values()) > 0 and category_market_snapshot:
-                planned_purchases = household._plan_category_purchases(
+                planned_purchases, timings = household._plan_category_purchases(
                     budget,
                     category_market_snapshot,
                     price_cache,
                     category_fraction_override=precomputed_fractions[idx],
-                    category_option_cache=category_option_cache
+                    category_option_cache=category_option_cache,
+                    category_array_cache=category_array_cache
                 )
+                for key, value in timings["totals"].items():
+                    timing_totals[key] += value
+                for key, value in timings["counts"].items():
+                    timing_counts[key] += int(value)
                 household_consumption_plans[household.household_id] = {
                     "household_id": household.household_id,
                     "category_budgets": {},
@@ -366,7 +400,20 @@ class Economy:
                     "planned_purchases": planned_purchases,
                 }
 
+        self.last_consumption_timings = {
+            "totals": timing_totals,
+            "counts": timing_counts,
+        }
+        for key, value in timing_totals.items():
+            self.consumption_timing_totals[key] = self.consumption_timing_totals.get(key, 0.0) + value
+        for key, value in timing_counts.items():
+            self.consumption_timing_counts[key] = self.consumption_timing_counts.get(key, 0) + int(value)
+
         return household_consumption_plans
+
+    def _apply_cached_consumption_plans(self) -> Dict[int, Dict]:
+        """Return cached consumption plans when performance mode is enabled."""
+        return self._cached_consumption_plans
 
     def _batch_apply_household_updates(
         self,
@@ -617,12 +664,24 @@ class Economy:
             household_labor_plans[household.household_id] = labor_plan
 
         # Consumption planning now vectorized (major speedup)
-        household_consumption_plans = self._batch_plan_consumption(
-            self.last_tick_prices,
-            category_market_snapshot,
-            good_category_lookup,
-            unemployment_rate
-        )
+        if (not self.performance_mode) or (self.current_tick % 5 == 0):
+            household_consumption_plans = self._batch_plan_consumption(
+                self.last_tick_prices,
+                category_market_snapshot,
+                good_category_lookup,
+                unemployment_rate
+            )
+            if self.performance_mode:
+                self._cached_consumption_plans = household_consumption_plans
+        elif self.performance_mode:
+            household_consumption_plans = self._apply_cached_consumption_plans()
+        else:
+            household_consumption_plans = self._batch_plan_consumption(
+                self.last_tick_prices,
+                category_market_snapshot,
+                good_category_lookup,
+                unemployment_rate
+            )
 
         # Phase 3: Labor market matching
         firm_labor_outcomes, household_labor_outcomes = self._match_labor(
@@ -806,9 +865,10 @@ class Economy:
         if self.in_warmup:
             current_price_snapshot = {firm.good_name: firm.price for firm in self.firms}
             self._sync_warmup_expectations(current_price_snapshot)
-        self._batch_update_wellbeing(
-            happiness_multiplier=self.government.social_happiness_multiplier
-        )
+        if (not self.performance_mode) or (self.current_tick % 10 == 0):
+            self._batch_update_wellbeing(
+                happiness_multiplier=self.government.social_happiness_multiplier
+            )
 
         # Phase 12: Handle firm bankruptcies and exits
         self._handle_firm_exits()
@@ -1438,7 +1498,7 @@ class Economy:
         total_productivity_multiplier = 0.0
         for employee_id in firm.employees:
             # Find the household
-            household = next((h for h in self.households if h.household_id == employee_id), None)
+            household = self.household_lookup.get(employee_id)
             if household is None:
                 # Employee not found (shouldn't happen, but handle gracefully)
                 total_productivity_multiplier += 1.0

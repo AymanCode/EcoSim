@@ -1,0 +1,157 @@
+{
+  "timestamp": "20251227_150959",
+  "training_data_file": "training_data_20251227_143535.csv",
+  "policy_features": [
+    "wageTax",
+    "profitTax",
+    "inflationRate",
+    "birthRate",
+    "minimumWage",
+    "unemploymentBenefitRate",
+    "universalBasicIncome",
+    "wealthTaxThreshold",
+    "wealthTaxRate"
+  ],
+  "outcome_targets": [
+    "gdp",
+    "unemployment_rate",
+    "mean_happiness",
+    "mean_health",
+    "mean_wage",
+    "median_wage",
+    "gini_coefficient",
+    "government_debt",
+    "government_balance",
+    "total_household_wealth",
+    "num_active_firms"
+  ],
+  "evaluation_results": {
+    "gdp": {
+      "train_r2": 0.8567555617107601,
+      "test_r2": -0.5209028911061149,
+      "test_rmse": 4092.176726787797,
+      "test_mae": 3291.0329891717415,
+      "cv_r2_mean": -0.2124856063018284,
+      "cv_r2_std": 0.08826268872655388
+    },
+    "unemployment_rate": {
+      "train_r2": 0.8501051010273457,
+      "test_r2": -0.26280904604747346,
+      "test_rmse": 0.20268310506051154,
+      "test_mae": 0.15127498281002044,
+      "cv_r2_mean": -0.2574315548252729,
+      "cv_r2_std": 0.13502374256747424
+    },
+    "mean_happiness": {
+      "train_r2": 0.8673433579583141,
+      "test_r2": -0.23490790100507164,
+      "test_rmse": 0.021132172944346463,
+      "test_mae": 0.01611493209444828,
+      "cv_r2_mean": -0.19621997535429184,
+      "cv_r2_std": 0.09347853724941062
+    },
+    "mean_health": {
+      "train_r2": 0.8683082837194812,
+      "test_r2": -0.2775689379120925,
+      "test_rmse": 0.019653411773674474,
+      "test_mae": 0.0156869481606156,
+      "cv_r2_mean": -0.12036349333835564,
+      "cv_r2_std": 0.061350280014714244
+    },
+    "mean_wage": {
+      "train_r2": 0.8486158059900288,
+      "test_r2": -0.24455138139093857,
+      "test_rmse": 5.735673676670401,
+      "test_mae": 4.542936612990154,
+      "cv_r2_mean": -0.20271118210004652,
+      "cv_r2_std": 0.055882999076850834
+    },
+    "median_wage": {
+      "train_r2": 0.8976436558769311,
+      "test_r2": -0.5639722032218701,
+      "test_rmse": 2.6567092436538773,
+      "test_mae": 1.9501181828116403,
+      "cv_r2_mean": -0.24555913295997742,
+      "cv_r2_std": 0.14172718967327133
+    },
+    "gini_coefficient": {
+      "train_r2": 0.6525817303562338,
+      "test_r2": -0.10402109330588427,
+      "test_rmse": 0.0008091223684791583,
+      "test_mae": 0.00063130117801102,
+      "cv_r2_mean": -0.2216101624001771,
+      "cv_r2_std": 0.14856083854354243
+    },
+    "government_debt": {
+      "train_r2": 1.0,
+      "test_r2": 1.0,
+      "test_rmse": 0.0,
+      "test_mae": 0.0,
+      "cv_r2_mean": 1.0,
+      "cv_r2_std": 0.0
+    },
+    "government_balance": {
+      "train_r2": 0.8636959654770059,
+      "test_r2": -0.19116148381895415,
+      "test_rmse": 88248.83005403336,
+      "test_mae": 75987.70673095157,
+      "cv_r2_mean": -0.18746389953125794,
+      "cv_r2_std": 0.09114760723229182
+    },
+    "total_household_wealth": {
+      "train_r2": 0.8488258177651933,
+      "test_r2": -0.24017874722965682,
+      "test_rmse": 1103295.8133986183,
+      "test_mae": 859777.0155311802,
+      "cv_r2_mean": -0.10638271891776233,
+      "cv_r2_std": 0.0517621740354946
+    },
+    "num_active_firms": {
+      "train_r2": 0.8320105969070123,
+      "test_r2": -0.1076264392599473,
+      "test_rmse": 1.3477786763361086,
+      "test_mae": 0.993807601928711,
+      "cv_r2_mean": -0.21883296104928843,
+      "cv_r2_std": 0.08773547930582455
+    }
+  },
+  "feature_importance": {
+    "gdp": {
+      "birthRate": 0.12355565279722214,
+      "profitTax": 0.11895013600587845,
+      "universalBasicIncome": 0.1169896274805069,
+      "minimumWage": 0.1140054240822792,
+      "wealthTaxRate": 0.11399092525243759
+    },
+    "unemployment_rate": {
+      "inflationRate": 0.14800480008125305,
+      "universalBasicIncome": 0.12224744260311127,
+      "wealthTaxRate": 0.11320067942142487,
+      "wealthTaxThreshold": 0.1130402684211731,
+      "unemploymentBenefitRate": 0.10778471827507019
+    },
+    "mean_happiness": {
+      "minimumWage": 0.14441047608852386,
+      "wealthTaxRate": 0.12031896412372589,
+      "universalBasicIncome": 0.1170889139175415,
+      "unemploymentBenefitRate": 0.11515554785728455,
+      "wageTax": 0.10680650919675827
+    },
+    "mean_health": {
+      "unemploymentBenefitRate": 0.141336128115654,
+      "wealthTaxRate": 0.12168437242507935,
+      "minimumWage": 0.12021300196647644,
+      "birthRate": 0.11472142487764359,
+      "universalBasicIncome": 0.11465385556221008
+    },
+    "mean_wage": {
+      "inflationRate": 0.1331682652235031,
+      "wealthTaxRate": 0.1287531554698944,
+      "wealthTaxThreshold": 0.12353956699371338,
+      "unemploymentBenefitRate": 0.11921796947717667,
+      "universalBasicIncome": 0.11452881246805191
+    }
+  },
+  "model_type": "XGBoost",
+  "num_models": 11
+}

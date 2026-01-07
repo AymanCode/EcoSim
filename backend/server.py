@@ -47,6 +47,13 @@ class SimulationManager:
             "government": True
         }
         self.pending_config_updates: Dict[str, Any] | None = None
+        self.metrics_stride = 5
+        self.cached_stats = None
+        self.cached_firm_stats = None
+        self.cached_econ_metrics = None
+        self.cached_mean_prices = None
+        self.cached_supplies = None
+        self.cached_total_net_worth = None
 
     def initialize(self, config: Dict[str, Any] = None):
         if config is None:
@@ -116,6 +123,12 @@ class SimulationManager:
         # Consolidated histories
         self.price_history = {"food": [], "housing": [], "services": []}
         self.supply_history = {"food": [], "housing": [], "services": []}
+        self.cached_stats = None
+        self.cached_firm_stats = None
+        self.cached_econ_metrics = None
+        self.cached_mean_prices = None
+        self.cached_supplies = None
+        self.cached_total_net_worth = None
 
         # Select 12 random households to track (more diverse sample)
         import random
@@ -238,10 +251,18 @@ class SimulationManager:
                 self.economy.step()
                 self.tick += 1
                 
-                # Collect metrics using the economy's built-in method
-                econ_metrics = self.economy.get_economic_metrics()
-                stats = compute_household_stats(self.economy.households)
-                firm_stats = compute_firm_stats(self.economy.firms)
+                recompute_metrics = (self.tick % self.metrics_stride == 0) or self.cached_stats is None
+                if recompute_metrics:
+                    econ_metrics = self.economy.get_economic_metrics()
+                    stats = compute_household_stats(self.economy.households)
+                    firm_stats = compute_firm_stats(self.economy.firms)
+                    self.cached_econ_metrics = econ_metrics
+                    self.cached_stats = stats
+                    self.cached_firm_stats = firm_stats
+                else:
+                    econ_metrics = self.cached_econ_metrics or {}
+                    stats = self.cached_stats or {}
+                    firm_stats = self.cached_firm_stats or {}
 
                 # Calculate GDP (sum of revenue)
                 gdp = sum(self.economy.last_tick_revenue.values())
@@ -253,42 +274,53 @@ class SimulationManager:
                 fiscal_balance = current_gov_cash - self.prev_gov_cash
                 self.prev_gov_cash = current_gov_cash
                 
-                # Market Metrics (Prices & Supply)
-                prices = {"Food": [], "Housing": [], "Services": []}
-                supplies = {"Food": 0.0, "Housing": 0.0, "Services": 0.0}
-                
-                for f in self.economy.firms:
-                    if f.good_category in prices:
-                        prices[f.good_category].append(f.price)
-                        supplies[f.good_category] += f.inventory_units
-                        # Add tenants to housing supply (occupied units)
-                        if f.good_category == "Housing":
-                            supplies["Housing"] += len(f.current_tenants)
-                
-                # Add household owned housing to supply
-                for h in self.economy.households:
-                    for good, qty in h.goods_inventory.items():
-                        # Simple check if good name contains housing or we assume category
-                        if "housing" in good.lower():
-                             supplies["Housing"] += qty
+                if recompute_metrics:
+                    # Market Metrics (Prices & Supply)
+                    prices = {"Food": [], "Housing": [], "Services": []}
+                    supplies = {"Food": 0.0, "Housing": 0.0, "Services": 0.0}
 
-                mean_prices = {
-                    k: sum(v)/len(v) if v else 0.0 for k, v in prices.items()
-                }
+                    for f in self.economy.firms:
+                        if f.good_category in prices:
+                            prices[f.good_category].append(f.price)
+                            supplies[f.good_category] += f.inventory_units
+                            # Add tenants to housing supply (occupied units)
+                            if f.good_category == "Housing":
+                                supplies["Housing"] += len(f.current_tenants)
 
-                # Calculate Total Net Worth (Cash + Inventory Value)
-                total_net_worth = 0.0
-                for h in self.economy.households:
-                    total_net_worth += h.cash_balance
-                    for good, qty in h.goods_inventory.items():
-                        # Infer category to get price
-                        cat = "Food" # Default
-                        lower_good = good.lower()
-                        if "housing" in lower_good: cat = "Housing"
-                        elif "service" in lower_good: cat = "Services"
-                        
-                        price = mean_prices.get(cat, 0.0)
-                        total_net_worth += qty * price
+                    # Add household owned housing to supply
+                    for h in self.economy.households:
+                        for good, qty in h.goods_inventory.items():
+                            # Simple check if good name contains housing or we assume category
+                            if "housing" in good.lower():
+                                 supplies["Housing"] += qty
+
+                    mean_prices = {
+                        k: sum(v) / len(v) if v else 0.0 for k, v in prices.items()
+                    }
+
+                    # Calculate Total Net Worth (Cash + Inventory Value)
+                    total_net_worth = 0.0
+                    for h in self.economy.households:
+                        total_net_worth += h.cash_balance
+                        for good, qty in h.goods_inventory.items():
+                            # Infer category to get price
+                            cat = "Food"  # Default
+                            lower_good = good.lower()
+                            if "housing" in lower_good:
+                                cat = "Housing"
+                            elif "service" in lower_good:
+                                cat = "Services"
+
+                            price = mean_prices.get(cat, 0.0)
+                            total_net_worth += qty * price
+
+                    self.cached_mean_prices = mean_prices
+                    self.cached_supplies = supplies
+                    self.cached_total_net_worth = total_net_worth
+                else:
+                    mean_prices = self.cached_mean_prices or {"Food": 0.0, "Housing": 0.0, "Services": 0.0}
+                    supplies = self.cached_supplies or {"Food": 0.0, "Housing": 0.0, "Services": 0.0}
+                    total_net_worth = self.cached_total_net_worth or 0.0
 
                 # Gather Tracked Subjects Data
                 self._select_tracked_firms()

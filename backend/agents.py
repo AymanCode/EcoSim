@@ -8,6 +8,7 @@ make decisions to drive the simulation forward.
 
 import math
 import random
+import time
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional
 
@@ -244,7 +245,8 @@ class HouseholdAgent:
         self,
         category: str,
         options: List[Dict[str, float]],
-        precomputed_prices: Optional[tuple] = None
+        precomputed_prices: Optional[tuple] = None,
+        timings: Optional[Dict[str, Dict[str, float]]] = None
     ) -> float:
         """
         Determine the maximum acceptable price for a category this tick.
@@ -261,7 +263,11 @@ class HouseholdAgent:
             max_price = prices[-1]
             median_price = prices[len(prices) // 2]
 
+        affordability_start = time.time()
         affordability = self._get_affordability_score()
+        if timings is not None:
+            timings["totals"]["affordability"] += time.time() - affordability_start
+            timings["counts"]["affordability"] += 1
         wage_basis = self.wage if self.wage > 0 else self.expected_wage
         liquid_cash = max(25.0, self.cash_balance * 0.2 + wage_basis)
 
@@ -286,12 +292,30 @@ class HouseholdAgent:
         price_cache: Optional[Dict[str, tuple]] = None,
         biased_weights_override: Optional[Dict[str, float]] = None,
         category_fraction_override: Optional[Dict[str, float]] = None,
-        category_option_cache: Optional[Dict[str, List[Dict[str, float]]]] = None
-    ) -> Dict[int, float]:
+        category_option_cache: Optional[Dict[str, List[Dict[str, float]]]] = None,
+        category_array_cache: Optional[Dict[str, Dict[str, np.ndarray]]] = None
+    ) -> tuple[Dict[int, float], Dict[str, Dict[str, float]]]:
         """
         Plan purchases using budget allocations influenced by preferences/traits.
         """
         planned: Dict[int, float] = {}
+        timings = {
+            "totals": {
+                "price_cap": 0.0,
+                "affordability": 0.0,
+                "firm_selection": 0.0,
+                "quantity_calc": 0.0,
+            },
+            "counts": {
+                "price_cap": 0,
+                "affordability": 0,
+                "firm_selection": 0,
+                "quantity_calc": 0,
+            },
+        }
+
+        lavishness = self.quality_lavishness
+        sensitivity = self.price_sensitivity
 
         if category_fraction_override is not None:
             fractions = {k: v for k, v in category_fraction_override.items() if v > 0}
@@ -299,7 +323,7 @@ class HouseholdAgent:
             biased = dict(biased_weights_override)
             total_bias = sum(biased.values())
             if total_bias <= 0:
-                return planned
+                return planned, timings
             fractions = {cat: weight / total_bias for cat, weight in biased.items() if weight > 0}
         else:
             biased = {
@@ -309,7 +333,7 @@ class HouseholdAgent:
             }
             total_bias = sum(biased.values())
             if total_bias <= 0:
-                return planned
+                return planned, timings
             fractions = {cat: weight / total_bias for cat, weight in biased.items() if weight > 0}
 
         housing_share = fractions.pop("housing", 0.0)
@@ -321,13 +345,25 @@ class HouseholdAgent:
             options = category_option_cache.get("housing") if category_option_cache else firm_market_info.get("housing", [])
             if options:
                 precomputed = price_cache.get("housing") if price_cache else None
-                price_cap = self._get_category_price_cap("housing", options, precomputed_prices=precomputed)
+                price_cap_start = time.time()
+                price_cap = self._get_category_price_cap(
+                    "housing",
+                    options,
+                    precomputed_prices=precomputed,
+                    timings=timings
+                )
+                timings["totals"]["price_cap"] += time.time() - price_cap_start
+                timings["counts"]["price_cap"] += 1
                 if price_cap > 0:
                     style = self.purchase_styles.get("housing", self.default_purchase_style)
+                    selection_start = time.time()
                     chosen = self._choose_firm_based_on_style(options, style)
+                    timings["totals"]["firm_selection"] += time.time() - selection_start
+                    timings["counts"]["firm_selection"] += 1
                     if chosen and chosen.get("price", 0.0) > 0:
                         price = chosen["price"]
                         allowed_budget = min(remaining_budget, housing_budget_cap)
+                        quantity_start = time.time()
                         qty = min(housing_qty_remaining, allowed_budget / price)
                         if qty > 0:
                             cost = qty * price
@@ -335,6 +371,8 @@ class HouseholdAgent:
                             housing_qty_remaining -= qty
                             firm_id = chosen["firm_id"]
                             planned[firm_id] = planned.get(firm_id, 0.0) + qty
+                        timings["totals"]["quantity_calc"] += time.time() - quantity_start
+                        timings["counts"]["quantity_calc"] += 1
 
         total_other_share = sum(fractions.values())
         weights_remaining = total_other_share
@@ -347,7 +385,15 @@ class HouseholdAgent:
                 continue
 
             precomputed = price_cache.get(category) if price_cache else None
-            price_cap = self._get_category_price_cap(category, options, precomputed_prices=precomputed)
+            price_cap_start = time.time()
+            price_cap = self._get_category_price_cap(
+                category,
+                options,
+                precomputed_prices=precomputed,
+                timings=timings
+            )
+            timings["totals"]["price_cap"] += time.time() - price_cap_start
+            timings["counts"]["price_cap"] += 1
             if price_cap <= 0:
                 continue
 
@@ -357,20 +403,27 @@ class HouseholdAgent:
             if category_budget <= 0:
                 continue
 
-            firm_ids = np.array([opt["firm_id"] for opt in affordable_options], dtype=np.int32)
-            prices = np.array([opt["price"] for opt in affordable_options], dtype=np.float64)
-            qualities = np.array([opt["quality"] for opt in affordable_options], dtype=np.float64)
-            valid_mask = prices > 0
-            firm_ids = firm_ids[valid_mask]
-            prices = prices[valid_mask]
-            qualities = qualities[valid_mask]
+            selection_start = time.time()
+            cached_arrays = category_array_cache.get(category) if category_array_cache else None
+            if cached_arrays:
+                firm_ids = cached_arrays["firm_ids"]
+                prices = cached_arrays["prices"]
+                qualities = cached_arrays["qualities"]
+            else:
+                firm_ids = np.array([opt["firm_id"] for opt in affordable_options], dtype=np.int32)
+                prices = np.array([opt["price"] for opt in affordable_options], dtype=np.float64)
+                qualities = np.array([opt["quality"] for opt in affordable_options], dtype=np.float64)
+                valid_mask = prices > 0
+                firm_ids = firm_ids[valid_mask]
+                prices = prices[valid_mask]
+                qualities = qualities[valid_mask]
             if firm_ids.size == 0:
                 continue
 
             # Utilities and softmax weights
             utilities = (
-                self.quality_lavishness * qualities -
-                self.price_sensitivity * (prices / max(price_cap, 1e-6))
+                lavishness * qualities -
+                sensitivity * (prices / max(price_cap, 1e-6))
             )
             # Add stochastic noise to purchasing decisions (not seeded - truly random)
             utilities += np.array([random.uniform(-0.25, 0.25) for _ in range(len(utilities))])
@@ -380,10 +433,14 @@ class HouseholdAgent:
             if weight_sum <= 0:
                 continue
             shares = weights / weight_sum
+            timings["totals"]["firm_selection"] += time.time() - selection_start
+            timings["counts"]["firm_selection"] += 1
+
+            quantity_start = time.time()
             firm_budgets = category_budget * shares
             quantities = firm_budgets / prices
             cap_ratio = prices / price_cap
-            sensitivity = max(0.2, min(1.5, self.price_sensitivity))
+            sensitivity = max(0.2, min(1.5, sensitivity))
             adjustments = np.where(
                 cap_ratio > 0.85,
                 np.maximum(0.15, 1.0 - sensitivity * (cap_ratio - 0.85) * 3.0),
@@ -401,8 +458,10 @@ class HouseholdAgent:
                 planned[fid] = planned.get(fid, 0.0) + actual_qty
                 spent += cost
             remaining_budget = max(0.0, remaining_budget - min(spent, remaining_budget))
+            timings["totals"]["quantity_calc"] += time.time() - quantity_start
+            timings["counts"]["quantity_calc"] += 1
 
-        return planned
+        return planned, timings
 
 
     def _choose_firm_based_on_style(
@@ -674,7 +733,7 @@ class HouseholdAgent:
 
         # Use category weights if available, otherwise fall back to good weights
         if self.category_weights and sum(self.category_weights.values()) > 0 and firm_market_info:
-            planned_purchases = self._plan_category_purchases(budget, firm_market_info)
+            planned_purchases, _timings = self._plan_category_purchases(budget, firm_market_info)
             return {
                 "household_id": self.household_id,
                 "category_budgets": {},

@@ -4,6 +4,81 @@ This document tracks all implementation changes, improvements, and features adde
 
 ---
 
+## [2025-12-27] Session: Simulation Performance Hotfixes
+
+### Overview
+Reduced per-tick compute load in the realtime server loop and removed an O(n) household scan inside experience-adjusted production.
+
+### Changes by File
+
+#### 1. **backend/server.py**
+**Before**: `run_loop()` recomputed `compute_household_stats`, `compute_firm_stats`, mean prices/supplies, and total net worth every tick.  
+**After**: `run_loop()` caches those values and recomputes on a stride (`metrics_stride = 5`), reusing cached values in between.
+
+#### 2. **backend/economy.py**
+**Before**: `_calculate_experience_adjusted_production()` used a linear search:
+```python
+household = next((h for h in self.households if h.household_id == employee_id), None)
+```
+**After**: Uses the existing O(1) lookup:
+```python
+household = self.household_lookup.get(employee_id)
+```
+
+---
+
+## [2025-12-27] Session: Consumption Planning Instrumentation
+
+### Overview
+Added internal timing instrumentation to identify sub-bottlenecks within category-based consumption planning.
+
+### Changes by File
+
+#### 1. **backend/agents.py**
+**Before**: `_plan_category_purchases()` returned only planned purchases.  
+**After**: `_plan_category_purchases()` returns `(planned_purchases, timings)` and records time in:
+`price_cap`, `affordability`, `firm_selection`, and `quantity_calc`.
+
+#### 2. **backend/economy.py**
+**Before**: `_batch_plan_consumption()` only returned consumption plans.  
+**After**: `_batch_plan_consumption()` aggregates timing totals/counts across households and stores them in:
+`last_consumption_timings`, `consumption_timing_totals`, and `consumption_timing_counts`.
+
+---
+
+## [2025-12-27] Session: Consumption Planning Plan A Optimization
+
+### Overview
+Reduced per-household allocation overhead by caching per-category firm arrays once per tick and reusing them in category purchase planning.
+
+### Changes by File
+
+#### 1. **backend/economy.py**
+**Before**: `_batch_plan_consumption()` rebuilt firm id/price/quality arrays inside each household call.  
+**After**: `_batch_plan_consumption()` builds `category_array_cache` once per tick and passes it into `_plan_category_purchases()`.
+
+#### 2. **backend/agents.py**
+**Before**: `_plan_category_purchases()` rebuilt arrays from `options` every call and repeatedly accessed household attributes.  
+**After**: `_plan_category_purchases()` reuses cached arrays when available and stores `quality_lavishness` / `price_sensitivity` locally.
+
+---
+
+## [2025-12-27] Session: Adaptive Performance Mode
+
+### Overview
+Added optional adaptive frequency mode to reuse consumption plans and reduce wellbeing updates during performance runs.
+
+### Changes by File
+
+#### 1. **backend/economy.py**
+**Before**: Consumption planning and wellbeing updates ran every tick.  
+**After**:
+- Added `performance_mode` flag and `_cached_consumption_plans`.
+- Consumption planning runs every 5 ticks when `performance_mode=True`, otherwise cached plans are reused.
+- Wellbeing updates run every 10 ticks when `performance_mode=True`.
+
+---
+
 ## [2025-12-27] Session: Stochastic Simulation & Performance Optimization
 
 ### Overview

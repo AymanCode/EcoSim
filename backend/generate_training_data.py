@@ -6,11 +6,12 @@ and records the economic outcomes for training ML models.
 
 Configuration:
 - 1000 households, 5 firms per category
-- 300 ticks per simulation (~12 simulated weeks)
+- 100 ticks per simulation (~4 simulated weeks, pre-equilibrium)
 - 500 different policy configurations
 - Latin Hypercube Sampling for policy space coverage
+- Wider policy ranges to create diverse outcomes
 
-Estimated runtime: 2-2.5 hours
+Estimated runtime: ~40 minutes for 500 samples
 """
 
 import sys
@@ -19,6 +20,10 @@ import time
 import numpy as np
 import pandas as pd
 from datetime import datetime
+
+# Fix Windows console encoding
+if sys.platform == 'win32':
+    sys.stdout.reconfigure(encoding='utf-8')
 
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 from run_large_simulation import create_large_economy
@@ -47,15 +52,15 @@ def generate_policy_samples(num_samples=500):
         policies = []
         for i in range(num_samples):
             policies.append({
-                'wageTax': float(sample[i, 0] * 0.30),                      # 0% to 30%
-                'profitTax': float(sample[i, 1] * 0.40 + 0.10),             # 10% to 50%
-                'inflationRate': float(sample[i, 2] * 0.10),                # 0% to 10%
-                'birthRate': float(sample[i, 3] * 0.05),                    # 0% to 5%
-                'minimumWage': float(sample[i, 4] * 35 + 15),               # $15 to $50
-                'unemploymentBenefitRate': float(sample[i, 5] * 0.80),      # 0% to 80%
-                'universalBasicIncome': float(sample[i, 6] * 500),          # $0 to $500
-                'wealthTaxThreshold': float(sample[i, 7] * 190000 + 10000), # $10K to $200K
-                'wealthTaxRate': float(sample[i, 8] * 0.10),                # 0% to 10%
+                'wageTax': float(sample[i, 0] * 0.50),                      # 0% to 50% (wider)
+                'profitTax': float(sample[i, 1] * 0.60 + 0.05),             # 5% to 65% (wider)
+                'inflationRate': float(sample[i, 2] * 0.20),                # 0% to 20% (wider)
+                'birthRate': float(sample[i, 3] * 0.10),                    # 0% to 10% (wider)
+                'minimumWage': float(sample[i, 4] * 85 + 5),                # $5 to $90 (wider)
+                'unemploymentBenefitRate': float(sample[i, 5] * 1.00),      # 0% to 100% (wider)
+                'universalBasicIncome': float(sample[i, 6] * 1000),         # $0 to $1000 (wider)
+                'wealthTaxThreshold': float(sample[i, 7] * 490000 + 10000), # $10K to $500K (wider)
+                'wealthTaxRate': float(sample[i, 8] * 0.20),                # 0% to 20% (wider)
             })
 
         return policies
@@ -68,15 +73,15 @@ def generate_policy_samples(num_samples=500):
         policies = []
         for _ in range(num_samples):
             policies.append({
-                'wageTax': np.random.uniform(0.0, 0.30),
-                'profitTax': np.random.uniform(0.10, 0.50),
-                'inflationRate': np.random.uniform(0.0, 0.10),
-                'birthRate': np.random.uniform(0.0, 0.05),
-                'minimumWage': np.random.uniform(15.0, 50.0),
-                'unemploymentBenefitRate': np.random.uniform(0.0, 0.80),
-                'universalBasicIncome': np.random.uniform(0.0, 500.0),
-                'wealthTaxThreshold': np.random.uniform(10000, 200000),
-                'wealthTaxRate': np.random.uniform(0.0, 0.10),
+                'wageTax': np.random.uniform(0.0, 0.50),
+                'profitTax': np.random.uniform(0.05, 0.65),
+                'inflationRate': np.random.uniform(0.0, 0.20),
+                'birthRate': np.random.uniform(0.0, 0.10),
+                'minimumWage': np.random.uniform(5.0, 90.0),
+                'unemploymentBenefitRate': np.random.uniform(0.0, 1.00),
+                'universalBasicIncome': np.random.uniform(0.0, 1000.0),
+                'wealthTaxThreshold': np.random.uniform(10000, 500000),
+                'wealthTaxRate': np.random.uniform(0.0, 0.20),
             })
 
         return policies
@@ -123,11 +128,14 @@ def run_simulation_with_policy(policy, num_ticks=300, num_households=1000, num_f
     unemployed = sum(1 for h in economy.households if not h.is_employed)
     unemployment_rate = unemployed / len(economy.households)
 
+    # Recalculate employed count AFTER simulation
+    employed_count_final = sum(1 for h in economy.households if h.is_employed)
+
     total_gdp = sum(getattr(f, 'last_revenue', 0.0) for f in economy.firms)
     mean_happiness = np.mean([h.happiness for h in economy.households])
     mean_health = np.mean([h.health for h in economy.households])
-    mean_wage = np.mean([h.wage for h in economy.households if h.is_employed]) if employed_count > 0 else 0
-    median_wage = np.median([h.wage for h in economy.households if h.is_employed]) if employed_count > 0 else 0
+    mean_wage = np.mean([h.wage for h in economy.households if h.is_employed]) if employed_count_final > 0 else 0
+    median_wage = np.median([h.wage for h in economy.households if h.is_employed]) if employed_count_final > 0 else 0
 
     gini = calculate_gini(economy.households)
 
@@ -158,9 +166,9 @@ def main():
     print("="*70)
     print()
 
-    # Configuration
+    # Configuration - PRODUCTION RUN
     NUM_SAMPLES = 500
-    NUM_TICKS = 300
+    NUM_TICKS = 100  # Reduced to capture pre-equilibrium dynamics
     NUM_HOUSEHOLDS = 1000
     NUM_FIRMS_PER_CATEGORY = 5
 
@@ -171,10 +179,11 @@ def main():
     print(f"  Firms per category: {NUM_FIRMS_PER_CATEGORY}")
     print()
 
-    # Estimate runtime
-    estimated_time_per_sim = 15  # seconds (conservative estimate)
+    # Estimate runtime (based on 100 ticks, 1000 households)
+    estimated_time_per_sim = 5  # seconds (conservative estimate for shorter sim)
     estimated_total_minutes = (NUM_SAMPLES * estimated_time_per_sim) / 60
-    print(f"Estimated runtime: {estimated_total_minutes:.1f} minutes ({estimated_total_minutes/60:.1f} hours)")
+    print(f"Estimated runtime: {estimated_total_minutes:.0f} minutes ({estimated_total_minutes/60:.1f} hours)")
+    print(f"Checkpoints will be saved every 50 samples for safety")
     print()
 
     # Generate policy samples
