@@ -1,0 +1,41 @@
+# OS/editor noise
+.DS_Store
+Thumbs.db
+NUL
+.idea/
+.vscode/
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.venv/
+venv/
+
+# Node/build artifacts
+node_modules/
+dist/
+.parcel-cache/
+coverage/
+
+# Environment files
+.env
+.env.local
+
+# Generated simulation outputs
+*.log
+training_data_*.csv
+training_data_checkpoint_*.csv
+test_training_data.csv
+ml_models_*/
+*.pkl
+
+# SQLite/data outputs
+*.db
+sample_data/*.json
+backend/sample_data/*.json
+
+# Keep placeholders if needed
+!sample_data/.gitkeep
+!backend/sample_data/.gitkeep

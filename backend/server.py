@@ -3,7 +3,6 @@ import json
 import logging
 import sys
 import os
-import random
 
 # Add current directory to path so we can import backend modules
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
@@ -59,8 +58,9 @@ class SimulationManager:
         if config is None:
             config = {}
             
-        num_households = config.get("num_households", 1000)
-        num_firms = config.get("num_firms", 5)
+        # create_large_economy assigns up to 3 owners per firm; keep at least 3 households
+        num_households = max(3, int(config.get("num_households", 1000)))
+        num_firms = max(1, int(config.get("num_firms", 5)))
         
         logger.info(f"Initializing economy with {num_households} households and {num_firms} firms/cat...")
         self.economy = create_large_economy(
@@ -290,9 +290,8 @@ class SimulationManager:
                     # Add household owned housing to supply
                     for h in self.economy.households:
                         for good, qty in h.goods_inventory.items():
-                            # Simple check if good name contains housing or we assume category
                             if "housing" in good.lower():
-                                 supplies["Housing"] += qty
+                                supplies["Housing"] += qty
 
                     mean_prices = {
                         k: sum(v) / len(v) if v else 0.0 for k, v in prices.items()
@@ -596,12 +595,21 @@ async def websocket_endpoint(websocket: WebSocket):
             
             if command == "SETUP":
                 config = data.get("config", {})
-                manager.initialize(config)
-                await websocket.send_json({"type": "SETUP_COMPLETE"})
+                try:
+                    manager.initialize(config)
+                    await websocket.send_json({"type": "SETUP_COMPLETE"})
+                except Exception as e:
+                    logger.exception("SETUP failed")
+                    await websocket.send_json({"error": f"SETUP failed: {e}"})
             elif command == "START":
                 if not manager.economy:
                      # Auto-initialize if not done yet (fallback)
-                     manager.initialize()
+                     try:
+                         manager.initialize()
+                     except Exception as e:
+                         logger.exception("Auto-initialize on START failed")
+                         await websocket.send_json({"error": f"START failed: {e}"})
+                         continue
 
                 if not manager.is_running:
                     manager.is_running = True
@@ -612,11 +620,6 @@ async def websocket_endpoint(websocket: WebSocket):
                 await websocket.send_json({"type": "STOPPED"})
             elif command == "RESET":
                 manager.is_running = False
-                # Don't re-initialize immediately, let user go back to setup if they want
-                # Or just reset with same config? Let's just reset state for now.
-                # Actually, RESET usually means "Stop and clear".
-                # If we want to re-configure, we might need a different flow.
-                # For now, RESET stops and clears.
                 manager.tick = 0
                 await websocket.send_json({"type": "RESET", "tick": 0})
             elif command == "CONFIG":
@@ -635,3 +638,11 @@ async def websocket_endpoint(websocket: WebSocket):
         manager.is_running = False
         manager.active_websocket = None
         logger.info("Client disconnected")
+    except Exception as e:
+        manager.is_running = False
+        manager.active_websocket = None
+        logger.exception("WebSocket loop crashed")
+        try:
+            await websocket.send_json({"error": f"WebSocket error: {e}"})
+        except Exception:
+            pass

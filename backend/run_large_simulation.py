@@ -7,7 +7,9 @@ Progress is printed every 10 ticks to monitor performance and economic indicator
 
 import argparse
 import json
+import random
 import sqlite3
+import sys
 import time
 from collections import deque, defaultdict
 from pathlib import Path
@@ -18,6 +20,9 @@ import numpy as np
 from agents import HouseholdAgent, FirmAgent, GovernmentAgent
 from config import CONFIG
 from economy import Economy
+
+if sys.platform == "win32":
+    sys.stdout.reconfigure(encoding="utf-8")
 
 
 def create_large_economy(num_households: int = 10000, num_firms_per_category: int = 10):
@@ -85,7 +90,6 @@ def create_large_economy(num_households: int = 10000, num_firms_per_category: in
 
         # Initialize hidden happiness boost for service firms only
         if category == "Services":
-            import random
             # Baseline service has low happiness boost (government service quality)
             baseline_firm.happiness_boost_per_unit = random.uniform(0.002, 0.01)
 
@@ -137,8 +141,7 @@ def create_large_economy(num_households: int = 10000, num_firms_per_category: in
 
             # Initialize hidden happiness boost for service firms only
             if category == "Services":
-                import random
-                # Random happiness boost between 0.005 and 0.03 per unit consumed
+                # Happiness boost between 0.005 and 0.03 per unit consumed
                 # Households don't know this value - they discover it through consumption
                 competitive_firm.happiness_boost_per_unit = random.uniform(0.005, 0.03)
 
@@ -175,8 +178,7 @@ def create_large_economy(num_households: int = 10000, num_firms_per_category: in
     # Assign owners to firms (1-3 households per firm)
     # This creates a wealth recycling mechanism where firm profits flow back to households
     print(f"Assigning ownership of {len(baseline_firms) + len(queued_firms)} firms...")
-    import random
-    # NOTE: No seed - ownership is stochastic for run-to-run variation
+    # No seed - ownership is stochastic for run-to-run variation
 
     for firm in baseline_firms + queued_firms:
         # Randomly assign 1-3 owners per firm (stochastic)

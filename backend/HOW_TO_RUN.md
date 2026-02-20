@@ -5,7 +5,7 @@
 Just run the script - it's pre-configured for 10,000 agents and 500 ticks:
 
 ```bash
-cd /Users/aymanislam/intern/Ecosim/backend
+cd backend
 python run_large_simulation.py
 ```
 

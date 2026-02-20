@@ -1,50 +1,138 @@
 # EcoSim
 
-EcoSim is a deterministic economic simulation that models households, firms, and the government across weekly ticks. The first 52 ticks form a warm-up period where government baseline firms stabilize the economy before private entrepreneurship and adaptive pricing kick in. After that, households can open firms, compete on price/quality, and react to wages, wellbeing, and transfers.
+EcoSim is an agent-based economic simulation of households, firms, and government interacting through labor markets, goods markets, and fiscal policy.
 
-## Getting Started
+## Why This Project
 
-1. **Create a virtual environment** (optional)
-   ```bash
-   python -m venv .venv && source .venv/bin/activate
-   ```
-2. **Install dependencies**
-   ```bash
-   pip install -r requirements.txt
-   ```
-3. **Populate the sample database (optional for analysis dashboards)**
-   ```bash
-   python backend/generate_sample_data.py
-   ```
-   This script creates `backend/sample_data/ecosim_sample.db` so notebooks and dashboards can run without waiting on a large simulation.
-4. **Run a simulation**
-   ```bash
-   python backend/demo_skill_experience.py
-   ```
-   or use `backend/generate_sample_data.py` to run the engine and export structured data.
+EcoSim is built as a policy sandbox: change core levers (taxes, benefits, wages, spending) and observe system-wide effects over time such as unemployment, prices, inequality, output, and household wellbeing.
+
+## What It Does
+
+- Simulates household, firm, and government decisions every tick
+- Runs market clearing and policy adjustment in a phased simulation loop
+- Streams live metrics to a React dashboard over WebSocket
+- Supports scenario experimentation through runtime configuration
+- Includes data generation and ML training scripts for policy-outcome forecasting
+
+## Tech Stack
+
+| Layer | Technology |
+| --- | --- |
+| Simulation engine | Python |
+| API and streaming | FastAPI + WebSocket |
+| Frontend | React + Vite |
+| Data output | SQLite |
+| ML pipeline | NumPy, Pandas, SciPy, XGBoost |
+
+## High-Level Architecture
+
+```text
+frontend-react (dashboard)
+    -> websocket
+backend/server.py (simulation manager + streaming)
+    ->
+backend/economy.py (tick orchestration)
+    ->
+backend/agents.py (HouseholdAgent, FirmAgent, GovernmentAgent)
+    +
+backend/config.py (parameterized behavior)
+```
+
+Detailed architecture: `docs/ARCHITECTURE.md`.
+
+## Quickstart
+
+```bash
+# Clone
+ git clone https://github.com/AymanCode/EcoSim.git
+ cd EcoSim
+
+# Create environment
+ python -m venv .venv
+
+# Activate
+# Windows (PowerShell)
+ .venv\Scripts\Activate.ps1
+# macOS/Linux
+ source .venv/bin/activate
+
+# Install backend dependencies
+ pip install -r requirements.txt
+
+# Run a quick demo
+ python backend/demo_skill_experience.py
+```
+
+## Run the Dashboard
+
+```bash
+# Terminal 1: backend API
+uvicorn backend.server:app --reload --port 8002
+
+# Terminal 2: frontend
+cd frontend-react
+npm install
+npm run dev
+```
+
+Open: `http://localhost:5173`
+
+## Simulation and Data Commands
+
+```bash
+# Large-scale simulation
+python backend/run_large_simulation.py
+
+# Generate sample data for analysis/dashboard work
+python backend/generate_sample_data.py
+
+# Generate training data
+cd backend
+python generate_training_data.py
+
+# Train ML models from generated CSV
+python train_ml_model.py
+```
+
+## Tests
+
+```bash
+cd backend
+python test_stochastic.py
+python test_training_setup.py
+python test_household_agent.py
+python test_firm_behavior.py
+python test_government_behavior.py
+```
 
 ## Repository Layout
 
-| Path | Description |
-| --- | --- |
-| `backend/` | Core simulation engine, agents, and FastAPI surface area. |
-| `frontend/` | UI experiments and dashboards. |
-| `docs/` | All simulation design specs and technical memos. |
-| `data/`, `ecosim_chartjs/` | Supporting resources for visualization experiments. |
+```text
+backend/            core simulation engine, API server, tests, data scripts
+frontend-react/     main dashboard UI
+docs/               technical docs and architecture notes
+data/               utility data modules
+sample_data/        generated outputs (not source-of-truth code)
+frontend/           experimental static prototype
+ecosim_chartjs/     experimental Chart.js prototype
+ecosim-visual/      experimental Godot prototype
+practice/           sandbox experiments
+```
+
+## Current Status
+
+- Core simulation: functional and actively iterated
+- Dashboard: functional, additional polish in progress
+- ML tooling: data generation and model training scripts available
+- Experimental folders: retained for reference, not core product path
+
+## Generated Artifacts Policy
+
+Large generated files are intentionally not tracked in Git (databases, model binaries, logs, build artifacts, checkpoints, vendor directories). Generate them locally with the commands above.
 
 ## Documentation Map
 
-All Markdown documentation now lives under `docs/`:
-
-- `docs/DATA_SPECIFICATION.md` – schema for exported simulation data.
-- `docs/DATA_SPECIFICATION_old.md` – legacy schema kept for reference.
-- `docs/DYNAMIC_FEATURES.md` – description of the new dynamic agents and markets.
-- `docs/IMPLEMENTATION_SUMMARY.md` – changelog-style overview of major engine upgrades.
-- `docs/REDESIGN_FEATURES.md` – design doc for just-in-time production, pricing, etc.
-- `docs/SKILL_EXPERIENCE_SYSTEM.md` – details on worker experience and skill mechanics.
-
-Use `docs/README.md` (below) for a curated guide if you only need the highlights.
-
-## Support / Questions
-
-Open an issue or leave TODOs inside the relevant doc. The `docs` folder provides the authoritative specs, so updates should be reflected there before changing code.
+- `docs/ARCHITECTURE.md`: system design, tick phases, data flow
+- `docs/DYNAMIC_FEATURES.md`: simulation behaviors and market mechanics
+- `docs/DATA_SPECIFICATION.md`: schema and data usage guidance
+- `backend/TESTING.md`: test inventory and run instructions

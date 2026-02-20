@@ -1,14 +1,14 @@
 """
 EcoSim Agent System
 
-This module defines the autonomous agents that will run the economic simulation.
-These agents will eventually replace the current recommendation system and actively
-make decisions to drive the simulation forward.
+Defines the three core agent types for the economic simulation:
+HouseholdAgent, FirmAgent, and GovernmentAgent. Each agent encapsulates
+its own decision-making logic for labor, consumption, production, pricing,
+and fiscal policy.
 """
 
 import math
 import random
-import time
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional
 
@@ -82,7 +82,6 @@ class HouseholdAgent:
     price_beliefs: Dict[str, float] = field(default_factory=dict)
     expected_wage: float = 10.0  # initial default wage expectation
     reservation_wage: float = 8.0  # minimum acceptable wage
-    #wage_increase: float=5*ticks
 
     # Config / tuning parameters
     price_expectation_alpha: float = 0.3  # [0,1] for price smoothing
@@ -246,7 +245,6 @@ class HouseholdAgent:
         category: str,
         options: List[Dict[str, float]],
         precomputed_prices: Optional[tuple] = None,
-        timings: Optional[Dict[str, Dict[str, float]]] = None
     ) -> float:
         """
         Determine the maximum acceptable price for a category this tick.
@@ -263,11 +261,7 @@ class HouseholdAgent:
             max_price = prices[-1]
             median_price = prices[len(prices) // 2]
 
-        affordability_start = time.time()
         affordability = self._get_affordability_score()
-        if timings is not None:
-            timings["totals"]["affordability"] += time.time() - affordability_start
-            timings["counts"]["affordability"] += 1
         wage_basis = self.wage if self.wage > 0 else self.expected_wage
         liquid_cash = max(25.0, self.cash_balance * 0.2 + wage_basis)
 
@@ -294,25 +288,11 @@ class HouseholdAgent:
         category_fraction_override: Optional[Dict[str, float]] = None,
         category_option_cache: Optional[Dict[str, List[Dict[str, float]]]] = None,
         category_array_cache: Optional[Dict[str, Dict[str, np.ndarray]]] = None
-    ) -> tuple[Dict[int, float], Dict[str, Dict[str, float]]]:
+    ) -> Dict[int, float]:
         """
         Plan purchases using budget allocations influenced by preferences/traits.
         """
         planned: Dict[int, float] = {}
-        timings = {
-            "totals": {
-                "price_cap": 0.0,
-                "affordability": 0.0,
-                "firm_selection": 0.0,
-                "quantity_calc": 0.0,
-            },
-            "counts": {
-                "price_cap": 0,
-                "affordability": 0,
-                "firm_selection": 0,
-                "quantity_calc": 0,
-            },
-        }
 
         lavishness = self.quality_lavishness
         sensitivity = self.price_sensitivity
@@ -323,7 +303,7 @@ class HouseholdAgent:
             biased = dict(biased_weights_override)
             total_bias = sum(biased.values())
             if total_bias <= 0:
-                return planned, timings
+                return planned
             fractions = {cat: weight / total_bias for cat, weight in biased.items() if weight > 0}
         else:
             biased = {
@@ -333,7 +313,7 @@ class HouseholdAgent:
             }
             total_bias = sum(biased.values())
             if total_bias <= 0:
-                return planned, timings
+                return planned
             fractions = {cat: weight / total_bias for cat, weight in biased.items() if weight > 0}
 
         housing_share = fractions.pop("housing", 0.0)
@@ -345,25 +325,17 @@ class HouseholdAgent:
             options = category_option_cache.get("housing") if category_option_cache else firm_market_info.get("housing", [])
             if options:
                 precomputed = price_cache.get("housing") if price_cache else None
-                price_cap_start = time.time()
                 price_cap = self._get_category_price_cap(
                     "housing",
                     options,
                     precomputed_prices=precomputed,
-                    timings=timings
                 )
-                timings["totals"]["price_cap"] += time.time() - price_cap_start
-                timings["counts"]["price_cap"] += 1
                 if price_cap > 0:
                     style = self.purchase_styles.get("housing", self.default_purchase_style)
-                    selection_start = time.time()
                     chosen = self._choose_firm_based_on_style(options, style)
-                    timings["totals"]["firm_selection"] += time.time() - selection_start
-                    timings["counts"]["firm_selection"] += 1
                     if chosen and chosen.get("price", 0.0) > 0:
                         price = chosen["price"]
                         allowed_budget = min(remaining_budget, housing_budget_cap)
-                        quantity_start = time.time()
                         qty = min(housing_qty_remaining, allowed_budget / price)
                         if qty > 0:
                             cost = qty * price
@@ -371,8 +343,6 @@ class HouseholdAgent:
                             housing_qty_remaining -= qty
                             firm_id = chosen["firm_id"]
                             planned[firm_id] = planned.get(firm_id, 0.0) + qty
-                        timings["totals"]["quantity_calc"] += time.time() - quantity_start
-                        timings["counts"]["quantity_calc"] += 1
 
         total_other_share = sum(fractions.values())
         weights_remaining = total_other_share
@@ -385,15 +355,11 @@ class HouseholdAgent:
                 continue
 
             precomputed = price_cache.get(category) if price_cache else None
-            price_cap_start = time.time()
             price_cap = self._get_category_price_cap(
                 category,
                 options,
                 precomputed_prices=precomputed,
-                timings=timings
             )
-            timings["totals"]["price_cap"] += time.time() - price_cap_start
-            timings["counts"]["price_cap"] += 1
             if price_cap <= 0:
                 continue
 
@@ -403,7 +369,6 @@ class HouseholdAgent:
             if category_budget <= 0:
                 continue
 
-            selection_start = time.time()
             cached_arrays = category_array_cache.get(category) if category_array_cache else None
             if cached_arrays:
                 firm_ids = cached_arrays["firm_ids"]
@@ -426,17 +391,14 @@ class HouseholdAgent:
                 sensitivity * (prices / max(price_cap, 1e-6))
             )
             # Add stochastic noise to purchasing decisions (not seeded - truly random)
-            utilities += np.array([random.uniform(-0.25, 0.25) for _ in range(len(utilities))])
+            utilities += np.random.uniform(-0.25, 0.25, size=len(utilities))
             max_u = utilities.max()
             weights = np.exp(utilities - max_u)
             weight_sum = weights.sum()
             if weight_sum <= 0:
                 continue
             shares = weights / weight_sum
-            timings["totals"]["firm_selection"] += time.time() - selection_start
-            timings["counts"]["firm_selection"] += 1
 
-            quantity_start = time.time()
             firm_budgets = category_budget * shares
             quantities = firm_budgets / prices
             cap_ratio = prices / price_cap
@@ -447,21 +409,17 @@ class HouseholdAgent:
                 1.0
             )
             quantities *= adjustments
-            spent = 0.0
-            for fid, qty, price, adj in zip(firm_ids, quantities, prices, adjustments):
-                if qty <= 0:
-                    continue
-                actual_qty = max(0.0, qty)
-                cost = actual_qty * price
-                if cost <= 0:
-                    continue
-                planned[fid] = planned.get(fid, 0.0) + actual_qty
-                spent += cost
+            # Filter to positive quantities and accumulate into planned dict
+            pos_mask = quantities > 0
+            fids_pos = firm_ids[pos_mask].tolist()
+            qtys_pos = quantities[pos_mask].tolist()
+            prices_pos = prices[pos_mask]
+            spent = float((quantities[pos_mask] * prices_pos).sum())
+            for fid, qty in zip(fids_pos, qtys_pos):
+                planned[fid] = planned.get(fid, 0.0) + qty
             remaining_budget = max(0.0, remaining_budget - min(spent, remaining_budget))
-            timings["totals"]["quantity_calc"] += time.time() - quantity_start
-            timings["counts"]["quantity_calc"] += 1
 
-        return planned, timings
+        return planned
 
 
     def _choose_firm_based_on_style(
@@ -632,7 +590,6 @@ class HouseholdAgent:
         Returns:
             Float in [0.0, 0.15] representing fraction of income to save
         """
-        from config import CONFIG
 
         # Get wealth reference points from config
         low_w = CONFIG.households.low_wealth_reference
@@ -733,7 +690,7 @@ class HouseholdAgent:
 
         # Use category weights if available, otherwise fall back to good weights
         if self.category_weights and sum(self.category_weights.values()) > 0 and firm_market_info:
-            planned_purchases, _timings = self._plan_category_purchases(budget, firm_market_info)
+            planned_purchases = self._plan_category_purchases(budget, firm_market_info)
             return {
                 "household_id": self.household_id,
                 "category_budgets": {},
@@ -788,7 +745,7 @@ class HouseholdAgent:
                     expected_price = self.default_price_level
                 if expected_price <= 0:
                     continue
-                category = _get_good_category(good, good_category_lookup)
+                category = _get_good_category(good, firm_categories)
                 if category == "housing":
                     housing_infos.append((good, weight, expected_price))
                 else:
@@ -848,7 +805,6 @@ class HouseholdAgent:
         - Cost scales with health recovery needed (exponential)
         - If cost > cash: take medical loan for the shortfall
         """
-        import random
 
         if self.health >= 0.70:
             return False, 0.0, False
@@ -913,7 +869,6 @@ class HouseholdAgent:
         Args:
             loan_amount: Amount to borrow for medical expenses
         """
-        import random
 
         # Random interest rate between 1-3% annually
         annual_interest_rate = random.uniform(0.01, 0.03)
@@ -942,7 +897,6 @@ class HouseholdAgent:
         if self.medical_loan_remaining <= 0:
             return 0.0
 
-        from config import CONFIG
         min_wage = CONFIG.government.default_unemployment_benefit * CONFIG.government.wage_floor_multiplier
         base_payment = 0.10 * min_wage
         payment_amount = min(base_payment, self.medical_loan_remaining, self.cash_balance)
@@ -1895,7 +1849,6 @@ class FirmAgent:
             markup_next = (price_next / self.unit_cost - 1.0) if self.unit_cost > 0 else self.markup
             return {"price_next": price_next, "markup_next": markup_next}
 
-        import random
 
         capacity = self._capacity_for_workers(max(len(self.employees), 1))
         sold_ratio = (self.last_units_sold / capacity) if capacity > 0 else 0.0
@@ -2029,7 +1982,7 @@ class FirmAgent:
                 self.employees.append(worker_id)
             self.actual_wages[worker_id] = wage_map.get(worker_id, self.wage_offer)
 
-        # FIX: Update existing workers' wages to meet minimum wage floor
+        # Ensure existing workers' wages meet minimum wage floor
         # This prevents grandfathering of old low wages
         # Minimum wage is set at firm level via wage_offer enforcement
         # But we also need to ensure actual_wages dict is updated
@@ -2592,8 +2545,7 @@ class GovernmentAgent:
             p90 = firm_cash_sorted[int(0.90 * (n - 1))]  # 90th percentile (very rich)
             p99 = firm_cash_sorted[int(0.99 * (n - 1))]  # 99th percentile (ultra rich - TOP 1%)
 
-            # Initialize random tax rate modifiers (deterministic per simulation)
-            import random
+            # Initialize tax rate modifiers (deterministic per simulation)
             rng = random.Random(54321)  # Fixed seed for consistency
 
             # Base profit tax rate (for average firms in Q2-Q3 range)
@@ -2727,7 +2679,6 @@ class GovernmentAgent:
             self.unemployment_benefit_level = max(20.0, self.unemployment_benefit_level * 0.99)
 
         # Dynamic tax policy based on cash flow and GDP
-        from config import CONFIG
         gov_cfg = CONFIG.government
 
         if gdp > 0.0 and total_tax_revenue < -gdp:

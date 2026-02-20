@@ -15,6 +15,9 @@ Usage:
 """
 
 import sys
+if sys.platform == 'win32':
+    sys.stdout.reconfigure(encoding='utf-8')
+    sys.stderr.reconfigure(encoding='utf-8')
 from agents import HouseholdAgent
 
 
@@ -142,27 +145,29 @@ def test_skill_development(household):
     print(f"Initial skills: {initial_skills:.4f}")
     print(f"Initial Food experience: {initial_food_exp} ticks")
 
-    # Simulate 10 ticks of employment with passive skill growth
-    for tick in range(10):
+    # Simulate 60 ticks of employment with passive skill growth
+    # Skill update is rate-limited to once per 52 ticks, so we need at least 52
+    num_ticks = 60
+    for tick in range(num_ticks):
         labor_outcome = {
             "employer_id": 10,
             "wage": 75.0,
             "employer_category": "Food"
         }
-        household.apply_labor_outcome(labor_outcome)
+        household.apply_labor_outcome(labor_outcome, current_tick=tick)
 
     final_skills = household.skills_level
     final_food_exp = household.category_experience.get('Food', 0)
     skill_gain = final_skills - initial_skills
     experience_gain = final_food_exp - initial_food_exp
 
-    print(f"\nAfter 10 ticks of work:")
+    print(f"\nAfter {num_ticks} ticks of work:")
     print(f"  Final skills: {final_skills:.4f}")
     print(f"  Skill gain: +{skill_gain:.4f}")
     print(f"  Food experience: {final_food_exp} ticks (+{experience_gain} gained)")
 
-    assert final_skills > initial_skills, "Skills should improve with work"
-    assert experience_gain == 10, f"Should gain 10 ticks of experience, gained {experience_gain}"
+    assert final_skills > initial_skills, "Skills should improve with work (requires 52+ ticks)"
+    assert experience_gain == num_ticks, f"Should gain {num_ticks} ticks of experience, gained {experience_gain}"
 
     print("\n✅ TEST 5 PASSED: Skills develop through work experience")
 

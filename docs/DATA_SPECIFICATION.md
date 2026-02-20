@@ -28,14 +28,14 @@ The data infrastructure should support:
 
 ## Sample Data
 
-**Pre-generated sample database available**: `sample_data/ecosim_sample.db`
+**Generate sample database locally**: `python backend/generate_sample_data.py`
 
 - **50 households** with varying skills, ages, wealth
 - **7 firms** across 3 categories (Food, Housing, Services)
 - **200 ticks** of simulation data
 - **All new features** included (wellbeing, personalities, government investment)
 
-Use this database to:
+After generating the database, use it to:
 - ✅ Develop visualization prototypes
 - ✅ Test ML models
 - ✅ Validate database schemas
@@ -129,7 +129,7 @@ See [REDESIGN_FEATURES.md](REDESIGN_FEATURES.md) for complete details on all new
 | **`mean_health`** | **float** | **Average health** | **✅** |
 | **`mean_performance`** | **float** | **Average performance** | **✅** |
 
-See [generate_sample_data.py](generate_sample_data.py) for complete schema implementation.
+See [generate_sample_data.py](../backend/generate_sample_data.py) for complete schema implementation.
 
 ---
 
@@ -358,7 +358,7 @@ exporter.export_batch(start_tick=0, end_tick=10000, format='parquet')
    - Firm strategy clusters
 3. **Jupyter notebooks** with examples
 
-Use `sample_data/ecosim_sample.db` for prototyping.
+Use a locally generated `sample_data/ecosim_sample.db` for prototyping.
 
 ---
 
@@ -443,6 +443,11 @@ ORDER BY tick;
 
 ## Using Sample Data
 
+Generate the sample DB first:
+```bash
+python backend/generate_sample_data.py
+```
+
 **Load in Python**:
 ```python
 import sqlite3
@@ -481,7 +486,7 @@ For questions:
 ## Reference Documents
 
 - [REDESIGN_FEATURES.md](REDESIGN_FEATURES.md) - Complete feature documentation
-- [generate_sample_data.py](generate_sample_data.py) - Sample data generation script
+- [generate_sample_data.py](../backend/generate_sample_data.py) - Sample data generation script
 - [DYNAMIC_FEATURES.md](DYNAMIC_FEATURES.md) - Original dynamic features spec
 
 ---
@@ -491,7 +496,7 @@ For questions:
 For new data team members:
 
 - [ ] Read [REDESIGN_FEATURES.md](REDESIGN_FEATURES.md)
-- [ ] Download `sample_data/ecosim_sample.db`
+- [ ] Run `python backend/generate_sample_data.py`
 - [ ] Load sample data in Python/R
 - [ ] Create first visualization (unemployment over time)
 - [ ] Review assigned task from list above

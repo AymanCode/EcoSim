@@ -1,10 +1,9 @@
 """
 Economy Simulation Engine
 
-This module implements the main simulation coordinator that orchestrates
-households, firms, and government through deterministic tick-based cycles.
-
-All behavior is deterministic - no randomness, I/O, or side effects.
+Implements the main simulation coordinator that orchestrates households,
+firms, and government through tick-based cycles. Includes optional
+stochastic shocks for scenario variation across runs.
 
 Performance optimizations:
 - Caches household/firm lookups for O(1) access
@@ -12,6 +11,7 @@ Performance optimizations:
 - Batch operations to minimize Python loop overhead
 """
 
+import random
 from typing import Dict, List, Tuple, Optional
 
 from config import CONFIG
@@ -75,9 +75,6 @@ class Economy:
         self.last_tick_revenue: Dict[int, float] = {}
         self.last_tick_sell_through_rate: Dict[int, float] = {}
         self.last_tick_prices: Dict[str, float] = {}
-        self.last_consumption_timings: Dict[str, Dict[str, float]] = {}
-        self.consumption_timing_totals: Dict[str, float] = {}
-        self.consumption_timing_counts: Dict[str, int] = {}
         self.performance_mode = False
         self._cached_consumption_plans: Dict[int, Dict] = {}
 
@@ -165,8 +162,6 @@ class Economy:
         services_prefs = np.array([h.services_preference for h in self.households], dtype=np.float64)
 
         # H2: Subsistence vs discretionary spending with happiness modulation
-        # Import config for new parameters
-        from config import CONFIG
 
         # Macro confidence from unemployment
         macro_confidence = max(0.2, 1.0 - 0.6 * unemployment_rate)
@@ -297,18 +292,6 @@ class Economy:
 
         # Build consumption plans (fallback to Python loop for now due to complex logic)
         household_consumption_plans = {}
-        timing_totals = {
-            "price_cap": 0.0,
-            "affordability": 0.0,
-            "firm_selection": 0.0,
-            "quantity_calc": 0.0,
-        }
-        timing_counts = {
-            "price_cap": 0,
-            "affordability": 0,
-            "firm_selection": 0,
-            "quantity_calc": 0,
-        }
 
         for idx, household in enumerate(self.households):
             budget = budgets[idx]
@@ -323,7 +306,7 @@ class Economy:
 
             # Use category weights if available
             if household.category_weights and sum(household.category_weights.values()) > 0 and category_market_snapshot:
-                planned_purchases, timings = household._plan_category_purchases(
+                planned_purchases = household._plan_category_purchases(
                     budget,
                     category_market_snapshot,
                     price_cache,
@@ -331,10 +314,6 @@ class Economy:
                     category_option_cache=category_option_cache,
                     category_array_cache=category_array_cache
                 )
-                for key, value in timings["totals"].items():
-                    timing_totals[key] += value
-                for key, value in timings["counts"].items():
-                    timing_counts[key] += int(value)
                 household_consumption_plans[household.household_id] = {
                     "household_id": household.household_id,
                     "category_budgets": {},
@@ -399,15 +378,6 @@ class Economy:
                     "category_budgets": {},
                     "planned_purchases": planned_purchases,
                 }
-
-        self.last_consumption_timings = {
-            "totals": timing_totals,
-            "counts": timing_counts,
-        }
-        for key, value in timing_totals.items():
-            self.consumption_timing_totals[key] = self.consumption_timing_totals.get(key, 0.0) + value
-        for key, value in timing_counts.items():
-            self.consumption_timing_counts[key] = self.consumption_timing_counts.get(key, 0) + int(value)
 
         return household_consumption_plans
 
@@ -537,7 +507,6 @@ class Economy:
             household.last_consumption_spending = total_spending
 
             # Anomaly detection: Flag large cash changes
-            from config import CONFIG
             if CONFIG.debug.log_large_changes:
                 net_change = (household.last_wage_income + household.last_transfer_income +
                              household.last_dividend_income + household.last_other_income -
@@ -1061,7 +1030,6 @@ class Economy:
         massive wage increases within a single tick. Only updates employees
         who have been with the firm for at least 50 ticks.
         """
-        import random
 
         for firm in self.firms:
             if not firm.employees:
@@ -1282,8 +1250,7 @@ class Economy:
         happiness_change += np.where(total_goods < 2.0, -0.02, 0.0)
         happiness_change += np.where(~housing_met, -0.05, 0.0)
 
-        # FIX: Wage adequacy affects happiness
-        # Being employed at a poverty wage shouldn't make you happy
+        # Wage adequacy: poverty-level cash reduces happiness even if employed
         cash_balances = np.fromiter((h.cash_balance for h in households), dtype=np.float64, count=n)
         poverty_threshold = 200.0  # If cash < $200, you're struggling
         in_poverty = cash_balances < poverty_threshold
@@ -1974,7 +1941,6 @@ class Economy:
         These shocks ensure that identical policy configurations produce
         different outcomes across runs, enabling statistical analysis.
         """
-        import random
 
         # Skip shocks during warm-up period to allow stable initialization
         if self.in_warmup:
@@ -2203,8 +2169,7 @@ class Economy:
         if amount <= 0:
             return
 
-        import random
-        # Stochastic tax rate on miscellaneous transactions (truly random)
+        # Stochastic tax rate on miscellaneous transactions
         tax_rate = random.uniform(0.0, 0.20)
         tax = amount * tax_rate
         net = amount - tax
@@ -2266,13 +2231,7 @@ class Economy:
         unemployed = sum(1 for h in self.households if not h.is_employed)
         unemployment_rate = unemployed / total_households
 
-        # Calculate inflation (change in average price level)
-        if self.last_tick_prices:
-            avg_current_price = sum(self.last_tick_prices.values()) / len(self.last_tick_prices)
-            # Store previous for inflation calc (simplified - would track over time)
-            inflation_rate = 0.0  # Placeholder - would need historical prices
-        else:
-            inflation_rate = 0.0
+        inflation_rate = 0.0
 
         # Calculate deficit ratio
         total_gdp = sum(self.last_tick_revenue.values()) if self.last_tick_revenue else 1.0

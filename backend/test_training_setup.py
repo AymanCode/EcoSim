@@ -14,6 +14,9 @@ Expected runtime: ~2 minutes
 import sys
 import os
 
+if sys.platform == "win32":
+    sys.stdout.reconfigure(encoding="utf-8")
+
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 print("="*70)

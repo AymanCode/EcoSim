@@ -200,8 +200,8 @@ All parameters can be tuned in the code:
 | `productivity_experience_cap` | 0.5 | Max productivity bonus (50%) |
 
 To modify these, search for the relevant calculations in:
-- [economy.py](/Users/aymanislam/Ecosim/backend/economy.py) - `_match_labor()` and `_calculate_experience_adjusted_production()`
-- [agents.py](/Users/aymanislam/Ecosim/backend/agents.py) - `HouseholdAgent.apply_labor_outcome()`
+- `backend/economy.py` — `_match_labor()` and `_calculate_experience_adjusted_production()`
+- `backend/agents.py` — `HouseholdAgent.apply_labor_outcome()`
 
 ---
 

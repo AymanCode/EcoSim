@@ -1,23 +1,34 @@
-# Documentation Guide
+# Documentation Index
 
-All EcoSim reference material is grouped here so you can jump directly to the spec you need without digging through backend files.
+Technical documentation for the EcoSim simulation engine.
 
-## Quick Links
+## Start Here
 
-| Document | Purpose |
-| --- | --- |
-| [DATA_SPECIFICATION.md](DATA_SPECIFICATION.md) | Canonical tables and fields emitted by the simulation. |
-| [DYNAMIC_FEATURES.md](DYNAMIC_FEATURES.md) | Explanation of the redesigned agent behaviors and market mechanics. |
-| [IMPLEMENTATION_SUMMARY.md](IMPLEMENTATION_SUMMARY.md) | Narrative of major engine milestones and architectural decisions. |
-| [REDESIGN_FEATURES.md](REDESIGN_FEATURES.md) | Motivation and details for the pricing, production, and wellbeing overhaul. |
-| [SKILL_EXPERIENCE_SYSTEM.md](SKILL_EXPERIENCE_SYSTEM.md) | Deep dive on worker skill growth and morale modifiers. |
-| [DATA_SPECIFICATION_old.md](DATA_SPECIFICATION_old.md) | Archived schema retained for backward compatibility checks. |
+| Document | What You'll Learn |
+|----------|-------------------|
+| [ARCHITECTURE.md](ARCHITECTURE.md) | System architecture, tick loop phases, data flow |
+| [DYNAMIC_FEATURES.md](DYNAMIC_FEATURES.md) | Agent behaviors, market mechanics, policy system |
+| [DATA_SPECIFICATION.md](DATA_SPECIFICATION.md) | Database schema, data export formats, sample queries |
 
-## How to Use This Folder
+## Deep Dives
 
-1. **Start with `DYNAMIC_FEATURES.md`** if you need a conceptual overview of the economy redesign.
-2. **Consult `DATA_SPECIFICATION.md`** when building dashboards or pipelines using simulation output.
-3. **Reference `IMPLEMENTATION_SUMMARY.md`** before modifying the engine so you know why decisions were made.
-4. **Check `SKILL_EXPERIENCE_SYSTEM.md`** when tuning labor, morale, or wellbeing parameters.
+| Document | Topic |
+|----------|-------|
+| [REDESIGN_FEATURES.md](REDESIGN_FEATURES.md) | JIT production, demand pricing, firm personalities, wellbeing system |
+| [SKILL_EXPERIENCE_SYSTEM.md](SKILL_EXPERIENCE_SYSTEM.md) | Worker skill growth, experience premiums, productivity multipliers |
+| [IMPLEMENTATION_SUMMARY.md](IMPLEMENTATION_SUMMARY.md) | Feature implementation history and design decisions |
 
-If you add new docs, keep them in this folder and link them here so contributors always have a single index.
+## Configuration & Usage
+
+| Document | Topic |
+|----------|-------|
+| [../CONFIG_USAGE_GUIDE.md](../CONFIG_USAGE_GUIDE.md) | Full reference for the 400+ parameter config system |
+| [../backend/TESTING.md](../backend/TESTING.md) | Test suite overview and how to run tests |
+| [../backend/RUN_TRAINING.md](../backend/RUN_TRAINING.md) | ML training data generation guide |
+| [../backend/HOW_TO_RUN.md](../backend/HOW_TO_RUN.md) | Running large-scale simulations |
+
+## Archive
+
+| Document | Note |
+|----------|------|
+| [DATA_SPECIFICATION_old.md](DATA_SPECIFICATION_old.md) | Legacy schema, kept for reference |

@@ -12,7 +12,7 @@ This document summarizes all changes made to implement the fundamental economic 
 **Status**: ✅ Complete
 
 **Changes**:
-- Modified `FirmAgent.plan_production_and_labor()` ([agents.py:552-612](agents.py#L552-L612))
+- Modified `FirmAgent.plan_production_and_labor()` ([agents.py:552-612](../backend/agents.py#L552-L612))
 - Firms now produce `max(expected_sales, minimum_floor)` instead of targeting inventory
 - Eliminates inventory stockpiling
 - Creates continuous employment demand
@@ -25,7 +25,7 @@ This document summarizes all changes made to implement the fundamental economic 
 **Status**: ✅ Complete
 
 **Changes**:
-- Redesigned `FirmAgent.plan_pricing()` ([agents.py:614-667](agents.py#L614-L667))
+- Redesigned `FirmAgent.plan_pricing()` ([agents.py:614-667](../backend/agents.py#L614-L667))
 - 5-tier demand-responsive pricing based on sell-through rate
 - Aggressive price adjustments (up to ±15% per tick)
 - Replaces cost-plus markup system
@@ -45,8 +45,8 @@ This document summarizes all changes made to implement the fundamental economic 
 **Status**: ✅ Complete
 
 **Changes**:
-- Added personality fields to `FirmAgent` ([agents.py:466-471](agents.py#L466-L471))
-- Created `set_personality()` method ([agents.py:559-594](agents.py#L559-L594))
+- Added personality fields to `FirmAgent` ([agents.py:466-471](../backend/agents.py#L466-L471))
+- Created `set_personality()` method ([agents.py:559-594](../backend/agents.py#L559-L594))
 - Three personality types with distinct behaviors
 
 **Personalities**:
@@ -57,7 +57,7 @@ This document summarizes all changes made to implement the fundamental economic 
 | Moderate | 5% | 0.5 | 5% | 10% | 5% |
 | Conservative | 2% | 0.2 | 2% | 5% | 2% |
 
-**Firm creation** assigns personalities deterministically ([economy.py:589-618](economy.py#L589-L618))
+**Firm creation** assigns personalities deterministically ([economy.py:589-618](../backend/economy.py#L589-L618))
 
 ---
 
@@ -65,19 +65,19 @@ This document summarizes all changes made to implement the fundamental economic 
 **Status**: ✅ Complete
 
 **Changes**:
-- Added investment fields to `GovernmentAgent` ([agents.py:856-868](agents.py#L856-L868))
+- Added investment fields to `GovernmentAgent` ([agents.py:856-868](../backend/agents.py#L856-L868))
 - Implemented 3 investment methods:
-  - `invest_in_infrastructure()` → boosts productivity ([agents.py:1090-1111](agents.py#L1090-L1111))
-  - `invest_in_technology()` → improves quality ([agents.py:1113-1134](agents.py#L1113-L1134))
-  - `invest_in_social_programs()` → increases happiness ([agents.py:1136-1157](agents.py#L1136-L1157))
-- Created `make_investments()` orchestration method ([agents.py:1159-1183](agents.py#L1159-L1183))
+  - `invest_in_infrastructure()` → boosts productivity ([agents.py:1090-1111](../backend/agents.py#L1090-L1111))
+  - `invest_in_technology()` → improves quality ([agents.py:1113-1134](../backend/agents.py#L1113-L1134))
+  - `invest_in_social_programs()` → increases happiness ([agents.py:1136-1157](../backend/agents.py#L1136-L1157))
+- Created `make_investments()` orchestration method ([agents.py:1159-1183](../backend/agents.py#L1159-L1183))
 
 **Investment Effects**:
 - Infrastructure: +0.5% productivity per $1000
 - Technology: +0.5% quality per $500
 - Social: +0.5% happiness per $750
 
-**Integration**: Called each tick in economy loop ([economy.py:212](economy.py#L212))
+**Integration**: Called each tick in economy loop ([economy.py:212](../backend/economy.py#L212))
 
 ---
 
@@ -85,9 +85,9 @@ This document summarizes all changes made to implement the fundamental economic 
 **Status**: ✅ Complete
 
 **Changes**:
-- Added wellbeing fields to `HouseholdAgent` ([agents.py:62-70](agents.py#L62-L70))
-- Implemented `update_wellbeing()` method ([agents.py:424-513](agents.py#L424-L513))
-- Created `get_performance_multiplier()` ([agents.py:515-542](agents.py#L515-L542))
+- Added wellbeing fields to `HouseholdAgent` ([agents.py:62-70](../backend/agents.py#L62-L70))
+- Implemented `update_wellbeing()` method ([agents.py:424-513](../backend/agents.py#L424-L513))
+- Created `get_performance_multiplier()` ([agents.py:515-542](../backend/agents.py#L515-L542))
 
 **Wellbeing Metrics**:
 - **Happiness** (0-1): Affected by employment, consumption, social programs (-1% decay/tick)
@@ -101,8 +101,8 @@ Range: 0.5x (terrible) to 1.5x (perfect)
 ```
 
 **Integration**:
-- Wellbeing updated each tick ([economy.py:214-218](economy.py#L214-L218))
-- Performance affects production ([economy.py:535-541](economy.py#L535-L541))
+- Wellbeing updated each tick ([economy.py:214-218](../backend/economy.py#L214-L218))
+- Performance affects production ([economy.py:535-541](../backend/economy.py#L535-L541))
 
 ---
 
@@ -110,7 +110,7 @@ Range: 0.5x (terrible) to 1.5x (perfect)
 **Status**: ✅ Complete
 
 **Changes**:
-- Added `baseline_firm_id` field to `GovernmentAgent` ([agents.py:858](agents.py#L858))
+- Added `baseline_firm_id` field to `GovernmentAgent` ([agents.py:858](../backend/agents.py#L858))
 - Infrastructure ready for government-operated reference firm
 
 **Note**: Framework in place, actual government firm creation not yet implemented
@@ -120,15 +120,15 @@ Range: 0.5x (terrible) to 1.5x (perfect)
 ## 📊 Integration Changes
 
 ### Economy Simulation Loop Updates
-**File**: [economy.py](economy.py)
+**File**: [economy.py](../backend/economy.py)
 
 **New phases added**:
-- **Phase 11.5**: Government investments ([economy.py:212](economy.py#L212))
-- **Phase 11.75**: Household wellbeing updates ([economy.py:214-218](economy.py#L214-L218))
+- **Phase 11.5**: Government investments ([economy.py:212](../backend/economy.py#L212))
+- **Phase 11.75**: Household wellbeing updates ([economy.py:214-218](../backend/economy.py#L214-L218))
 
 **Modified phases**:
-- **Phase 5**: Production now applies wellbeing × infrastructure multipliers ([economy.py:494-559](economy.py#L494-L559))
-- **Phase 13**: Firm creation assigns personalities and applies tech multiplier ([economy.py:589-626](economy.py#L589-L626))
+- **Phase 5**: Production now applies wellbeing × infrastructure multipliers ([economy.py:494-559](../backend/economy.py#L494-L559))
+- **Phase 13**: Firm creation assigns personalities and applies tech multiplier ([economy.py:589-626](../backend/economy.py#L589-L626))
 
 ---
 
@@ -146,7 +146,7 @@ Range: 0.5x (terrible) to 1.5x (perfect)
 - Economic implications
 - Future enhancements
 
-**Location**: [backend/REDESIGN_FEATURES.md](backend/REDESIGN_FEATURES.md)
+**Location**: [docs/REDESIGN_FEATURES.md](REDESIGN_FEATURES.md)
 
 ### 2. DATA_SPECIFICATION.md (Updated)
 **Data team guide** with:
@@ -164,7 +164,7 @@ Range: 0.5x (terrible) to 1.5x (perfect)
 - SQL query examples
 - Sample data loading code (Python & R)
 
-**Location**: [backend/DATA_SPECIFICATION.md](backend/DATA_SPECIFICATION.md)
+**Location**: [docs/DATA_SPECIFICATION.md](DATA_SPECIFICATION.md)
 
 ### 3. Sample Data Generation Script
 **Utility to generate test databases**:
@@ -173,8 +173,8 @@ Range: 0.5x (terrible) to 1.5x (perfect)
 - Exports to SQLite with full schema
 - Generates summary statistics JSON
 
-**Location**: [backend/generate_sample_data.py](backend/generate_sample_data.py)
-**Output**: [backend/sample_data/ecosim_sample.db](backend/sample_data/ecosim_sample.db)
+**Location**: [backend/generate_sample_data.py](../backend/generate_sample_data.py)
+**Output**: local artifact at `sample_data/ecosim_sample.db` after running `python backend/generate_sample_data.py`
 
 ---
 
@@ -362,9 +362,9 @@ from typing import Dict, List, Optional  # Added Optional
 ## 🎓 For Data Team
 
 ### Getting Started
-1. Read [REDESIGN_FEATURES.md](backend/REDESIGN_FEATURES.md) - understand what changed
-2. Read [DATA_SPECIFICATION.md](backend/DATA_SPECIFICATION.md) - understand your tasks
-3. Load `sample_data/ecosim_sample.db` - start prototyping
+1. Read [REDESIGN_FEATURES.md](REDESIGN_FEATURES.md) - understand what changed
+2. Read [DATA_SPECIFICATION.md](DATA_SPECIFICATION.md) - understand your tasks
+3. Run `python backend/generate_sample_data.py`, then load `sample_data/ecosim_sample.db`
 4. Pick a task from the 6 assignments
 5. Ask questions in #data-team channel
 
@@ -372,7 +372,7 @@ from typing import Dict, List, Optional  # Added Optional
 - **Scale target**: 100,000 agents ideal, 1,000,000 stretch
 - **New fields**: Wellbeing (happiness/morale/health), personality, government investment
 - **Visualizations**: Start simple (line charts), progress to complex (network graphs, 3D)
-- **Sample data**: Ready to use, no need to run simulations
+- **Sample data**: Generated locally from script output
 - **Tasks**: Well-defined with time estimates (2-10 days each)
 
 ---
@@ -383,7 +383,7 @@ from typing import Dict, List, Optional  # Added Optional
 - [x] All features integrated into economy loop
 - [x] Documentation complete (REDESIGN_FEATURES.md)
 - [x] Data team guide complete (DATA_SPECIFICATION.md)
-- [x] Sample data generated
+- [x] Sample data generation workflow documented
 - [x] Sample data generation script created
 - [x] All files committed
 - [ ] Run final test to verify no errors
@@ -397,9 +397,9 @@ from typing import Dict, List, Optional  # Added Optional
 ## 📞 Contact
 
 For questions about implementation:
-- **Feature design**: See [REDESIGN_FEATURES.md](backend/REDESIGN_FEATURES.md)
-- **Data/visualization**: See [DATA_SPECIFICATION.md](backend/DATA_SPECIFICATION.md)
-- **Code details**: See inline comments in [agents.py](backend/agents.py) and [economy.py](backend/economy.py)
+- **Feature design**: See [REDESIGN_FEATURES.md](REDESIGN_FEATURES.md)
+- **Data/visualization**: See [DATA_SPECIFICATION.md](DATA_SPECIFICATION.md)
+- **Code details**: See inline comments in [agents.py](../backend/agents.py) and [economy.py](../backend/economy.py)
 
 ---
 

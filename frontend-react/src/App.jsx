@@ -436,9 +436,11 @@ export default function EcoSimUI() {
   const [logs, setLogs] = useState([]);
   const logsEndRef = useRef(null);
   const ws = useRef(null);
+  const reconnectTimerRef = useRef(null);
   const configUpdateTimer = useRef(null);
   const pendingConfigRef = useRef(null);
   const [isInitializing, setIsInitializing] = useState(false);
+  const [wsConnected, setWsConnected] = useState(false);
 
   // Simulation State
   const [metrics, setMetrics] = useState({
@@ -590,118 +592,156 @@ export default function EcoSimUI() {
     };
   }, []);
 
-  // WebSocket Connection
+  // WebSocket Connection (with auto-reconnect)
   useEffect(() => {
-    ws.current = new WebSocket("ws://localhost:8002/ws");
-    ws.current.onopen = () => console.log("WS Connected");
-    ws.current.onmessage = (event) => {
-      const data = JSON.parse(event.data);
-      if (data.type === "SETUP_COMPLETE") {
-        setIsInitializing(false);
-        setIsInitialized(true);
-        setActiveView('DASHBOARD');
-        setIsRunning(true);
-        const cfg = setupConfigRef.current;
-        // Sync local config with setup
-        setConfig(prev => ({
-          ...prev,
-          wageTax: cfg.wage_tax,
-          profitTax: cfg.profit_tax
-        }));
-        // Add boot sequence logs
-        setLogs([
-          { tick: 0, type: 'SYS', txt: 'INITIALIZING KERNEL...' },
-          { tick: 0, type: 'SYS', txt: 'LOADING CONFIGURATION MAP...' },
-          { tick: 0, type: 'SYS', txt: `SPAWNING ${cfg.num_households} AGENTS...` },
-          { tick: 0, type: 'ECO', txt: 'WARMUP PHASE STARTED' }
-        ]);
-        // Auto-start simulation after setup
-        if (ws.current && ws.current.readyState === WebSocket.OPEN) {
-          ws.current.send(JSON.stringify({ command: "START" }));
+    let cancelled = false;
+
+    const connect = () => {
+      if (cancelled) return;
+      ws.current = new WebSocket("ws://localhost:8002/ws");
+
+      ws.current.onopen = () => {
+        setWsConnected(true);
+        console.log("WS Connected");
+      };
+
+      ws.current.onmessage = (event) => {
+        const data = JSON.parse(event.data);
+        if (data.type === "SETUP_COMPLETE") {
+          setIsInitializing(false);
+          setIsInitialized(true);
+          setActiveView('DASHBOARD');
+          setIsRunning(true);
+          const cfg = setupConfigRef.current;
+          // Sync local config with setup
+          setConfig(prev => ({
+            ...prev,
+            wageTax: cfg.wage_tax,
+            profitTax: cfg.profit_tax
+          }));
+          // Add boot sequence logs
+          setLogs([
+            { tick: 0, type: 'SYS', txt: 'INITIALIZING KERNEL...' },
+            { tick: 0, type: 'SYS', txt: 'LOADING CONFIGURATION MAP...' },
+            { tick: 0, type: 'SYS', txt: `SPAWNING ${cfg.num_households} AGENTS...` },
+            { tick: 0, type: 'ECO', txt: 'WARMUP PHASE STARTED' }
+          ]);
+          // Auto-start simulation after setup
+          if (ws.current && ws.current.readyState === WebSocket.OPEN) {
+            ws.current.send(JSON.stringify({ command: "START" }));
+          }
+        } else if (data.type === "RESET") {
+          setTick(0);
+          setLogs([]);
+          setMetrics({
+            unemployment: 99.0,
+            gdp: 0,
+            govDebt: 0,
+            govProfit: 0,
+            happiness: 50,
+            housingInv: 0,
+            avgWage: 0,
+            giniCoefficient: 0.0,
+            top10Share: 0.0,
+            bottom50Share: 0.0,
+            gdpHistory: [],
+            unemploymentHistory: [],
+            wageHistory: [],
+            medianWageHistory: [],
+            happinessHistory: [],
+            healthHistory: [],
+            govProfitHistory: [],
+            govDebtHistory: [],
+            giniHistory: [],
+            top10ShareHistory: [],
+            bottom50ShareHistory: [],
+            housingHistory: [],
+            foodHistory: [],
+            servicesHistory: [],
+            priceHistory: { food: [], housing: [], services: [] },
+            supplyHistory: { food: [], housing: [], services: [] },
+            trackedSubjects: [],
+            trackedFirms: []
+          });
+          setActiveSubjectIndex(0);
+          setActiveFirmIndex(0);
+          setFirmStats(null);
+          setIsRunning(false);
+          setIsInitialized(false);
+          setActiveView('CONFIG'); // Go back to config on reset
+        } else if (data.type === "STABILIZERS_UPDATED") {
+          console.log("Stabilizers updated:", data.state);
+        } else if (data.type === "STARTED") {
+          setIsRunning(true);
+        } else if (data.type === "STOPPED") {
+          setIsRunning(false);
+        } else if (data.metrics) {
+          setTick(data.tick);
+          // Merge with existing metrics to preserve defaults if backend is missing keys
+          setMetrics(prev => ({
+            ...prev,
+            ...data.metrics,
+            // Ensure nested objects/arrays are not overwritten with undefined if missing
+            priceHistory: data.metrics.priceHistory || prev.priceHistory || { food: [], housing: [], services: [] },
+            supplyHistory: data.metrics.supplyHistory || prev.supplyHistory || { food: [], housing: [], services: [] },
+            netWorthHistory: data.metrics.netWorthHistory || prev.netWorthHistory || [],
+            trackedSubjects: data.metrics.trackedSubjects || prev.trackedSubjects || [],
+            trackedFirms: data.metrics.trackedFirms || prev.trackedFirms || []
+          }));
+          if (data.firm_stats) {
+            setFirmStats(data.firm_stats);
+          }
+          if (data.logs && data.logs.length > 0) {
+            setLogs(prev => [...prev.slice(-20), ...data.logs]);
+          }
+        } else if (data.error) {
+          console.error("Simulation error:", data.error);
+          setIsInitializing(false);
         }
-      } else if (data.type === "RESET") {
-        setTick(0);
-        setLogs([]);
-        setMetrics({
-          unemployment: 99.0,
-          gdp: 0,
-          govDebt: 0,
-          govProfit: 0,
-          happiness: 50,
-          housingInv: 0,
-          avgWage: 0,
-          giniCoefficient: 0.0,
-          top10Share: 0.0,
-          bottom50Share: 0.0,
-          gdpHistory: [],
-          unemploymentHistory: [],
-          wageHistory: [],
-          medianWageHistory: [],
-          happinessHistory: [],
-          healthHistory: [],
-          govProfitHistory: [],
-          govDebtHistory: [],
-          giniHistory: [],
-          top10ShareHistory: [],
-          bottom50ShareHistory: [],
-          housingHistory: [],
-          foodHistory: [],
-          servicesHistory: [],
-          priceHistory: { food: [], housing: [], services: [] },
-          supplyHistory: { food: [], housing: [], services: [] },
-          trackedSubjects: [],
-          trackedFirms: []
-        });
-        setActiveSubjectIndex(0);
-        setActiveFirmIndex(0);
-        setFirmStats(null);
+      };
+
+      ws.current.onclose = () => {
+        setWsConnected(false);
+        console.log("WS Disconnected");
         setIsRunning(false);
-        setIsInitialized(false);
-        setActiveView('CONFIG'); // Go back to config on reset
-      } else if (data.type === "STABILIZERS_UPDATED") {
-        console.log("Stabilizers updated:", data.state);
-      } else if (data.type === "STARTED") {
-        setIsRunning(true);
-      } else if (data.type === "STOPPED") {
-        setIsRunning(false);
-      } else if (data.metrics) {
-        setTick(data.tick);
-        // Merge with existing metrics to preserve defaults if backend is missing keys
-        setMetrics(prev => ({
-          ...prev,
-          ...data.metrics,
-          // Ensure nested objects/arrays are not overwritten with undefined if missing
-          priceHistory: data.metrics.priceHistory || prev.priceHistory || { food: [], housing: [], services: [] },
-          supplyHistory: data.metrics.supplyHistory || prev.supplyHistory || { food: [], housing: [], services: [] },
-          netWorthHistory: data.metrics.netWorthHistory || prev.netWorthHistory || [],
-          trackedSubjects: data.metrics.trackedSubjects || prev.trackedSubjects || [],
-          trackedFirms: data.metrics.trackedFirms || prev.trackedFirms || []
-        }));
-        if (data.firm_stats) {
-          setFirmStats(data.firm_stats);
-        }
-        if (data.logs && data.logs.length > 0) {
-          setLogs(prev => [...prev.slice(-20), ...data.logs]);
-        }
-      } else if (data.error) {
-        console.error("Simulation error:", data.error);
         setIsInitializing(false);
+        if (!cancelled) {
+          reconnectTimerRef.current = setTimeout(connect, 1200);
+        }
+      };
+
+      ws.current.onerror = (err) => {
+        console.error("WebSocket error:", err);
+        setIsInitializing(false);
+      };
+    };
+
+    connect();
+
+    return () => {
+      cancelled = true;
+      if (reconnectTimerRef.current) {
+        clearTimeout(reconnectTimerRef.current);
+      }
+      if (ws.current) {
+        ws.current.close();
       }
     };
-    ws.current.onclose = () => {
-      console.log("WS Disconnected");
-      setIsRunning(false);
-    }
-    return () => ws.current.close();
   }, []);
 
   const handleInitialize = () => {
+    if (setupConfig.num_households < 1 || setupConfig.num_firms < 1) {
+      console.error("Invalid setup config. num_households and num_firms must be >= 1.");
+      return;
+    }
     if (ws.current && ws.current.readyState === WebSocket.OPEN) {
       setIsInitializing(true);
       ws.current.send(JSON.stringify({
         command: "SETUP",
         config: setupConfig
       }));
+    } else {
+      console.error("WebSocket is not connected. Cannot initialize.");
     }
   };
 
@@ -1483,6 +1523,11 @@ export default function EcoSimUI() {
                     ? "Adjust macroeconomic variables. Changes apply on next tick cycle."
                     : "Input macroeconomic variables before initializing the physics engine."}
                 </p>
+                {!wsConnected && (
+                  <p className="text-rose-400 text-xs mt-2">
+                    Backend link offline. Ensure backend is running at `ws://localhost:8002/ws`.
+                  </p>
+                )}
               </div>
 
               {/* System Scale - Only visible during setup */}
@@ -1496,7 +1541,7 @@ export default function EcoSimUI() {
                     <TechSlider
                       label="Population Scale (Households)"
                       value={setupConfig.num_households}
-                      min={0} max={3000} step={100}
+                      min={100} max={3000} step={100}
                       onChange={v => handleSetupChange('num_households', v)}
                       format={v => v.toLocaleString()}
                     />
@@ -1638,8 +1683,8 @@ export default function EcoSimUI() {
                 ) : (
                   <button
                     onClick={handleInitialize}
-                    disabled={isInitializing}
-                    className={`btn-tech btn-primary-large w-full py-6 flex items-center justify-center space-x-3 text-lg font-bold tracking-widest ${isInitializing ? 'opacity-50 cursor-not-allowed' : ''}`}
+                    disabled={isInitializing || !wsConnected}
+                    className={`btn-tech btn-primary-large w-full py-6 flex items-center justify-center space-x-3 text-lg font-bold tracking-widest ${(isInitializing || !wsConnected) ? 'opacity-50 cursor-not-allowed' : ''}`}
                   >
                     {isInitializing ? (
                       <>
@@ -1688,10 +1733,10 @@ export default function EcoSimUI() {
           )}
 
         </div>
-      </main >
+      </main>
 
       {/* Background Decor */}
-      < div className="absolute top-0 right-0 w-[500px] h-[500px] bg-sky-500/5 rounded-full blur-[100px] pointer-events-none -z-10" ></div >
-    </div >
+      <div className="absolute top-0 right-0 w-[500px] h-[500px] bg-sky-500/5 rounded-full blur-[100px] pointer-events-none -z-10"></div>
+    </div>
   );
 }

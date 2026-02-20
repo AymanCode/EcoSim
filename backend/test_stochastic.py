@@ -7,6 +7,10 @@ This demonstrates the stochastic nature of the simulation.
 
 import sys
 import os
+
+if sys.platform == "win32":
+    sys.stdout.reconfigure(encoding="utf-8")
+
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 from run_large_simulation import create_large_economy

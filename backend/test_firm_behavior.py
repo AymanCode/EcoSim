@@ -14,6 +14,9 @@ Usage:
 """
 
 import sys
+if sys.platform == 'win32':
+    sys.stdout.reconfigure(encoding='utf-8')
+    sys.stderr.reconfigure(encoding='utf-8')
 from agents import HouseholdAgent, FirmAgent, GovernmentAgent
 from economy import Economy
 
@@ -141,11 +144,12 @@ def test_firm_behavior_52_ticks():
     print(f"{'Firm':<15} {'Initial Cash':<14} {'Final Cash':<12} {'Change':<12} {'Employees':<10} {'Avg Quality':<12}")
     print("-" * 100)
     
-    initial_cash = [50000.0, 75000.0, 40000.0]
-    for i, firm in enumerate(economy.firms):
-        cash_change = firm.cash_balance - initial_cash[i]
-        change_pct = (cash_change / initial_cash[i]) * 100
-        print(f"{firm.good_name:<15} ${initial_cash[i]:<13,.2f} ${firm.cash_balance:<11,.2f} "
+    initial_cash = {1: 50000.0, 2: 75000.0, 3: 40000.0}
+    for firm in economy.firms:
+        start_cash = initial_cash.get(firm.firm_id, firm.cash_balance)
+        cash_change = firm.cash_balance - start_cash
+        change_pct = (cash_change / start_cash) * 100 if start_cash != 0 else 0.0
+        print(f"{firm.good_name:<15} ${start_cash:<13,.2f} ${firm.cash_balance:<11,.2f} "
               f"{cash_change:>+11,.2f} ({change_pct:>+6.1f}%) {len(firm.employees):<10} {firm.quality_level:<11.2f}")
     
     print("\nKey Observations:")
