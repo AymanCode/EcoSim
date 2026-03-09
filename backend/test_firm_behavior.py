@@ -18,6 +18,7 @@ if sys.platform == 'win32':
     sys.stdout.reconfigure(encoding='utf-8')
     sys.stderr.reconfigure(encoding='utf-8')
 from agents import HouseholdAgent, FirmAgent, GovernmentAgent
+from config import CONFIG
 from economy import Economy
 
 
@@ -173,6 +174,71 @@ def test_firm_behavior_52_ticks():
     
     print("\n✅ TEST COMPLETE: Firm behavior tracked over 52 ticks")
     return 0
+
+
+def test_healthcare_queue_service_flow():
+    """Healthcare should be queue-based service, not goods-market inventory."""
+    household = HouseholdAgent(
+        household_id=1,
+        skills_level=0.5,
+        age=30,
+        cash_balance=1000.0,
+        category_weights={"food": 0.5, "housing": 0.25, "services": 0.25}
+    )
+    household.health = 0.4
+    household.care_plan_anchor_tick = 0
+    household.care_plan_due_ticks = [0]
+    household.care_plan_heal_deltas = [0.3]
+
+    healthcare_firm = FirmAgent(
+        firm_id=10,
+        good_name="HealthClinic",
+        cash_balance=20000.0,
+        inventory_units=0.0,
+        good_category="Healthcare",
+        quality_level=6.0,
+        wage_offer=40.0,
+        price=15.0,
+        expected_sales_units=100.0,
+        production_capacity_units=1000.0,
+        productivity_per_worker=12.0,
+        personality="moderate"
+    )
+    healthcare_firm.employees = [101, 102]
+    healthcare_firm.healthcare_capacity_per_worker = 1.0
+
+    food_firm = FirmAgent(
+        firm_id=11,
+        good_name="FoodCorp",
+        cash_balance=20000.0,
+        inventory_units=1000.0,
+        good_category="Food",
+        quality_level=5.0,
+        wage_offer=40.0,
+        price=8.0,
+        expected_sales_units=100.0,
+        production_capacity_units=1000.0,
+        productivity_per_worker=12.0,
+        personality="moderate"
+    )
+
+    government = GovernmentAgent(cash_balance=10000.0)
+    economy = Economy([household], [healthcare_firm, food_firm], government)
+
+    snapshot = economy._build_category_market_snapshot()
+    assert "healthcare" not in snapshot, "Healthcare should not be in goods market snapshot"
+
+    economy._enqueue_healthcare_requests()
+    assert household.household_id in healthcare_firm.healthcare_queue
+
+    start_health = household.health
+    per_firm_sales = {}
+    economy._process_healthcare_services(per_firm_sales)
+    expected_health = min(1.0, start_health + 0.3)
+
+    assert abs(household.health - expected_health) < 1e-9, "Completed visit must restore health"
+    assert healthcare_firm.inventory_units == 0.0
+    assert per_firm_sales[healthcare_firm.firm_id]["units_sold"] == 1.0
 
 
 def main():

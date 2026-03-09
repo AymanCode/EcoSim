@@ -7,6 +7,7 @@ Progress is printed every 10 ticks to monitor performance and economic indicator
 
 import argparse
 import json
+import math
 import random
 import sqlite3
 import sys
@@ -38,24 +39,20 @@ def create_large_economy(num_households: int = 10000, num_firms_per_category: in
     """
     print(f"Creating economy with {num_households} households...")
 
-    essential_categories = ["Food", "Housing", "Services"]
+    essential_categories = ["Food", "Housing", "Services", "Healthcare"]
 
     # Create government with scaled parameters
     gov = GovernmentAgent(
         wage_tax_rate=0.15,
         profit_tax_rate=0.20,
-        unemployment_benefit_level=40.0,
-        transfer_budget=num_households * 200.0,  # Scale with population
+        unemployment_benefit_level=0.0,
+        transfer_budget=0.0,
         cash_balance=num_households * 3000.0     # Scale with population
     )
 
     # Baseline firm prices set to be competitive but not artificially low
     # This prevents them from dominating the market early on
-    baseline_prices = {
-        "Food": 8.0,      # Increased from 5.0 - competitive with private firms
-        "Housing": 20.0,  # Increased from 15.0 - competitive with private firms
-        "Services": 10.0, # Increased from 7.0 - competitive with private firms
-    }
+    baseline_prices = dict(CONFIG.baseline_prices)
 
     # Create firms
     baseline_firms: List[FirmAgent] = []
@@ -67,23 +64,24 @@ def create_large_economy(num_households: int = 10000, num_firms_per_category: in
     # They should serve as a fallback option, not dominate the market
     print(f"Creating {len(essential_categories)} baseline firms...")
     for category in essential_categories:
+        firm_rng = random.Random(CONFIG.random_seed + next_firm_id * 10007)
         baseline_units = np.random.randint(0, 51) if category == "Housing" else 0
         baseline_firm = FirmAgent(
             firm_id=next_firm_id,
             good_name=f"Baseline{category}",
             cash_balance=2_000_000.0,  # Reduced from 10M - still comfortable but not infinite
-            inventory_units=0.0 if category == "Housing" else 20_000.0,
+            inventory_units=0.0 if category in {"Housing", "Healthcare"} else 20_000.0,
             good_category=category,
-            quality_level=3.0,          # LOW quality (on 0-10 scale) - government basic goods
-            wage_offer=25.0,
+            quality_level=max(0.0, min(10.0, 3.0 + firm_rng.uniform(-0.05, 0.05))),
+            wage_offer=CONFIG.firms.minimum_wage_floor * 1.50,  # Baseline = government pay: 150% of min wage
             price=baseline_prices.get(category, 8.0),
             expected_sales_units=num_households * 0.1,
             production_capacity_units=100_000.0,  # Reduced from 200k
-            units_per_worker=40.0,
-            productivity_per_worker=12.0,  # Lower productivity than private firms
+            units_per_worker=80.0,  # Balanced: enough production with reasonable workforce
+            productivity_per_worker=12.0 + firm_rng.uniform(-0.2, 0.2),
             personality="conservative",
             is_baseline=True,
-            baseline_production_quota=num_households * 0.15,  # Reduced quota
+            baseline_production_quota=num_households * 3.0,  # Enough to serve population basic needs
             max_rental_units=baseline_units
         )
         baseline_firm.set_personality("conservative")
@@ -92,6 +90,8 @@ def create_large_economy(num_households: int = 10000, num_firms_per_category: in
         if category == "Services":
             # Baseline service has low happiness boost (government service quality)
             baseline_firm.happiness_boost_per_unit = random.uniform(0.002, 0.01)
+        elif category == "Healthcare":
+            baseline_firm.happiness_boost_per_unit = 0.0
 
         gov.register_baseline_firm(category, baseline_firm.firm_id)
         baseline_firms.append(baseline_firm)
@@ -112,20 +112,44 @@ def create_large_economy(num_households: int = 10000, num_firms_per_category: in
     )
     per_category = private_needed // len(essential_categories)
     remainder = private_needed % len(essential_categories)
+    category_private_targets: Dict[str, int] = {}
+    for idx, category in enumerate(essential_categories):
+        category_private_targets[category] = per_category + (1 if idx < remainder else 0)
+
+    # Keep healthcare providers intentionally sparse so queue/backlog dynamics stay meaningful.
+    healthcare_cap = max(
+        1,
+        int(
+            math.ceil(
+                max(1, num_households)
+                / max(1, CONFIG.firms.healthcare_households_per_firm_target)
+            )
+        ),
+    )
+    baseline_healthcare_count = 1 if "Healthcare" in essential_categories else 0
+    max_private_healthcare = max(0, healthcare_cap - baseline_healthcare_count)
+    planned_private_healthcare = category_private_targets.get("Healthcare", 0)
+    if planned_private_healthcare > max_private_healthcare:
+        overflow = planned_private_healthcare - max_private_healthcare
+        category_private_targets["Healthcare"] = max_private_healthcare
+        redistribute_categories = [cat for cat in essential_categories if cat != "Healthcare"]
+        for i in range(overflow):
+            category_private_targets[redistribute_categories[i % len(redistribute_categories)]] += 1
 
     for idx, category in enumerate(essential_categories):
-        firms_in_category = per_category + (1 if idx < remainder else 0)
+        firms_in_category = category_private_targets.get(category, 0)
         for i in range(firms_in_category):
+            firm_rng = random.Random(CONFIG.random_seed + next_firm_id * 10007)
             personality = personalities[(i + idx) % len(personalities)]
             quality_seed = 5.0 + (i * 0.3)
-            quality_level = max(1.0, min(10.0, quality_seed))
-            price_multiplier = max(0.5, min(3.0, 0.95 + i * 0.03))
-            wage_offer = min(200.0, 25.0 + (i * 3.0))
+            quality_level = max(1.0, min(10.0, quality_seed + firm_rng.uniform(-0.05, 0.05)))
+            price_multiplier = max(0.5, min(3.0, 0.95 + i * 0.03 + firm_rng.uniform(-0.005, 0.005)))
+            wage_offer = min(200.0, 25.0 + (i * 3.0) + firm_rng.uniform(-0.2, 0.2))
             competitive_firm = FirmAgent(
                 firm_id=next_firm_id,
                 good_name=f"{category}Co{i+1}",
                 cash_balance=800_000.0,  # Increased from 500k - competitive with baseline
-                inventory_units=300.0,  # Smaller starting inventory to avoid instant glut
+                inventory_units=0.0 if category == "Healthcare" else 300.0,
                 good_category=category,
                 quality_level=quality_level,
                 wage_offer=wage_offer,
@@ -133,7 +157,7 @@ def create_large_economy(num_households: int = 10000, num_firms_per_category: in
                 expected_sales_units=num_households * 0.03,
                 production_capacity_units=60_000.0,  # Better capacity
                 units_per_worker=40.0,
-                productivity_per_worker=15.0 + (i * 0.8),  # HIGHER productivity
+                productivity_per_worker=15.0 + (i * 0.8) + firm_rng.uniform(-0.2, 0.2),
                 personality=personality,
                 is_baseline=False
             )
@@ -144,6 +168,8 @@ def create_large_economy(num_households: int = 10000, num_firms_per_category: in
                 # Happiness boost between 0.005 and 0.03 per unit consumed
                 # Households don't know this value - they discover it through consumption
                 competitive_firm.happiness_boost_per_unit = random.uniform(0.005, 0.03)
+            elif category == "Healthcare":
+                competitive_firm.happiness_boost_per_unit = 0.0
 
             queued_firms.append(competitive_firm)
             next_firm_id += 1
@@ -234,6 +260,7 @@ def init_database(db_path: str):
             food_experience INTEGER,
             housing_experience INTEGER,
             services_experience INTEGER,
+            healthcare_experience INTEGER,
             unemployment_duration INTEGER,
             reservation_wage REAL,
             PRIMARY KEY (tick, household_id)
@@ -486,12 +513,13 @@ def export_tick_data(
             h.category_experience.get("Food", 0),
             h.category_experience.get("Housing", 0),
             h.category_experience.get("Services", 0),
+            h.category_experience.get("Healthcare", 0),
             h.unemployment_duration,
             h.reservation_wage
         ))
 
     cursor.executemany(
-        "INSERT INTO households VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        "INSERT INTO households VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
         household_rows
     )
 

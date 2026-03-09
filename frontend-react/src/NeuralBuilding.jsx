@@ -3,23 +3,32 @@ import React, { useEffect, useRef } from 'react';
 const NeuralBuilding = ({
   active = true,
   activityLevel = 'normal',
-  width = 300,
-  height = 400,
   tier = 3
 }) => {
+  const containerRef = useRef(null);
   const canvasRef = useRef(null);
 
   useEffect(() => {
+    const container = containerRef.current;
     const canvas = canvasRef.current;
-    if (!canvas) return;
+    if (!container || !canvas) return;
 
+    let ctx = canvas.getContext('2d');
+    let rect = container.getBoundingClientRect();
     const dpr = window.devicePixelRatio || 1;
-    const rect = canvas.getBoundingClientRect();
-    canvas.width = rect.width * dpr;
-    canvas.height = rect.height * dpr;
 
-    const ctx = canvas.getContext('2d');
-    ctx.scale(dpr, dpr);
+    const handleResize = () => {
+      rect = container.getBoundingClientRect();
+      if (rect.width === 0 || rect.height === 0) return;
+      canvas.width = rect.width * dpr;
+      canvas.height = rect.height * dpr;
+      ctx = canvas.getContext('2d');
+      ctx.scale(dpr, dpr);
+    };
+
+    const resizeObserver = new ResizeObserver(() => handleResize());
+    resizeObserver.observe(container);
+    handleResize();
 
     let animationFrameId;
 
@@ -230,15 +239,16 @@ const NeuralBuilding = ({
 
     render();
 
-    return () => cancelAnimationFrame(animationFrameId);
-  }, [active, activityLevel, width, height, tier]);
+    return () => {
+      cancelAnimationFrame(animationFrameId);
+      resizeObserver.disconnect();
+    };
+  }, [active, activityLevel, tier]);
 
   return (
-    <canvas
-      ref={canvasRef}
-      style={{ width: '100%', height: '100%' }}
-      className="block"
-    />
+    <div ref={containerRef} className="w-full h-full absolute inset-0">
+      <canvas ref={canvasRef} className="block w-full h-full" />
+    </div>
   );
 };
 

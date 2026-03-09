@@ -75,6 +75,11 @@ class Economy:
         self.last_tick_revenue: Dict[int, float] = {}
         self.last_tick_sell_through_rate: Dict[int, float] = {}
         self.last_tick_prices: Dict[str, float] = {}
+        self.last_tick_gov_wage_taxes: float = 0.0
+        self.last_tick_gov_profit_taxes: float = 0.0
+        self.last_tick_gov_property_taxes: float = 0.0
+        self.last_tick_gov_transfers: float = 0.0
+        self.last_tick_gov_investments: float = 0.0
         self.performance_mode = False
         self._cached_consumption_plans: Dict[int, Dict] = {}
 
@@ -91,6 +96,10 @@ class Economy:
         self._initialize_misc_firm_beneficiaries()
         self.post_warmup_stimulus_ticks: int = 0
         self.post_warmup_stimulus_duration: int = 0
+        self.healthcare_requests_this_tick: float = 0.0
+        self.healthcare_attempted_slots_this_tick: float = 0.0
+        self.healthcare_completed_visits_this_tick: float = 0.0
+        self.healthcare_affordability_rejects_this_tick: float = 0.0
         self._propagate_stabilizer_flags()
 
     def _propagate_stabilizer_flags(self) -> None:
@@ -149,8 +158,9 @@ class Economy:
         Replaces 10k individual calls to household.plan_consumption() with NumPy operations.
         Returns identical results to individual calls, but 10-20x faster.
         """
+        cat_lk = good_category_lookup or {}
         def is_housing_good(good: str) -> bool:
-            return _get_good_category(good, good_category_lookup) == "housing"
+            return cat_lk.get(good, good.lower()) == "housing"
 
         # Extract household attributes as NumPy arrays
         cash_balances = np.array([h.cash_balance for h in self.households], dtype=np.float64)
@@ -398,6 +408,8 @@ class Economy:
         Combines three separate loops into one for better cache locality.
         Eliminates method call overhead by inlining operations.
         """
+        hc = CONFIG.households
+
         # Process loan repayments first (firms pay government)
         total_loan_repayments = 0.0
         for firm in self.firms:
@@ -412,6 +424,24 @@ class Economy:
         # Government receives loan repayments
         self.government.cash_balance += total_loan_repayments
 
+        # Pre-build lookup tables to avoid O(HH × firms) nested loops
+        # CEO lookup: household_id -> list of (firm, median_wage)
+        ceo_lookup: Dict[int, list] = {}
+        for firm in self.firms:
+            if firm.ceo_household_id is not None and firm.employees:
+                wages_list = [firm.actual_wages.get(e_id, firm.wage_offer) for e_id in firm.employees]
+                median_wage = float(np.median(wages_list))
+                ceo_lookup.setdefault(firm.ceo_household_id, []).append((firm, median_wage))
+
+        # Happiness boost lookup: good_name -> boost_per_unit
+        happiness_boost_lookup: Dict[str, float] = {}
+        for firm in self.firms:
+            if firm.happiness_boost_per_unit > 0:
+                happiness_boost_lookup[firm.good_name] = firm.happiness_boost_per_unit
+
+        # Category lookup: use provided or empty dict for direct access
+        cat_lookup = good_category_lookup or {}
+
         # Single pass through all households
         for household in self.households:
             hid = household.household_id
@@ -421,15 +451,16 @@ class Economy:
             household.last_tick_cash_start = household.cash_balance
 
             # Apply income and taxes
-            wage_income = household.wage if household.is_employed else 0.0
+            wage_income = household.wage if household.employer_id is not None else 0.0
 
             # Add CEO salary if household is a CEO of any firm
             ceo_salary = 0.0
-            for firm in self.firms:
-                if firm.ceo_household_id == hid and firm.employees:
-                    median_worker_wage = np.median([firm.actual_wages.get(e_id, firm.wage_offer) for e_id in firm.employees])
-                    ceo_salary += median_worker_wage * 3.0  # CEO earns 3x median worker
-                    firm.cash_balance -= ceo_salary  # Firm pays CEO
+            ceo_entries = ceo_lookup.get(hid)
+            if ceo_entries:
+                for firm, median_wage in ceo_entries:
+                    sal = median_wage * 3.0  # CEO earns 3x median worker
+                    ceo_salary += sal
+                    firm.cash_balance -= sal
 
             transfers = transfer_plan.get(hid, 0.0)
             taxes_paid = wage_taxes.get(hid, 0.0)
@@ -455,7 +486,7 @@ class Economy:
                 total_cost = quantity * price_paid
                 total_spending += total_cost
                 household.cash_balance -= total_cost
-                category = _get_good_category(good, good_category_lookup)
+                category = cat_lookup.get(good, good.lower())
                 if category == "housing" and quantity > 0:
                     household.owns_housing = True
                     household.met_housing_need = True
@@ -475,33 +506,51 @@ class Economy:
                 else:
                     household.price_beliefs[good] = price_paid
 
-            # Consume goods from inventory
-            consumption_rate = 0.1
+            # Consume goods from inventory and track per-category consumption.
+            # Food is perishable — consume most of it each tick (spoilage).
+            # Services are experiential — consume quickly.
+            # Other goods decay at a slower rate.
             housing_usage = 1.0
+            food_consumed = 0.0
+            services_consumed = 0.0
             for good in list(household.goods_inventory.keys()):
                 if household.goods_inventory[good] > 0:
-                    category = _get_good_category(good, good_category_lookup)
+                    category = cat_lookup.get(good, good.lower())
                     current_qty = household.goods_inventory[good]
                     if category == "housing":
                         household.met_housing_need = household.met_housing_need or current_qty >= housing_usage
                         household.goods_inventory[good] = max(0.0, current_qty - housing_usage)
                         if household.goods_inventory[good] < 0.001 and household.owns_housing:
                             household.owns_housing = False
+                    elif category == "food":
+                        # Food is perishable: consume up to the health threshold,
+                        # spoil 50% of the remainder (can't hoard indefinitely).
+                        target = hc.food_health_high_threshold  # 5.0
+                        eat = min(current_qty, target)
+                        leftover = current_qty - eat
+                        spoiled = leftover * 0.5
+                        household.goods_inventory[good] = max(0.0, leftover - spoiled)
+                        food_consumed += eat
+                    elif category == "services":
+                        # Services are experiential: consume all each tick
+                        consumed = current_qty
+                        household.goods_inventory[good] = 0.0
+                        services_consumed += consumed
+                        boost = happiness_boost_lookup.get(good, 0.0)
+                        if boost > 0:
+                            household.happiness = min(1.0, household.happiness + consumed * boost)
                     else:
-                        consumed = current_qty * consumption_rate
+                        consumed = current_qty * 0.1
                         household.goods_inventory[good] = max(0.0, current_qty - consumed)
-
-                        # Apply hidden happiness boost for service goods
-                        if category == "services":
-                            # Find which firm produced this good to get their happiness boost
-                            for firm in self.firms:
-                                if firm.good_name == good and firm.happiness_boost_per_unit > 0:
-                                    happiness_gain = consumed * firm.happiness_boost_per_unit
-                                    household.happiness = min(1.0, household.happiness + happiness_gain)
-                                    break
 
                     if household.goods_inventory[good] < 0.001:
                         del household.goods_inventory[good]
+
+            # Update consumption tracking: this_tick for wellbeing, last_tick for next tick's budget planning
+            household.food_consumed_last_tick = household.food_consumed_this_tick
+            household.services_consumed_last_tick = household.services_consumed_this_tick
+            household.food_consumed_this_tick = food_consumed
+            household.services_consumed_this_tick = services_consumed
 
             # H4: Record consumption spending and detect anomalies
             household.last_consumption_spending = total_spending
@@ -556,6 +605,9 @@ class Economy:
 
         # Random economic shocks (stochastic events)
         self._apply_random_shocks()
+        self._reset_healthcare_tick_state()
+        self._apply_doctor_health_lock()
+        self._enqueue_healthcare_requests()
 
         good_category_lookup = self._build_good_category_lookup()
         total_households = len(self.households)
@@ -741,8 +793,8 @@ class Economy:
         self._misc_firm_add_beneficiary()  # Add 1 more random beneficiary
         self._misc_firm_redistribute_revenue()  # Pay out all accumulated revenue
 
-        # Phase 6.8: Healthcare spending and medical loans
-        self._process_healthcare_and_loans()
+        # Phase 6.8: Queue-based healthcare service processing
+        self._process_healthcare_services(per_firm_sales)
 
         # Phase 7: Government plans taxes
         household_tax_snapshots = self._build_household_tax_snapshots()
@@ -801,6 +853,11 @@ class Economy:
         total_price_ceiling_taxes = sum(snapshot.get("price_ceiling_tax", 0.0) for snapshot in firm_tax_snapshots)
         total_transfers = sum(transfer_plan.values())
 
+        self.last_tick_gov_wage_taxes = total_wage_taxes
+        self.last_tick_gov_profit_taxes = total_profit_taxes + total_price_ceiling_taxes
+        self.last_tick_gov_property_taxes = total_property_taxes
+        self.last_tick_gov_transfers = total_transfers
+
         self.government.apply_fiscal_results(
             total_wage_taxes,
             total_profit_taxes + total_price_ceiling_taxes,  # Include price ceiling tax as profit tax
@@ -811,6 +868,10 @@ class Economy:
         # Phase 11.5: Government bond purchases with surplus (1 household per tick distribution)
         # Redirect bond spending to Misc firm
         govt_investments = self.government.make_investments()
+        
+        total_govt_investments = sum(govt_investments.values()) if govt_investments else 0.0
+        self.last_tick_gov_investments = total_govt_investments
+        
         if govt_investments:
             for amount in govt_investments.values():
                 self._collect_misc_revenue(amount)
@@ -838,6 +899,7 @@ class Economy:
             self._batch_update_wellbeing(
                 happiness_multiplier=self.government.social_happiness_multiplier
             )
+        self._apply_doctor_health_lock()
 
         # Phase 12: Handle firm bankruptcies and exits
         self._handle_firm_exits()
@@ -1161,6 +1223,9 @@ class Economy:
         snapshot: Dict[str, List[Dict[str, float]]] = {}
         for firm in self.firms:
             category_key = firm.good_category.lower()
+            if category_key == "healthcare":
+                # Healthcare is queue-based service throughput, not a shoppable goods category.
+                continue
             if category_key not in snapshot:
                 snapshot[category_key] = []
             snapshot[category_key].append({
@@ -1222,14 +1287,15 @@ class Economy:
             self.last_tick_prices[firm.good_name] = firm.price
 
     def _batch_update_wellbeing(self, happiness_multiplier: float) -> None:
-        """Vectorized wellbeing update to reduce per-agent Python overhead."""
+        """Vectorized wellbeing update matching per-agent update_wellbeing() logic."""
         if not self.households:
             return
 
+        hc = CONFIG.households
         households = self.households
         n = len(households)
 
-        employed = np.fromiter((h.is_employed for h in households), dtype=np.bool_, count=n)
+        employed = np.fromiter((h.employer_id is not None for h in households), dtype=np.bool_, count=n)
         wages = np.fromiter((h.wage for h in households), dtype=np.float64, count=n)
         expected_wages = np.fromiter((h.expected_wage for h in households), dtype=np.float64, count=n)
 
@@ -1241,54 +1307,95 @@ class Economy:
         morale_decay = np.fromiter((h.morale_decay_rate for h in households), dtype=np.float64, count=n)
         health_decay = np.fromiter((h.health_decay_rate for h in households), dtype=np.float64, count=n)
 
-        total_goods = np.fromiter((sum(h.goods_inventory.values()) for h in households), dtype=np.float64, count=n)
-        housing_met = np.fromiter((h.met_housing_need for h in households), dtype=np.bool_, count=n)
-
-        # Happiness
-        happiness_change = np.where(employed, 0.02, -0.03)
-        happiness_change += np.where(total_goods > 10.0, 0.01, 0.0)
-        happiness_change += np.where(total_goods < 2.0, -0.02, 0.0)
-        happiness_change += np.where(~housing_met, -0.05, 0.0)
-
-        # Wage adequacy: poverty-level cash reduces happiness even if employed
         cash_balances = np.fromiter((h.cash_balance for h in households), dtype=np.float64, count=n)
-        poverty_threshold = 200.0  # If cash < $200, you're struggling
-        in_poverty = cash_balances < poverty_threshold
-        happiness_change -= np.where(in_poverty, 0.03, 0.0)  # -0.03 if in poverty
+        housing_met = np.fromiter((h.met_housing_need for h in households), dtype=np.bool_, count=n)
+        food_consumed = np.fromiter((h.food_consumed_this_tick for h in households), dtype=np.float64, count=n)
 
-        # Extremely poor (cash < $100)
-        extreme_poverty = cash_balances < 100.0
-        happiness_change -= np.where(extreme_poverty, 0.05, 0.0)  # Additional -0.05
+        # Per-agent morale parameters (randomized per household)
+        morale_emp_boost = np.fromiter(
+            (h.morale_employed_boost if h.morale_employed_boost is not None
+             else sum(hc.morale_employed_boost_range) / 2.0
+             for h in households),
+            dtype=np.float64, count=n
+        )
+        morale_unemp_penalty = np.fromiter(
+            (h.morale_unemployed_penalty if h.morale_unemployed_penalty is not None
+             else sum(hc.morale_unemployed_penalty_range) / 2.0
+             for h in households),
+            dtype=np.float64, count=n
+        )
+        morale_unhoused_penalty = np.fromiter(
+            (h.morale_unhoused_penalty if h.morale_unhoused_penalty is not None
+             else sum(hc.morale_unhoused_penalty_range) / 2.0
+             for h in households),
+            dtype=np.float64, count=n
+        )
 
+        # --- Happiness ---
+        happiness_change = np.zeros(n, dtype=np.float64)
+
+        # Poverty penalties (from config)
+        happiness_change -= np.where(cash_balances < hc.extreme_poverty_threshold,
+                                     hc.extreme_poverty_penalty, 0.0)
+        happiness_change -= np.where(
+            (cash_balances >= hc.extreme_poverty_threshold) & (cash_balances < hc.poverty_threshold),
+            hc.poverty_penalty, 0.0)
+
+        # Government social programs boost
         if happiness_multiplier > 1.0:
-            happiness_change += (happiness_multiplier - 1.0) * 0.05
-        happiness_change -= happiness_decay
+            happiness_change += (happiness_multiplier - 1.0) * hc.government_happiness_scaling
+
+        # Mercy floor: no natural decay below threshold
+        effective_decay = np.where(happiness < hc.mercy_floor_threshold, 0.0, happiness_decay)
+        happiness_change -= effective_decay
         happiness_next = np.clip(happiness + happiness_change, 0.0, 1.0)
 
-        # Morale
+        # --- Morale ---
         morale_change = np.zeros(n, dtype=np.float64)
-        satisfied = employed & (wages >= expected_wages)
-        morale_change += np.where(satisfied, 0.03, 0.0)
 
+        # Employed: base boost + wage satisfaction
+        morale_change += np.where(employed, morale_emp_boost, 0.0)
+        satisfied = employed & (wages >= expected_wages)
+        morale_change += np.where(satisfied, hc.wage_satisfaction_boost, 0.0)
+
+        # Underpaid penalty
         underpaid = employed & (wages < expected_wages)
         wage_gap_ratio = np.zeros(n, dtype=np.float64)
         if underpaid.any():
             wage_gap_ratio[underpaid] = (expected_wages[underpaid] - wages[underpaid]) / np.maximum(
                 expected_wages[underpaid], 1.0
             )
-        morale_change -= wage_gap_ratio * 0.05
+        morale_change -= wage_gap_ratio * hc.wage_dissatisfaction_scaling
 
-        morale_change -= np.where(~employed, 0.05, 0.0)
+        # Unemployed penalty
+        morale_change -= np.where(~employed, morale_unemp_penalty, 0.0)
+
+        # Unhoused penalty
+        morale_change -= np.where(~housing_met, morale_unhoused_penalty, 0.0)
+
         morale_change -= morale_decay
         morale_next = np.clip(morale + morale_change, 0.0, 1.0)
 
-        # Health
-        health_change = np.zeros(n, dtype=np.float64)
-        health_change += np.where(total_goods > 15.0, 0.01, 0.0)
-        health_change += np.where(total_goods < 5.0, -0.02, 0.0)
+        # --- Health ---
+        # Non-linear food→health: harsh penalty for no food, gentle near threshold.
+        # Uses ratio^0.6 curve so partial eating is mostly OK but starvation hurts.
+        food_threshold = max(0.1, hc.food_health_high_threshold)
+        food_ratio = np.minimum(1.0, food_consumed / food_threshold)
+        # Curve the ratio: steep near 0 (starvation), gentle near 1 (well-fed)
+        curved_ratio = np.power(food_ratio, 0.6)
+        # At curved_ratio=0: effect = -starvation_penalty
+        # At curved_ratio=1: effect = +high_boost
+        health_food_effect = (
+            curved_ratio * (hc.food_health_high_boost + hc.food_starvation_penalty)
+            - hc.food_starvation_penalty
+        )
+        health_positive = np.maximum(0.0, health_food_effect)
+        health_negative = np.minimum(0.0, health_food_effect)
+
         if happiness_multiplier > 1.0:
-            health_change += (happiness_multiplier - 1.0) * 0.03
-        health_change -= health_decay
+            health_positive += (happiness_multiplier - 1.0) * hc.government_happiness_scaling
+
+        health_change = health_positive + health_negative - health_decay
         health_next = np.clip(health + health_change, 0.0, 1.0)
 
         # Write back
@@ -2178,44 +2285,226 @@ class Economy:
         if net > 0:
             self.misc_firm_revenue += net
 
-    def _process_healthcare_and_loans(self) -> None:
-        """
-        Process healthcare spending decisions and medical loans for households.
+    def _reset_healthcare_tick_state(self) -> None:
+        """Reset per-tick healthcare counters and clear legacy medical inventory remnants."""
+        self.healthcare_requests_this_tick = 0.0
+        self.healthcare_attempted_slots_this_tick = 0.0
+        self.healthcare_completed_visits_this_tick = 0.0
+        self.healthcare_affordability_rejects_this_tick = 0.0
 
-        Each household evaluates if they need healthcare:
-        - If health < 70%: probabilistically seek care
-        - If cost > cash: take medical loan (1-3% annual interest, 10% wage repayment)
-        - Healthcare spending goes to Services category firms
-
-        Mutates state.
-        """
         for household in self.households:
-            # Check if household needs healthcare
-            should_spend, amount, needs_loan = household.should_spend_on_healthcare()
+            household.healthcare_consumed_this_tick = 0.0
+            for good in list(household.goods_inventory.keys()):
+                if _get_good_category(good).lower() == "healthcare":
+                    del household.goods_inventory[good]
 
-            if not should_spend:
+        for firm in self.firms:
+            if firm.good_category.lower() != "healthcare":
+                continue
+            firm.inventory_units = 0.0
+            firm.healthcare_requests_last_tick = 0.0
+            firm.healthcare_completed_visits_last_tick = 0.0
+
+    def _apply_doctor_health_lock(self) -> None:
+        """Keep active doctors healthy enough to maintain healthcare supply stability."""
+        if not CONFIG.households.doctor_health_lock_enabled:
+            return
+
+        lock_value = max(0.0, min(1.0, CONFIG.households.doctor_health_lock_value))
+        for household in self.households:
+            if household.medical_training_status == "doctor":
+                household.health = lock_value
+
+    def _healthcare_firms(self) -> List[FirmAgent]:
+        return [f for f in self.firms if f.good_category.lower() == "healthcare"]
+
+    def _choose_healthcare_provider(self, household: HouseholdAgent, firms: List[FirmAgent]) -> Optional[FirmAgent]:
+        """
+        Choose provider by queue pressure with deterministic tie-breaking.
+
+        Critical patients mostly ignore price and prioritize shortest wait.
+        """
+        if not firms:
+            return None
+
+        baseline_price = max(1.0, CONFIG.baseline_prices.get("Healthcare", 15.0))
+        critical_cutoff = household.healthcare_critical_threshold
+        if critical_cutoff is None:
+            critical_cutoff = sum(CONFIG.households.healthcare_critical_threshold_range) / 2.0
+
+        ranked: List[Tuple[float, int, FirmAgent]] = []
+        for firm in firms:
+            cap_per_worker = max(0.1, firm.healthcare_capacity_per_worker)
+            capacity = max(1.0, len(firm.employees) * cap_per_worker)
+            queue_pressure = len(firm.healthcare_queue) / capacity
+            if household.health <= critical_cutoff:
+                price_term = 0.0
+            else:
+                price_term = max(0.0, firm.price) / (baseline_price * 100.0)
+            ranked.append((queue_pressure + price_term, firm.firm_id, firm))
+
+        ranked.sort(key=lambda item: (item[0], item[1]))
+        return ranked[0][2]
+
+    def _enqueue_healthcare_requests(self) -> None:
+        """Route healthcare demand into provider queues based on household need plans."""
+        healthcare_firms = self._healthcare_firms()
+        if not healthcare_firms:
+            return
+
+        for household in self.households:
+            if household.queued_healthcare_firm_id is not None:
+                continue
+            if not household.should_request_healthcare_service(self.current_tick):
                 continue
 
-            # If household needs a loan, grant it
-            if needs_loan:
-                # Calculate loan amount (shortfall between cost and cash)
-                affordable_cash = max(0.0, household.cash_balance - household.cash_balance * 0.10)
-                loan_amount = max(0.0, amount - affordable_cash)
+            provider = self._choose_healthcare_provider(household, healthcare_firms)
+            if provider is None:
+                continue
 
-                if loan_amount > 0:
-                    household.take_medical_loan(loan_amount)
+            provider.healthcare_queue.append(household.household_id)
+            household.queued_healthcare_firm_id = provider.firm_id
+            provider.healthcare_requests_last_tick += 1.0
+            self.healthcare_requests_this_tick += 1.0
 
-            # Spend on healthcare (deduct from cash, add to misc firm revenue)
-            if amount > 0 and household.cash_balance >= amount:
-                household.cash_balance -= amount
-                self._collect_misc_revenue(amount)
+        alpha = max(0.0, min(1.0, CONFIG.firms.healthcare_arrivals_ema_alpha))
+        for firm in healthcare_firms:
+            arrivals = max(0.0, firm.healthcare_requests_last_tick)
+            firm.healthcare_arrivals_ema = alpha * arrivals + (1.0 - alpha) * max(0.0, firm.healthcare_arrivals_ema)
 
-                # Improve health based on spending
-                # Cost was calculated for specific recovery, so apply that recovery
-                # Recovery is roughly: amount / (base_cost_per_percent * 100 * exponential_factor)
-                # Simplified: Each $200 recovers ~1% health
-                health_recovery = min(0.30, amount / 20000.0)  # Cap at 30% recovery
-                household.health = min(1.0, household.health + health_recovery)
+    def _prioritize_healthcare_queue(self, firm: FirmAgent) -> None:
+        """Move sick doctors to the front of a firm's queue while preserving relative order."""
+        if firm.good_category.lower() != "healthcare" or not firm.healthcare_queue:
+            return
+
+        threshold = CONFIG.households.healthcare_worker_priority_health_threshold
+        priority_ids: List[int] = []
+        other_ids: List[int] = []
+
+        for household_id in firm.healthcare_queue:
+            household = self.household_lookup.get(household_id)
+            is_priority = (
+                household is not None
+                and household.medical_training_status == "doctor"
+                and household.health < threshold
+            )
+            if is_priority:
+                priority_ids.append(household_id)
+            else:
+                other_ids.append(household_id)
+
+        firm.healthcare_queue = priority_ids + other_ids
+
+    def _healthcare_effective_capacity(self, firm: FirmAgent) -> float:
+        """
+        Effective healthcare visit capacity this tick.
+
+        Uses worker medical skill if available, otherwise falls back to firm-level
+        capacity-per-worker for deterministic test scaffolding.
+        """
+        capacity = 0.0
+        known_worker_count = 0
+        for employee_id in firm.employees:
+            worker = self.household_lookup.get(employee_id)
+            if worker is None:
+                continue
+            known_worker_count += 1
+            capacity += max(0.0, worker.medical_visit_capacity())
+
+        if capacity <= 0.0:
+            capacity = len(firm.employees) * max(0.1, firm.healthcare_capacity_per_worker)
+        elif known_worker_count < len(firm.employees):
+            unknown_workers = len(firm.employees) - known_worker_count
+            capacity += unknown_workers * max(0.1, firm.healthcare_capacity_per_worker)
+
+        return max(0.0, capacity)
+
+    def _process_healthcare_services(self, per_firm_sales: Dict[int, Dict[str, float]]) -> None:
+        """
+        Process queued healthcare visits up to capacity.
+
+        Revenue flows to healthcare firms; household health is restored on completed visits.
+        """
+        healthcare_firms = self._healthcare_firms()
+        if not healthcare_firms:
+            return
+
+        social_scale = 1.0 + (
+            max(0.0, self.government.social_happiness_multiplier - 1.0)
+            * CONFIG.government.social_program_health_scaling
+        )
+        subsidy_share = max(0.0, min(1.0, CONFIG.government.healthcare_visit_subsidy_share))
+
+        for firm in healthcare_firms:
+            firm.inventory_units = 0.0
+            self._prioritize_healthcare_queue(firm)
+
+            capacity_float = self._healthcare_effective_capacity(firm)
+            capacity_with_carry = capacity_float + max(0.0, firm.healthcare_capacity_carryover)
+            slots_to_attempt = int(math.floor(capacity_with_carry + 1e-9))
+            firm.healthcare_capacity_carryover = max(0.0, capacity_with_carry - slots_to_attempt)
+            self.healthcare_attempted_slots_this_tick += capacity_float
+
+            if slots_to_attempt <= 0 or not firm.healthcare_queue:
+                continue
+
+            per_firm_sales.setdefault(firm.firm_id, {"units_sold": 0.0, "revenue": 0.0})
+            max_cycle_attempts = len(firm.healthcare_queue)
+            cycle_attempts = 0
+            completed = 0
+
+            while completed < slots_to_attempt and firm.healthcare_queue and cycle_attempts < max_cycle_attempts:
+                household_id = firm.healthcare_queue.pop(0)
+                household = self.household_lookup.get(household_id)
+                if household is None:
+                    cycle_attempts += 1
+                    continue
+
+                visit_price = max(0.0, firm.price)
+                household_cost = visit_price * (1.0 - subsidy_share)
+                government_cost = visit_price - household_cost
+
+                if household.cash_balance + 1e-9 < household_cost:
+                    # Cannot afford this tick; keep queued.
+                    firm.healthcare_queue.append(household_id)
+                    household.queued_healthcare_firm_id = firm.firm_id
+                    self.healthcare_affordability_rejects_this_tick += 1.0
+                    cycle_attempts += 1
+                    continue
+
+                if household_cost > 0.0:
+                    household.cash_balance -= household_cost
+                if government_cost > 0.0:
+                    self.government.cash_balance -= government_cost
+
+                per_firm_sales[firm.firm_id]["units_sold"] += 1.0
+                per_firm_sales[firm.firm_id]["revenue"] += visit_price
+                firm.healthcare_completed_visits_last_tick += 1.0
+                self.healthcare_completed_visits_this_tick += 1.0
+
+                heal_delta = household.pending_visit_heal_delta
+                if heal_delta <= 0.0:
+                    heal_delta = CONFIG.households.healthcare_visit_base_heal * (1.0 - household.health)
+                household.pending_visit_heal_delta = 0.0
+                household.health = min(1.0, household.health + max(0.0, heal_delta) * social_scale)
+                household.healthcare_consumed_this_tick += 1.0
+                household.last_checkup_tick = self.current_tick
+                household.queued_healthcare_firm_id = None
+
+                completed += 1
+
+            if completed > 0:
+                firm.healthcare_idle_streak = 0
+
+    def _process_healthcare_and_loans(self) -> None:
+        """
+        Legacy compatibility shim.
+
+        Healthcare now routes through queue-based services in:
+        - _enqueue_healthcare_requests
+        - _process_healthcare_services
+        """
+        return
 
     def _adjust_government_policy(self) -> None:
         """

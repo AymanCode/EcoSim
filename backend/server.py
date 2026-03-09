@@ -47,6 +47,7 @@ class SimulationManager:
         }
         self.pending_config_updates: Dict[str, Any] | None = None
         self.metrics_stride = 5
+        self.policy_changes = []
         self.cached_stats = None
         self.cached_firm_stats = None
         self.cached_econ_metrics = None
@@ -121,8 +122,8 @@ class SimulationManager:
         self.bottom50_share_history = []
         
         # Consolidated histories
-        self.price_history = {"food": [], "housing": [], "services": []}
-        self.supply_history = {"food": [], "housing": [], "services": []}
+        self.price_history = {"food": [], "housing": [], "services": [], "healthcare": []}
+        self.supply_history = {"food": [], "housing": [], "services": [], "healthcare": []}
         self.cached_stats = None
         self.cached_firm_stats = None
         self.cached_econ_metrics = None
@@ -274,10 +275,17 @@ class SimulationManager:
                 fiscal_balance = current_gov_cash - self.prev_gov_cash
                 self.prev_gov_cash = current_gov_cash
                 
+                # Fetch detailed government budget from economy
+                gov_revenue = self.economy.last_tick_gov_wage_taxes + self.economy.last_tick_gov_profit_taxes + self.economy.last_tick_gov_property_taxes
+                gov_transfers = self.economy.last_tick_gov_transfers
+                gov_investments = self.economy.last_tick_gov_investments
+                gov_owned_firms = sum(1 for f in self.economy.firms if f.is_baseline)
+                active_loans = sum(1 for f in self.economy.firms if getattr(f, "government_loan_remaining", 0) > 0)
+                
                 if recompute_metrics:
                     # Market Metrics (Prices & Supply)
-                    prices = {"Food": [], "Housing": [], "Services": []}
-                    supplies = {"Food": 0.0, "Housing": 0.0, "Services": 0.0}
+                    prices = {"Food": [], "Housing": [], "Services": [], "Healthcare": []}
+                    supplies = {"Food": 0.0, "Housing": 0.0, "Services": 0.0, "Healthcare": 0.0}
 
                     for f in self.economy.firms:
                         if f.good_category in prices:
@@ -309,6 +317,8 @@ class SimulationManager:
                                 cat = "Housing"
                             elif "service" in lower_good:
                                 cat = "Services"
+                            elif "health" in lower_good or "medical" in lower_good:
+                                cat = "Healthcare"
 
                             price = mean_prices.get(cat, 0.0)
                             total_net_worth += qty * price
@@ -317,8 +327,8 @@ class SimulationManager:
                     self.cached_supplies = supplies
                     self.cached_total_net_worth = total_net_worth
                 else:
-                    mean_prices = self.cached_mean_prices or {"Food": 0.0, "Housing": 0.0, "Services": 0.0}
-                    supplies = self.cached_supplies or {"Food": 0.0, "Housing": 0.0, "Services": 0.0}
+                    mean_prices = self.cached_mean_prices or {"Food": 0.0, "Housing": 0.0, "Services": 0.0, "Healthcare": 0.0}
+                    supplies = self.cached_supplies or {"Food": 0.0, "Housing": 0.0, "Services": 0.0, "Healthcare": 0.0}
                     total_net_worth = self.cached_total_net_worth or 0.0
 
                 # Gather Tracked Subjects Data
@@ -350,8 +360,13 @@ class SimulationManager:
                         personal_net_worth = h.cash_balance
                         for good, qty in h.goods_inventory.items():
                             cat = "Food"
-                            if "housing" in good.lower(): cat = "Housing"
-                            elif "service" in good.lower(): cat = "Services"
+                            lower_good = good.lower()
+                            if "housing" in lower_good:
+                                cat = "Housing"
+                            elif "service" in lower_good:
+                                cat = "Services"
+                            elif "health" in lower_good or "medical" in lower_good:
+                                cat = "Healthcare"
                             personal_net_worth += qty * mean_prices.get(cat, 0.0)
 
                         # Track history every 50 ticks
@@ -383,7 +398,8 @@ class SimulationManager:
                             "medicalDebt": h.medical_loan_remaining,
                             "needs": {
                                 "food": h.goods_inventory.get("Food", 0) + h.goods_inventory.get("food", 0),
-                                "housing": 1 if h.owns_housing or h.renting_from_firm_id else 0
+                                "housing": 1 if h.owns_housing or h.renting_from_firm_id else 0,
+                                "healthcare": h.goods_inventory.get("Healthcare", 0) + h.goods_inventory.get("healthcare", 0),
                             },
                             "history": {
                                 "cash": self.subject_histories.get(hid, {}).get("cash", []),
@@ -461,10 +477,12 @@ class SimulationManager:
                     self.price_history["food"].append({"tick": self.tick, "value": mean_prices["Food"]})
                     self.price_history["housing"].append({"tick": self.tick, "value": mean_prices["Housing"]})
                     self.price_history["services"].append({"tick": self.tick, "value": mean_prices["Services"]})
-                    
+                    self.price_history["healthcare"].append({"tick": self.tick, "value": mean_prices["Healthcare"]})
+
                     self.supply_history["food"].append({"tick": self.tick, "value": supplies["Food"]})
                     self.supply_history["housing"].append({"tick": self.tick, "value": supplies["Housing"]})
                     self.supply_history["services"].append({"tick": self.tick, "value": supplies["Services"]})
+                    self.supply_history["healthcare"].append({"tick": self.tick, "value": supplies["Healthcare"]})
                 
                 # Generate logs (mock/real)
                 new_logs = []
@@ -479,6 +497,13 @@ class SimulationManager:
                         "gdp": gdp / 1000000.0,
                         "govDebt": -self.economy.government.cash_balance / 1000000.0 if self.economy.government.cash_balance < 0 else 0,
                         "govProfit": fiscal_balance / 1000000.0,
+                        "govRevenue": gov_revenue / 1000000.0,
+                        "govTransfers": gov_transfers / 1000000.0,
+                        "govInvestments": gov_investments / 1000000.0,
+                        "govOwnedFirms": gov_owned_firms,
+                        "activeLoans": active_loans,
+                        "bondPurchases": gov_investments / 1000000.0,  # Proxy bond purchases as govt investments
+                        "policyChanges": self.policy_changes,
                         "happiness": stats["mean_happiness"] * 100,
                         "avgWage": stats["mean_wage"],
                         "netWorth": total_net_worth / 1000000.0,
@@ -567,6 +592,19 @@ class SimulationManager:
             self.economy.government.target_inflation_rate = config_data["inflationRate"]
         if "birthRate" in config_data:
             self.economy.government.birth_rate = config_data["birthRate"]
+            
+        # Log policy changes
+        for key, value in config_data.items():
+            if key in ["wageTax", "profitTax", "minimumWage", "unemploymentBenefitRate", "universalBasicIncome", "wealthTaxRate"]:
+                change_record = {
+                    "tick": self.tick,
+                    "policy": key,
+                    "value": value,
+                    "reason": f"User updated {key} to {value}"
+                }
+                self.policy_changes.insert(0, change_record)
+                if len(self.policy_changes) > 5:
+                    self.policy_changes.pop()
 
     async def update_config(self, config_data):
         if not self.economy:

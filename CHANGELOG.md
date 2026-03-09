@@ -4,6 +4,635 @@ This document tracks all implementation changes, improvements, and features adde
 
 ---
 
+## [2026-03-06] EcoSim 2.0 - Performance Optimization & Health/Food System Overhaul
+
+### Overview
+
+Major performance optimization pass (33-38% speedup) via precomputed lookups and eliminated redundant loops, plus a full rewrite of the food consumption and health systems to use realistic proportional mechanics instead of broken binary thresholds.
+
+### Performance Optimizations
+
+- **Eliminated `_choose_firm_based_on_style`** (was 10% of runtime): Housing firm selection now uses precomputed `category_array_cache` arrays directly with numpy operations instead of rebuilding dicts per household.
+- **Eliminated `_get_good_category` overhead** (was 2.2% / 1.4M calls): Removed redundant `.lower()` calls since `_build_good_category_lookup` already lowercases. Direct dict access replaces function calls throughout hot paths.
+- **Fixed O(HH×firms) scaling in `_batch_apply_household_updates`**: Pre-built `ceo_lookup` (household_id → firm/median_wage) and `happiness_boost_lookup` (good_name → boost) dicts before the household loop, replacing nested firm iteration.
+- **Inlined switching friction logic** in `_plan_category_purchases` to avoid building `firm_utility_map` dictcomp per household.
+- **Replaced `household.is_employed` property** with direct `household.employer_id is not None` to avoid property overhead in tight loops.
+- **Result**: 29.5s → 19.7s at 1000 HH (33% faster), 76s → 47s at 2000 HH (38% faster). Superlinear scaling in `_batch_apply_household_updates` reduced from 3.8x to near-linear.
+
+### Food Consumption System Rewrite
+
+- **Fixed `food_consumed_this_tick` / `food_consumed_last_tick` never being populated**: These fields were only set in tests, never during actual simulation. Added proper tracking in `_batch_apply_household_updates`.
+- **Perishable food model**: Food is now consumed up to the health threshold each tick (eat what you need), with 50% of leftovers spoiling. Replaces the old 10% flat consumption rate that caused inventory to pile up (0 → 26,614 units).
+- **Services fully consumed each tick**: Service goods are now consumed entirely each tick with happiness boosts applied, matching real-world service consumption patterns.
+- **Food satiation cap fix**: Changed from `food_health_mid_threshold * 1.5 = 3.0` to `food_health_high_threshold = 5.0` units, fixing an artificial cap that starved households.
+
+### Health System Overhaul
+
+- **Rewrote `_batch_update_wellbeing` health formula**: Replaced broken binary threshold logic (`total_goods > 15`) with proportional food-based health using `food_consumed_this_tick`.
+- **Non-linear health curve (`ratio^0.6`)**: Implements the user's design — harsh penalty for zero food (-0.035/tick), near-neutral for slight undereating (-0.0004 at 2 units), positive at adequate eating (+0.009 at 3 units), full boost at threshold (+0.025 at 5 units).
+- **Symmetric food boost/penalty**: Both `food_health_high_boost` and `food_starvation_penalty` set to 0.03 (was asymmetric 0.02/0.05 which caused death spirals).
+- **Widened health decay ranges for population variation**: Low (0.02-0.25/yr, 60%), Mid (0.25-0.45/yr, 30%), High (0.45-0.70/yr, 10%). Creates realistic health distribution across the population (avg 0.80, std 0.36).
+- **Per-agent randomized morale parameters** in batch wellbeing (morale_emp_boost, morale_unemp_penalty, morale_unhoused_penalty) now match the per-agent `update_wellbeing()` path.
+
+### Config Changes
+
+- `food_health_high_boost`: 0.02 → 0.03
+- `food_starvation_penalty`: 0.05 → 0.03
+- `health_decay_low_probability`: 0.70 → 0.60
+- `health_decay_mid_probability`: 0.95 → 0.90
+- `health_decay_low_range`: (0.0, 0.20) → (0.02, 0.25)
+- `health_decay_mid_range`: (0.20, 0.30) → (0.25, 0.45)
+- `health_decay_high_range`: (0.30, 0.50) → (0.45, 0.70)
+
+### Files Updated
+
+- `backend/agents.py`
+- `backend/economy.py`
+- `backend/config.py`
+
+### Validation
+
+- Profiled at 1000 and 2000 households confirming speedup and near-linear scaling
+- Economy stabilizes at 97-98% employment, avg health 0.80, happiness rising over time
+- Health distribution shows realistic variation (std 0.36, p10=0.00, p25=0.74, p75=1.00)
+
+---
+
+## [2026-03-09] EcoSim 2.0 - Contract Test Harness + Healthcare Queue Regression Fix
+
+### Overview
+
+Added a deterministic scenario-test harness for handcrafted economies and fixed a regression where `Economy` had fallen back to legacy healthcare sink behavior instead of queue-based service flow.
+
+### What Changed
+
+- Added reusable deterministic test factories for direct object creation and tiny generated economies.
+- Added fixtures exposing:
+  - `factory` namespace (households/firms/government/economy builders)
+  - `economy_factory` helper for compact scenario setup
+- Added factory contract tests to validate handcrafted and generated setup paths.
+- Restored queue-based healthcare lifecycle in `Economy`:
+  - reset per-tick healthcare counters/state
+  - doctor health lock application
+  - household healthcare request enqueue
+  - queue prioritization for sick doctors
+  - capacity-capped healthcare visit processing
+  - affordability deferral (keeps queued if household cannot pay)
+- Excluded healthcare from goods market snapshot (`healthcare` is service queue flow, not goods shopping).
+- Converted legacy `_process_healthcare_and_loans` path into a compatibility no-op.
+- Updated one behavior contract expectation to match the current curved food-to-health formula (`ratio ** 0.6`).
+
+### Files Updated
+
+- `backend/tests_contracts/factories.py`
+- `backend/tests_contracts/conftest.py`
+- `backend/tests_contracts/test_contracts_factories.py`
+- `backend/tests_contracts/test_contracts_behavior.py`
+- `backend/economy.py`
+
+### Validation
+
+- Ran: `.\.venv\Scripts\python.exe -m pytest backend/tests_contracts -q`
+- Result: `25 passed, 4 skipped`
+
+---
+
+## [2026-03-03] EcoSim 2.0 - Healthcare Household Visit Distribution Model
+
+### Overview
+
+Household healthcare demand was changed from per-tick urgency probability to annual sampled visit plans, with per-visit healing tied to missing health and planned visit count.
+
+### What Changed
+
+- Replaced probabilistic per-tick visit request logic with annual (52-tick) visit-count sampling.
+- Added health-bucket visit distributions:
+  - healthy (`>=0.70`): 0/1/2 visits with 30%/40%/30%
+  - below 70%: 1/2/3 visits with 30%/40%/30%
+  - below 30%: 2/3/4 visits with 30%/40%/30%
+  - below 10%: 4/5/6 visits with 50%/45%/5%
+- Visit schedules are generated once per annual window and queued by due ticks.
+- Healing per completed visit now follows:
+  - `heal_per_visit = (1 - health_at_plan_time) / planned_visits`
+  - Example: health 0.85 with 2 planned visits -> +0.075 each visit
+- Legacy automatic follow-up scheduling is now disabled (annual sampled plan is the revisit controller).
+
+### Files Updated
+
+- `backend/config.py`
+- `backend/agents.py`
+- `backend/economy.py`
+- `backend/tests_contracts/test_tier2_behavior_contracts.py`
+- `backend/test_firm_behavior.py`
+- `docs/HEALTHCARE_SERVICE_MODEL.md`
+
+---
+
+## [2026-03-03] EcoSim 2.0 - Healthcare Workforce Overhaul (Doctors, Training, Residency)
+
+### Overview
+
+Healthcare staffing now follows a constrained doctor pipeline instead of generic labor. This enforces scarcity, backlog-driven wage pressure, and realistic training delays.
+
+### What Changed
+
+- Added a medical workforce pipeline at household level:
+  - `none -> student -> resident -> doctor`
+  - 4-year training (`208` ticks)
+  - residency starts halfway through training
+- Students cannot work while in medical school.
+- Residents and doctors can only match into healthcare firms.
+- Healthcare firms can only hire residents/doctors from the labor market.
+- Added per-doctor capacity model:
+  - doctors: roughly `2-3` visits/tick (household-specific sampled cap)
+  - residents: max `0.5` visits/tick
+  - fractional capacity carries over across ticks
+- Added per-firm healthcare workforce cap based on population:
+  - `0.2%` of households per healthcare firm (`1000 households -> 2 workers`)
+- Added medical school debt flow:
+  - government-originated training loan principal
+  - weekly interest accrual
+  - gradual repayment from household income
+- Added throttled med-school enrollment under shortage:
+  - up to 1 enrollment every 52 ticks while active trainees < 10
+  - then 1 enrollment every 104 ticks
+- Healthcare demand still backlog/queue-driven; wage and pricing respond to demand pressure.
+
+### Files Updated
+
+- `backend/config.py`
+- `backend/agents.py`
+- `backend/economy.py`
+- `docs/HEALTHCARE_SERVICE_MODEL.md`
+
+---
+
+## [2026-03-03] EcoSim 2.0 - Healthcare Service Economics Tuning
+
+### Overview
+
+Healthcare service firms now react to projected demand/backlog in wage and hiring decisions, and visit payments default to household-paid (no automatic government subsidy).
+
+### What Changed
+
+- Added backlog-sensitive healthcare hiring acceleration with a bounded per-tick cap.
+- Healthcare labor matching now prioritizes healthcare firms with active queue pressure.
+- Healthcare pricing now reacts to queue/pressure (bounded by a configurable ceiling).
+- Healthcare wage planning now uses projected demand/capacity and can rise even when current revenue is low, preventing zero-hire deadlock.
+- Visit payments now use payer split:
+  - household pays `firm.price * (1 - subsidy_share)`
+  - government pays `firm.price * subsidy_share`
+  - default `subsidy_share = 0.0` (no subsidy)
+- Updated healthcare design documentation with:
+  - output per worker
+  - hiring priority behavior
+  - payer model and subsidy toggle
+  - affordability note
+
+### Key Params Added
+
+- `healthcare_max_hires_per_tick`
+- `healthcare_price_pressure_target`
+- `healthcare_price_increase_rate`
+- `healthcare_price_decrease_rate`
+- `healthcare_price_ceiling_multiplier`
+- `healthcare_visit_subsidy_share`
+
+---
+
+## [2026-03-03] EcoSim 2.0 - Healthcare Refactor: Queue-Based Service Model
+
+### Overview
+
+Healthcare was migrated from a storable goods path to a non-storable service path with queueing, visit capacity, and backlog-driven staffing.
+
+### What Changed
+
+- Healthcare firms no longer produce or store inventory goods.
+- Households no longer buy healthcare in the goods market consumption planner.
+- Each tick, households request care from need signals:
+  - follow-up due ticks from `care_plan_due_ticks`
+  - low-health urgency/critical thresholds
+  - low-probability preventive checkups on annual cadence
+- Healthcare firms now maintain:
+  - `healthcare_queue`
+  - `healthcare_capacity_per_worker`
+  - `healthcare_arrivals_ema`
+  - backlog horizon and idle streak controls
+- Each tick, firms process queued visits up to effective capacity:
+  - `effective_capacity = workers * healthcare_capacity_per_worker`
+  - completed visits apply diminishing-returns healing: `delta = base_heal * (1 - health)`
+  - followups (1-3) are scheduled when post-visit health stays below threshold
+- Financial flow for healthcare visits:
+  - government reimburses firms per completed visit at firm price
+  - healthcare service units are tracked in firm sales for accounting/tax integration
+
+### Stability / Guardrails
+
+- Healthcare inventory is forcibly zeroed for healthcare firms.
+- Legacy healthcare goods inventory remnants are purged from households.
+- Queue flow prevents duplicate active requests per household via `queued_healthcare_firm_id`.
+- Tests now assert:
+  - healthcare inventory remains zero
+  - completed visits do not exceed capacity
+  - queue and health bounds remain valid
+
+### Files Updated
+
+- `backend/config.py`
+- `backend/agents.py`
+- `backend/economy.py`
+- `backend/run_large_simulation.py`
+- `backend/test_firm_behavior.py`
+- `backend/tests_contracts/conftest.py`
+- `backend/tests_contracts/test_tier1_invariants.py`
+- `backend/tests_contracts/test_tier2_behavior_contracts.py`
+- `backend/tests_contracts/test_tier3_short_integration.py`
+
+---
+## [2026-02-21] EcoSim 2.0 — Agent Logic Update: Households
+
+### Overview
+
+Major refactor of the Household agent class to remove hardcoded nominal values and introduce bounded rationality, behavioral frictions, and prospect-theory-inspired expectations. These changes make household decision-making adaptive, context-dependent, and economically grounded.
+
+---
+
+### Agent Log Update — Households
+
+#### Feature 1: Dynamic Desperation & Skill Hysteresis (Labor Market)
+
+**What changed**: Removed the hardcoded `cash_balance < $200` desperation threshold. Wage acceptance and job search urgency now adapt to the household's own price beliefs.
+
+**Dynamic Living Cost Floor**:
+```
+living_cost_floor = expected_housing_price + expected_food_price
+desperation_threshold = living_cost_floor × 1.5
+```
+When `cash_balance < desperation_threshold`, the household accepts wages 15% below its reservation wage. This means desperation is relative to each household's perceived cost of living, not a fixed dollar amount.
+
+**Skill Hysteresis**:
+If a household is unemployed for more than 26 consecutive ticks (~6 months), their `skills_level` degrades by 0.002 per tick, bottoming out at 0.10. This models the documented labor market effect where prolonged unemployment erodes human capital, making re-employment harder over time.
+
+| Config Parameter | Default | Purpose |
+|---|---|---|
+| `desperation_living_cost_buffer` | 1.5 | Cash-to-living-cost ratio that triggers desperation |
+| `desperation_wage_discount` | 0.85 | Wage acceptance discount when desperate |
+| `skill_decay_unemployment_threshold` | 26 | Ticks before decay begins |
+| `skill_decay_rate_per_tick` | 0.002 | Skill loss per tick |
+| `skill_decay_floor` | 0.10 | Minimum skill level |
+
+**Files**: `agents.py` (`plan_labor_supply`, new `apply_skill_decay`), `economy.py` (tick loop Phase 4), `config.py`
+
+---
+
+#### Feature 2: Buffer-Stock Consumption Model
+
+**What changed**: Replaced the static fractional spending budget with a target wealth-to-income ratio driven by each household's innate `saving_tendency` trait.
+
+**How it works**:
+```
+target_ratio = base_ratio × (0.5 + saving_tendency)
+current_ratio = cash_balance / current_wage
+
+if current_ratio < target_ratio:
+    spend_fraction *= 0.6    # Aggressively save (penalize spending)
+if current_ratio > target_ratio:
+    spend_fraction *= 1.3    # Shed excess cash (boost spending)
+```
+
+This means thrifty households (high `saving_tendency`) target a larger buffer and cut spending sooner when below it. Spendthrift households (low `saving_tendency`) have a lower target and consume more freely. The result is a heterogeneous savings distribution that emerges from individual traits rather than a uniform rule.
+
+| Config Parameter | Default | Purpose |
+|---|---|---|
+| `target_wealth_income_ratio_base` | 4.0 | Base target ratio (multiplied by thriftiness) |
+| `buffer_stock_save_penalty` | 0.6 | Spend fraction multiplier when below target |
+| `buffer_stock_spend_bonus` | 1.3 | Spend fraction multiplier when above target |
+
+**Files**: `agents.py` (`plan_consumption`), `config.py`
+
+---
+
+#### Feature 3: Bounded Rationality in Firm Selection (Awareness Pool & Frictions)
+
+**What changed**: Removed the O(N×M) global search where every household evaluated every firm. Households now maintain a small **awareness pool** of 5–10 firms per consumption category and only run softmax utility calculations on that pool.
+
+**Awareness Pool**:
+- Initialized by randomly sampling up to 7 firms from the market
+- Refreshed every 4 ticks: the lowest-utility firm is dropped and a new firm is randomly sampled from the global market (simulating organic discovery via word-of-mouth, advertising, etc.)
+
+**Switching Friction**:
+Each household tracks a `current_primary_firm` per category. For a challenger firm to replace the primary, its utility must exceed the incumbent's by a friction threshold:
+
+| Category | Friction Threshold |
+|---|---|
+| Housing | 15% |
+| Services | 5% |
+| Food | 2% |
+
+The primary firm also receives a small loyalty bonus (+0.5) in the softmax distribution, modeling inertia and brand familiarity.
+
+**New Household Fields**: `awareness_pool` (Dict[str, List[int]]), `current_primary_firm` (Dict[str, Optional[int]]), `last_pool_refresh_tick` (int)
+
+| Config Parameter | Default | Purpose |
+|---|---|---|
+| `awareness_pool_max_size` | 7 | Max firms per category in pool |
+| `switching_friction_housing` | 0.15 | Utility advantage to switch housing firm |
+| `switching_friction_food` | 0.02 | Utility advantage to switch food firm |
+| `switching_friction_services` | 0.05 | Utility advantage to switch services firm |
+| `pool_refresh_interval` | 4 | Ticks between pool refresh cycles |
+| `pool_refresh_drop_count` | 1 | Firms dropped per refresh |
+
+**Files**: `agents.py` (new `refresh_awareness_pool`, `_filter_to_awareness_pool`, `_apply_switching_friction`, `_get_switching_friction`; modified `_plan_category_purchases`), `economy.py` (tick loop Phase 2), `config.py`
+
+---
+
+#### Feature 4: Asymmetric Adaptive Expectations (Prospect Theory)
+
+**What changed**: Replaced the symmetric exponential smoothing (`alpha = 0.3`) for price belief updates with an asymmetric rule inspired by Kahneman & Tversky's Prospect Theory.
+
+**Asymmetric Update Rule**:
+```
+if observed_price > current_belief:
+    alpha = 0.4    # Fast adjustment — loss aversion to inflation
+else:
+    alpha = 0.1    # Slow adjustment — anchoring against deflation
+
+new_belief = alpha × observed_price + (1 - alpha) × old_belief
+```
+
+**Why this matters**: Households react 4× faster to price increases than to price decreases. This produces the empirically observed asymmetry where inflation expectations ratchet up quickly but are sticky on the way down — a key feature of real consumer behavior that affects demand dynamics during both expansions and recessions.
+
+| Config Parameter | Default | Purpose |
+|---|---|---|
+| `price_alpha_up` | 0.4 | Smoothing rate for price increases |
+| `price_alpha_down` | 0.1 | Smoothing rate for price decreases |
+
+**Files**: `agents.py` (`apply_purchases`, `plan_consumption` legacy path), `config.py`
+
+---
+
+### Changes by File
+
+| File | Lines Changed | Type |
+|---|---|---|
+| `backend/config.py` | +23 | 19 new config parameters across 4 feature groups |
+| `backend/agents.py` | +170 | 6 new methods, 3 new fields, 4 modified methods |
+| `backend/economy.py` | +6 | 2 new integration points in tick loop |
+
+---
+
+### Testing Performed
+
+1. **Unit Tests**: `test_household_agent.py` — all 8 tests pass
+2. **Firm Tests**: `test_firm_behavior.py` — 52-tick simulation completes normally
+3. **Government Tests**: `test_government_behavior.py` — fiscal policy adapts correctly
+4. **Stochastic Tests**: `test_stochastic.py` — 3×100-tick runs show expected variation
+5. **Feature Integration Test**: Custom verification script confirmed all 4 features produce correct outputs:
+   - Dynamic desperation triggers at belief-based threshold (not $200)
+   - Skill decay reduces 0.6000 → 0.5980 after 30 ticks unemployed
+   - Awareness pool correctly limits to 7 firms from a market of 20
+   - Asymmetric alpha: price increase moves belief 2.00 vs price decrease moves 0.50
+
+---
+
+### Agent Log Update — Firms
+
+#### Feature 1: Emergency Restructuring (Anti-Zombie Firm Mechanism)
+
+**What changed**: Removed the strict 10% cap on firing per tick when a firm is mathematically failing. Added a `survival_mode` flag that activates when cash reserves drop below the operating run rate.
+
+**Survival Mode Trigger**:
+```
+operating_run_rate = sum(actual_wages)
+if cash_balance < operating_run_rate * 2_weeks:
+    survival_mode = True
+```
+
+When triggered, the firm:
+- **Bypasses normal firing caps** and immediately lays off enough workers to bring operating costs below current rolling revenue
+- **Hard-stops all R&D spending** (`apply_rd_and_quality_update` returns 0)
+- **Blocks all dividend payouts** (`distribute_profits` returns 0)
+- Runs at 10% production capacity (survival output)
+- Exits survival mode once cash reserves reach 2x the healthy threshold
+
+This prevents "zombie firms" that drain the economy by hoarding workers they can't afford, while giving viable firms a restructuring path back to profitability.
+
+| Config Parameter | Default | Purpose |
+|---|---|---|
+| `survival_mode_runway_weeks` | 2.0 | Weeks of run rate that trigger survival mode |
+
+**Files**: `agents.py` (`plan_production_and_labor`, `apply_rd_and_quality_update`, `distribute_profits`; new `survival_mode` field), `config.py`
+
+---
+
+#### Feature 2: Scalable Hiring Optimization (Proportional MRPL Search)
+
+**What changed**: Replaced the hardcoded +/-2 worker local-neighborhood search in `_profit_optimal_workers` with a proportional search space.
+
+**Old**: Evaluated staffing at `current_workers - 2, -1, 0, +1, +2` (5 candidates regardless of firm size).
+
+**New**: Evaluates staffing at +/-5% and +/-10% of current workforce:
+```
+For a 100-worker firm: candidates = {90, 95, 100, 105, 110} + demand_target
+For a 10-worker firm:  candidates = {9, 10, 11} + demand_target (min delta = 1)
+```
+
+This means a 200-worker firm now searches a 40-worker range (10 to 20 workers of adjustment) instead of a fixed 4-worker window, allowing large firms to make appropriately scaled hiring/firing decisions based on MRPL comparison.
+
+| Config Parameter | Default | Purpose |
+|---|---|---|
+| `mrpl_search_fractions` | (0.05, 0.10) | Proportional search offsets from current workforce |
+
+**Files**: `agents.py` (`_profit_optimal_workers`), `config.py`
+
+---
+
+#### Feature 3: Two-Stage Inventory Defense (Production Cuts before Price Fire-Sales)
+
+**What changed**: Replaced the instant 20-30% price slash when inventory builds up with a two-stage PID-style controller that cuts production first and prices second.
+
+**Stage 1 (Volume Cut)** — in `plan_production_and_labor`:
+```
+if inventory > 1.5 * target_production AND NOT burn_mode:
+    target_workers *= (1.0 - 0.07)   # Reduce labor by 7% to slow production
+```
+No price change yet. The firm first tries to let existing inventory sell through naturally at current margins.
+
+**Stage 2 (Price Cut)** — in `plan_pricing`:
+```
+if inventory > 3.0 * target_production:
+    price_cut = random(5%, 10%)       # Mild price reduction to clear backlog
+```
+Only activates if Stage 1 failed to clear the backlog. The price cut is 5-10% instead of the old 20-30%, respecting the min_price floor.
+
+This prevents the deflationary spiral where firms slash prices, lose revenue, can't pay wages, fire workers, reducing demand further.
+
+| Config Parameter | Default | Purpose |
+|---|---|---|
+| `inventory_stage1_threshold` | 1.5 | Inventory-to-target ratio triggering production cut |
+| `inventory_stage1_labor_cut` | 0.07 | Fraction of labor to cut in Stage 1 |
+| `inventory_stage2_threshold` | 3.0 | Inventory-to-target ratio triggering price cut |
+| `inventory_stage2_price_cut_min` | 0.05 | Minimum Stage 2 price reduction |
+| `inventory_stage2_price_cut_max` | 0.10 | Maximum Stage 2 price reduction |
+
+**Files**: `agents.py` (`plan_production_and_labor`, `plan_pricing`), `config.py`
+
+---
+
+#### Feature 4: Pro-Cyclical R&D Strategy
+
+**What changed**: Replaced the counter-cyclical R&D logic (which increased R&D to 15% when underselling) with a profit-margin-tied strategy.
+
+**Old**: Boosted R&D by 25% when `units_sold < units_produced` (investing more when struggling).
+
+**New**:
+```
+if net_profit <= 0:
+    rd_rate = 0%              # No R&D when unprofitable
+else:
+    margin = net_profit / revenue
+    rd_rate = 5% + 0.5 * margin   # Scale with profitability, cap at 10%
+```
+
+This is economically sound: firms that are losing money shouldn't be spending on speculative quality improvements — they should be preserving cash for survival. Profitable firms invest proportionally to their success, creating a virtuous cycle where quality leaders extend their advantage.
+
+| Config Parameter | Default | Purpose |
+|---|---|---|
+| `rd_base_rate` | 0.05 | Base R&D spending as fraction of revenue |
+| `rd_max_rate` | 0.10 | Maximum R&D rate at high margins |
+| `rd_margin_scaling` | 0.5 | How much margin boosts R&D above base |
+
+**Files**: `agents.py` (`apply_rd_and_quality_update`), `config.py`
+
+---
+
+### Changes by File (Firm Update)
+
+| File | Lines Changed | Type |
+|---|---|---|
+| `backend/config.py` | +17 | 13 new config parameters across 4 feature groups |
+| `backend/agents.py` | +80 | 1 new field, 4 modified methods |
+
+---
+
+### Testing Performed (Firm Update)
+
+1. **All existing tests pass**: household, firm, government, stochastic
+2. **Feature Integration Test**: Custom verification confirmed:
+   - Survival mode triggers at cash < 2-week run rate, lays off 7 of 10 workers, blocks R&D and dividends
+   - Proportional MRPL search evaluates {90, 95, 100, 105, 110} for a 100-worker firm
+   - Stage 1 cuts production when inventory > 1.5x target; Stage 2 cuts price 5-10% when inventory > 3x
+   - R&D = $0 at negative profit; R&D = $100 at 20% margin on $1000 revenue (rate = 10%)
+
+---
+
+## [2026-02-25] EcoSim 2.0 — Wellbeing System Refactor: Anti-Depression Patch
+
+### Overview
+
+Major refactor of the happiness/wellbeing system to fix a structural "death spiral" where negative economic shocks compound too quickly and recovery is too slow, causing the simulated economy to fall into perpetual depression.
+
+**Root cause**: Happiness penalties were asymmetric (unemployment = -0.03 vs employment = +0.02), poverty penalties stacked (-0.08 combined), the natural decay rate was 5x higher than intended (config said 0.002 but agents used 0.01), and there was no floor to prevent the performance multiplier from dropping to 0.5x — creating a feedback loop where unhappy workers get fired, become unhappier, and can never recover.
+
+---
+
+### Agent Log Update — Household Wellbeing
+
+#### Feature 1: Config Mismatch Fix & Poverty De-Duplication
+
+**Bug fixed**: The `HouseholdAgent` dataclass had `happiness_decay_rate = 0.01` hardcoded, but `config.py` specified `0.002`. Agents were never initialized with the config value, so every household decayed at **5x the intended rate**.
+
+**Fix**: Agent default now matches config at `0.002`.
+
+**Poverty penalty refactored** from stacking to exclusive:
+```
+Old (stacking):
+  if cash < 200: penalty -= 0.03
+  if cash < 100: penalty -= 0.05   ← ADDITIONAL, total = -0.08
+
+New (exclusive):
+  if cash < 100:   penalty = -0.05
+  elif cash < 200: penalty = -0.03  ← Only one applies
+```
+
+| Parameter | Old | New |
+|-----------|-----|-----|
+| `happiness_decay_rate` (agent default) | 0.01 | 0.002 |
+| Poverty < $200 penalty | -0.03 (stacks) | -0.03 (exclusive) |
+| Poverty < $100 penalty | -0.05 (stacks) | -0.05 (exclusive) |
+| **Worst-case poverty hit** | **-0.08** | **-0.05** |
+
+**Files**: `agents.py` (line 106), `config.py` (poverty params), `economy.py` (batch update)
+
+---
+
+#### Feature 2: Tiered Consumption & Symmetric Labor Effects
+
+**Goods consumption happiness** replaced binary check (goods > 10 = +0.01, goods < 2 = -0.02) with three tiers:
+
+| Goods Owned | Old Bonus | New Bonus |
+|-------------|-----------|-----------|
+| >= 5 units  | +0.00 (dead zone) | **+0.02** |
+| >= 2 units  | +0.00 (dead zone) | **+0.01** |
+| < 2 units   | -0.02 | -0.02 |
+
+This eliminates the "dead zone" where households owning 2–10 goods got zero happiness from consumption.
+
+**Employment effect equalized**: Was asymmetric (+0.02 employed / -0.03 unemployed). Now symmetric at **±0.03**.
+
+**Housing penalty reduced**: Ongoing unhoused penalty reduced from -0.05/tick to **-0.02/tick**. The one-time eviction shock (-0.30) remains separate.
+
+**Files**: `config.py` (tier thresholds), `agents.py` (update_wellbeing), `economy.py` (batch update)
+
+---
+
+#### Feature 3: Mercy Floor & Rubber-Band Recovery
+
+**Mercy Floor**: When happiness drops below **0.25**, natural decay pauses completely (set to 0.0). This prevents agents from spiraling to absolute zero — even at rock bottom, they stop bleeding out.
+
+**Rubber-Band Recovery**: All positive happiness boosts are now scaled by `(1 + (1 - current_happiness))`:
+```
+actual_boost = base_boost × (1.0 + (1.0 - happiness))
+```
+- At happiness = 0.0: boosts are **2.0x** normal (maximum recovery speed)
+- At happiness = 0.5: boosts are **1.5x** normal
+- At happiness = 1.0: boosts are **1.0x** normal (no amplification)
+
+This means a miserable agent who gets a job or buys goods recovers much faster than a content agent would gain from the same event. Modeled after the psychological concept that improvements feel larger when you're at a low baseline.
+
+**Files**: `config.py` (`mercy_floor_threshold`, `rubber_band_recovery`), `agents.py`, `economy.py`
+
+---
+
+#### Feature 4: Performance Multiplier Floor (Anti-Doom Loop)
+
+**Old**: Performance multiplier ranged from **0.5x** (zero wellbeing) to 1.5x (perfect wellbeing). A depressed worker at 0.5x was nearly half as productive, making them the first to be fired, which further reduced their happiness.
+
+**New**: Floor raised to **0.75x**. A depressed worker is slower, but not catastrophically unproductive. This breaks the doom loop where low happiness → low performance → fired → lower happiness.
+
+| Wellbeing | Old Multiplier | New Multiplier |
+|-----------|---------------|----------------|
+| 0.0 (worst) | 0.50x | **0.75x** |
+| 0.5 (mid)   | 1.00x | **1.12x** |
+| 1.0 (best)  | 1.50x | 1.50x |
+
+**Files**: `config.py` (`performance_min_multiplier`), `agents.py` (`get_performance_multiplier`)
+
+---
+
+### Testing Performed (Wellbeing Refactor)
+
+1. **All existing tests pass**: household creation, goods consumption, wellbeing system, income/spending, firm behavior (52-tick), government behavior (52-tick)
+2. **Feature verification** confirmed:
+   - Agent decay rate = 0.002 (matches config, was 0.01)
+   - Poor employed household (cash=$50): happiness 0.70 → 0.71 (old system: → 0.63)
+   - Goods tiers: >=5 gives +0.02, >=2 gives +0.01, <2 gives -0.02
+   - Mercy floor: happiness=0.20 agent recovers to 0.29 in one employed tick (decay paused, 1.8x rubber-band)
+   - Performance at zero wellbeing: 0.75x (was 0.50x)
+
+---
+
 ## [2025-12-27] Session: Simulation Performance Hotfixes
 
 ### Overview
@@ -629,3 +1258,4 @@ python generate_training_data.py
 ---
 
 *This changelog will be updated with each implementation session going forward.*
+

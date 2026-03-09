@@ -6,7 +6,7 @@ This replaces scattered "magic numbers" throughout the codebase.
 """
 
 from dataclasses import dataclass, field
-from typing import Dict
+from typing import Dict, Tuple
 
 
 @dataclass
@@ -25,6 +25,20 @@ class HouseholdBehaviorConfig:
     max_savings_rate: float = 0.6  # 60% maximum savings
     personality_buckets: int = 6  # Number of savings personality types
     unemployment_spend_sensitivity: float = 0.8
+
+    # Per-household trait ranges (sampled once at initialization)
+    spending_tendency_range: Tuple[float, float] = (0.7, 1.3)
+    food_preference_range: Tuple[float, float] = (0.8, 1.2)
+    services_preference_range: Tuple[float, float] = (0.8, 1.2)
+    housing_preference_range: Tuple[float, float] = (0.9, 1.1)
+    quality_lavishness_range: Tuple[float, float] = (0.8, 1.3)
+    frugality_range: Tuple[float, float] = (0.7, 1.3)
+    saving_tendency_range: Tuple[float, float] = (0.0, 1.0)
+    health_decay_low_probability: float = 0.60
+    health_decay_mid_probability: float = 0.90
+    health_decay_low_range: Tuple[float, float] = (0.02, 0.25)
+    health_decay_mid_range: Tuple[float, float] = (0.25, 0.45)
+    health_decay_high_range: Tuple[float, float] = (0.45, 0.70)
 
     # Wealth-based Saving Rate (NEW - for compute_saving_rate method)
     low_wealth_reference: float = 0.0  # Minimum wealth for saving calculation
@@ -66,6 +80,8 @@ class HouseholdBehaviorConfig:
     # Minimum Consumption (Base needs before elasticity)
     min_food_per_tick: float = 2.0
     min_services_per_tick: float = 1.0
+    min_food_per_tick_range: Tuple[float, float] = (1.5, 2.5)
+    min_services_per_tick_range: Tuple[float, float] = (0.5, 2.0)
 
     # Price/Wage Expectations
     initial_expected_wage: float = 10.0
@@ -75,6 +91,22 @@ class HouseholdBehaviorConfig:
     reservation_markup_over_benefit: float = 1.1  # Reservation = benefit * 1.1
     default_price_level: float = 10.0  # Fallback when no price history
     min_cash_for_aggressive_job_search: float = 100.0  # Desperation threshold
+
+    # Per-household randomized ranges for expectations and behaviors
+    consumption_budget_share_range: Tuple[float, float] = (0.60, 0.80)
+    quality_preference_weight_range: Tuple[float, float] = (0.6, 1.5)
+    price_sensitivity_range: Tuple[float, float] = (0.6, 1.5)
+    expected_wage_range: Tuple[float, float] = (7.0, 15.0)
+    reservation_wage_range: Tuple[float, float] = (5.0, 12.0)
+    price_expectation_alpha_range: Tuple[float, float] = (0.20, 0.45)
+    wage_expectation_alpha_range: Tuple[float, float] = (0.12, 0.35)
+    reservation_markup_range: Tuple[float, float] = (1.02, 1.20)
+    min_cash_aggressive_search_range: Tuple[float, float] = (60.0, 180.0)
+    skill_growth_rate_range: Tuple[float, float] = (0.0005, 0.002)
+    initial_happiness_range: Tuple[float, float] = (0.60, 0.80)
+    initial_morale_range: Tuple[float, float] = (0.60, 0.80)
+    happiness_decay_rate_range: Tuple[float, float] = (0.0015, 0.0025)
+    morale_decay_rate_range: Tuple[float, float] = (0.015, 0.025)
 
     # Labor Supply Planning
     desperate_wage_adjustment: float = 0.85  # Accept 15% less when desperate
@@ -130,15 +162,74 @@ class HouseholdBehaviorConfig:
     morale_decay_rate: float = 0.02
     health_decay_rate: float = 0.005
 
-    # Wellbeing Updates - Employment
-    employed_happiness_boost: float = 0.02
+    # Wellbeing Updates - Employment (Feature 2: symmetric labor effects)
+    employed_happiness_boost: float = 0.03   # Was 0.02; symmetric with unemployment
     unemployed_happiness_penalty: float = 0.03
 
-    # Wellbeing Updates - Goods
-    high_goods_threshold: float = 10.0
-    low_goods_threshold: float = 2.0
-    high_goods_happiness_boost: float = 0.01
-    low_goods_happiness_penalty: float = 0.02
+    # Wellbeing Updates - Consumption (food/services/healthcare)
+    food_health_high_threshold: float = 5.0
+    food_health_mid_threshold: float = 2.0
+    food_health_high_boost: float = 0.03
+    food_health_mid_boost: float = 0.01
+    food_starvation_penalty: float = 0.03
+    service_happiness_base_boost_range: Tuple[float, float] = (0.006, 0.014)
+    healthcare_preference_range: Tuple[float, float] = (0.8, 1.2)
+    # Healthcare is modeled as a non-storable service (visits), not an inventory good.
+    health_recovery_per_medical_unit: float = 0.02  # Legacy fallback for old paths
+    healthcare_visit_base_heal: float = 0.18
+    healthcare_plan_interval_ticks: int = 52
+    healthcare_visit_distribution_healthy: Tuple[Tuple[int, float], ...] = (
+        (0, 0.30),
+        (1, 0.40),
+        (2, 0.30),
+    )
+    healthcare_visit_distribution_below_70: Tuple[Tuple[int, float], ...] = (
+        (1, 0.30),
+        (2, 0.40),
+        (3, 0.30),
+    )
+    healthcare_visit_distribution_below_30: Tuple[Tuple[int, float], ...] = (
+        (2, 0.30),
+        (3, 0.40),
+        (4, 0.30),
+    )
+    healthcare_visit_distribution_below_10: Tuple[Tuple[int, float], ...] = (
+        (4, 0.50),
+        (5, 0.45),
+        (6, 0.05),
+    )
+    healthcare_worker_priority_health_threshold: float = 0.60
+    medical_training_ticks: int = 52 * 4
+    medical_residency_start_fraction: float = 0.5
+    medical_resident_max_capacity: float = 0.5
+    medical_doctor_capacity_range: Tuple[float, float] = (2.0, 3.0)
+    medical_doctor_expected_wage_range: Tuple[float, float] = (70.0, 110.0)
+    medical_doctor_reservation_wage_range: Tuple[float, float] = (45.0, 85.0)
+    medical_school_total_cost: float = 220000.0
+    medical_school_interest_rate_range: Tuple[float, float] = (0.04, 0.08)
+    medical_school_repayment_share_of_wage: float = 0.12
+    medical_school_min_payment: float = 5.0
+    # Policy toggle: doctors self-stabilize health before shifts via peer consult.
+    doctor_health_lock_enabled: bool = True
+    doctor_health_lock_value: float = 1.0
+    preventive_checkup_probability: float = 0.03
+    followup_health_threshold: float = 0.75
+    max_followup_visits: int = 3
+    followup_interval_ticks: int = 2
+    healthcare_urgency_threshold_range: Tuple[float, float] = (0.60, 0.80)
+    healthcare_critical_threshold_range: Tuple[float, float] = (0.30, 0.50)
+    morale_employed_boost_range: Tuple[float, float] = (0.02, 0.05)
+    morale_unemployed_penalty_range: Tuple[float, float] = (0.02, 0.05)
+    morale_unhoused_penalty_range: Tuple[float, float] = (0.02, 0.05)
+
+    # Wellbeing Updates - Housing (Feature 2: reduced ongoing penalty)
+    unhoused_happiness_penalty: float = 0.02  # Was 0.05; one-time eviction shock is separate
+
+    # Wellbeing Updates - Poverty (Feature 1: exclusive if/elif, no stacking)
+    extreme_poverty_threshold: float = 100.0
+    extreme_poverty_penalty: float = 0.05
+    poverty_threshold: float = 200.0
+    poverty_penalty: float = 0.03
 
     # Wellbeing Updates - Government
     government_happiness_scaling: float = 0.05
@@ -155,17 +246,44 @@ class HouseholdBehaviorConfig:
     health_high_goods_boost: float = 0.01
     health_low_goods_penalty: float = 0.02
 
-    # Performance Multiplier
+    # Feature 3: Mercy Floor
+    mercy_floor_threshold: float = 0.25     # Below this, natural decay pauses
+
+    # Performance Multiplier (Feature 4: raised floor from 0.5 to 0.75)
     performance_morale_weight: float = 0.5
     performance_health_weight: float = 0.3
     performance_happiness_weight: float = 0.2
-    performance_min_multiplier: float = 0.5
+    performance_min_multiplier: float = 0.75  # Was 0.5; prevents doom loop
     performance_max_multiplier: float = 1.5
 
     # Goods Consumption
     consumption_rate: float = 0.1  # 10% per tick
     housing_maintenance_rate: float = 0.01  # 1% per tick (10x faster - fixes housing glut)
     inventory_depletion_threshold: float = 0.001
+
+    # Feature 1: Dynamic Desperation & Skill Hysteresis
+    desperation_living_cost_buffer: float = 1.5  # Trigger desperation when cash < living_cost_floor * this
+    desperation_wage_discount: float = 0.85  # Accept wages 15% lower when desperate
+    skill_decay_unemployment_threshold: int = 26  # Ticks unemployed before skill decay starts (~6 months)
+    skill_decay_rate_per_tick: float = 0.002  # Skill loss per tick when decaying
+    skill_decay_floor: float = 0.1  # Minimum skill level (never decay below this)
+
+    # Feature 2: Buffer-Stock Consumption Model
+    target_wealth_income_ratio_base: float = 4.0  # Base target ratio (modified by thriftiness)
+    buffer_stock_save_penalty: float = 0.6  # Spend fraction penalty when below target ratio
+    buffer_stock_spend_bonus: float = 1.3  # Spend fraction multiplier when above target ratio
+
+    # Feature 3: Bounded Rationality (Awareness Pool)
+    awareness_pool_max_size: int = 7  # Max firms per category in awareness pool (5-10 range)
+    switching_friction_housing: float = 0.15  # 15% utility advantage needed to switch housing firm
+    switching_friction_food: float = 0.02  # 2% utility advantage needed to switch food firm
+    switching_friction_services: float = 0.05  # 5% utility advantage for services
+    pool_refresh_interval: int = 4  # Refresh awareness pool every N ticks
+    pool_refresh_drop_count: int = 1  # Number of lowest-utility firms to drop per refresh
+
+    # Feature 4: Asymmetric Adaptive Expectations (Prospect Theory)
+    price_alpha_up: float = 0.4  # Fast adjustment to price increases (loss aversion)
+    price_alpha_down: float = 0.1  # Slow adjustment to price decreases
 
     # Safety Checks
     extreme_negative_cash_threshold: float = -1e6
@@ -266,35 +384,79 @@ class FirmBehaviorConfig:
     dividend_cost_reserve_ticks: float = 3.0  # Retain 3 ticks of costs
     dividend_min_safety_reserve: float = 10000.0
 
-    # Personality: Aggressive
-    aggressive_investment_propensity: float = 0.15
-    aggressive_risk_tolerance: float = 0.9
-    aggressive_price_adjustment: float = 0.10
-    aggressive_wage_adjustment: float = 0.15
-    aggressive_rd_spending: float = 0.08
-    aggressive_max_hires: int = 3
-    aggressive_max_fires: int = 3
-    aggressive_units_per_worker: float = 18.0
+    # Feature 1: Emergency Restructuring (Anti-Zombie Firm)
+    survival_mode_runway_weeks: float = 2.0  # Trigger survival mode when cash < run_rate * this
+    survival_mode_min_layoff_fraction: float = 0.0  # No floor on layoffs in survival mode
 
-    # Personality: Conservative
-    conservative_investment_propensity: float = 0.02
-    conservative_risk_tolerance: float = 0.2
-    conservative_price_adjustment: float = 0.02
-    conservative_wage_adjustment: float = 0.05
-    conservative_rd_spending: float = 0.02
-    conservative_max_hires: int = 1
-    conservative_max_fires: int = 1
-    conservative_units_per_worker: float = 25.0
+    # Feature 2: Scalable Hiring (Proportional MRPL Search)
+    mrpl_search_fractions: tuple = (0.05, 0.10)  # Search ±5% and ±10% of current workforce
 
-    # Personality: Moderate
-    moderate_investment_propensity: float = 0.05
-    moderate_risk_tolerance: float = 0.5
-    moderate_price_adjustment: float = 0.05
-    moderate_wage_adjustment: float = 0.1
-    moderate_rd_spending: float = 0.05
-    moderate_max_hires: int = 2
-    moderate_max_fires: int = 2
-    moderate_units_per_worker: float = 20.0
+    # Feature 3: Two-Stage Inventory Defense
+    inventory_stage1_threshold: float = 1.5  # Stage 1 (cut production) at inventory > this × target
+    inventory_stage1_labor_cut: float = 0.07  # Cut labor by 7% in Stage 1
+    inventory_stage2_threshold: float = 3.0  # Stage 2 (cut price) at inventory > this × target
+    inventory_stage2_price_cut_min: float = 0.05  # Min price cut in Stage 2
+    inventory_stage2_price_cut_max: float = 0.10  # Max price cut in Stage 2
+
+    # Healthcare service mode (queue + capacity, no inventory goods)
+    healthcare_capacity_per_worker_default: float = 2.2
+    healthcare_backlog_horizon_ticks: float = 6.0
+    healthcare_arrivals_ema_alpha: float = 0.2
+    healthcare_downsize_idle_ticks: int = 12
+    healthcare_baseline_min_workers: int = 2
+    healthcare_max_hires_per_tick: int = 6
+    healthcare_price_pressure_target: float = 1.0
+    healthcare_price_increase_rate: float = 0.06
+    healthcare_price_decrease_rate: float = 0.03
+    healthcare_price_ceiling_multiplier: float = 6.0
+    healthcare_staff_population_ratio: float = 0.002  # 0.2% of households per healthcare firm
+    healthcare_training_enrollment_interval_ticks: int = 52
+    healthcare_training_enrollment_interval_after_cap_ticks: int = 104
+    healthcare_training_fast_track_cap: int = 10
+    # Keep healthcare provider count intentionally sparse so queue/backlog dynamics stay meaningful.
+    healthcare_households_per_firm_target: int = 800
+
+    # Feature 4: Pro-Cyclical R&D Strategy
+    rd_base_rate: float = 0.05  # Base R&D spending as fraction of revenue
+    rd_max_rate: float = 0.10  # Maximum R&D spending rate at high margins
+    rd_margin_scaling: float = 0.5  # How much margin boosts R&D above base
+
+    # Per-firm randomized ranges for behavioral traits (sampled once at init)
+    sales_expectation_alpha_range: Tuple[float, float] = (0.20, 0.40)
+    target_inventory_multiplier_range: Tuple[float, float] = (1.2, 1.8)
+    target_inventory_weeks_range: Tuple[float, float] = (1.5, 3.0)
+    min_price_range: Tuple[float, float] = (3.0, 6.0)
+    quality_improvement_per_rd_dollar_range: Tuple[float, float] = (0.0001, 0.0004)
+    markup_range: Tuple[float, float] = (0.20, 0.40)
+    unit_cost_range: Tuple[float, float] = (4.0, 6.5)
+
+    # Personality trait ranges (sampled once per firm at initialization)
+    aggressive_investment_propensity_range: Tuple[float, float] = (0.12, 0.18)
+    aggressive_risk_tolerance_range: Tuple[float, float] = (0.82, 0.95)
+    aggressive_price_adjustment_range: Tuple[float, float] = (0.08, 0.12)
+    aggressive_wage_adjustment_range: Tuple[float, float] = (0.12, 0.18)
+    aggressive_rd_spending_range: Tuple[float, float] = (0.06, 0.10)
+    aggressive_max_hires_range: Tuple[int, int] = (2, 4)
+    aggressive_max_fires_range: Tuple[int, int] = (2, 4)
+    aggressive_units_per_worker_range: Tuple[float, float] = (16.0, 20.0)
+
+    conservative_investment_propensity_range: Tuple[float, float] = (0.01, 0.04)
+    conservative_risk_tolerance_range: Tuple[float, float] = (0.10, 0.30)
+    conservative_price_adjustment_range: Tuple[float, float] = (0.01, 0.04)
+    conservative_wage_adjustment_range: Tuple[float, float] = (0.04, 0.07)
+    conservative_rd_spending_range: Tuple[float, float] = (0.01, 0.04)
+    conservative_max_hires_range: Tuple[int, int] = (1, 2)
+    conservative_max_fires_range: Tuple[int, int] = (1, 2)
+    conservative_units_per_worker_range: Tuple[float, float] = (23.0, 27.0)
+
+    moderate_investment_propensity_range: Tuple[float, float] = (0.04, 0.07)
+    moderate_risk_tolerance_range: Tuple[float, float] = (0.40, 0.60)
+    moderate_price_adjustment_range: Tuple[float, float] = (0.04, 0.07)
+    moderate_wage_adjustment_range: Tuple[float, float] = (0.08, 0.12)
+    moderate_rd_spending_range: Tuple[float, float] = (0.04, 0.07)
+    moderate_max_hires_range: Tuple[int, int] = (1, 3)
+    moderate_max_fires_range: Tuple[int, int] = (1, 3)
+    moderate_units_per_worker_range: Tuple[float, float] = (19.0, 22.0)
 
 
 @dataclass
@@ -349,8 +511,10 @@ class GovernmentPolicyConfig:
     technology_gain_divisor: float = 500.0  # $500 → 0.5% quality
     technology_gain_rate: float = 0.005
     technology_max_multiplier: float = 1.05  # Cap at 5% improvement
-    social_gain_divisor: float = 750.0  # $750 → 0.5% happiness
+    social_gain_divisor: float = 15000.0
     social_gain_rate: float = 0.005
+    social_program_health_scaling: float = 1.0
+    healthcare_visit_subsidy_share: float = 0.0
 
     # Policy Adjustment - Unemployment Thresholds
     high_unemployment_threshold: float = 0.15  # 15%
@@ -469,6 +633,13 @@ class SimulationConfig:
     # Simulation Scale (Legacy - kept for backward compatibility)
     num_households: int = 10000
     num_firms: int = 100
+    random_seed: int = 42
+    baseline_prices: Dict[str, float] = field(default_factory=lambda: {
+        "Food": 8.0,
+        "Housing": 20.0,
+        "Services": 10.0,
+        "Healthcare": 15.0,
+    })
 
     # Initial Distributions (Legacy)
     initial_cash_min: float = 1000.0

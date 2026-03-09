@@ -18,7 +18,19 @@ import sys
 if sys.platform == 'win32':
     sys.stdout.reconfigure(encoding='utf-8')
     sys.stderr.reconfigure(encoding='utf-8')
+import pytest
 from agents import HouseholdAgent
+from config import CONFIG
+
+
+@pytest.fixture
+def household():
+    return HouseholdAgent(
+        household_id=1,
+        skills_level=0.5,
+        age=30,
+        cash_balance=1000.0
+    )
 
 
 def print_section(title):
@@ -74,6 +86,22 @@ def test_labor_supply_planning(household):
     assert labor_plan['reservation_wage'] > 0, "Reservation wage should be positive"
 
     print("\n✅ TEST 2 PASSED: Labor supply planning works correctly")
+
+
+def test_health_limits_work_eligibility():
+    """Test: household cannot work when health drops below the hard threshold."""
+    household = HouseholdAgent(
+        household_id=99,
+        skills_level=0.5,
+        age=30,
+        cash_balance=500.0
+    )
+
+    household.health = 0.09
+    assert household.can_work is False, "Health below 0.10 should block work eligibility"
+
+    household.health = 0.10
+    assert household.can_work is True, "Health at/above 0.10 should allow work eligibility"
 
 
 def test_consumption_planning(household):
@@ -348,6 +376,65 @@ def test_income_and_spending():
     assert abs(final_cash - expected_cash) < 0.01, f"Cash mismatch: expected ${expected_cash:.2f}, got ${final_cash:.2f}"
 
     print("\n✅ TEST 8 PASSED: Income and spending tracked correctly")
+
+
+def test_household_trait_uniqueness():
+    """Ensure sampled household traits are unique per household."""
+    households = [
+        HouseholdAgent(
+            household_id=i + 1,
+            skills_level=0.5,
+            age=30,
+            cash_balance=1000.0
+        )
+        for i in range(200)
+    ]
+
+    trait_tuples = [
+        (
+            h.healthcare_preference,
+            h.healthcare_urgency_threshold,
+            h.healthcare_critical_threshold,
+            h.morale_employed_boost,
+            h.morale_unemployed_penalty,
+            h.morale_unhoused_penalty,
+            h.household_service_happiness_base_boost,
+        )
+        for h in households
+    ]
+
+    assert len(set(trait_tuples)) == len(trait_tuples), "Household sampled trait tuples must be unique"
+
+
+def test_wellbeing_not_sticky_without_new_consumption():
+    """Wellbeing should not keep improving without fresh per-tick consumption."""
+    household = HouseholdAgent(
+        household_id=999,
+        skills_level=0.6,
+        age=35,
+        cash_balance=1500.0
+    )
+    household.employer_id = 1
+    household.wage = 80.0
+    household.expected_wage = 70.0
+    household.met_housing_need = True
+
+    # Tick 1: positive consumption
+    household.food_consumed_this_tick = CONFIG.households.food_health_high_threshold
+    household.services_consumed_this_tick = 1.0
+    household.healthcare_consumed_this_tick = 0.0
+    household.update_wellbeing(government_happiness_multiplier=1.0)
+    health_after_consumption = household.health
+    happiness_after_consumption = household.happiness
+
+    # Tick 2: no new consumption
+    household.food_consumed_this_tick = 0.0
+    household.services_consumed_this_tick = 0.0
+    household.healthcare_consumed_this_tick = 0.0
+    household.update_wellbeing(government_happiness_multiplier=1.0)
+
+    assert household.health <= health_after_consumption, "Health should not stay boosted without new food intake"
+    assert household.happiness <= happiness_after_consumption, "Happiness should not stay boosted without new services"
 
 
 def run_quick_simulation():

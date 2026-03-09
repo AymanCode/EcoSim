@@ -186,6 +186,18 @@ def test_government_behavior_52_ticks():
     return 0
 
 
+def test_social_multiplier_scales_with_750_budget():
+    """At $750 social spend, multiplier should be 1.05 with divisor 15000."""
+    government = GovernmentAgent(
+        cash_balance=5000.0,
+        social_investment_budget=750.0
+    )
+
+    spent = government.invest_in_social_programs()
+    assert abs(spent - 750.0) < 1e-9, "Government should spend the full $750 budget when cash is available"
+    assert abs(government.social_happiness_multiplier - 1.05) < 1e-9, "Social multiplier should be 1.05 at $750 spend"
+
+
 def main():
     """Run the government behavior test."""
     try:

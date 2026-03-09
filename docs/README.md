@@ -2,33 +2,36 @@
 
 Technical documentation for the EcoSim simulation engine.
 
-## Start Here
+## Core Documentation
 
 | Document | What You'll Learn |
 |----------|-------------------|
-| [ARCHITECTURE.md](ARCHITECTURE.md) | System architecture, tick loop phases, data flow |
-| [DYNAMIC_FEATURES.md](DYNAMIC_FEATURES.md) | Agent behaviors, market mechanics, policy system |
-| [DATA_SPECIFICATION.md](DATA_SPECIFICATION.md) | Database schema, data export formats, sample queries |
+| [SIMULATION.md](SIMULATION.md) | How each agent works, interactions, tick lifecycle, market mechanics, healthcare system |
+| [TECHNICAL.md](TECHNICAL.md) | Tech stack, database schemas, configuration system, testing, ML training, performance |
+| [FRONTEND.md](FRONTEND.md) | Dashboard views, charts, metrics displayed, WebSocket protocol |
 
-## Deep Dives
-
-| Document | Topic |
-|----------|-------|
-| [REDESIGN_FEATURES.md](REDESIGN_FEATURES.md) | JIT production, demand pricing, firm personalities, wellbeing system |
-| [SKILL_EXPERIENCE_SYSTEM.md](SKILL_EXPERIENCE_SYSTEM.md) | Worker skill growth, experience premiums, productivity multipliers |
-| [IMPLEMENTATION_SUMMARY.md](IMPLEMENTATION_SUMMARY.md) | Feature implementation history and design decisions |
-
-## Configuration & Usage
+## Configuration
 
 | Document | Topic |
 |----------|-------|
 | [../CONFIG_USAGE_GUIDE.md](../CONFIG_USAGE_GUIDE.md) | Full reference for the 400+ parameter config system |
-| [../backend/TESTING.md](../backend/TESTING.md) | Test suite overview and how to run tests |
-| [../backend/RUN_TRAINING.md](../backend/RUN_TRAINING.md) | ML training data generation guide |
-| [../backend/HOW_TO_RUN.md](../backend/HOW_TO_RUN.md) | Running large-scale simulations |
 
 ## Archive
 
+Older documents kept for reference. Content has been consolidated into the core docs above.
+
 | Document | Note |
 |----------|------|
-| [DATA_SPECIFICATION_old.md](DATA_SPECIFICATION_old.md) | Legacy schema, kept for reference |
+| [ARCHITECTURE.md](ARCHITECTURE.md) | Legacy — now in SIMULATION.md |
+| [DYNAMIC_FEATURES.md](DYNAMIC_FEATURES.md) | Legacy — now in SIMULATION.md |
+| [REDESIGN_FEATURES.md](REDESIGN_FEATURES.md) | Legacy — now in SIMULATION.md |
+| [HEALTHCARE_SERVICE_MODEL.md](HEALTHCARE_SERVICE_MODEL.md) | Legacy — now in SIMULATION.md |
+| [SKILL_EXPERIENCE_SYSTEM.md](SKILL_EXPERIENCE_SYSTEM.md) | Legacy — now in SIMULATION.md |
+| [IMPLEMENTATION_SUMMARY.md](IMPLEMENTATION_SUMMARY.md) | Legacy — now in SIMULATION.md / TECHNICAL.md |
+| [DATA_SPECIFICATION.md](DATA_SPECIFICATION.md) | Legacy — now in TECHNICAL.md |
+| [DATA_SPECIFICATION_old.md](DATA_SPECIFICATION_old.md) | Legacy |
+| [PERF_AUDIT.md](PERF_AUDIT.md) | Legacy — now in TECHNICAL.md |
+| [DATA_ENGINEERING_PLAN.md](DATA_ENGINEERING_PLAN.md) | Legacy — now in TECHNICAL.md |
+| [DATA_ENG_IMPLEMENTATION_ROADMAP.md](DATA_ENG_IMPLEMENTATION_ROADMAP.md) | Legacy — now in TECHNICAL.md |
+| [PERF_PLAN_GOODS_MARKET.md](PERF_PLAN_GOODS_MARKET.md) | Legacy — now in TECHNICAL.md |
+| [PERF_PLAN_CONSUMPTION_PLANNING.md](PERF_PLAN_CONSUMPTION_PLANNING.md) | Legacy — now in TECHNICAL.md |
