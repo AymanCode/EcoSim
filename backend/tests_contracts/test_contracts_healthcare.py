@@ -67,9 +67,8 @@ def test_contract_annual_visit_plan_by_health_bucket_is_deterministic(fixed_seed
 def test_contract_queue_request_is_not_duplicated_for_same_household(fixed_seed):
     """Healthcare contract: queueing is idempotent while household is already queued."""
     patient = _new_household(household_id=1, health=0.30)
-    patient.care_plan_anchor_tick = 0
-    patient.care_plan_due_ticks = [0]
-    patient.care_plan_heal_deltas = [0.2]
+    patient.pending_healthcare_visits = 2
+    patient.next_healthcare_request_tick = 0
 
     doctor = _new_household(household_id=2, health=0.90)
     doctor.medical_training_status = "doctor"
@@ -129,9 +128,8 @@ def test_contract_completed_visits_respect_capacity_and_no_inventory(fixed_seed)
     patients = []
     for idx in range(3, 9):
         hh = _new_household(household_id=idx, cash_balance=1_000.0, health=0.25)
-        hh.care_plan_anchor_tick = 0
-        hh.care_plan_due_ticks = [0]
-        hh.care_plan_heal_deltas = [0.2]
+        hh.pending_healthcare_visits = 2
+        hh.next_healthcare_request_tick = 0
         patients.append(hh)
 
     firm = _new_healthcare_firm(price=15.0)
@@ -148,12 +146,8 @@ def test_contract_completed_visits_respect_capacity_and_no_inventory(fixed_seed)
     firm.employees = [doctor_a.household_id, doctor_b.household_id]
     doctor_a.medical_training_status = "doctor"
     doctor_b.medical_training_status = "doctor"
-    doctor_a.care_plan_anchor_tick = 0
-    doctor_b.care_plan_anchor_tick = 0
-    doctor_a.care_plan_due_ticks = []
-    doctor_b.care_plan_due_ticks = []
-    doctor_a.care_plan_heal_deltas = []
-    doctor_b.care_plan_heal_deltas = []
+    doctor_a.pending_healthcare_visits = 0
+    doctor_b.pending_healthcare_visits = 0
     doctor_a.employer_id = firm.firm_id
     doctor_b.employer_id = firm.firm_id
     doctor_a.wage = firm.wage_offer
@@ -181,9 +175,8 @@ def test_contract_completed_visits_respect_capacity_and_no_inventory(fixed_seed)
 def test_contract_affordability_defers_visit_without_subsidy(fixed_seed):
     """Healthcare contract: when a household cannot pay and subsidy is zero, visit is deferred in queue."""
     patient = _new_household(household_id=1, cash_balance=2.0, health=0.25)
-    patient.care_plan_anchor_tick = 0
-    patient.care_plan_due_ticks = [0]
-    patient.care_plan_heal_deltas = [0.5]
+    patient.pending_healthcare_visits = 2
+    patient.next_healthcare_request_tick = 0
     initial_health = patient.health
 
     doctor = _new_household(household_id=2, health=0.9)
@@ -201,9 +194,7 @@ def test_contract_affordability_defers_visit_without_subsidy(fixed_seed):
     patient.employer_id = None
     patient.wage = 0.0
     doctor.medical_training_status = "doctor"
-    doctor.care_plan_anchor_tick = 0
-    doctor.care_plan_due_ticks = []
-    doctor.care_plan_heal_deltas = []
+    doctor.pending_healthcare_visits = 0
     doctor.employer_id = firm.firm_id
     doctor.wage = firm.wage_offer
 

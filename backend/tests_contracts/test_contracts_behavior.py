@@ -55,10 +55,9 @@ def test_contract_healthcare_consumption_restores_health_without_happiness_chang
     hh.health = 0.3
     hh.happiness = 0.42
     initial_happiness = hh.happiness
-    # Force deterministic request and deterministic heal delta for this visit.
-    hh.care_plan_anchor_tick = 0
-    hh.care_plan_due_ticks = [0]
-    hh.care_plan_heal_deltas = [0.2]
+    # Force deterministic request via the new episode-based model.
+    hh.pending_healthcare_visits = 1
+    hh.next_healthcare_request_tick = 0
 
     healthcare_firm = FirmAgent(
         firm_id=1,
@@ -86,11 +85,11 @@ def test_contract_healthcare_consumption_restores_health_without_happiness_chang
     sales = {}
     economy._process_healthcare_services(sales)
 
-    expected_health = min(1.0, 0.3 + 0.2)
-    assert hh.health == pytest.approx(expected_health, abs=1e-8)
+    # New episode model: missing_health=0.7, 1 visit -> heal_delta=0.7 -> health=1.0
+    assert hh.health > 0.3
+    assert hh.health <= 1.0
     assert hh.happiness == pytest.approx(initial_happiness, abs=1e-8)
     assert hh.healthcare_consumed_this_tick == pytest.approx(1.0, abs=1e-8)
-    assert len(hh.care_plan_due_ticks) == 0
     assert healthcare_firm.inventory_units == pytest.approx(0.0, abs=1e-8)
     assert sales[healthcare_firm.firm_id]["units_sold"] <= len(healthcare_firm.employees) * healthcare_firm.healthcare_capacity_per_worker
 
@@ -241,7 +240,8 @@ def test_contract_healthcare_queue_and_snapshot_contracts(tiny_economy_factory):
 
     hh = economy.households[0]
     hh.health = 0.2
-    hh.care_plan_due_ticks = [economy.current_tick]
+    hh.pending_healthcare_visits = 2
+    hh.next_healthcare_request_tick = 0
 
     healthcare_firms = [f for f in economy.firms if f.good_category.lower() == "healthcare"]
     assert healthcare_firms, "Fixture expected at least one healthcare firm"

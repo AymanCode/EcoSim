@@ -9,6 +9,8 @@ Technical documentation for the EcoSim simulation engine.
 | [SIMULATION.md](SIMULATION.md) | How each agent works, interactions, tick lifecycle, market mechanics, healthcare system |
 | [TECHNICAL.md](TECHNICAL.md) | Tech stack, database schemas, configuration system, testing, ML training, performance |
 | [FRONTEND.md](FRONTEND.md) | Dashboard views, charts, metrics displayed, WebSocket protocol |
+| [DATA_STORAGE_ARCHITECTURE.md](DATA_STORAGE_ARCHITECTURE.md) | Local-first warehouse design (SQLite vs PostgreSQL/Timescale), run lifecycle, and LLM-ready aggregate strategy |
+| [HOUSEHOLD_LABOR_DERISKING.md](HOUSEHOLD_LABOR_DERISKING.md) | Household labor search/reservation guardrails, env toggles, diagnostics, and rollout notes |
 
 ## Configuration
 

@@ -21,7 +21,7 @@ EcoSim is built as a policy sandbox: change core levers (taxes, benefits, wages,
 | Simulation engine | Python |
 | API and streaming | FastAPI + WebSocket |
 | Frontend | React + Vite |
-| Data output | SQLite |
+| Data output | SQLite or PostgreSQL + TimescaleDB |
 | ML pipeline | NumPy, Pandas, SciPy, XGBoost |
 
 ## High-Level Architecture
@@ -76,6 +76,29 @@ npm run dev
 ```
 
 Open: `http://localhost:5173`
+
+## Local Timescale Warehouse (Optional)
+
+Use this when you want durable run history and richer analytics locally.
+
+```bash
+# Start PostgreSQL + TimescaleDB
+docker compose -f docker-compose.timescale.yml up -d
+
+# Configure warehouse backend
+# (PowerShell)
+$env:ECOSIM_ENABLE_WAREHOUSE="1"
+$env:ECOSIM_WAREHOUSE_BACKEND="timescale"
+$env:ECOSIM_WAREHOUSE_DSN="postgresql://ecosim:ecosim@localhost:5432/ecosim"
+
+# Apply schema
+python backend/data/migrations/002_create_timescale_warehouse.py
+
+# Run API
+uvicorn backend.server:app --reload --port 8002
+```
+
+Warehouse architecture and interview talking points: `docs/DATA_STORAGE_ARCHITECTURE.md`.
 
 ## Simulation and Data Commands
 
@@ -135,4 +158,5 @@ Large generated files are intentionally not tracked in Git (databases, model bin
 - `docs/ARCHITECTURE.md`: system design, tick phases, data flow
 - `docs/DYNAMIC_FEATURES.md`: simulation behaviors and market mechanics
 - `docs/DATA_SPECIFICATION.md`: schema and data usage guidance
+- `docs/DATA_STORAGE_ARCHITECTURE.md`: local-first warehouse design (SQLite and Timescale)
 - `backend/TESTING.md`: test inventory and run instructions

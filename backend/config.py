@@ -177,6 +177,11 @@ class HouseholdBehaviorConfig:
     # Healthcare is modeled as a non-storable service (visits), not an inventory good.
     health_recovery_per_medical_unit: float = 0.02  # Legacy fallback for old paths
     healthcare_visit_base_heal: float = 0.18
+    # Probabilistic healthcare demand:
+    # annual chance = base_chance_pct + missing_health_pct, then spread over interval ticks.
+    healthcare_request_base_chance_pct_range: Tuple[float, float] = (0.0, 50.0)
+    healthcare_episode_max_visits: int = 6
+    healthcare_followup_gap_max_ticks: int = 3
     healthcare_plan_interval_ticks: int = 52
     healthcare_visit_distribution_healthy: Tuple[Tuple[int, float], ...] = (
         (0, 0.30),
@@ -409,7 +414,7 @@ class FirmBehaviorConfig:
     healthcare_price_increase_rate: float = 0.06
     healthcare_price_decrease_rate: float = 0.03
     healthcare_price_ceiling_multiplier: float = 6.0
-    healthcare_staff_population_ratio: float = 0.002  # 0.2% of households per healthcare firm
+    healthcare_staff_population_ratio: float = 0.003  # 0.3% of households per healthcare firm
     healthcare_training_enrollment_interval_ticks: int = 52
     healthcare_training_enrollment_interval_after_cap_ticks: int = 104
     healthcare_training_fast_track_cap: int = 10
@@ -572,6 +577,20 @@ class LaborMarketConfig:
     # Regulatory
     minimum_wage_floor: float = 20.0
 
+    # Housing Market
+    rent_affordability_share: float = 0.30  # Max share of income for rent
+    rent_floor: float = 50.0  # Minimum weekly rent
+    rent_increase_high_occupancy: float = 1.02  # Rent change when >95% occupied
+    rent_increase_good_occupancy: float = 1.01  # Rent change when 80-95% occupied
+    rent_decrease_moderate_vacancy: float = 0.98  # Rent change when 50-70% occupied
+    rent_decrease_high_vacancy: float = 0.95  # Rent change when <50% occupied
+    occupancy_high_threshold: float = 0.95
+    occupancy_good_threshold: float = 0.80
+    occupancy_moderate_threshold: float = 0.70
+    occupancy_low_threshold: float = 0.50
+    rent_shortage_multiplier: float = 1.05  # Extra increase during housing shortage
+    rent_shortage_interval_ticks: int = 13  # How often shortage premium applies
+
 
 @dataclass
 class MarketMechanicsConfig:
@@ -583,6 +602,7 @@ class MarketMechanicsConfig:
 
     # Firm Exit/Entry
     bankruptcy_threshold: float = -1000.0
+    zero_cash_max_streak: int = 12  # Ticks at zero/negative cash before exit
     max_private_competitors: int = 5
     new_firm_demand_threshold: float = 1000.0  # Min household cash
 
@@ -660,12 +680,25 @@ class SimulationConfig:
             raise ValueError("min_savings_rate must be in [0, 1]")
         if not (0.0 <= self.households.max_savings_rate <= 1.0):
             raise ValueError("max_savings_rate must be in [0, 1]")
+        if self.households.min_savings_rate > self.households.max_savings_rate:
+            raise ValueError("min_savings_rate must be <= max_savings_rate")
 
         # Validate elasticities (should be positive)
         if self.households.food_elasticity < 0:
             raise ValueError("food_elasticity must be non-negative")
         if self.households.services_elasticity < 0:
             raise ValueError("services_elasticity must be non-negative")
+
+        # Validate range tuples (low <= high)
+        for name, (lo, hi) in [
+            ("spending_tendency_range", self.households.spending_tendency_range),
+            ("frugality_range", self.households.frugality_range),
+            ("health_decay_low_range", self.households.health_decay_low_range),
+            ("health_decay_mid_range", self.households.health_decay_mid_range),
+            ("health_decay_high_range", self.households.health_decay_high_range),
+        ]:
+            if lo > hi:
+                raise ValueError(f"{name} low ({lo}) must be <= high ({hi})")
 
 
 # Global configuration instance

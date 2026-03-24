@@ -11,6 +11,8 @@ Performance optimizations:
 - Batch operations to minimize Python loop overhead
 """
 
+import logging
+import os
 import random
 from typing import Dict, List, Tuple, Optional
 
@@ -18,6 +20,8 @@ from config import CONFIG
 import numpy as np
 import math
 from agents import HouseholdAgent, FirmAgent, GovernmentAgent, _get_good_category
+
+logger = logging.getLogger(__name__)
 
 
 class Economy:
@@ -100,6 +104,19 @@ class Economy:
         self.healthcare_attempted_slots_this_tick: float = 0.0
         self.healthcare_completed_visits_this_tick: float = 0.0
         self.healthcare_affordability_rejects_this_tick: float = 0.0
+        self.labor_match_mode = os.getenv("ECOSIM_LABOR_MATCH_MODE", "fast").strip().lower()
+        if self.labor_match_mode not in {"fast", "legacy"}:
+            self.labor_match_mode = "fast"
+        self.compare_labor_match = os.getenv("ECOSIM_COMPARE_LABOR_MATCH", "0").strip().lower() in {"1", "true", "yes", "on"}
+        self.compare_labor_match_stride = max(1, int(os.getenv("ECOSIM_COMPARE_LABOR_MATCH_STRIDE", "1")))
+        self.log_labor_diagnostics = os.getenv("ECOSIM_LABOR_DIAGNOSTICS", "0").strip().lower() in {"1", "true", "yes", "on"}
+        self.labor_diagnostics_stride = max(1, int(os.getenv("ECOSIM_LABOR_DIAGNOSTICS_STRIDE", "10")))
+        self.force_unemployed_search = os.getenv("ECOSIM_FORCE_UNEMPLOYED_SEARCH", "1").strip().lower() in {"1", "true", "yes", "on"}
+        self.clamp_unemployed_reservation = os.getenv("ECOSIM_CLAMP_UNEMPLOYED_RESERVATION", "1").strip().lower() in {"1", "true", "yes", "on"}
+        self.unemployed_reservation_clamp_ticks = max(1, int(os.getenv("ECOSIM_UNEMPLOYED_CLAMP_TICKS", "8")))
+        self.last_labor_diagnostics: Dict[str, float] = {}
+        self.last_labor_plan_adjustments: Dict[str, float] = {}
+        self._labor_compare_mismatch_count = 0
         self._propagate_stabilizer_flags()
 
     def _propagate_stabilizer_flags(self) -> None:
@@ -609,16 +626,13 @@ class Economy:
         self._apply_doctor_health_lock()
         self._enqueue_healthcare_requests()
 
-        good_category_lookup = self._build_good_category_lookup()
+        (
+            good_category_lookup,
+            category_market_snapshot,
+            housing_private_inventory,
+            housing_baseline_inventory,
+        ) = self._build_firm_market_views()
         total_households = len(self.households)
-        housing_private_inventory = 0.0
-        housing_baseline_inventory = 0.0
-        for firm in self.firms:
-            if firm.good_category.lower() == "housing":
-                if firm.is_baseline:
-                    housing_baseline_inventory += firm.inventory_units
-                else:
-                    housing_private_inventory += firm.inventory_units
         housing_inventory_overhang = housing_private_inventory + housing_baseline_inventory
         unemployed_count = sum(1 for h in self.households if not h.is_employed)
         unemployment_rate = (unemployed_count / total_households) if total_households > 0 else 0.0
@@ -665,6 +679,14 @@ class Economy:
             )
             firm_wage_plans[firm.firm_id] = wage_plan
 
+            # Healthcare labor is managed out-of-band from market hiring:
+            # one healthcare firm staffed by doctor/resident pool.
+            if (firm.good_category or "").lower() == "healthcare":
+                production_plan["planned_hires_count"] = 0
+                production_plan["planned_layoffs_ids"] = []
+                firm.planned_hires_count = 0
+                firm.planned_layoffs_ids = []
+
         # Enforce minimum wage floor (government policy)
         minimum_wage = self.government.get_minimum_wage()
         for wage_plan in firm_wage_plans.values():
@@ -674,8 +696,6 @@ class Economy:
         # Phase 2: Households plan
         household_labor_plans = {}
 
-        category_market_snapshot = self._build_category_market_snapshot()
-
         for household in self.households:
             household.maybe_active_education()
 
@@ -683,6 +703,7 @@ class Economy:
         for household in self.households:
             labor_plan = household.plan_labor_supply(gov_benefit)
             household_labor_plans[household.household_id] = labor_plan
+        self._normalize_household_labor_plans(household_labor_plans, firm_wage_plans)
 
         # Consumption planning now vectorized (major speedup)
         if (not self.performance_mode) or (self.current_tick % 5 == 0):
@@ -705,7 +726,7 @@ class Economy:
             )
 
         # Phase 3: Labor market matching
-        firm_labor_outcomes, household_labor_outcomes = self._match_labor(
+        firm_labor_outcomes, household_labor_outcomes = self._run_labor_matching(
             firm_production_plans,
             firm_wage_plans,
             household_labor_plans
@@ -714,9 +735,11 @@ class Economy:
         # Phase 4: Apply labor outcomes
         # Use cached wage percentiles (update every 5 ticks for performance)
         if self.current_tick - self.wage_percentile_cache_tick >= 5:
+            # Collect ALL currently-paid wages (not just new hires) for accurate percentiles.
             market_paid_wages = []
-            for outcome in firm_labor_outcomes.values():
-                market_paid_wages.extend(outcome.get("actual_wages", {}).values())
+            for firm in self.firms:
+                for eid in firm.employees:
+                    market_paid_wages.append(firm.actual_wages.get(eid, firm.wage_offer))
 
             if market_paid_wages:
                 # Use NumPy for fast percentile calculation
@@ -749,6 +772,10 @@ class Economy:
                 market_wage_anchor=anchor,
                 current_tick=self.current_tick
             )
+
+        # Keep firm-side employee rosters aligned with household employment outcomes.
+        # This prevents stale counts in firm telemetry versus unemployment metrics.
+        self._sync_firm_employee_rosters()
 
         # Update wages for continuing employees every 50 ticks (small 2-3% increases)
         if self.current_tick % 50 == 0:
@@ -799,6 +826,11 @@ class Economy:
         # Phase 7: Government plans taxes
         household_tax_snapshots = self._build_household_tax_snapshots()
         firm_tax_snapshots = self._build_firm_tax_snapshots(per_firm_sales)
+        price_ceiling_tax_by_firm_id = {
+            int(snapshot["firm_id"]): float(snapshot.get("price_ceiling_tax", 0.0))
+            for snapshot in firm_tax_snapshots
+        }
+        total_price_ceiling_taxes = sum(price_ceiling_tax_by_firm_id.values())
 
         tax_plan = self.government.plan_taxes(
             household_tax_snapshots,
@@ -814,13 +846,7 @@ class Economy:
             sales_data = per_firm_sales.get(firm.firm_id, {"units_sold": 0.0, "revenue": 0.0})
             profit_tax = tax_plan["profit_taxes"].get(firm.firm_id, 0.0)
             property_tax = tax_plan["property_taxes"].get(firm.firm_id, 0.0)
-
-            # Get price ceiling tax from firm snapshots
-            price_ceiling_tax = 0.0
-            for snapshot in firm_tax_snapshots:
-                if snapshot["firm_id"] == firm.firm_id:
-                    price_ceiling_tax = snapshot.get("price_ceiling_tax", 0.0)
-                    break
+            price_ceiling_tax = price_ceiling_tax_by_firm_id.get(firm.firm_id, 0.0)
 
             # Pay property tax if housing firm
             if property_tax > 0:
@@ -850,7 +876,6 @@ class Economy:
         total_wage_taxes = sum(tax_plan["wage_taxes"].values())
         total_profit_taxes = sum(tax_plan["profit_taxes"].values())
         total_property_taxes = sum(tax_plan["property_taxes"].values())
-        total_price_ceiling_taxes = sum(snapshot.get("price_ceiling_tax", 0.0) for snapshot in firm_tax_snapshots)
         total_transfers = sum(transfer_plan.values())
 
         self.last_tick_gov_wage_taxes = total_wage_taxes
@@ -926,6 +951,221 @@ class Economy:
         if self.post_warmup_cooldown > 0:
             self.post_warmup_cooldown -= 1
 
+    def _normalize_household_labor_plans(
+        self,
+        household_labor_plans: Dict[int, Dict],
+        firm_wage_plans: Dict[int, Dict],
+    ) -> None:
+        """
+        De-risk labor plans before matching.
+
+        - Ensure unemployed households that can work are marked as job seekers.
+        - Optionally clamp long-term unemployed reservation wages to observable market offers.
+        """
+        forced_search = 0
+        reservation_clamps = 0
+
+        max_wage_offer = max(
+            (float(plan.get("wage_offer_next", 0.0)) for plan in firm_wage_plans.values()),
+            default=0.0,
+        )
+        minimum_wage = float(self.government.get_minimum_wage())
+        reservation_cap = max(max_wage_offer, minimum_wage)
+
+        for household in self.households:
+            household_id = household.household_id
+            plan = household_labor_plans.get(household_id)
+            if plan is None:
+                continue
+
+            if not household.can_work:
+                plan["searching_for_job"] = False
+                continue
+
+            if self.force_unemployed_search and (not household.is_employed):
+                if not bool(plan.get("searching_for_job", False)):
+                    plan["searching_for_job"] = True
+                    forced_search += 1
+
+            if (
+                self.clamp_unemployed_reservation
+                and (not household.is_employed)
+                and household.unemployment_duration >= self.unemployed_reservation_clamp_ticks
+                and reservation_cap > 0.0
+            ):
+                reservation_wage = float(plan.get("reservation_wage", household.reservation_wage))
+                if reservation_wage > reservation_cap:
+                    plan["reservation_wage"] = reservation_cap
+                    reservation_clamps += 1
+
+        self.last_labor_plan_adjustments = {
+            "labor_forced_search_adjustments": float(forced_search),
+            "labor_reservation_clamp_adjustments": float(reservation_clamps),
+        }
+
+    def _run_labor_matching(
+        self,
+        firm_production_plans: Dict[int, Dict],
+        firm_wage_plans: Dict[int, Dict],
+        household_labor_plans: Dict[int, Dict]
+    ) -> Tuple[Dict[int, Dict], Dict[int, Dict]]:
+        """
+        Dispatch labor matching strategy with optional A/B verification.
+
+        - `legacy`: deterministic firm_id order, per-firm candidate scan.
+        - `fast`: indexed one-pass labor snapshot (default path for scale).
+        - Optional compare mode runs both and logs diffs for de-risking.
+        """
+        if self.current_tick % self.labor_diagnostics_stride == 0:
+            self.last_labor_diagnostics = self._compute_labor_diagnostics(
+                household_labor_plans,
+                firm_wage_plans,
+            )
+            if self.last_labor_plan_adjustments:
+                self.last_labor_diagnostics.update(self.last_labor_plan_adjustments)
+            if self.log_labor_diagnostics:
+                logger.info(
+                    "Labor diagnostics tick=%s mode=%s unemployed=%s seekers=%s not_searching_unemployed=%s cannot_work=%s wage_ineligible_seekers=%s forced_search_adjustments=%s reservation_clamp_adjustments=%s",
+                    self.current_tick,
+                    self.labor_match_mode,
+                    self.last_labor_diagnostics.get("labor_unemployed_total", 0),
+                    self.last_labor_diagnostics.get("labor_seekers_total", 0),
+                    self.last_labor_diagnostics.get("labor_unemployed_not_searching", 0),
+                    self.last_labor_diagnostics.get("labor_cannot_work", 0),
+                    self.last_labor_diagnostics.get("labor_seekers_wage_ineligible", 0),
+                    self.last_labor_diagnostics.get("labor_forced_search_adjustments", 0),
+                    self.last_labor_diagnostics.get("labor_reservation_clamp_adjustments", 0),
+                )
+
+        if self.labor_match_mode == "legacy":
+            return self._match_labor(
+                firm_production_plans,
+                firm_wage_plans,
+                household_labor_plans,
+            )
+
+        fast_outcomes = self._match_labor_fast(
+            firm_production_plans,
+            firm_wage_plans,
+            household_labor_plans,
+        )
+
+        if self.compare_labor_match and (self.current_tick % self.compare_labor_match_stride == 0):
+            legacy_outcomes = self._match_labor(
+                firm_production_plans,
+                firm_wage_plans,
+                household_labor_plans,
+            )
+            self._compare_labor_match_outcomes(fast_outcomes, legacy_outcomes)
+
+        return fast_outcomes
+
+    def _compute_labor_diagnostics(
+        self,
+        household_labor_plans: Dict[int, Dict],
+        firm_wage_plans: Dict[int, Dict],
+    ) -> Dict[str, float]:
+        """
+        Lightweight diagnostics to explain unemployment/search behavior.
+        """
+        max_wage_offer = max(
+            (float(plan.get("wage_offer_next", 0.0)) for plan in firm_wage_plans.values()),
+            default=0.0,
+        )
+
+        unemployed_total = 0
+        seekers_total = 0
+        cannot_work = 0
+        unemployed_not_searching = 0
+        wage_ineligible_seekers = 0
+        medical_only_seekers = 0
+
+        for household in self.households:
+            plan = household_labor_plans.get(household.household_id, {})
+            searching = bool(plan.get("searching_for_job", False))
+            reservation = float(plan.get("reservation_wage", household.reservation_wage))
+            medical_only = bool(plan.get("medical_only", False))
+
+            if not household.is_employed:
+                unemployed_total += 1
+            if not household.can_work:
+                cannot_work += 1
+            if searching:
+                seekers_total += 1
+                if medical_only:
+                    medical_only_seekers += 1
+                if reservation > max_wage_offer + 1e-9:
+                    wage_ineligible_seekers += 1
+            elif (not household.is_employed) and household.can_work:
+                unemployed_not_searching += 1
+
+        return {
+            "labor_unemployed_total": float(unemployed_total),
+            "labor_seekers_total": float(seekers_total),
+            "labor_cannot_work": float(cannot_work),
+            "labor_unemployed_not_searching": float(unemployed_not_searching),
+            "labor_seekers_wage_ineligible": float(wage_ineligible_seekers),
+            "labor_seekers_medical_only": float(medical_only_seekers),
+            "labor_max_wage_offer": float(max_wage_offer),
+        }
+
+    def _compare_labor_match_outcomes(
+        self,
+        fast_outcomes: Tuple[Dict[int, Dict], Dict[int, Dict]],
+        legacy_outcomes: Tuple[Dict[int, Dict], Dict[int, Dict]],
+    ) -> None:
+        """
+        Compare fast vs legacy matching and log mismatches for de-risking.
+        """
+        fast_firm, fast_household = fast_outcomes
+        legacy_firm, legacy_household = legacy_outcomes
+        mismatch_samples: List[str] = []
+
+        for firm_id in sorted(set(fast_firm.keys()) | set(legacy_firm.keys())):
+            f_out = fast_firm.get(firm_id)
+            l_out = legacy_firm.get(firm_id)
+            if f_out is None or l_out is None:
+                mismatch_samples.append(f"firm={firm_id}:missing_outcome")
+            else:
+                if f_out.get("hired_households_ids", []) != l_out.get("hired_households_ids", []):
+                    mismatch_samples.append(
+                        f"firm={firm_id}:hired_fast={f_out.get('hired_households_ids', [])[:5]} "
+                        f"legacy={l_out.get('hired_households_ids', [])[:5]}"
+                    )
+                elif f_out.get("confirmed_layoffs_ids", []) != l_out.get("confirmed_layoffs_ids", []):
+                    mismatch_samples.append(f"firm={firm_id}:layoff_mismatch")
+            if len(mismatch_samples) >= 5:
+                break
+
+        if len(mismatch_samples) < 5:
+            for household_id in sorted(set(fast_household.keys()) | set(legacy_household.keys())):
+                f_out = fast_household.get(household_id)
+                l_out = legacy_household.get(household_id)
+                if f_out is None or l_out is None:
+                    mismatch_samples.append(f"household={household_id}:missing_outcome")
+                else:
+                    wage_equal = abs(float(f_out.get("wage", 0.0)) - float(l_out.get("wage", 0.0))) <= 1e-9
+                    if (
+                        f_out.get("employer_id") != l_out.get("employer_id")
+                        or f_out.get("employer_category") != l_out.get("employer_category")
+                        or not wage_equal
+                    ):
+                        mismatch_samples.append(
+                            f"household={household_id}:fast=({f_out.get('employer_id')},{f_out.get('wage', 0.0):.2f}) "
+                            f"legacy=({l_out.get('employer_id')},{l_out.get('wage', 0.0):.2f})"
+                        )
+                if len(mismatch_samples) >= 5:
+                    break
+
+        if mismatch_samples:
+            self._labor_compare_mismatch_count += 1
+            logger.warning(
+                "Labor matcher mismatch tick=%s count=%s samples=%s",
+                self.current_tick,
+                self._labor_compare_mismatch_count,
+                "; ".join(mismatch_samples),
+            )
+
     def _match_labor(
         self,
         firm_production_plans: Dict[int, Dict],
@@ -998,6 +1238,7 @@ class Economy:
             firm_id = firm.firm_id
             production_plan = firm_production_plans[firm_id]
             wage_plan = firm_wage_plans[firm_id]
+            is_healthcare_firm = (firm.good_category or "").lower() == "healthcare"
 
             vacancies = production_plan["planned_hires_count"]
             wage_offer = wage_plan["wage_offer_next"]
@@ -1010,6 +1251,10 @@ class Economy:
                 "actual_wages": {}
             }
 
+            # Healthcare staffing is managed outside labor-market matching.
+            if is_healthcare_firm:
+                continue
+
             if vacancies <= 0:
                 continue
 
@@ -1021,6 +1266,9 @@ class Economy:
 
             for household_id, labor_plan in household_labor_plans.items():
                 if household_id not in assigned_households and labor_plan["searching_for_job"]:
+                    medical_only = bool(labor_plan.get("medical_only", False))
+                    if medical_only and not is_healthcare_firm:
+                        continue
                     # Check if household is healthy enough to work
                     household = self.household_lookup.get(household_id)
                     if household and household.can_work:
@@ -1084,6 +1332,282 @@ class Economy:
 
         return firm_labor_outcomes, household_labor_outcomes
 
+    def _match_labor_fast(
+        self,
+        firm_production_plans: Dict[int, Dict],
+        firm_wage_plans: Dict[int, Dict],
+        household_labor_plans: Dict[int, Dict]
+    ) -> Tuple[Dict[int, Dict], Dict[int, Dict]]:
+        """
+        Indexed labor matching for large populations.
+
+        Behavioral intent preserved:
+        - incumbent retention unless planned layoff
+        - reservation wage eligibility
+        - skill-first ranking with household_id tie-break
+        - healthcare excluded from market matching
+
+        Performance changes:
+        - build active non-healthcare candidate snapshot once per tick
+        - index candidates by reservation wage level once
+        - query "best available candidate under wage_offer" efficiently
+        - process only active hiring firms (planned_hires_count > 0)
+        - randomized firm hiring order per tick with deterministic seed
+
+        Matching flow:
+        1. Build baseline household outcomes (keep incumbents unless laid off).
+        2. Build one active labor pool snapshot:
+           searching_for_job and can_work and not medical_only and not assigned.
+        3. Bucket pool by reservation wage and sort each bucket by
+           (skills desc, household_id asc).
+        4. Build prefix-query index (segment tree) across buckets.
+        5. Randomize active hiring firm order (seeded by random_seed + tick).
+        6. For each firm, repeatedly select the best candidate from all
+           reservation_wage <= wage_offer buckets.
+        7. Mark hires assigned immediately so candidates cannot be double-hired.
+
+        Important behavior note:
+        The selection is "best among all eligible wage buckets", so firms
+        naturally fall back to lower-skill candidates after top candidates
+        are consumed. This avoids artificial shortages from hard skill buckets.
+        """
+        firm_labor_outcomes: Dict[int, Dict] = {}
+        household_labor_outcomes: Dict[int, Dict] = {}
+
+        planned_layoffs_set = set()
+        for plan in firm_production_plans.values():
+            planned_layoffs_set.update(plan.get("planned_layoffs_ids", []))
+
+        n_households = len(self.households)
+        household_ids = np.empty(n_households, dtype=np.int32)
+        skills = np.empty(n_households, dtype=np.float32)
+        reservation_wages = np.empty(n_households, dtype=np.float32)
+        searching = np.zeros(n_households, dtype=np.bool_)
+        can_work = np.zeros(n_households, dtype=np.bool_)
+        medical_only = np.zeros(n_households, dtype=np.bool_)
+        assigned = np.zeros(n_households, dtype=np.bool_)
+
+        for idx, household in enumerate(self.households):
+            household_id = household.household_id
+            household_ids[idx] = household_id
+
+            plan = household_labor_plans.get(household_id, {})
+            skills[idx] = float(plan.get("skills_level", household.skills_level))
+            reservation_wages[idx] = float(plan.get("reservation_wage", household.reservation_wage))
+            searching[idx] = bool(plan.get("searching_for_job", False))
+            can_work[idx] = household.can_work
+            medical_only[idx] = bool(plan.get("medical_only", False))
+
+            if not can_work[idx]:
+                household_labor_outcomes[household_id] = {
+                    "employer_id": None,
+                    "wage": 0.0,
+                    "employer_category": None
+                }
+                continue
+
+            # Keep incumbents by default (unless they are in planned layoffs),
+            # which matches the legacy behavior and avoids unnecessary churn.
+            if household.is_employed and household_id not in planned_layoffs_set:
+                employer_id = household.employer_id
+                employer_category = None
+                if employer_id is not None and employer_id in self.firm_lookup:
+                    employer_category = self.firm_lookup[employer_id].good_category
+                household_labor_outcomes[household_id] = {
+                    "employer_id": employer_id,
+                    "wage": household.wage,
+                    "employer_category": employer_category
+                }
+                assigned[idx] = True
+            else:
+                household_labor_outcomes[household_id] = {
+                    "employer_id": None,
+                    "wage": 0.0,
+                    "employer_category": None
+                }
+
+        # Maintain behavior for any labor-plan IDs not in self.households.
+        for household_id in household_labor_plans.keys():
+            if household_id not in household_labor_outcomes:
+                household_labor_outcomes[household_id] = {
+                    "employer_id": None,
+                    "wage": 0.0,
+                    "employer_category": None
+                }
+
+        # Initialize all firm outcomes up front and collect only firms that
+        # are actively hiring in the non-healthcare labor market.
+        active_hiring_firm_ids: List[int] = []
+        for firm in self.firms:
+            firm_id = firm.firm_id
+            production_plan = firm_production_plans[firm_id]
+            confirmed_layoffs = production_plan["planned_layoffs_ids"]
+            vacancies = int(production_plan["planned_hires_count"])
+            is_healthcare_firm = (firm.good_category or "").lower() == "healthcare"
+
+            firm_labor_outcomes[firm_id] = {
+                "hired_households_ids": [],
+                "confirmed_layoffs_ids": confirmed_layoffs,
+                "actual_wages": {}
+            }
+
+            if is_healthcare_firm or vacancies <= 0:
+                continue
+            active_hiring_firm_ids.append(firm_id)
+
+        if not active_hiring_firm_ids:
+            return firm_labor_outcomes, household_labor_outcomes
+
+        # One-time active labor pool snapshot for this tick.
+        # Only households relevant to non-healthcare market matching are included.
+        candidate_mask = (~assigned) & searching & can_work & (~medical_only)
+        candidate_indices = np.nonzero(candidate_mask)[0]
+        if candidate_indices.size == 0:
+            return firm_labor_outcomes, household_labor_outcomes
+
+        candidate_reservations = reservation_wages[candidate_indices]
+        # Distinct reservation levels become wage buckets.
+        reservation_levels = np.unique(candidate_reservations)
+        if reservation_levels.size == 0:
+            return firm_labor_outcomes, household_labor_outcomes
+
+        # Reservation wage buckets (exact levels): each bucket stores candidates
+        # sorted by skill desc, then household_id asc.
+        bucket_ids = np.searchsorted(reservation_levels, candidate_reservations, side="left")
+        num_buckets = int(reservation_levels.size)
+        buckets: List[List[int]] = [[] for _ in range(num_buckets)]
+        for local_pos, bucket_id in enumerate(bucket_ids):
+            candidate_idx = int(candidate_indices[local_pos])
+            buckets[int(bucket_id)].append(candidate_idx)
+        for bucket in buckets:
+            bucket.sort(key=lambda idx: (-float(skills[idx]), int(household_ids[idx])))
+
+        bucket_positions = np.zeros(num_buckets, dtype=np.int32)
+        invalid_best = (-1.0, -1_000_000_000, -1, -1)  # (skill, -household_id, idx, bucket_id)
+
+        def _peek_bucket(bucket_id: int) -> Tuple[float, int, int, int]:
+            """Return current best candidate for a reservation bucket."""
+            position = int(bucket_positions[bucket_id])
+            bucket = buckets[bucket_id]
+            while position < len(bucket) and assigned[bucket[position]]:
+                position += 1
+            bucket_positions[bucket_id] = position
+            if position >= len(bucket):
+                return invalid_best
+            candidate_idx = bucket[position]
+            return (
+                float(skills[candidate_idx]),
+                -int(household_ids[candidate_idx]),
+                candidate_idx,
+                bucket_id,
+            )
+
+        # Segment tree over reservation buckets for fast "best skill in
+        # reservation <= wage_offer" prefix queries.
+        # Each leaf is the current best candidate of one wage bucket.
+        # Internal nodes cache max candidate by (skill, tie-break, index).
+        tree_size = 1
+        while tree_size < num_buckets:
+            tree_size *= 2
+        segment_tree: List[Tuple[float, int, int, int]] = [invalid_best] * (2 * tree_size)
+
+        for bucket_id in range(num_buckets):
+            segment_tree[tree_size + bucket_id] = _peek_bucket(bucket_id)
+        for node in range(tree_size - 1, 0, -1):
+            left = segment_tree[2 * node]
+            right = segment_tree[2 * node + 1]
+            segment_tree[node] = left if left >= right else right
+
+        def _update_bucket(bucket_id: int) -> None:
+            node = tree_size + bucket_id
+            segment_tree[node] = _peek_bucket(bucket_id)
+            node //= 2
+            while node > 0:
+                left = segment_tree[2 * node]
+                right = segment_tree[2 * node + 1]
+                segment_tree[node] = left if left >= right else right
+                node //= 2
+
+        def _query_best_up_to_bucket(max_bucket: int) -> Tuple[float, int, int, int]:
+            if max_bucket < 0:
+                return invalid_best
+            max_bucket = min(max_bucket, num_buckets - 1)
+            left = tree_size
+            right = tree_size + max_bucket + 1
+            best = invalid_best
+            while left < right:
+                if left & 1:
+                    if segment_tree[left] > best:
+                        best = segment_tree[left]
+                    left += 1
+                if right & 1:
+                    right -= 1
+                    if segment_tree[right] > best:
+                        best = segment_tree[right]
+                left //= 2
+                right //= 2
+            return best
+
+        # Randomize active hiring order per tick to reduce first-mover bias.
+        # Seed formula keeps run-to-run reproducibility under same seed.
+        shuffle_rng = random.Random(int(CONFIG.random_seed) + self.current_tick * 104729 + 911)
+        shuffle_rng.shuffle(active_hiring_firm_ids)
+
+        for firm_id in active_hiring_firm_ids:
+            firm = self.firm_lookup.get(firm_id)
+            if firm is None:
+                continue
+
+            production_plan = firm_production_plans[firm_id]
+            wage_plan = firm_wage_plans[firm_id]
+            vacancies = int(production_plan["planned_hires_count"])
+            wage_offer = float(wage_plan["wage_offer_next"])
+
+            # Reservation eligibility boundary: only reservation_wage <= wage_offer.
+            max_bucket = int(np.searchsorted(reservation_levels, wage_offer, side="right") - 1)
+            if max_bucket < 0:
+                continue
+
+            while vacancies > 0:
+                # Select global best candidate among all wage-eligible buckets.
+                # If top-skill candidates are exhausted, this naturally falls
+                # back to lower-skill candidates before leaving vacancies open.
+                _, _, candidate_idx, bucket_id = _query_best_up_to_bucket(max_bucket)
+                if candidate_idx < 0 or bucket_id < 0:
+                    break
+
+                # Consume this bucket head and refresh tree immediately.
+                bucket_positions[bucket_id] += 1
+                _update_bucket(bucket_id)
+
+                # Candidate can already be assigned by an earlier firm in this
+                # tick; stale entries are skipped lazily.
+                if assigned[candidate_idx]:
+                    continue
+
+                household_id = int(household_ids[candidate_idx])
+                household = self.household_lookup.get(household_id)
+                if household is None:
+                    continue
+
+                skill_premium = float(skills[candidate_idx]) * 0.25
+                experience_ticks = household.category_experience.get(firm.good_category, 0)
+                experience_years = experience_ticks / 52.0
+                experience_premium = min(experience_years * 0.03, 0.3)
+                actual_wage = wage_offer * (1.0 + skill_premium + experience_premium)
+
+                firm_labor_outcomes[firm_id]["hired_households_ids"].append(household_id)
+                firm_labor_outcomes[firm_id]["actual_wages"][household_id] = actual_wage
+                household_labor_outcomes[household_id] = {
+                    "employer_id": firm_id,
+                    "wage": actual_wage,
+                    "employer_category": firm.good_category
+                }
+                assigned[candidate_idx] = True
+                vacancies -= 1
+
+        return firm_labor_outcomes, household_labor_outcomes
+
     def _update_continuing_employee_wages(self) -> None:
         """
         Update wages for continuing employees every 50 ticks.
@@ -1113,6 +1637,73 @@ class Economy:
                     # Update the wage
                     firm.actual_wages[employee_id] = new_wage
                     household.last_wage_update_tick = self.current_tick
+
+    def _sync_firm_employee_rosters(self) -> None:
+        """
+        Rebuild firm employee lists from household employer links.
+
+        This enforces one source of truth (household.employer_id) and avoids
+        stale employee records in firm aggregates and frontend telemetry.
+        """
+        employees_by_firm: Dict[int, List[int]] = {firm.firm_id: [] for firm in self.firms}
+        healthcare_firms = sorted(
+            [firm for firm in self.firms if (firm.good_category or "").lower() == "healthcare"],
+            key=lambda firm: firm.firm_id,
+        )
+        primary_healthcare_firm = healthcare_firms[0] if healthcare_firms else None
+        primary_healthcare_firm_id = primary_healthcare_firm.firm_id if primary_healthcare_firm is not None else None
+
+        for household in self.households:
+            household_is_medical_only = household.medical_training_status in {"resident", "doctor"}
+
+            # One-healthcare-firm model: all residents/doctors are attached there.
+            if household_is_medical_only:
+                if primary_healthcare_firm_id is None or primary_healthcare_firm is None:
+                    household.employer_id = None
+                    household.wage = 0.0
+                    continue
+
+                household.employer_id = primary_healthcare_firm_id
+                assigned_wage = primary_healthcare_firm.actual_wages.get(
+                    household.household_id,
+                    max(primary_healthcare_firm.wage_offer, household.reservation_wage),
+                )
+                household.wage = max(assigned_wage, 1.0)
+                primary_healthcare_firm.actual_wages[household.household_id] = household.wage
+                employees_by_firm[primary_healthcare_firm_id].append(household.household_id)
+                continue
+
+            employer_id = household.employer_id
+            if employer_id is None:
+                continue
+            if employer_id not in self.firm_lookup:
+                household.employer_id = None
+                household.wage = 0.0
+                continue
+
+            employer = self.firm_lookup[employer_id]
+            employer_is_healthcare = (employer.good_category or "").lower() == "healthcare"
+
+            # Non-medical workers cannot be employed by healthcare firms.
+            if employer_is_healthcare:
+                household.employer_id = None
+                household.wage = 0.0
+                continue
+
+            employees_by_firm[employer_id].append(household.household_id)
+
+        for firm in self.firms:
+            roster = employees_by_firm.get(firm.firm_id, [])
+            firm.employees = roster
+
+            synced_wages: Dict[int, float] = {}
+            for household_id in roster:
+                household = self.household_lookup.get(household_id)
+                if household is not None and household.wage > 0.0:
+                    synced_wages[household_id] = household.wage
+                else:
+                    synced_wages[household_id] = firm.actual_wages.get(household_id, firm.wage_offer)
+            firm.actual_wages = synced_wages
 
     def _clear_goods_market(
         self,
@@ -1150,8 +1741,9 @@ class Economy:
             idx_list.sort(key=lambda i: (firm_prices[i], firm_ids[i]))
             goods_to_indices[good_name] = np.array(idx_list, dtype=np.int32)
 
-        # Process households in ID order
-        for household_id, consumption_plan in sorted(household_consumption_plans.items(), key=lambda x: x[0]):
+        # Process households in insertion order. Plans are constructed by household order,
+        # so this avoids an O(H log H) sort each tick.
+        for household_id, consumption_plan in household_consumption_plans.items():
             per_household_purchases[household_id] = {}
             planned = consumption_plan["planned_purchases"]
 
@@ -1217,6 +1809,50 @@ class Economy:
                     )
 
         return per_household_purchases, per_firm_sales
+
+    def _build_firm_market_views(
+        self,
+    ) -> Tuple[Dict[str, str], Dict[str, List[Dict[str, float]]], float, float]:
+        """
+        Build per-tick firm views in one pass.
+
+        Returns:
+            good_category_lookup, category_market_snapshot,
+            housing_private_inventory, housing_baseline_inventory
+        """
+        good_category_lookup: Dict[str, str] = {}
+        category_market_snapshot: Dict[str, List[Dict[str, float]]] = {}
+        housing_private_inventory = 0.0
+        housing_baseline_inventory = 0.0
+
+        for firm in self.firms:
+            category_key = firm.good_category.lower()
+            good_category_lookup[firm.good_name] = category_key
+
+            if category_key == "housing":
+                if firm.is_baseline:
+                    housing_baseline_inventory += firm.inventory_units
+                else:
+                    housing_private_inventory += firm.inventory_units
+
+            if category_key == "healthcare":
+                # Healthcare is queue-based service throughput, not a shoppable goods category.
+                continue
+
+            category_market_snapshot.setdefault(category_key, []).append({
+                "firm_id": firm.firm_id,
+                "good_name": firm.good_name,
+                "price": firm.price,
+                "quality": firm.quality_level,
+                "inventory": firm.inventory_units,
+            })
+
+        return (
+            good_category_lookup,
+            category_market_snapshot,
+            housing_private_inventory,
+            housing_baseline_inventory,
+        )
 
     def _build_category_market_snapshot(self) -> Dict[str, List[Dict[str, float]]]:
         """Provide firms grouped by category for household consumption planning."""
@@ -1511,8 +2147,8 @@ class Economy:
             List of dicts with firm_id, profit_before_tax, and price_ceiling_tax
         """
         snapshots = []
-        PRICE_CEILING = 50.0  # Price ceiling threshold
-        PRICE_CEILING_TAX_RATE = 0.25  # 25% tax on revenue from sales above ceiling
+        PRICE_CEILING = CONFIG.market.price_ceiling
+        PRICE_CEILING_TAX_RATE = CONFIG.market.price_ceiling_tax_rate
 
         for firm in self.firms:
             sales_data = per_firm_sales.get(firm.firm_id, {"revenue": 0.0, "units_sold": 0.0})
@@ -1626,8 +2262,8 @@ class Economy:
 
         Mutates state.
         """
-        bankruptcy_threshold = -1000.0  # Firms below this cash level exit
-        zero_cash_max_streak = 12  # Ticks allowed at zero/negative cash before exit
+        bankruptcy_threshold = CONFIG.market.bankruptcy_threshold
+        zero_cash_max_streak = CONFIG.market.zero_cash_max_streak
 
         firms_to_remove = []
         for firm in self.firms:
@@ -2106,6 +2742,8 @@ class Economy:
         if not housing_firms:
             return  # No housing available
 
+        rent_share = CONFIG.labor_market.rent_affordability_share
+
         # Phase 1: Check affordability and evict households who can't pay
         for household in self.households:
             if household.renting_from_firm_id is not None:
@@ -2119,9 +2757,9 @@ class Economy:
                     household.owns_housing = False
                     continue
 
-                # Check if household can afford rent (rent <= 30% of income)
-                income = household.wage if household.is_employed else 0.0
-                max_affordable_rent = income * 0.30
+                # Check if household can afford rent (rent <= configured share of earned wage only).
+                income = household.wage if household.employer_id is not None else 0.0
+                max_affordable_rent = income * rent_share
 
                 if household.monthly_rent > max_affordable_rent or household.cash_balance < household.monthly_rent:
                     # EVICTION: Can't afford rent
@@ -2143,8 +2781,8 @@ class Economy:
         homeless_households.sort(key=lambda h: h.wage if h.is_employed else 0.0, reverse=True)
 
         for household in homeless_households:
-            income = household.wage if household.is_employed else 0.0
-            max_affordable_rent = income * 0.30
+            income = household.wage if household.employer_id is not None else 0.0
+            max_affordable_rent = income * rent_share
 
             # Find cheapest housing firm with available units that household can afford
             affordable_housing = [
@@ -2171,28 +2809,24 @@ class Economy:
         shortage = total_units < len(self.households)
 
         # Phase 3: Housing firms adjust rent based on occupancy
+        lm = CONFIG.labor_market
         for firm in housing_firms:
             occupancy_rate = len(firm.current_tenants) / max(firm.max_rental_units, 1)
 
             # Seek equilibrium: raise rent if fully occupied, lower if vacant
-            if occupancy_rate >= 0.95:
-                # Nearly full - raise rent by 2%
-                firm.price *= 1.02
-            elif occupancy_rate >= 0.80:
-                # Good occupancy - raise rent by 1%
-                firm.price *= 1.01
-            elif occupancy_rate < 0.50:
-                # High vacancy - lower rent by 5%
-                firm.price *= 0.95
-            elif occupancy_rate < 0.70:
-                # Moderate vacancy - lower rent by 2%
-                firm.price *= 0.98
+            if occupancy_rate >= lm.occupancy_high_threshold:
+                firm.price *= lm.rent_increase_high_occupancy
+            elif occupancy_rate >= lm.occupancy_good_threshold:
+                firm.price *= lm.rent_increase_good_occupancy
+            elif occupancy_rate < lm.occupancy_low_threshold:
+                firm.price *= lm.rent_decrease_high_vacancy
+            elif occupancy_rate < lm.occupancy_moderate_threshold:
+                firm.price *= lm.rent_decrease_moderate_vacancy
 
-            # Ensure rent doesn't drop below $50/week
-            firm.price = max(50.0, firm.price)
+            firm.price = max(lm.rent_floor, firm.price)
 
-            if shortage and occupancy_rate >= 0.95 and self.current_tick % 13 == 0:
-                firm.price *= 1.05
+            if shortage and occupancy_rate >= lm.occupancy_high_threshold and self.current_tick % lm.rent_shortage_interval_ticks == 0:
+                firm.price *= lm.rent_shortage_multiplier
 
     def _apply_housing_repairs(self) -> None:
         """Apply random weekly repair costs to housing firms."""
@@ -2449,15 +3083,36 @@ class Economy:
                 continue
 
             per_firm_sales.setdefault(firm.firm_id, {"units_sold": 0.0, "revenue": 0.0})
-            max_cycle_attempts = len(firm.healthcare_queue)
-            cycle_attempts = 0
+            queue_ids = firm.healthcare_queue
+            queue_len = len(queue_ids)
+
+            # Fairness: rotate queue scan origin each tick for non-priority queues.
+            start_idx = 0
+            if queue_len > 1:
+                lead_household = self.household_lookup.get(queue_ids[0])
+                lead_is_priority_doctor = (
+                    lead_household is not None
+                    and lead_household.medical_training_status == "doctor"
+                    and lead_household.health < CONFIG.households.healthcare_worker_priority_health_threshold
+                )
+                if not lead_is_priority_doctor:
+                    start_idx = (self.current_tick + firm.firm_id) % queue_len
+
+            if start_idx > 0:
+                ordered_queue = queue_ids[start_idx:] + queue_ids[:start_idx]
+            else:
+                ordered_queue = list(queue_ids)
+
+            next_queue: List[int] = []
             completed = 0
 
-            while completed < slots_to_attempt and firm.healthcare_queue and cycle_attempts < max_cycle_attempts:
-                household_id = firm.healthcare_queue.pop(0)
+            for household_id in ordered_queue:
+                if completed >= slots_to_attempt:
+                    next_queue.append(household_id)
+                    continue
+
                 household = self.household_lookup.get(household_id)
                 if household is None:
-                    cycle_attempts += 1
                     continue
 
                 visit_price = max(0.0, firm.price)
@@ -2466,10 +3121,9 @@ class Economy:
 
                 if household.cash_balance + 1e-9 < household_cost:
                     # Cannot afford this tick; keep queued.
-                    firm.healthcare_queue.append(household_id)
+                    next_queue.append(household_id)
                     household.queued_healthcare_firm_id = firm.firm_id
                     self.healthcare_affordability_rejects_this_tick += 1.0
-                    cycle_attempts += 1
                     continue
 
                 if household_cost > 0.0:
@@ -2492,6 +3146,8 @@ class Economy:
                 household.queued_healthcare_firm_id = None
 
                 completed += 1
+
+            firm.healthcare_queue = next_queue
 
             if completed > 0:
                 firm.healthcare_idle_streak = 0
@@ -2694,6 +3350,24 @@ class Economy:
                 "mean_happiness": 0.0, "mean_morale": 0.0, "mean_health": 0.0,
                 "mean_skills": 0.0
             })
+
+        # Optional labor diagnostics to explain unemployment/search dynamics.
+        if self.last_labor_diagnostics:
+            metrics.update(self.last_labor_diagnostics)
+        else:
+            metrics.update({
+                "labor_unemployed_total": 0.0,
+                "labor_seekers_total": 0.0,
+                "labor_cannot_work": 0.0,
+                "labor_unemployed_not_searching": 0.0,
+                "labor_seekers_wage_ineligible": 0.0,
+                "labor_seekers_medical_only": 0.0,
+                "labor_max_wage_offer": 0.0,
+                "labor_forced_search_adjustments": 0.0,
+                "labor_reservation_clamp_adjustments": 0.0,
+            })
+        metrics.setdefault("labor_forced_search_adjustments", 0.0)
+        metrics.setdefault("labor_reservation_clamp_adjustments", 0.0)
 
         # Firm metrics
         if self.firms:

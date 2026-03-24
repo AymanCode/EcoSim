@@ -305,24 +305,34 @@ const LineChart = ({ title, data, color, minScale = 0, suffix = "", formatValue 
   const colors = Array.isArray(color) ? color : [color];
 
   // Check if we have enough data in the primary dataset
-  if (!datasets[0] || datasets[0].length < 2) {
+  if (!datasets[0] || datasets[0].length < 1) {
     return (
       <div className="flex-1 flex items-center justify-center text-slate-600 font-mono text-xs border border-slate-700/50 bg-slate-900/40 rounded h-32">
-        {datasets[0] && datasets[0].length === 1 ? "CALCULATING..." : "AWAITING DATA"}
+        AWAITING DATA
       </div>
     );
   }
 
+  // Keep charts visible with a single sample by duplicating the point.
+  const normalizedDatasets = datasets.map(ds => {
+    if (!Array.isArray(ds) || ds.length !== 1) return ds;
+    const first = ds[0];
+    return [
+      first,
+      { tick: (first?.tick ?? 0) + 1, value: first?.value ?? 0 }
+    ];
+  });
+
   // Pre-process data for Recharts (array of objects)
-  const chartData = datasets[0].map((_, i) => {
+  const chartData = normalizedDatasets[0].map((_, i) => {
     const point = { index: i };
-    datasets.forEach((ds, dIdx) => {
+    normalizedDatasets.forEach((ds, dIdx) => {
       point[`value${dIdx}`] = ds[i]?.value || 0;
     });
     return point;
   });
 
-  const lastValue = datasets[0][datasets[0].length - 1].value;
+  const lastValue = normalizedDatasets[0][normalizedDatasets[0].length - 1].value;
   const safeGradientId = `grad-${title.replace(/[^a-zA-Z0-9]/g, '')}-${Math.floor(Math.random() * 1000)}`;
 
   return (
@@ -343,7 +353,7 @@ const LineChart = ({ title, data, color, minScale = 0, suffix = "", formatValue 
         <ResponsiveContainer width="100%" height="100%">
           <AreaChart data={chartData} margin={{ top: 5, right: 0, left: 0, bottom: 0 }}>
             <defs>
-              {datasets.map((_, dIdx) => (
+              {normalizedDatasets.map((_, dIdx) => (
                 <linearGradient key={dIdx} id={`${safeGradientId}-${dIdx}`} x1="0" y1="0" x2="0" y2="1">
                   <stop offset="5%" stopColor={colors[dIdx % colors.length]} stopOpacity={0.25} />
                   <stop offset="95%" stopColor={colors[dIdx % colors.length]} stopOpacity={0.02} />
@@ -368,7 +378,7 @@ const LineChart = ({ title, data, color, minScale = 0, suffix = "", formatValue 
               cursor={{ stroke: 'rgba(100, 116, 139, 0.3)', strokeWidth: 1 }}
               isAnimationActive={false}
             />
-            {datasets.map((_, dIdx) => (
+            {normalizedDatasets.map((_, dIdx) => (
               <Area
                 key={dIdx}
                 type="monotone"
@@ -411,6 +421,8 @@ export default function EcoSimUI() {
     happiness: 50,
     housingInv: 0,
     avgWage: 0.0,
+    avgExpectedWage: 0.0,
+    avgExpectedWageUnemployed: 0.0,
     giniCoefficient: 0.0,
     top10Share: 0.0,
     bottom50Share: 0.0,
@@ -442,7 +454,7 @@ export default function EcoSimUI() {
     inflationRate: 0.02,
     birthRate: 0.01,
     minimumWage: 20.0,
-    unemploymentBenefitRate: 0.4,
+    unemploymentBenefitRate: 0.0,
     universalBasicIncome: 0.0,
     wealthTaxThreshold: 50000,
     wealthTaxRate: 0.0
@@ -544,7 +556,11 @@ export default function EcoSimUI() {
                 <td className="py-1 pr-2 font-display text-xs">{row.name}</td>
                 <td className="py-1 pr-2 text-slate-500">{row.category}</td>
                 <td className="py-1 pr-2 text-right">{formatCurrency(row.cash)}</td>
-                <td className="py-1 pr-2 text-right">{row.employees}</td>
+                <td className="py-1 pr-2 text-right">
+                  {row.category === 'Healthcare'
+                    ? (row.doctorEmployees || row.medicalEmployees || row.employees)
+                    : row.employees}
+                </td>
                 <td className="py-1 pr-2 text-right">{formatCurrency(row.price, 2)}</td>
                 <td className="py-1 pr-2 text-right">{formatCurrency(row.wageOffer, 2)}</td>
                 <td className="py-1 pl-2 text-right">{formatCurrency(row.lastProfit, 2)}</td>
@@ -621,6 +637,8 @@ export default function EcoSimUI() {
             happiness: 50,
             housingInv: 0,
             avgWage: 0,
+            avgExpectedWage: 0.0,
+            avgExpectedWageUnemployed: 0.0,
             giniCoefficient: 0.0,
             top10Share: 0.0,
             bottom50Share: 0.0,
@@ -1066,8 +1084,8 @@ export default function EcoSimUI() {
                         <div className="flex justify-between items-start mb-0.5">
                           <span className="text-[10px] font-mono text-slate-500">ID: {subject.id.toString().padStart(4, '0')}</span>
                           <div className={`h-1.5 w-1.5 rounded-full ${subject.state === 'WORKING' ? 'bg-emerald-500 shadow-[0_0_5px_#10b981]' :
-                            subject.state === 'SLEEPING' ? 'bg-indigo-500' :
-                              subject.state === 'STRESSED' ? 'bg-rose-500' :
+                            subject.state === 'MED_SCHOOL' ? 'bg-violet-500 shadow-[0_0_5px_#8b5cf6]' :
+                              subject.state === 'UNEMPLOYED' ? 'bg-rose-500 shadow-[0_0_5px_#f43f5e]' :
                                 'bg-amber-500'
                             }`}></div>
                         </div>
@@ -1106,6 +1124,12 @@ export default function EcoSimUI() {
                             <span className="text-[9px] text-slate-500">STATUS</span>
                             <span className="font-mono text-xs text-sky-400">{metrics.trackedSubjects[activeSubjectIndex].state}</span>
                           </div>
+                          <div className="flex justify-between items-center border-t border-slate-800 pt-0.5">
+                            <span className="text-[9px] text-slate-500">MEDICAL TRACK</span>
+                            <span className="font-mono text-xs text-violet-300">
+                              {(metrics.trackedSubjects[activeSubjectIndex].medicalStatus || 'none').toUpperCase()}
+                            </span>
+                          </div>
                         </div>
                       </div>
 
@@ -1131,10 +1155,91 @@ export default function EcoSimUI() {
                             <div className="text-right">
                               <div className="text-[9px] text-slate-500 mb-0.5">SHIFT</div>
                               <div className="font-mono text-[10px] text-slate-300">
-                                {metrics.trackedSubjects[activeSubjectIndex].state === 'WORKING' ? 'ACTIVE' : 'OFF'}
+                                {metrics.trackedSubjects[activeSubjectIndex].state === 'WORKING'
+                                  ? 'ACTIVE'
+                                  : metrics.trackedSubjects[activeSubjectIndex].state === 'MED_SCHOOL'
+                                    ? 'TRAINING'
+                                    : 'OFF'}
                               </div>
                             </div>
                           </div>
+                        </div>
+                      </div>
+
+                      {/* POPULATION WAGE EXPECTATIONS */}
+                      <div className="tech-panel p-2 tech-corners">
+                        <h4 className="text-[9px] font-bold text-violet-400 uppercase tracking-widest mb-1 flex items-center">
+                          <Activity size={10} className="mr-1" /> Wage Expectations
+                        </h4>
+                        <div className="space-y-1">
+                          <div className="flex justify-between items-center border-b border-slate-800 pb-0.5">
+                            <span className="text-[9px] text-slate-500">AVG (ALL HH)</span>
+                            <span className="font-mono text-xs text-violet-300">{formatCurrency(metrics.avgExpectedWage || 0, 2)}</span>
+                          </div>
+                          <div className="flex justify-between items-center border-b border-slate-800 pb-0.5">
+                            <span className="text-[9px] text-slate-500">AVG (UNEMPLOYED)</span>
+                            <span className="font-mono text-xs text-violet-300">{formatCurrency(metrics.avgExpectedWageUnemployed || 0, 2)}</span>
+                          </div>
+                          <div className="flex justify-between items-center">
+                            <span className="text-[9px] text-slate-500">SUBJECT TARGET</span>
+                            <span className="font-mono text-xs text-slate-300">
+                              {formatCurrency(metrics.trackedSubjects[activeSubjectIndex].expectedWage || 0, 2)}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* SUBJECT EXPECTED WAGE DRIVERS */}
+                      <div className="tech-panel p-2 tech-corners">
+                        <h4 className="text-[9px] font-bold text-fuchsia-400 uppercase tracking-widest mb-1 flex items-center">
+                          <Terminal size={10} className="mr-1" /> Target Wage Drivers
+                        </h4>
+                        <div className="space-y-1">
+                          <div className="flex justify-between items-center border-b border-slate-800 pb-0.5">
+                            <span className="text-[9px] text-slate-500">MODE</span>
+                            <span className="font-mono text-[10px] text-fuchsia-300">
+                              {metrics.trackedSubjects[activeSubjectIndex].expectedWageReason?.mode || 'N/A'}
+                            </span>
+                          </div>
+                          <div className="flex justify-between items-center border-b border-slate-800 pb-0.5">
+                            <span className="text-[9px] text-slate-500">RESERVATION</span>
+                            <span className="font-mono text-xs text-slate-300">
+                              {formatCurrency(metrics.trackedSubjects[activeSubjectIndex].reservationWage || 0, 2)}
+                            </span>
+                          </div>
+                          <div className="flex justify-between items-center border-b border-slate-800 pb-0.5">
+                            <span className="text-[9px] text-slate-500">GAP VS CURRENT</span>
+                            <span className={`font-mono text-xs ${((metrics.trackedSubjects[activeSubjectIndex].expectedWageReason?.gapToCurrentWage || 0) >= 0 ? 'text-amber-300' : 'text-emerald-300')}`}>
+                              {formatCurrency(metrics.trackedSubjects[activeSubjectIndex].expectedWageReason?.gapToCurrentWage || 0, 2)}
+                            </span>
+                          </div>
+                          <div className="flex justify-between items-center border-b border-slate-800 pb-0.5">
+                            <span className="text-[9px] text-slate-500">UNEMP DURATION</span>
+                            <span className="font-mono text-xs text-slate-300">
+                              {(metrics.trackedSubjects[activeSubjectIndex].unemploymentDuration || 0).toFixed(0)} ticks
+                            </span>
+                          </div>
+                          <div className="grid grid-cols-2 gap-2 pt-0.5">
+                            <div className="text-[9px] text-slate-500">Duration Pressure: <span className="font-mono text-slate-300">{(metrics.trackedSubjects[activeSubjectIndex].expectedWageReason?.durationPressure || 0).toFixed(3)}</span></div>
+                            <div className="text-[9px] text-slate-500">Cash Pressure: <span className="font-mono text-slate-300">{(metrics.trackedSubjects[activeSubjectIndex].expectedWageReason?.cashPressure || 0).toFixed(3)}</span></div>
+                            <div className="text-[9px] text-slate-500">Health Pressure: <span className="font-mono text-slate-300">{(metrics.trackedSubjects[activeSubjectIndex].expectedWageReason?.healthPressure || 0).toFixed(3)}</span></div>
+                            <div className="text-[9px] text-slate-500">Decay Factor: <span className="font-mono text-slate-300">{(metrics.trackedSubjects[activeSubjectIndex].expectedWageReason?.decayFactor || 0).toFixed(3)}</span></div>
+                          </div>
+                          <div className="flex justify-between items-center border-t border-slate-800 pt-1">
+                            <span className="text-[9px] text-slate-500">MARKET ANCHOR (EST)</span>
+                            <span className="font-mono text-xs text-slate-300">
+                              {formatCurrency(metrics.trackedSubjects[activeSubjectIndex].expectedWageReason?.marketAnchorEstimate || 0, 2)}
+                            </span>
+                          </div>
+                          {(metrics.trackedSubjects[activeSubjectIndex].expectedWageReason?.tags || []).length > 0 && (
+                            <div className="flex flex-wrap gap-1 pt-1">
+                              {(metrics.trackedSubjects[activeSubjectIndex].expectedWageReason?.tags || []).map((tag, idx) => (
+                                <span key={`${tag}-${idx}`} className="text-[9px] px-1.5 py-0.5 rounded border border-fuchsia-500/40 text-fuchsia-300 bg-fuchsia-500/5">
+                                  {String(tag).replace(/_/g, ' ')}
+                                </span>
+                              ))}
+                            </div>
+                          )}
                         </div>
                       </div>
 
@@ -1191,7 +1296,11 @@ export default function EcoSimUI() {
                           </div>
                         </div>
                         <div className="text-right">
-                          <div className={`text-xl font-bold font-display drop-shadow-md ${metrics.trackedSubjects[activeSubjectIndex].state === 'WORKING' ? 'text-emerald-400' : 'text-sky-400'
+                          <div className={`text-xl font-bold font-display drop-shadow-md ${metrics.trackedSubjects[activeSubjectIndex].state === 'WORKING'
+                            ? 'text-emerald-400'
+                            : metrics.trackedSubjects[activeSubjectIndex].state === 'MED_SCHOOL'
+                              ? 'text-violet-400'
+                              : 'text-sky-400'
                             }`}>
                             {metrics.trackedSubjects[activeSubjectIndex].state}
                           </div>
@@ -1306,6 +1415,23 @@ export default function EcoSimUI() {
                           </span>
                         </div>
                       </div>
+
+                      {/* TRAITS & MODIFIERS */}
+                      <div className="tech-panel p-2 tech-corners">
+                        <h4 className="text-[9px] font-bold text-cyan-300 uppercase tracking-widest mb-1">Traits & Modifiers</h4>
+                        <div className="grid grid-cols-2 gap-x-2 gap-y-1">
+                          <div className="text-[9px] text-slate-500">Spending: <span className="font-mono text-slate-300">{(metrics.trackedSubjects[activeSubjectIndex].traits?.spendingTendency || 0).toFixed(2)}</span></div>
+                          <div className="text-[9px] text-slate-500">Frugality: <span className="font-mono text-slate-300">{(metrics.trackedSubjects[activeSubjectIndex].traits?.frugality || 0).toFixed(2)}</span></div>
+                          <div className="text-[9px] text-slate-500">Saving: <span className="font-mono text-slate-300">{(metrics.trackedSubjects[activeSubjectIndex].traits?.savingTendency || 0).toFixed(2)}</span></div>
+                          <div className="text-[9px] text-slate-500">Price Sens: <span className="font-mono text-slate-300">{(metrics.trackedSubjects[activeSubjectIndex].traits?.priceSensitivity || 0).toFixed(2)}</span></div>
+                          <div className="text-[9px] text-slate-500">Quality Bias: <span className="font-mono text-slate-300">{(metrics.trackedSubjects[activeSubjectIndex].traits?.qualityLavishness || 0).toFixed(2)}</span></div>
+                          <div className="text-[9px] text-slate-500">Skill Growth: <span className="font-mono text-slate-300">{((metrics.trackedSubjects[activeSubjectIndex].traits?.skillGrowthRate || 0) * 100).toFixed(2)}%</span></div>
+                          <div className="text-[9px] text-slate-500">Health Decay/Yr: <span className="font-mono text-slate-300">{((metrics.trackedSubjects[activeSubjectIndex].traits?.healthDecayPerYear || 0) * 100).toFixed(1)}%</span></div>
+                          <div className="text-[9px] text-slate-500">Healthcare Seek: <span className="font-mono text-slate-300">{(metrics.trackedSubjects[activeSubjectIndex].traits?.healthcareSeekBasePct || 0).toFixed(1)}%</span></div>
+                          <div className="text-[9px] text-slate-500">Min Food: <span className="font-mono text-slate-300">{(metrics.trackedSubjects[activeSubjectIndex].traits?.minFoodPerTick || 0).toFixed(2)}</span></div>
+                          <div className="text-[9px] text-slate-500">Min Services: <span className="font-mono text-slate-300">{(metrics.trackedSubjects[activeSubjectIndex].traits?.minServicesPerTick || 0).toFixed(2)}</span></div>
+                        </div>
+                      </div>
                     </div>
 
                   </div>
@@ -1381,6 +1507,12 @@ export default function EcoSimUI() {
                                     <div className="text-xs font-display text-slate-200">{cat.category}</div>
                                     <div className="text-[10px] text-slate-500 mb-2">{cat.firm_count} firms</div>
                                     <div className="text-[11px] text-slate-400">Employees: <span className="text-slate-200">{formatCompact(cat.total_employees)}</span></div>
+                                    {cat.category === 'Healthcare' && (
+                                      <div className="text-[11px] text-slate-400">Doctors: <span className="text-slate-200">{formatCompact(cat.doctor_employees || 0)}</span></div>
+                                    )}
+                                    {cat.category === 'Healthcare' && (
+                                      <div className="text-[11px] text-slate-400">Visit Rev: <span className="text-slate-200">{formatCurrency(cat.visit_revenue || 0, 2)}</span></div>
+                                    )}
                                     <div className="text-[11px] text-slate-400">Avg Cash: <span className="text-slate-200">{formatCurrency(cat.avg_cash || 0)}</span></div>
                                     <div className="text-[11px] text-slate-400">Avg Price: <span className="text-slate-200">{formatCurrency(cat.avg_price || 0, 2)}</span></div>
                                   </div>
@@ -1445,7 +1577,11 @@ export default function EcoSimUI() {
                               </div>
                               <div>
                                 <div className="text-[10px] text-slate-500 uppercase">Employees</div>
-                                <div className="font-mono text-slate-200">{selectedTrackedFirm.employees}</div>
+                                <div className="font-mono text-slate-200">
+                                  {selectedTrackedFirm.category === 'Healthcare'
+                                    ? (selectedTrackedFirm.doctorEmployees || selectedTrackedFirm.medicalEmployees || selectedTrackedFirm.employees)
+                                    : selectedTrackedFirm.employees}
+                                </div>
                               </div>
                               <div>
                                 <div className="text-[10px] text-slate-500 uppercase">Quality</div>
@@ -1464,8 +1600,17 @@ export default function EcoSimUI() {
                             </div>
                             <div className="grid grid-cols-2 gap-3 text-sm">
                               <div>
-                                <div className="text-[10px] text-slate-500 uppercase">Revenue</div>
-                                <div className="font-mono text-slate-200">{formatCurrency(selectedTrackedFirm.lastRevenue, 2)}</div>
+                                <div className="text-[10px] text-slate-500 uppercase">
+                                  {selectedTrackedFirm.category === 'Healthcare' ? 'Visit Revenue' : 'Revenue'}
+                                </div>
+                                <div className="font-mono text-slate-200">
+                                  {formatCurrency(
+                                    selectedTrackedFirm.category === 'Healthcare'
+                                      ? (selectedTrackedFirm.visitRevenue ?? selectedTrackedFirm.lastRevenue)
+                                      : selectedTrackedFirm.lastRevenue,
+                                    2
+                                  )}
+                                </div>
                               </div>
                               <div>
                                 <div className="text-[10px] text-slate-500 uppercase">Profit</div>
@@ -1474,6 +1619,18 @@ export default function EcoSimUI() {
                                 </div>
                               </div>
                             </div>
+                            {selectedTrackedFirm.category === 'Healthcare' && (
+                              <div className="grid grid-cols-2 gap-3 text-sm">
+                                <div>
+                                  <div className="text-[10px] text-slate-500 uppercase">Visits (Tick)</div>
+                                  <div className="font-mono text-slate-200">{(selectedTrackedFirm.visitsCompleted || 0).toFixed(0)}</div>
+                                </div>
+                                <div>
+                                  <div className="text-[10px] text-slate-500 uppercase">Doctors</div>
+                                  <div className="font-mono text-slate-200">{selectedTrackedFirm.doctorEmployees || 0}</div>
+                                </div>
+                              </div>
+                            )}
                           </div>
 
                           <div className="flex-1 flex flex-col gap-3 min-h-0">
@@ -1736,20 +1893,13 @@ export default function EcoSimUI() {
                       <Users className="text-sky-400" />
                       <h3 className="text-xl font-bold text-slate-200">SYSTEM SCALE</h3>
                     </div>
-                    <div className="grid grid-cols-2 gap-8">
+                    <div className="grid grid-cols-1 gap-8">
                       <TechSlider
                         label="Population Scale (Households)"
                         value={setupConfig.num_households}
-                        min={100} max={3000} step={100}
+                        min={100} max={10000} step={100}
                         onChange={v => handleSetupChange('num_households', v)}
                         format={v => v.toLocaleString()}
-                      />
-                      <TechSlider
-                        label="Market Density (Firms/Category)"
-                        value={setupConfig.num_firms}
-                        min={1} max={50} step={1}
-                        onChange={v => handleSetupChange('num_firms', v)}
-                        format={v => v}
                       />
                     </div>
                   </div>

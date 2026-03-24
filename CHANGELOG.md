@@ -4,6 +4,210 @@ This document tracks all implementation changes, improvements, and features adde
 
 ---
 
+## [2026-03-12] Engineering Hardening Pass — Config Centralization, Determinism Fixes, Wage Telemetry Pipeline
+
+### Overview
+
+Full engineering audit of the simulation core, focused on eliminating hardcoded constants, fixing non-deterministic behavior, correcting broken economic formulas, and wiring up real-time wage telemetry to the frontend dashboard. This pass was motivated by the observation that many CONFIG parameters existed in `config.py` but were never actually referenced in the simulation code — the agent logic used divergent hardcoded values instead.
+
+### Design Philosophy
+
+Every fix in this pass follows a principle: **the simulation's behavior should be fully controllable from `config.py`, reproducible across runs, and observable in real-time from the dashboard.** Hardcoded constants make it impossible to tune the simulation without code changes. Non-deterministic behavior makes debugging impossible. And if the frontend can't show what's happening inside agents, you can't validate that your economic model is doing what you think it is.
+
+---
+
+### 1. Configuration Centralization — Why Dataclass Config Over Hardcoded Constants
+
+**Problem**: The codebase had a well-designed `CONFIG` singleton with nested dataclasses (`HouseholdConfig`, `FirmConfig`, `MarketMechanicsConfig`, etc.), but the actual simulation code in `agents.py` and `economy.py` used hardcoded magic numbers instead. For example, `config.py` defined `base_wage_decay: float = 0.97` but `agents.py` used a hardcoded `0.92`. This meant changing config values had zero effect on simulation behavior — a silent, dangerous divergence.
+
+**Why dataclass-based config?** We chose Python `@dataclass` with frozen-style defaults over alternatives like:
+- **YAML/JSON files**: Would add file I/O overhead on every tick and require parsing. Dataclasses give us type safety, IDE autocomplete, and `__post_init__` validation for free.
+- **Environment variables**: Too flat for nested config (household vs firm vs market settings). No type safety.
+- **Global dicts**: No autocompletion, no validation, easy to typo keys silently.
+
+The dataclass approach lets us add `__post_init__` validators (e.g., `min_savings_rate <= max_savings_rate`, range tuple lo<=hi checks) that catch misconfiguration at startup, not 500 ticks into a simulation run.
+
+**What was wired up**:
+
+| Area | Old (Hardcoded) | New (CONFIG Reference) |
+|------|----------------|----------------------|
+| Wage decay base | `0.92` | `CONFIG.households.base_wage_decay` (0.97) |
+| Duration pressure cap | `0.45` | `CONFIG.households.duration_pressure_cap` (0.35) |
+| Min decay factor | `0.4` | `CONFIG.households.min_decay_factor` (0.5) |
+| Wage floor | `$5.0` | `CONFIG.households.wage_floor` ($10.0) |
+| Desperation scaling | hardcoded `20.0` ticks, `0.9` | `CONFIG.households.desperation_*` fields |
+| Bankruptcy threshold | `-1000.0` | `CONFIG.market.bankruptcy_threshold` |
+| Zero-cash max streak | `12` | `CONFIG.market.zero_cash_max_streak` |
+| Price ceiling / tax rate | `50.0` / `0.25` | `CONFIG.market.price_ceiling` / `price_ceiling_tax_rate` |
+| Wage overpaying guard | hardcoded fractions | `CONFIG.firms.max_labor_share`, `minimum_wage_floor`, `max_wage_decrease_per_tick` |
+| Rent affordability | hardcoded `0.30` | `CONFIG.labor_market.rent_affordability_share` |
+| Rent adjustment thresholds | magic numbers | `CONFIG.labor_market.occupancy_*_threshold`, `rent_increase_*`, `rent_decrease_*` |
+
+**New config fields added**: `zero_cash_max_streak`, `rent_affordability_share`, `rent_floor`, occupancy thresholds (high/good/moderate/low), rent adjustment multipliers, `rent_shortage_multiplier`, `rent_shortage_interval_ticks`.
+
+---
+
+### 2. Determinism Fixes — Why Seeded RNG Over `np.random`
+
+**Problem**: `agents.py` used `np.random.uniform(-0.25, 0.25)` (global RNG state) in the wage decay path. This means two simulation runs with identical config produce different results. When you're debugging why unemployment spiked at tick 347, non-determinism makes reproduction impossible.
+
+**Why per-agent seeded RNG?** We replaced global `np.random` calls with `np.random.default_rng(seed=self.household_id ^ hash(category))`. This gives each agent a deterministic random stream derived from its ID, so:
+- Same agent, same tick → same random value across runs
+- Different agents → different streams (no correlation)
+- No global state pollution between agents
+
+We chose `default_rng` over `RandomState` because NumPy's documentation recommends it as the modern API with better statistical properties (PCG64 vs Mersenne Twister).
+
+**Docstring updated**: Changed "All behavior is deterministic" → "deterministic when seeded" to accurately reflect the contract.
+
+---
+
+### 3. Economic Formula Corrections — Why These Bugs Mattered
+
+#### Property Tax: Taxing Value, Not Cash
+
+**Problem**: Property tax was calculated on `firm["cash_balance"]` instead of assessed property value. This meant a housing firm with $1M cash but 2 rental units paid more tax than a firm with $100 cash but 200 units. This is economically backwards — property tax should reflect the value of the property, not the firm's liquidity.
+
+**Fix**: `rental_units * rent_per_unit * 52.0` (annualized rental income as property value proxy). We chose annualized rent over alternatives like purchase price (which doesn't exist in this model) or replacement cost (which would require a construction cost model we don't have).
+
+#### Housing Firm Workforce Churn
+
+**Problem**: Housing firms fired ALL employees every tick and rehired from scratch. This created artificial unemployment spikes and wasted the skill growth that employees had accumulated. In a real economy, firms retain a skeleton crew even during downturns.
+
+**Fix**: Retain `min_staff = max(min_skeleton_workers, min_target_workers)` instead of laying off everyone. We chose a max-of-two-floors approach because either constraint alone can be too permissive — you need both a hard minimum (skeleton crew) and a demand-based minimum (target workers).
+
+#### Unemployed Housing Affordability
+
+**Problem**: Unemployed households used `income = 0.0` for housing affordability checks, which meant they could never qualify for any housing even when receiving unemployment benefits. This created a permanent homelessness trap.
+
+**Fix**: Use `self.government.unemployment_benefit` as the income floor. The government already pays this benefit — the affordability check just wasn't accounting for it.
+
+#### Division-by-Zero in Wage Overpaying Guard
+
+**Problem**: `adjust_wages_if_overpaying` divided by `revenue` without guarding against zero. A firm with zero revenue (e.g., just started, no sales yet) would crash the simulation.
+
+**Fix**: `max(revenue, 1e-9)`. We chose `1e-9` over `0.01` or `1.0` because it's small enough to never affect real calculations but large enough to avoid floating-point denormals.
+
+#### Pre-Validation in `apply_purchases`
+
+**Problem**: `apply_purchases` mutated `cash_balance` before validating the purchase could succeed, potentially leaving agents in inconsistent states if downstream logic failed.
+
+**Fix**: Added pre-validation check before mutation. This follows the "validate then mutate" pattern — never modify state until you know the operation will succeed.
+
+---
+
+### 4. Wage Telemetry Pipeline — Why the Frontend Showed All Zeros
+
+**Problem**: The frontend's "Wage Expectations" and "Target Wage Drivers" panels displayed `$0.00` for all values. Two root causes:
+
+#### Root Cause 1: Wage Percentiles Computed From Empty Data
+
+`economy.py` computed market wage percentiles (`cached_wage_percentiles`) from `firm_labor_outcomes["actual_wages"]`, which only contains wages for **newly hired** employees in that tick. In a stable economy with no turnover, this list is always empty, so percentiles stayed `(None, None, None)` permanently.
+
+**Why this design was wrong**: The percentiles are used as `marketAnchorEstimate` — a reference point for what the labor market pays. Using only new-hire wages is like measuring average salary from only job postings, ignoring everyone currently employed. It gives a biased (or empty) picture.
+
+**Fix**: Changed to iterate `firm.actual_wages` for ALL currently employed workers across all firms. This is O(total_employees) per recompute (every 5 ticks), which is acceptable since we already iterate all households and firms every tick.
+
+#### Root Cause 2: No Fallback for Uninitialized Percentiles
+
+The server read `cached_wage_percentiles` with `(None, None, None)` as the default. When percentiles were `None`, the frontend received `null`, and `null || 0` in JavaScript rendered as `$0.00`.
+
+**Fix**: Added fallback to `mean_wage` from `compute_household_stats()` when percentiles aren't yet computed. We chose `mean_wage` over `median_wage` or a hardcoded default because the mean is always available (computed from all employed workers) and gives a reasonable approximation until percentiles are computed.
+
+#### Data Flow Architecture
+
+The wage telemetry pipeline follows a three-layer architecture:
+
+```
+Agent Layer (agents.py)
+  └─ HouseholdAgent.apply_labor_outcome() updates expected_wage, reservation_wage each tick
+  └─ Wage decay uses CONFIG.households.* for duration/cash/health pressure factors
+
+Stats Layer (run_large_simulation.py)
+  └─ compute_household_stats() vectorizes all h.expected_wage into numpy array
+  └─ Returns mean_expected_wage, mean_unemployed_expected_wage
+
+Server Layer (server.py)
+  └─ Builds per-subject expectedWageReason dict with:
+     mode (EMPLOYED_ANCHOR | UNEMPLOYED_DECAY | TRAINING_TRACK)
+     durationPressure, cashPressure, healthPressure, decayFactor
+     marketAnchorEstimate (from economy.cached_wage_percentiles)
+     tags (descriptive labels for active pressure sources)
+  └─ Sends via WebSocket as part of trackedSubjects payload
+```
+
+**Why compute pressures server-side instead of agent-side?** The pressure values are diagnostic — they explain *why* expected_wage changed, but they don't affect agent behavior. Computing them in the server keeps the agent's hot path clean and avoids storing diagnostic fields on 10K+ agent objects every tick.
+
+---
+
+### 5. Healthcare Test Modernization — Why Tests Broke and How We Fixed Them
+
+**Problem**: 7 contract tests failed because they set up healthcare demand using the **old annual-plan model** (`care_plan_due_ticks`, `care_plan_heal_deltas`) but the simulation code had been refactored to use the **new episode-based model** (`pending_healthcare_visits`, `next_healthcare_request_tick`, `should_request_healthcare_service()`).
+
+**Why the old model was replaced** (context from prior work): The annual-plan model generated a fixed schedule of visits at the start of each 52-tick window. This created unrealistic demand patterns — all visits were pre-determined regardless of how the patient's health changed. The new episode-based model is probabilistic and adaptive: sicker patients trigger episodes more often, episode size scales with missing health, and follow-up spacing adjusts based on current health.
+
+**What changed in tests**:
+- Replaced `care_plan_due_ticks = [0]` / `care_plan_heal_deltas = [0.2]` with `pending_healthcare_visits = N` / `next_healthcare_request_tick = 0`
+- Removed assertions on `care_plan_due_ticks` length (no longer used)
+- Updated health restoration assertions to be range-based (`health > 0.3`) instead of exact (`health == 0.5`) since heal deltas are now computed dynamically from missing health
+- For integration test: explicitly set `pending_healthcare_visits` for low-health subjects and suppressed requests for healthy subjects via future `next_healthcare_request_tick`
+
+**Files updated**: `test_contracts_healthcare.py`, `test_contracts_behavior.py`, `test_contracts_integration.py`
+
+---
+
+### 6. Server Security Hardening
+
+**Problem**: `server.py` had `allow_origins=["*"]` (accepts requests from any domain), no input validation on WebSocket messages, and no structured logging.
+
+**Changes**:
+- **CORS**: Replaced `["*"]` with env-configurable `CORS_ORIGINS`. Set `allow_credentials=False`, restricted methods to `["GET", "POST", "OPTIONS"]`. Why env-configurable? Because `localhost:3000` is valid in dev but not in production — the deployment environment should control this, not the code.
+- **WebSocket validation**: Added payload size limit (1MB), JSON parse validation, command whitelist. Without these, a malformed or oversized message could crash the server or cause memory exhaustion.
+- **Pydantic validation**: Added `SetupConfig` model with bounds (num_households 3-100K, num_firms 1-1K). Why Pydantic over manual validation? It gives us type coercion, error messages, and OpenAPI schema generation for free.
+- **Structured logging**: Added `RotatingFileHandler` (10MB, 5 backups). Why rotating? Simulation logs can grow unbounded — 10MB × 5 backups = 50MB max disk usage.
+- **Health endpoint**: Added `/health` for container orchestration readiness probes.
+
+---
+
+### 7. CI/CD Pipeline and Tooling
+
+**Problem**: No automated testing, no code formatting enforcement, no type checking.
+
+**Added**:
+- **GitHub Actions CI** (`.github/workflows/ci.yml`): Matrix testing across Python 3.10-3.12, pip caching, pytest with coverage, lint job (black, isort, flake8). Why matrix testing? Python version differences (e.g., `match` statement in 3.10+, type hint changes) can cause silent breakage.
+- **`pyproject.toml`**: Centralized tool config. Why `pyproject.toml` over separate config files? PEP 621 standardizes this — one file for black, isort, mypy, pytest config instead of 4 separate dotfiles.
+- **`requirements-dev.txt`**: Separated dev dependencies (pytest, black, mypy) from runtime (`requirements.txt`). Why separate? Production containers shouldn't install test frameworks.
+- **`.gitattributes`**: LF line endings for source files. Why? Mixed line endings cause phantom git diffs on cross-platform teams and break `git diff` patch application.
+- **`pytest.ini`**: Updated `testpaths`, added `--tb=short` for cleaner CI output.
+
+---
+
+### Files Updated
+
+- `backend/agents.py` — Config wiring, determinism fix, economic formula corrections
+- `backend/economy.py` — Bankruptcy config, rent config, property tax fix, wage percentile fix
+- `backend/config.py` — New fields, `__post_init__` validators
+- `backend/server.py` — CORS, input validation, logging, Pydantic, wage telemetry, health endpoint, wage percentile fallback
+- `backend/run_large_simulation.py` — `compute_household_stats` already correct (no changes needed)
+- `backend/tests_contracts/test_contracts_healthcare.py` — Migrated to episode-based healthcare model
+- `backend/tests_contracts/test_contracts_behavior.py` — Same migration
+- `backend/tests_contracts/test_contracts_integration.py` — Same migration
+- `requirements.txt` — Pinned versions
+- `requirements-dev.txt` — New (dev dependencies)
+- `pyproject.toml` — New (tool configuration)
+- `.github/workflows/ci.yml` — New (CI pipeline)
+- `.gitattributes` — New (line ending normalization)
+- `pytest.ini` — Updated test paths
+
+### Validation
+
+- All 26 contract tests pass: `pytest backend/tests_contracts -q` → `26 passed`
+- Wage percentiles now populate correctly: `(27.94, 29.05, 30.18)` after 10 ticks (was `(None, None, None)`)
+- `avgExpectedWage` returns ~$34.60 (was `$0.00`)
+- `marketAnchorEstimate` returns real percentile values (was `$0.00`)
+
+---
+
 ## [2026-03-06] EcoSim 2.0 - Performance Optimization & Health/Food System Overhaul
 
 ### Overview

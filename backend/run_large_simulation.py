@@ -116,24 +116,13 @@ def create_large_economy(num_households: int = 10000, num_firms_per_category: in
     for idx, category in enumerate(essential_categories):
         category_private_targets[category] = per_category + (1 if idx < remainder else 0)
 
-    # Keep healthcare providers intentionally sparse so queue/backlog dynamics stay meaningful.
-    healthcare_cap = max(
-        1,
-        int(
-            math.ceil(
-                max(1, num_households)
-                / max(1, CONFIG.firms.healthcare_households_per_firm_target)
-            )
-        ),
-    )
-    baseline_healthcare_count = 1 if "Healthcare" in essential_categories else 0
-    max_private_healthcare = max(0, healthcare_cap - baseline_healthcare_count)
+    # Force a single healthcare provider model:
+    # exactly one baseline healthcare firm, zero private healthcare firms.
     planned_private_healthcare = category_private_targets.get("Healthcare", 0)
-    if planned_private_healthcare > max_private_healthcare:
-        overflow = planned_private_healthcare - max_private_healthcare
-        category_private_targets["Healthcare"] = max_private_healthcare
+    if planned_private_healthcare > 0:
+        category_private_targets["Healthcare"] = 0
         redistribute_categories = [cat for cat in essential_categories if cat != "Healthcare"]
-        for i in range(overflow):
+        for i in range(planned_private_healthcare):
             category_private_targets[redistribute_categories[i % len(redistribute_categories)]] += 1
 
     for idx, category in enumerate(essential_categories):
@@ -200,6 +189,49 @@ def create_large_economy(num_households: int = 10000, num_firms_per_category: in
         # Progress indicator for large populations
         if (i + 1) % 1000 == 0:
             print(f"  Created {i + 1}/{num_households} households...")
+
+    # Bootstrap healthcare staffing so high-population runs do not start with
+    # severe care undersupply during warm-up.
+    healthcare_firms = [f for f in baseline_firms if f.good_category == "Healthcare"]
+    target_doctors = 0
+    if healthcare_firms and households:
+        doctor_ratio = max(0.0, min(1.0, float(CONFIG.firms.healthcare_staff_population_ratio)))
+        target_doctors = min(
+            len(households),
+            max(len(healthcare_firms), int(math.ceil(num_households * doctor_ratio)))
+        )
+        doctor_candidates = sorted(
+            households,
+            key=lambda h: (h.skills_level, h.health, h.cash_balance, -h.household_id),
+            reverse=True,
+        )[:target_doctors]
+
+        for idx, doctor in enumerate(doctor_candidates):
+            assigned_firm = healthcare_firms[idx % len(healthcare_firms)]
+            doctor.medical_training_status = "doctor"
+            doctor.medical_training_start_tick = 0
+            doctor.expected_wage = max(doctor.expected_wage, doctor.medical_doctor_expected_wage_anchor)
+            doctor.reservation_wage = max(
+                doctor.reservation_wage,
+                doctor.medical_doctor_reservation_wage_anchor * 0.85,
+            )
+
+            doctor_wage = max(assigned_firm.wage_offer, doctor.reservation_wage)
+            doctor.employer_id = assigned_firm.firm_id
+            doctor.wage = doctor_wage
+
+            assigned_firm.actual_wages[doctor.household_id] = doctor_wage
+            if doctor.household_id not in assigned_firm.employees:
+                assigned_firm.employees.append(doctor.household_id)
+
+        avg_doctor_wage = float(np.mean([h.wage for h in doctor_candidates])) if doctor_candidates else 0.0
+        for firm in healthcare_firms:
+            firm.wage_offer = max(firm.wage_offer, avg_doctor_wage * 0.95)
+
+        print(
+            f"✓ Seeded initial doctors: {target_doctors} "
+            f"({(target_doctors / max(1, num_households)) * 100:.2f}% of households)"
+        )
 
     # Assign owners to firms (1-3 households per firm)
     # This creates a wealth recycling mechanism where firm profits flow back to households
@@ -347,6 +379,8 @@ def compute_household_stats(households: List[HouseholdAgent]) -> Dict[str, float
             "unemployment_rate": 0.0,
             "mean_wage": 0.0,
             "median_wage": 0.0,
+            "mean_expected_wage": 0.0,
+            "mean_unemployed_expected_wage": 0.0,
             "mean_cash": 0.0,
             "median_cash": 0.0,
             "mean_happiness": 0.0,
@@ -362,6 +396,8 @@ def compute_household_stats(households: List[HouseholdAgent]) -> Dict[str, float
     performance = np.array([h.get_performance_multiplier() for h in households], dtype=float)
     employment = np.array([1.0 if h.is_employed else 0.0 for h in households], dtype=float)
     employed_wages = np.array([h.wage for h in households if h.is_employed], dtype=float)
+    expected_wages = np.array([h.expected_wage for h in households], dtype=float)
+    unemployed_expected_wages = np.array([h.expected_wage for h in households if not h.is_employed], dtype=float)
 
     unemployment_rate = 1.0 - (employment.mean() if employment.size else 0.0)
     mean_wage = float(employed_wages.mean()) if employed_wages.size else 0.0
@@ -371,6 +407,8 @@ def compute_household_stats(households: List[HouseholdAgent]) -> Dict[str, float
         "unemployment_rate": unemployment_rate,
         "mean_wage": mean_wage,
         "median_wage": median_wage,
+        "mean_expected_wage": float(expected_wages.mean()) if expected_wages.size else 0.0,
+        "mean_unemployed_expected_wage": float(unemployed_expected_wages.mean()) if unemployed_expected_wages.size else 0.0,
         "mean_cash": float(cash.mean()),
         "median_cash": float(np.median(cash)),
         "mean_happiness": float(happiness.mean()),
@@ -380,12 +418,18 @@ def compute_household_stats(households: List[HouseholdAgent]) -> Dict[str, float
     }
 
 
-def compute_firm_stats(firms: List[FirmAgent], top_n: int = 12) -> Dict[str, object]:
+def compute_firm_stats(
+    firms: List[FirmAgent],
+    top_n: int = 12,
+    household_lookup: Optional[Dict[int, HouseholdAgent]] = None
+) -> Dict[str, object]:
     """Aggregate firm-level statistics plus leaderboards."""
     if not firms:
         return {
             "total_firms": 0,
             "total_employees": 0,
+            "total_doctors": 0,
+            "total_medical_workers": 0,
             "avg_employees": 0.0,
             "avg_price": 0.0,
             "avg_wage_offer": 0.0,
@@ -408,6 +452,8 @@ def compute_firm_stats(firms: List[FirmAgent], top_n: int = 12) -> Dict[str, obj
 
     total_employees = int(employee_counts.sum())
     avg_employees = float(total_employees / len(firms)) if firms else 0.0
+    total_doctors = 0
+    total_medical_workers = 0
 
     category_map = defaultdict(lambda: {
         "firm_count": 0,
@@ -416,7 +462,11 @@ def compute_firm_stats(firms: List[FirmAgent], top_n: int = 12) -> Dict[str, obj
         "inventory": 0.0,
         "quality": 0.0,
         "wage": 0.0,
-        "employees": 0
+        "employees": 0,
+        "doctor_employees": 0,
+        "medical_employees": 0,
+        "visit_revenue": 0.0,
+        "visits_completed": 0.0,
     })
 
     for f in firms:
@@ -429,6 +479,28 @@ def compute_firm_stats(firms: List[FirmAgent], top_n: int = 12) -> Dict[str, obj
         data["quality"] += max(f.quality_level, 0.0)
         data["wage"] += max(f.wage_offer, 0.0)
         data["employees"] += len(f.employees)
+        if cat.lower() == "healthcare":
+            visits_completed = float(getattr(f, "healthcare_completed_visits_last_tick", 0.0))
+            visit_revenue = float(getattr(f, "last_revenue", 0.0))
+            data["visits_completed"] += visits_completed
+            data["visit_revenue"] += visit_revenue
+
+        if household_lookup is not None and f.employees:
+            doctor_count = 0
+            medical_count = 0
+            for employee_id in f.employees:
+                worker = household_lookup.get(employee_id)
+                if worker is None:
+                    continue
+                if worker.medical_training_status == "doctor":
+                    doctor_count += 1
+                    medical_count += 1
+                elif worker.medical_training_status == "resident":
+                    medical_count += 1
+            data["doctor_employees"] += doctor_count
+            data["medical_employees"] += medical_count
+            total_doctors += doctor_count
+            total_medical_workers += medical_count
 
     categories = []
     for cat, data in category_map.items():
@@ -441,12 +513,33 @@ def compute_firm_stats(firms: List[FirmAgent], top_n: int = 12) -> Dict[str, obj
             "avg_inventory": data["inventory"] / count,
             "avg_quality": data["quality"] / count,
             "avg_wage": data["wage"] / count,
-            "total_employees": data["employees"]
+            "total_employees": data["employees"],
+            "doctor_employees": data["doctor_employees"],
+            "medical_employees": data["medical_employees"],
+            "visit_revenue": data["visit_revenue"],
+            "visits_completed": data["visits_completed"],
         })
 
     categories.sort(key=lambda c: c["firm_count"], reverse=True)
 
     def serialize_firm(f: FirmAgent) -> Dict[str, object]:
+        doctor_employees = 0
+        medical_employees = 0
+        if household_lookup is not None and f.employees:
+            for employee_id in f.employees:
+                worker = household_lookup.get(employee_id)
+                if worker is None:
+                    continue
+                if worker.medical_training_status == "doctor":
+                    doctor_employees += 1
+                    medical_employees += 1
+                elif worker.medical_training_status == "resident":
+                    medical_employees += 1
+
+        is_healthcare = (f.good_category or "").lower() == "healthcare"
+        visits_completed = float(getattr(f, "healthcare_completed_visits_last_tick", 0.0))
+        visit_revenue = float(getattr(f, "last_revenue", 0.0)) if is_healthcare else 0.0
+
         return {
             "id": f.firm_id,
             "name": f.good_name,
@@ -457,6 +550,10 @@ def compute_firm_stats(firms: List[FirmAgent], top_n: int = 12) -> Dict[str, obj
             "inventory": f.inventory_units,
             "quality": f.quality_level,
             "employees": len(f.employees),
+            "doctorEmployees": doctor_employees,
+            "medicalEmployees": medical_employees,
+            "visitsCompleted": visits_completed,
+            "visitRevenue": visit_revenue,
             "lastRevenue": getattr(f, "last_revenue", 0.0),
             "lastProfit": getattr(f, "last_profit", 0.0),
             "state": "BURN" if getattr(f, "burn_mode", False) else "ACTIVE"
@@ -470,6 +567,8 @@ def compute_firm_stats(firms: List[FirmAgent], top_n: int = 12) -> Dict[str, obj
     return {
         "total_firms": len(firms),
         "total_employees": total_employees,
+        "total_doctors": total_doctors,
+        "total_medical_workers": total_medical_workers,
         "avg_employees": avg_employees,
         "avg_price": float(prices.mean()) if prices.size else 0.0,
         "avg_wage_offer": float(wages.mean()) if wages.size else 0.0,

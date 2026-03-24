@@ -28,6 +28,26 @@ python backend/data/migrations/001_create_warehouse.py
 
 This creates `backend/data/ecosim.db` with the complete schema.
 
+### 1b. Initialize PostgreSQL + TimescaleDB (Optional)
+
+```bash
+# Start local DB (from repo root)
+docker compose -f docker-compose.timescale.yml up -d
+
+# Set DSN for migration and runtime
+# PowerShell example:
+$env:ECOSIM_WAREHOUSE_DSN="postgresql://ecosim:ecosim@localhost:5432/ecosim"
+
+# Apply PostgreSQL/Timescale schema
+python backend/data/migrations/002_create_timescale_warehouse.py
+```
+
+Runtime backend selection is controlled by:
+- `ECOSIM_ENABLE_WAREHOUSE` (`0` or `1`)
+- `ECOSIM_WAREHOUSE_BACKEND` (`sqlite`, `postgres`, or `timescale`)
+- `ECOSIM_SQLITE_PATH` (optional SQLite file path)
+- `ECOSIM_WAREHOUSE_DSN` (required for PostgreSQL/Timescale)
+
 ### 2. Use DatabaseManager
 
 ```python
@@ -319,13 +339,17 @@ metrics = db.get_tick_metrics(
 ```
 backend/data/
 ├── schema.sql                # Database schema
+├── postgres_schema.sql       # PostgreSQL + Timescale schema
 ├── db_manager.py            # DatabaseManager class + data models
+├── postgres_manager.py      # PostgreSQL/Timescale manager
+├── warehouse_factory.py     # Backend selector (sqlite/postgres)
 ├── ecosim.db                # SQLite database file
 ├── README.md                # This file
 ├── test_sample_data.py      # Sample data generator
 ├── migrations/
 │   ├── __init__.py
 │   └── 001_create_warehouse.py  # Migration script
+│   └── 002_create_timescale_warehouse.py  # PostgreSQL/Timescale migration
 └── tests/
     └── test_db_manager.py   # Unit tests (9 tests)
 ```

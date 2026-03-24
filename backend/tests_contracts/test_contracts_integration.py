@@ -61,10 +61,14 @@ def test_contract_healthcare_demand_appears_when_health_is_low(tiny_economy_fact
         household.food_consumed_last_tick = CONFIG.households.food_health_high_threshold
         if household.household_id in low_ids:
             household.health = 0.1
+            # Force low-health households to have pending visits (new episode model).
+            household.pending_healthcare_visits = 3
+            household.next_healthcare_request_tick = 0
         else:
             household.health = 0.95
-            # Preventive path should stay quiet in this short comparison window.
-            household.last_checkup_tick = economy.current_tick
+            # Healthy households should not request care this tick.
+            household.pending_healthcare_visits = 0
+            household.next_healthcare_request_tick = economy.current_tick + 999
 
     healthcare_firms = [f for f in economy.firms if f.good_category.lower() == "healthcare"]
     assert healthcare_firms
@@ -136,3 +140,39 @@ def test_contract_firm_survival_mode_behaviors():
     firm.owners = [1]
     paid = firm.distribute_profits({1: owner})
     assert paid == 0.0
+
+
+def test_contract_post_warmup_labor_market_remains_active(tiny_economy_factory):
+    """Contract O: After warmup (tick > 52), non-healthcare labor matching still produces hires."""
+    economy = tiny_economy_factory(
+        num_households=180,
+        num_firms_per_category=3,
+        include_healthcare=True,
+        baseline_firms=True,
+        disable_shocks=True,
+        seed=777,
+        government_cash=120_000.0,
+    )
+
+    post_warmup_hires = 0
+    for _ in range(70):
+        economy.step()
+        if economy.current_tick > 52:
+            post_warmup_hires += sum(
+                int(getattr(firm, "last_tick_actual_hires", 0))
+                for firm in economy.firms
+                if (firm.good_category or "").lower() != "healthcare"
+            )
+
+    assert economy.current_tick >= 70
+    assert economy.in_warmup is False
+
+    # A hard failure mode is "everyone can work but matching never hires".
+    work_capable = [h for h in economy.households if h.can_work]
+    employed_capable = sum(1 for h in work_capable if h.is_employed)
+    assert employed_capable > 0
+    assert post_warmup_hires > 0
+
+    # Diagnostics should still indicate active seekers (not a dead labor market).
+    diagnostics = economy.last_labor_diagnostics
+    assert diagnostics.get("labor_seekers_total", 0.0) > 0.0

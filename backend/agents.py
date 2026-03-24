@@ -9,6 +9,7 @@ and fiscal policy.
 
 import math
 import random
+import zlib
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional
 
@@ -42,7 +43,7 @@ class HouseholdAgent:
     Represents a household in the economic simulation.
 
     Households work for firms, consume goods, and form expectations
-    about prices and wages. All behavior is deterministic.
+    about prices and wages. Behavior is deterministic when seeded.
     """
 
     # Identification and traits
@@ -142,6 +143,7 @@ class HouseholdAgent:
     saving_tendency: float = 0.5  # Innate thriftiness [0.0, 1.0], initialized randomly in __post_init__
     household_service_happiness_base_boost: Optional[float] = None
     healthcare_preference: Optional[float] = None
+    healthcare_request_base_chance_pct: float = 0.0
     healthcare_urgency_threshold: Optional[float] = None
     healthcare_critical_threshold: Optional[float] = None
     morale_employed_boost: Optional[float] = None
@@ -156,6 +158,8 @@ class HouseholdAgent:
     care_plan_heal_deltas: List[float] = field(default_factory=list)
     care_plan_anchor_tick: int = -1
     pending_visit_heal_delta: float = 0.0
+    pending_healthcare_visits: int = 0
+    next_healthcare_request_tick: int = 0
     last_checkup_tick: int = -52
     queued_healthcare_firm_id: Optional[int] = None
 
@@ -229,6 +233,11 @@ class HouseholdAgent:
             clip_max=1.0,
         )
         self.healthcare_preference = sample_range(config.healthcare_preference_range, clip_min=0.1, clip_max=5.0)
+        self.healthcare_request_base_chance_pct = sample_range(
+            config.healthcare_request_base_chance_pct_range,
+            clip_min=0.0,
+            clip_max=50.0,
+        )
         self.healthcare_urgency_threshold = sample_range(
             config.healthcare_urgency_threshold_range,
             clip_min=0.05,
@@ -755,8 +764,12 @@ class HouseholdAgent:
             # Utilities and softmax weights (only on awareness pool)
             inv_price_cap = 1.0 / max(price_cap, 1e-6)
             utilities = lavishness * qualities - sensitivity * (prices * inv_price_cap)
-            # Add stochastic noise to purchasing decisions (not seeded - truly random)
-            utilities += np.random.uniform(-0.25, 0.25, size=len(utilities))
+            # Add deterministic, non-negative seeded noise to break ties in purchasing decisions.
+            # Python's built-in hash() can be negative and process-randomized.
+            category_seed = zlib.crc32(category.encode("utf-8"))
+            tie_break_seed = ((self.household_id * 1_315_423_911) ^ category_seed) & 0xFFFFFFFF
+            rng = np.random.default_rng(seed=tie_break_seed)
+            utilities += rng.uniform(-0.25, 0.25, size=len(utilities))
 
             # Switching friction - determine primary firm
             best_idx = int(utilities.argmax())
@@ -899,6 +912,7 @@ class HouseholdAgent:
             "services_preference": self.services_preference,
             "housing_preference": self.housing_preference,
             "healthcare_preference": self.healthcare_preference,
+            "healthcare_request_base_chance_pct": self.healthcare_request_base_chance_pct,
             "quality_lavishness": self.quality_lavishness,
             "frugality": self.frugality,
             "household_service_happiness_base_boost": self.household_service_happiness_base_boost,
@@ -914,6 +928,8 @@ class HouseholdAgent:
             "care_plan_heal_deltas": list(self.care_plan_heal_deltas),
             "care_plan_anchor_tick": self.care_plan_anchor_tick,
             "pending_visit_heal_delta": self.pending_visit_heal_delta,
+            "pending_healthcare_visits": self.pending_healthcare_visits,
+            "next_healthcare_request_tick": self.next_healthcare_request_tick,
             "last_checkup_tick": self.last_checkup_tick,
             "queued_healthcare_firm_id": self.queued_healthcare_firm_id,
             "consumption_budget_share": self.consumption_budget_share,
@@ -959,8 +975,8 @@ class HouseholdAgent:
         """
         Decide whether to search for job and what wage to require.
 
-        H1': Uses the household's reservation_wage field which decays over unemployment duration.
-        The reservation wage is set by the economy's _sync_household_expectations method.
+        Uses the household's reservation_wage field, which is adapted over time
+        from realized labor outcomes in apply_labor_outcome().
 
         Does not mutate state; returns a plan dict.
 
@@ -970,8 +986,8 @@ class HouseholdAgent:
         Returns:
             Dict with household_id, searching_for_job, reservation_wage, skills_level
         """
-        # Note: unemployment_benefit parameter kept for backward compatibility but not used
-        # Reservation wage is now managed by the economy's _sync_household_expectations
+        # Note: unemployment_benefit parameter kept for backward compatibility but not used.
+        # Reservation wage is updated through household expectation dynamics in apply_labor_outcome().
         reservation_wage_for_tick = self.reservation_wage
 
         # Medical students are in full-time training and cannot join the labor pool.
@@ -1007,24 +1023,24 @@ class HouseholdAgent:
             desperation += (0.5 - self.health) * 2.0  # 0→1 as health 0.5→0
 
         # Unemployment duration desperation: patience runs out
+        hh_config = CONFIG.households
         if self.unemployment_duration > 0:
-            desperation += min(1.0, self.unemployment_duration / 20.0)  # full at 20 ticks
+            desperation += min(1.0, self.unemployment_duration / max(1.0, hh_config.unemployed_forced_dissaving_duration * 0.4))
 
         # Clamp total desperation to [0, 1]
         desperation = min(1.0, desperation / 2.0)  # normalize: any 2 of 3 factors → fully desperate
 
-        # Scale reservation wage: at desperation=1, accept 10% of normal
-        wage_floor_fraction = 1.0 - 0.9 * desperation
+        # Scale reservation wage: at full desperation, accept desperation_wage_discount of normal
+        wage_floor_fraction = 1.0 - (1.0 - hh_config.desperation_wage_discount) / hh_config.desperation_wage_discount * desperation
         reservation_wage_for_tick *= wage_floor_fraction
 
         # Absolute floor: never go below $1 (any job beats no job)
         reservation_wage_for_tick = max(1.0, reservation_wage_for_tick)
 
-        # Search if unemployed or desperate (very low cash)
-        if self.cash_balance < living_cost:
-            searching_for_job = True
-        else:
-            searching_for_job = not self.is_employed
+        # Search if unemployed or if cash stress is severe.
+        searching_for_job = (not self.is_employed) or (self.cash_balance < living_cost)
+        if not self.can_work:
+            searching_for_job = False
 
         medical_only = self.medical_training_status in {"resident", "doctor"}
 
@@ -1264,15 +1280,56 @@ class HouseholdAgent:
                 "planned_purchases": planned_purchases,
             }
 
+    def _deterministic_unit_random(self, current_tick: int, salt: int = 0) -> float:
+        """
+        Fast deterministic pseudo-random draw in [0, 1) without object allocation.
+        """
+        seed = (
+            int(CONFIG.random_seed)
+            ^ ((self.household_id + 1) * 2_654_435_761)
+            ^ ((current_tick + 1) * 2_246_822_519)
+            ^ ((salt + 1) * 3_266_489_917)
+        ) & 0xFFFFFFFF
+        seed = (1_664_525 * seed + 1_013_904_223) & 0xFFFFFFFF
+        return seed / 4_294_967_296.0
+
     def should_request_healthcare_service(self, current_tick: int) -> bool:
         """
-        Queue-based healthcare request decision using annual sampled visit plans.
+        Probabilistic healthcare demand model with follow-up episodes.
 
-        The household samples number of visits for each 52-tick window based on
-        current health bucket, then requests care whenever a due visit slot is reached.
+        1) Episode trigger probability (annualized):
+           base_chance_pct + missing_health_pct
+        2) Multi-visit episode size scales with missing health.
+        3) Follow-ups are spaced over time so one household does not monopolize care.
         """
-        self._refresh_annual_healthcare_visit_plan(current_tick)
-        return self._consume_due_healthcare_slot(current_tick)
+        if current_tick < self.next_healthcare_request_tick:
+            return False
+
+        if self.pending_healthcare_visits <= 0:
+            missing_health_pct = max(0.0, min(100.0, (1.0 - self.health) * 100.0))
+            base_chance_pct = max(0.0, min(50.0, float(self.healthcare_request_base_chance_pct)))
+            annual_chance_pct = max(0.0, min(100.0, base_chance_pct + missing_health_pct))
+
+            # Spread annual chance across the planning window to keep per-tick load stable.
+            demand_window_ticks = max(1, int(CONFIG.households.healthcare_plan_interval_ticks))
+            tick_request_probability = annual_chance_pct / (100.0 * demand_window_ticks)
+
+            if self._deterministic_unit_random(current_tick, salt=17) >= tick_request_probability:
+                return False
+
+            max_visits = max(1, int(CONFIG.households.healthcare_episode_max_visits))
+            additional_visits = int(round((missing_health_pct / 100.0) * max(0, max_visits - 1)))
+            self.pending_healthcare_visits = max(1, min(max_visits, 1 + additional_visits))
+
+        visits_remaining = max(1, self.pending_healthcare_visits)
+        missing_health = max(0.0, 1.0 - self.health)
+        self.pending_visit_heal_delta = missing_health / float(visits_remaining)
+        self.pending_healthcare_visits = max(0, self.pending_healthcare_visits - 1)
+
+        max_gap = max(1, int(CONFIG.households.healthcare_followup_gap_max_ticks))
+        gap_ticks = 1 + int(self.health * max(0, max_gap - 1))
+        self.next_healthcare_request_tick = current_tick + gap_ticks
+        return True
 
     def _healthcare_visit_distribution(self) -> List[tuple[int, float]]:
         """Return annual visit-count distribution by current health bucket."""
@@ -1328,9 +1385,15 @@ class HouseholdAgent:
         missing_health = max(0.0, 1.0 - self.health)
         heal_per_visit = missing_health / float(visits)
         spacing = interval / float(visits)
+        rng = random.Random(
+            CONFIG.random_seed + self.household_id * 9973 + anchor_tick * 37 + visits * 193
+        )
         due_ticks: List[int] = []
         for idx in range(visits):
-            due_tick = anchor_tick + int(round(idx * spacing))
+            slot_start = idx * spacing
+            slot_end = (idx + 1) * spacing
+            sampled_offset = rng.uniform(slot_start, max(slot_start, slot_end - 1e-6))
+            due_tick = anchor_tick + int(sampled_offset)
             due_tick = max(anchor_tick, min(anchor_tick + interval - 1, due_tick))
             due_ticks.append(due_tick)
         due_ticks.sort()
@@ -1346,10 +1409,9 @@ class HouseholdAgent:
                 heal_delta = 0.0
                 if idx < len(self.care_plan_heal_deltas):
                     heal_delta = max(0.0, self.care_plan_heal_deltas[idx])
+                    self.care_plan_heal_deltas.pop(idx)
                 self.pending_visit_heal_delta = heal_delta
-                del self.care_plan_due_ticks[idx]
-                if idx < len(self.care_plan_heal_deltas):
-                    del self.care_plan_heal_deltas[idx]
+                self.care_plan_due_ticks.pop(idx)
                 return True
         return False
 
@@ -1557,27 +1619,35 @@ class HouseholdAgent:
             self.unemployment_duration += 1
 
             # Adaptive decay: the more desperate, the faster expectations drop.
-            # Duration pressure: 4% per tick (was 2%), caps at 0.45
-            duration_pressure = min(0.45, self.unemployment_duration * 0.04)
+            hh_config = CONFIG.households
+            duration_pressure = min(
+                hh_config.duration_pressure_cap,
+                self.unemployment_duration * hh_config.duration_pressure_rate,
+            )
             # Cash pressure: broke people adjust fast
             cash_pressure = 0.0
-            if self.cash_balance < 200.0:
-                cash_pressure = min(0.3, (200.0 - self.cash_balance) / 200.0 * 0.3)
+            cash_threshold = hh_config.poverty_threshold
+            if self.cash_balance < cash_threshold:
+                cash_pressure = min(
+                    hh_config.happiness_pressure_cap,
+                    (cash_threshold - self.cash_balance) / max(cash_threshold, 1.0) * hh_config.happiness_pressure_cap,
+                )
             # Health pressure: sick people take what they can get
             health_pressure = 0.0
-            if self.health < 0.5:
-                health_pressure = min(0.2, (0.5 - self.health) * 0.4)
+            if self.health < hh_config.happiness_threshold:
+                health_pressure = min(
+                    0.2,
+                    (hh_config.happiness_threshold - self.health) * hh_config.happiness_pressure_rate,
+                )
 
-            base_decay = 0.92  # faster base decay (was 0.95)
             decay_factor = max(
-                0.4,  # can drop up to 60% per tick when fully desperate (was 50%)
-                base_decay - duration_pressure - cash_pressure - health_pressure
+                hh_config.min_decay_factor,
+                hh_config.base_wage_decay - duration_pressure - cash_pressure - health_pressure,
             )
-            decayed_expectation = max(self.expected_wage * decay_factor, 5.0)
+            decayed_expectation = max(self.expected_wage * decay_factor, hh_config.wage_floor)
 
             if market_wage_anchor is not None:
-                # Stronger pull toward market reality when unemployed
-                anchor_weight = 0.5  # was 0.4
+                anchor_weight = hh_config.unemployed_market_anchor_weight
                 self.expected_wage = (
                     (1.0 - anchor_weight) * decayed_expectation
                     + anchor_weight * market_wage_anchor
@@ -1586,13 +1656,14 @@ class HouseholdAgent:
                 self.expected_wage = decayed_expectation
 
         # Reservation wage tracks expected wage — faster when desperate
+        hh_config = CONFIG.households
         if self.unemployment_duration > 5:
-            reservation_adjustment_rate = 0.3  # catch up quickly after a few ticks
+            res_rate = hh_config.reservation_adjustment_rate * 3.0
         else:
-            reservation_adjustment_rate = 0.15
+            res_rate = hh_config.reservation_adjustment_rate * 1.5
         self.reservation_wage = (
-            reservation_adjustment_rate * self.expected_wage +
-            (1.0 - reservation_adjustment_rate) * self.reservation_wage
+            res_rate * self.expected_wage +
+            (1.0 - res_rate) * self.reservation_wage
         )
 
     def apply_income_and_taxes(self, flows: Dict[str, float]) -> None:
@@ -1621,6 +1692,14 @@ class HouseholdAgent:
             purchases: Dict mapping good_name -> (quantity, price_paid)
             firm_categories: Optional dict mapping good_name -> category (to detect housing purchases)
         """
+        # Pre-check: total purchase cost won't cause catastrophic negative balance
+        total_purchase_cost = sum(q * p for q, p in purchases.values())
+        if self.cash_balance - total_purchase_cost < CONFIG.households.extreme_negative_cash_threshold:
+            raise ValueError(
+                f"Household {self.household_id} purchases ({total_purchase_cost:.2f}) would exceed "
+                f"catastrophic threshold. Cash: {self.cash_balance:.2f}. Aborting."
+            )
+
         for good, (quantity, price_paid) in purchases.items():
             # Update cash
             total_cost = quantity * price_paid
@@ -2402,11 +2481,18 @@ class FirmAgent:
                 firm_config.min_expected_sales,
                 float(max(1, self.max_rental_units))
             )
-            planned_layoffs = list(self.employees) if self.employees else []
+            # Housing firms retain a skeleton crew for property management
+            # rather than firing everyone each tick (which causes wasteful churn).
+            min_staff = max(firm_config.min_skeleton_workers, firm_config.min_target_workers)
+            current_workers = len(self.employees) if self.employees else 0
+            planned_layoffs = []
+            if current_workers > min_staff:
+                excess = current_workers - min_staff
+                planned_layoffs = list(self.employees[:excess])
             return {
                 "firm_id": self.firm_id,
                 "planned_production_units": 0.0,
-                "planned_hires_count": 0,
+                "planned_hires_count": max(0, min_staff - current_workers),
                 "planned_layoffs_ids": planned_layoffs,
                 "updated_expected_sales": self.expected_sales_units,
             }
@@ -3015,24 +3101,27 @@ class FirmAgent:
         if revenue <= 0 or not self.employees:
             return
 
+        firm_config = self._firm_config()
+
         # Calculate current wage bill
         wage_bill = 0.0
         for employee_id in self.employees:
             wage_bill += self.actual_wages.get(employee_id, self.wage_offer)
 
-        # Check if wages exceed 80% of revenue
-        wage_ratio = wage_bill / revenue
-        if wage_ratio > 0.80:
+        # Check if wages exceed configured threshold of revenue
+        wage_ratio = wage_bill / max(revenue, 1e-9)
+        if wage_ratio > firm_config.max_labor_share:
             # Reduce all wages by 10%, floored at minimum wage
-            minimum_wage = 20.0
+            minimum_wage = firm_config.minimum_wage_floor
+            wage_cut = firm_config.max_wage_decrease_per_tick
             for employee_id in self.employees:
                 current_wage = self.actual_wages.get(employee_id, self.wage_offer)
-                reduced_wage = current_wage * 0.9  # 10% reduction
+                reduced_wage = current_wage * wage_cut
                 new_wage = max(reduced_wage, minimum_wage)
                 self.actual_wages[employee_id] = new_wage
 
             # Also reduce wage_offer for new hires
-            self.wage_offer = max(self.wage_offer * 0.9, minimum_wage)
+            self.wage_offer = max(self.wage_offer * wage_cut, minimum_wage)
 
     def apply_price_and_wage_updates(
         self,
@@ -3556,8 +3645,12 @@ class GovernmentAgent:
         for firm in firms:
             firm_id = firm["firm_id"]
             if firm.get("good_category") == "Housing" and firm.get("property_tax_rate", 0.0) > 0:
-                # Property tax is annual rate, so divide by 52 for weekly payment
-                weekly_property_tax = firm["property_tax_rate"] * firm["cash_balance"] / 52.0
+                # Property tax based on assessed property value (rent × units), not cash balance.
+                # Annual rate divided by 52 for weekly payment.
+                rental_units = firm.get("max_rental_units", 0)
+                rent_per_unit = firm.get("price", 0.0)
+                assessed_property_value = rental_units * rent_per_unit * 52.0  # annualized rental income as proxy
+                weekly_property_tax = firm["property_tax_rate"] * assessed_property_value / 52.0
                 property_taxes[firm_id] = max(weekly_property_tax, 0.0)
 
         return {
