@@ -12,6 +12,7 @@ __pycache__/
 .mypy_cache/
 .venv/
 venv/
+.tools/
 
 # Node/build artifacts
 node_modules/
