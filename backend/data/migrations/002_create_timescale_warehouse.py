@@ -53,7 +53,19 @@ def run_migration():
                 SELECT table_name
                 FROM information_schema.tables
                 WHERE table_schema = 'public'
-                AND table_name IN ('simulation_runs', 'tick_metrics', 'policy_config')
+                AND table_name IN (
+                    'simulation_runs',
+                    'tick_metrics',
+                    'sector_tick_metrics',
+                    'firm_snapshots',
+                    'household_snapshots',
+                    'tracked_household_history',
+                    'decision_features',
+                    'labor_events',
+                    'healthcare_events',
+                    'policy_actions',
+                    'policy_config'
+                )
                 ORDER BY table_name
                 """
             )
@@ -69,7 +81,7 @@ def run_migration():
             has_timescale = cur.fetchone() is not None
 
         print("Schema applied successfully.")
-        print(f"Core tables present: {tables}")
+        print(f"Warehouse tables present: {tables}")
         print(f"Timescale extension enabled: {has_timescale}")
         print()
         print("=" * 70)

@@ -376,6 +376,9 @@ def compute_household_stats(households: List[HouseholdAgent]) -> Dict[str, float
     """Vectorized snapshot of household metrics for reuse."""
     if not households:
         return {
+            "total_households": 0,
+            "employed_count": 0,
+            "unemployed_count": 0,
             "unemployment_rate": 0.0,
             "mean_wage": 0.0,
             "median_wage": 0.0,
@@ -383,10 +386,21 @@ def compute_household_stats(households: List[HouseholdAgent]) -> Dict[str, float
             "mean_unemployed_expected_wage": 0.0,
             "mean_cash": 0.0,
             "median_cash": 0.0,
+            "gini_coefficient": 0.0,
+            "top10_wealth_share": 0.0,
+            "bottom50_wealth_share": 0.0,
             "mean_happiness": 0.0,
             "mean_morale": 0.0,
             "mean_health": 0.0,
-            "mean_performance": 0.0
+            "mean_performance": 0.0,
+            "cash_below_100_share": 0.0,
+            "cash_below_zero_share": 0.0,
+            "health_below_50_share": 0.0,
+            "happiness_below_50_share": 0.0,
+            "food_insecure_share": 0.0,
+            "housing_insecure_share": 0.0,
+            "homeless_household_count": 0,
+            "pending_healthcare_visits_total": 0,
         }
 
     cash = np.array([h.cash_balance for h in households], dtype=float)
@@ -398,12 +412,38 @@ def compute_household_stats(households: List[HouseholdAgent]) -> Dict[str, float
     employed_wages = np.array([h.wage for h in households if h.is_employed], dtype=float)
     expected_wages = np.array([h.expected_wage for h in households], dtype=float)
     unemployed_expected_wages = np.array([h.expected_wage for h in households if not h.is_employed], dtype=float)
+    food_security = np.array([_food_security_ratio(h) for h in households], dtype=float)
+    housing_security = np.array([1.0 if _housing_security_flag(h) else 0.0 for h in households], dtype=float)
+    pending_healthcare_visits = np.array(
+        [max(0, int(getattr(h, "pending_healthcare_visits", 0))) for h in households],
+        dtype=float,
+    )
 
+    total_households = int(cash.size)
+    employed_count = int(employment.sum())
+    unemployed_count = int(total_households - employed_count)
     unemployment_rate = 1.0 - (employment.mean() if employment.size else 0.0)
     mean_wage = float(employed_wages.mean()) if employed_wages.size else 0.0
     median_wage = float(np.median(employed_wages)) if employed_wages.size else 0.0
 
+    sorted_cash = np.sort(cash)
+    total_cash = float(sorted_cash.sum())
+    if sorted_cash.size > 1 and total_cash > 0.0:
+        index = np.arange(1, sorted_cash.size + 1, dtype=float)
+        gini = float((2.0 * np.dot(index, sorted_cash)) / (sorted_cash.size * total_cash) - (sorted_cash.size + 1.0) / sorted_cash.size)
+        top10_start = int(sorted_cash.size * 0.9)
+        bottom50_end = int(sorted_cash.size * 0.5)
+        top10_share = float(sorted_cash[top10_start:].sum() / total_cash)
+        bottom50_share = float(sorted_cash[:bottom50_end].sum() / total_cash)
+    else:
+        gini = 0.0
+        top10_share = 0.0
+        bottom50_share = 0.0
+
     return {
+        "total_households": total_households,
+        "employed_count": employed_count,
+        "unemployed_count": unemployed_count,
         "unemployment_rate": unemployment_rate,
         "mean_wage": mean_wage,
         "median_wage": median_wage,
@@ -411,11 +451,232 @@ def compute_household_stats(households: List[HouseholdAgent]) -> Dict[str, float
         "mean_unemployed_expected_wage": float(unemployed_expected_wages.mean()) if unemployed_expected_wages.size else 0.0,
         "mean_cash": float(cash.mean()),
         "median_cash": float(np.median(cash)),
+        "gini_coefficient": max(0.0, min(1.0, gini)),
+        "top10_wealth_share": top10_share,
+        "bottom50_wealth_share": bottom50_share,
         "mean_happiness": float(happiness.mean()),
         "mean_morale": float(morale.mean()),
         "mean_health": float(health.mean()),
-        "mean_performance": float(performance.mean())
+        "mean_performance": float(performance.mean()),
+        "cash_below_100_share": float((cash < 100.0).mean()),
+        "cash_below_zero_share": float((cash < 0.0).mean()),
+        "health_below_50_share": float((health < 0.5).mean()),
+        "happiness_below_50_share": float((happiness < 0.5).mean()),
+        "food_insecure_share": float((food_security < 0.999).mean()),
+        "housing_insecure_share": float((housing_security < 0.5).mean()),
+        "homeless_household_count": int((housing_security < 0.5).sum()),
+        "pending_healthcare_visits_total": int(pending_healthcare_visits.sum()),
     }
+
+
+def _classify_household_state(household: HouseholdAgent) -> str:
+    """Map household labor/training state to a stable warehouse label."""
+    medical_status = (household.medical_training_status or "none").lower()
+    if medical_status == "student":
+        return "MED_SCHOOL"
+    if household.is_employed:
+        return "WORKING"
+    return "UNEMPLOYED"
+
+
+def _food_security_ratio(household: HouseholdAgent) -> float:
+    """Return last-tick food sufficiency as a bounded ratio."""
+    required_food = max(0.1, float(getattr(household, "min_food_per_tick", 0.0)))
+    consumed_food = float(getattr(household, "food_consumed_last_tick", 0.0))
+    return max(0.0, min(1.0, consumed_food / required_food))
+
+
+def _housing_security_flag(household: HouseholdAgent) -> bool:
+    """Return whether the household had housing security this tick."""
+    return bool(
+        household.owns_housing
+        or household.renting_from_firm_id is not None
+        or household.met_housing_need
+    )
+
+
+def compute_household_snapshot_rows(households: List[HouseholdAgent]) -> List[Dict[str, object]]:
+    """Build sampled warehouse rows for the full household population."""
+    rows: List[Dict[str, object]] = []
+    for household in households:
+        rows.append({
+            "household_id": int(household.household_id),
+            "state": _classify_household_state(household),
+            "medical_status": str((household.medical_training_status or "none").lower()),
+            "employer_id": int(household.employer_id) if household.employer_id is not None else None,
+            "is_employed": bool(household.is_employed),
+            "can_work": bool(household.can_work),
+            "cash_balance": float(household.cash_balance),
+            "wage": float(household.wage),
+            "last_wage_income": float(getattr(household, "last_wage_income", 0.0)),
+            "last_transfer_income": float(getattr(household, "last_transfer_income", 0.0)),
+            "last_dividend_income": float(getattr(household, "last_dividend_income", 0.0)),
+            "reservation_wage": float(household.reservation_wage),
+            "expected_wage": float(household.expected_wage),
+            "skill_level": float(household.skills_level),
+            "health": float(household.health),
+            "happiness": float(household.happiness),
+            "morale": float(household.morale),
+            "food_security": float(_food_security_ratio(household)),
+            "housing_security": bool(_housing_security_flag(household)),
+            "unemployment_duration": int(household.unemployment_duration),
+            "pending_healthcare_visits": int(max(0, getattr(household, "pending_healthcare_visits", 0))),
+        })
+
+    rows.sort(key=lambda row: int(row["household_id"]))
+    return rows
+
+
+def compute_tracked_household_history_rows(
+    household_lookup: Dict[int, HouseholdAgent],
+    tracked_household_ids: List[int],
+) -> List[Dict[str, object]]:
+    """Build every-tick rows for the tracked-household subset only.
+
+    This avoids a full household scan on non-snapshot ticks. The live frontend
+    already maintains a tracked subset, so reuse that selection for the
+    high-frequency warehouse history path.
+    """
+    rows: List[Dict[str, object]] = []
+    for household_id in tracked_household_ids:
+        household = household_lookup.get(household_id)
+        if household is None:
+            continue
+        rows.append({
+            "household_id": int(household.household_id),
+            "state": _classify_household_state(household),
+            "medical_status": str((household.medical_training_status or "none").lower()),
+            "employer_id": int(household.employer_id) if household.employer_id is not None else None,
+            "is_employed": bool(household.is_employed),
+            "can_work": bool(household.can_work),
+            "cash_balance": float(household.cash_balance),
+            "wage": float(household.wage),
+            "expected_wage": float(household.expected_wage),
+            "reservation_wage": float(household.reservation_wage),
+            "health": float(household.health),
+            "happiness": float(household.happiness),
+            "morale": float(household.morale),
+            "skill_level": float(household.skills_level),
+            "unemployment_duration": int(household.unemployment_duration),
+            "pending_healthcare_visits": int(max(0, getattr(household, "pending_healthcare_visits", 0))),
+        })
+
+    rows.sort(key=lambda row: int(row["household_id"]))
+    return rows
+
+
+def compute_sector_tick_rollups(firms: List[FirmAgent]) -> List[Dict[str, float]]:
+    """Build per-sector aggregates used by the warehouse and history APIs.
+
+    This is intentionally narrower than ``compute_firm_stats``. It avoids
+    leaderboards and other UI-only structures so the warehouse path can record
+    per-tick sector state with one lightweight firm scan.
+    """
+    if not firms:
+        return []
+
+    category_map = defaultdict(lambda: {
+        "firm_count": 0,
+        "employees": 0,
+        "vacancies": 0,
+        "price_sum": 0.0,
+        "wage_sum": 0.0,
+        "inventory_sum": 0.0,
+        "output_sum": 0.0,
+        "revenue_sum": 0.0,
+        "profit_sum": 0.0,
+    })
+
+    for firm in firms:
+        sector = firm.good_category or "Other"
+        data = category_map[sector]
+        data["firm_count"] += 1
+        data["employees"] += len(firm.employees)
+        data["vacancies"] += max(0, int(getattr(firm, "planned_hires_count", 0)))
+        data["price_sum"] += max(0.0, float(firm.price))
+        data["wage_sum"] += max(0.0, float(firm.wage_offer))
+        data["inventory_sum"] += max(0.0, float(firm.inventory_units))
+        data["output_sum"] += max(0.0, float(getattr(firm, "last_units_produced", 0.0)))
+        data["revenue_sum"] += float(getattr(firm, "last_revenue", 0.0))
+        data["profit_sum"] += float(getattr(firm, "last_profit", 0.0))
+
+    rollups = []
+    for sector, data in category_map.items():
+        firm_count = max(1, int(data["firm_count"]))
+        rollups.append({
+            "sector": sector,
+            "firm_count": int(data["firm_count"]),
+            "employees": int(data["employees"]),
+            "vacancies": int(data["vacancies"]),
+            "mean_wage_offer": float(data["wage_sum"] / firm_count),
+            "mean_price": float(data["price_sum"] / firm_count),
+            "mean_inventory": float(data["inventory_sum"] / firm_count),
+            "total_output": float(data["output_sum"]),
+            "total_revenue": float(data["revenue_sum"]),
+            "total_profit": float(data["profit_sum"]),
+        })
+
+    rollups.sort(key=lambda item: item["sector"])
+    return rollups
+
+
+def compute_firm_snapshot_rows(
+    firms: List[FirmAgent],
+    household_lookup: Optional[Dict[int, HouseholdAgent]] = None,
+) -> List[Dict[str, object]]:
+    """Build narrow per-firm snapshot rows for warehouse persistence.
+
+    This intentionally avoids UI-only leaderboards and only captures the state
+    needed to explain pricing, labor demand, cash stress, and healthcare
+    throughput. The row stays small enough to store every tick.
+    """
+    if not firms:
+        return []
+
+    rows: List[Dict[str, object]] = []
+    for firm in firms:
+        sector = firm.good_category or "Other"
+        is_healthcare = sector.lower() == "healthcare"
+        doctor_employee_count = 0
+        medical_employee_count = 0
+        if is_healthcare and household_lookup is not None and firm.employees:
+            for employee_id in firm.employees:
+                worker = household_lookup.get(employee_id)
+                if worker is None:
+                    continue
+                if worker.medical_training_status == "doctor":
+                    doctor_employee_count += 1
+                    medical_employee_count += 1
+                elif worker.medical_training_status == "resident":
+                    medical_employee_count += 1
+
+        rows.append({
+            "firm_id": int(firm.firm_id),
+            "firm_name": str(firm.good_name),
+            "sector": str(sector),
+            "is_baseline": bool(getattr(firm, "is_baseline", False)),
+            "employee_count": int(len(firm.employees)),
+            "doctor_employee_count": int(doctor_employee_count),
+            "medical_employee_count": int(medical_employee_count),
+            "planned_hires_count": int(max(0, getattr(firm, "planned_hires_count", 0))),
+            "planned_layoffs_count": int(len(getattr(firm, "planned_layoffs_ids", []))),
+            "actual_hires_count": int(max(0, getattr(firm, "last_tick_actual_hires", 0))),
+            "wage_offer": float(getattr(firm, "wage_offer", 0.0)),
+            "price": float(getattr(firm, "price", 0.0)),
+            "inventory_units": float(getattr(firm, "inventory_units", 0.0)),
+            "output_units": float(getattr(firm, "last_units_produced", 0.0)),
+            "cash_balance": float(getattr(firm, "cash_balance", 0.0)),
+            "revenue": float(getattr(firm, "last_revenue", 0.0)),
+            "profit": float(getattr(firm, "last_profit", 0.0)),
+            "quality_level": float(getattr(firm, "quality_level", 0.0)),
+            "queue_depth": int(len(getattr(firm, "healthcare_queue", []))) if is_healthcare else 0,
+            "visits_completed": float(getattr(firm, "healthcare_completed_visits_last_tick", 0.0)) if is_healthcare else 0.0,
+            "burn_mode": bool(getattr(firm, "burn_mode", False)),
+            "zero_cash_streak": int(max(0, getattr(firm, "zero_cash_streak", 0))),
+        })
+
+    rows.sort(key=lambda row: int(row["firm_id"]))
+    return rows
 
 
 def compute_firm_stats(

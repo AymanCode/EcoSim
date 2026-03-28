@@ -228,7 +228,7 @@ FROM ranked GROUP BY tick;
 
 ```bash
 # Terminal 1: Backend
-uvicorn backend.server:app --reload --port 8002
+python -m uvicorn backend.server:app --reload --port 8002
 
 # Terminal 2: Frontend
 cd frontend-react && npm run dev

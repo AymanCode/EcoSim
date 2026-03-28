@@ -1,6 +1,8 @@
 # EcoSim
 
-EcoSim is an agent-based economic simulation of households, firms, and government interacting through labor markets, goods markets, and fiscal policy.
+EcoSim is an agent-based economic simulation of households, firms, healthcare,
+housing, banks, and government interacting through labor markets, goods
+markets, and fiscal policy.
 
 ## Why This Project
 
@@ -11,6 +13,7 @@ EcoSim is built as a policy sandbox: change core levers (taxes, benefits, wages,
 - Simulates household, firm, and government decisions every tick
 - Runs market clearing and policy adjustment in a phased simulation loop
 - Streams live metrics to a React dashboard over WebSocket
+- Persists run history, events, snapshots, and diagnostics through a local warehouse
 - Supports scenario experimentation through runtime configuration
 - Includes data generation and ML training scripts for policy-outcome forecasting
 
@@ -29,16 +32,18 @@ EcoSim is built as a policy sandbox: change core levers (taxes, benefits, wages,
 ```text
 frontend-react (dashboard)
     -> websocket
-backend/server.py (simulation manager + streaming)
+backend/server.py (simulation manager + streaming + warehouse buffering)
     ->
 backend/economy.py (tick orchestration)
     ->
 backend/agents.py (HouseholdAgent, FirmAgent, GovernmentAgent)
     +
 backend/config.py (parameterized behavior)
+    +
+backend/data/ (warehouse managers, schema, migrations, tests)
 ```
 
-Detailed architecture: `docs/ARCHITECTURE.md`.
+Detailed documentation lives in [docs/README.md](docs/README.md).
 
 ## Quickstart
 
@@ -67,7 +72,7 @@ Detailed architecture: `docs/ARCHITECTURE.md`.
 
 ```bash
 # Terminal 1: backend API
-uvicorn backend.server:app --reload --port 8002
+python -m uvicorn backend.server:app --reload --port 8002
 
 # Terminal 2: frontend
 cd frontend-react
@@ -95,10 +100,20 @@ $env:ECOSIM_WAREHOUSE_DSN="postgresql://ecosim:ecosim@localhost:5432/ecosim"
 python backend/data/migrations/002_create_timescale_warehouse.py
 
 # Run API
-uvicorn backend.server:app --reload --port 8002
+python -m uvicorn backend.server:app --reload --port 8002
 ```
 
 Warehouse architecture and interview talking points: `docs/DATA_STORAGE_ARCHITECTURE.md`.
+
+Current warehouse scope includes:
+
+- run metadata and policy config
+- aggregate tick metrics and sector metrics
+- firm snapshots
+- sampled household snapshots and tracked-household history
+- labor, healthcare, policy, and regime events
+- compact decision features
+- compact explainability diagnostics
 
 ## Simulation and Data Commands
 
@@ -119,13 +134,16 @@ python train_ml_model.py
 
 ## Tests
 
+Core backend/data validation:
+
 ```bash
-cd backend
-python test_stochastic.py
-python test_training_setup.py
-python test_household_agent.py
-python test_firm_behavior.py
-python test_government_behavior.py
+.\.venv\Scripts\python.exe -m pytest backend/data/tests backend/tests_server/test_server_api.py -q
+```
+
+Contract regression checks:
+
+```bash
+.\.venv\Scripts\python.exe -m pytest backend/tests_contracts -q
 ```
 
 ## Repository Layout
@@ -155,8 +173,11 @@ Large generated files are intentionally not tracked in Git (databases, model bin
 
 ## Documentation Map
 
-- `docs/ARCHITECTURE.md`: system design, tick phases, data flow
-- `docs/DYNAMIC_FEATURES.md`: simulation behaviors and market mechanics
-- `docs/DATA_SPECIFICATION.md`: schema and data usage guidance
-- `docs/DATA_STORAGE_ARCHITECTURE.md`: local-first warehouse design (SQLite and Timescale)
-- `backend/TESTING.md`: test inventory and run instructions
+- `docs/README.md`: active documentation index
+- `docs/SIMULATION.md`: tick phases, agents, and market mechanics
+- `docs/TECHNICAL.md`: stack, configuration, testing, and implementation notes
+- `docs/FRONTEND.md`: dashboard behavior and WebSocket protocol
+- `docs/DATA_STORAGE_ARCHITECTURE.md`: warehouse plan, persistence guarantees, and explainability layer
+- `docs/HOUSEHOLD_LABOR_DERISKING.md`: labor matching guardrails and rollout notes
+- `docs/BANKING_SYSTEM.md`: banking model and credit mechanics
+- `docs/archive/`: older docs kept for reference

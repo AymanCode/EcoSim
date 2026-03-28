@@ -153,6 +153,10 @@ def test_contract_post_warmup_labor_market_remains_active(tiny_economy_factory):
         seed=777,
         government_cash=120_000.0,
     )
+    # Small economies need active stabilisation — set levers that
+    # replicate what the old auto-stabilisers would have done.
+    economy.government.set_lever("benefit_level", "high")
+    economy.government.set_lever("public_works", "on")
 
     post_warmup_hires = 0
     for _ in range(70):

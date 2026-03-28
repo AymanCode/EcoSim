@@ -1,9 +1,17 @@
 """
 Migration 001: Create Data Warehouse Schema
 
-Creates the initial data warehouse tables:
+Creates the current SQLite warehouse tables:
 - simulation_runs
 - tick_metrics
+- sector_tick_metrics
+- firm_snapshots
+- household_snapshots
+- tracked_household_history
+- decision_features
+- labor_events
+- healthcare_events
+- policy_actions
 - policy_config
 
 Safe to run multiple times (uses IF NOT EXISTS).

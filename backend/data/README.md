@@ -1,423 +1,480 @@
-# EcoSim Data Warehouse - Phase 1 Complete ✅
+# EcoSim Warehouse Backend
 
-Minimal, production-ready data warehouse for storing and querying simulation runs.
+This directory contains the local warehouse implementation for EcoSim.
 
----
+Current runtime backends:
 
-## Overview
+- `sqlite`
+- `postgres`
+- `timescale`
 
-The data warehouse consists of **3 core tables** that capture all essential simulation data:
+Core files:
 
-1. **simulation_runs** - Metadata for each simulation run
-2. **tick_metrics** - Economic metrics at each tick (time-series data)
-3. **policy_config** - Policy configuration per run
+- `models.py`: typed warehouse row models shared by all backends
+- `db_manager.py`: SQLite warehouse manager
+- `postgres_manager.py`: PostgreSQL/Timescale warehouse manager
+- `schema.sql`: SQLite schema
+- `postgres_schema.sql`: PostgreSQL/Timescale schema
+- `warehouse_factory.py`: backend selector
+- `migrations/`: schema application scripts
 
-Plus 2 views for common queries:
-- **run_summary** - Join runs with their policies
-- **run_averages** - Aggregate statistics per run
+## Migration Guide
 
----
+The migration scripts are backend-specific and intentionally incremental.
 
-## Quick Start
+1. `001_create_warehouse.py`
+- creates the initial SQLite warehouse
+- use this for a fresh local SQLite database
 
-### 1. Initialize Database
+2. `002_create_timescale_warehouse.py`
+- creates the initial PostgreSQL/Timescale warehouse
+- use this for a fresh local Postgres/Timescale database
+
+3. `003_expand_sqlite_aggregate_warehouse.py`
+- upgrades an existing SQLite warehouse to the richer aggregate schema
+- adds `simulation_runs.seed`
+- expands `tick_metrics` with runtime and labor fields
+- creates `sector_tick_metrics`
+
+4. `004_expand_postgres_aggregate_warehouse.py`
+- upgrades an existing Postgres/Timescale warehouse to the richer aggregate schema
+- adds the same aggregate fields as SQLite
+- creates `sector_tick_metrics` and converts it to a hypertable when Timescale is available
+
+5. `005_add_sqlite_event_tables.py`
+- upgrades an existing SQLite warehouse with append-only event tables
+- adds `labor_events`, `healthcare_events`, and `policy_actions`
+
+6. `006_add_postgres_event_tables.py`
+- upgrades an existing Postgres/Timescale warehouse with the same event tables
+- uses `JSONB` for policy action payloads
+
+7. `007_add_sqlite_firm_snapshots.py`
+- upgrades an existing SQLite warehouse with per-firm snapshot storage
+- adds `firm_snapshots`
+- adds indexes for `(run_id, tick)`, `(run_id, firm_id, tick)`, and `(run_id, sector, tick)`
+
+8. `008_add_postgres_firm_snapshots.py`
+- upgrades an existing Postgres/Timescale warehouse with the same firm snapshot table
+- adds the same indexes as SQLite
+- converts `firm_snapshots` to a hypertable when Timescale is available
+
+9. `009_add_sqlite_household_snapshots.py`
+- upgrades an existing SQLite warehouse with sampled household-state storage
+- adds `household_snapshots` and `tracked_household_history`
+- adds indexes for sampled population reads and tracked-subject history reads
+
+10. `010_add_postgres_household_snapshots.py`
+- upgrades an existing Postgres/Timescale warehouse with the same household tables
+- adds the same indexes as SQLite
+- converts both tables to hypertables when Timescale is available
+
+11. `011_add_sqlite_decision_features.py`
+- upgrades an existing SQLite warehouse with per-tick decision-context storage
+- adds `decision_features`
+- adds the primary `(run_id, tick)` analytical index
+
+12. `012_add_postgres_decision_features.py`
+- upgrades an existing Postgres/Timescale warehouse with the same decision table
+- adds the same index as SQLite
+- converts `decision_features` to a hypertable when Timescale is available
+
+13. `013_add_sqlite_reliability_manifest.py`
+- upgrades an existing SQLite warehouse with run-manifest and reliability fields
+- adds `config_json`, version fields, persisted watermark fields, and lifecycle flags
+- adds `event_key` to event tables plus unique `(run_id, event_key)` indexes
+
+14. `014_add_postgres_reliability_manifest.py`
+- upgrades an existing Postgres/Timescale warehouse with the same manifest and reliability fields
+- backfills legacy event rows before adding the unique idempotency indexes
+
+15. `015_add_sqlite_diagnostics_and_regime_events.py`
+- upgrades an existing SQLite warehouse with explainability-oriented diagnostics
+- adds `simulation_runs.diagnostics_version`
+- adds `tick_diagnostics`, `sector_shortage_diagnostics`, and `regime_events`
+
+16. `016_add_postgres_diagnostics_and_regime_events.py`
+- upgrades an existing Postgres/Timescale warehouse with the same diagnostics/regime-event layer
+- converts the diagnostics tables to hypertables when Timescale is available
+
+## Current Implemented Warehouse Scope
+
+The currently implemented warehouse covers:
+
+1. `simulation_runs`
+2. `tick_metrics`
+3. `sector_tick_metrics`
+4. `firm_snapshots`
+5. `household_snapshots`
+6. `tracked_household_history`
+7. `labor_events`
+8. `healthcare_events`
+9. `policy_actions`
+10. `decision_features`
+11. `tick_diagnostics`
+12. `sector_shortage_diagnostics`
+13. `regime_events`
+14. `policy_config`
+
+This is enough for:
+
+- run metadata
+- aggregate macro history
+- per-sector aggregate history
+- firm-by-firm state history
+- sampled population state history
+- every-tick tracked-household trajectories
+- labor event history
+- healthcare service event history
+- policy action history
+- compact per-tick policy / LLM decision context
+- compact per-tick explainability diagnostics
+- explicit regime/state transition events
+- run-level policy configuration
+- replay/debug manifest metadata
+- persisted run lifecycle and durability status
+
+It is still not the full long-term warehouse model.
+
+## Reliability Guarantees
+
+The warehouse now has a practical correctness baseline for simulation
+debugging and future policy/LLM work.
+
+Current guarantees:
+
+1. flushes are atomic per buffered bundle
+- one bundle commit now includes aggregates, decision rows, snapshots, events, and the watermark update
+- if any insert fails, the entire bundle rolls back and the in-memory buffers remain available for retry
+
+2. runs expose durability state
+- `simulation_runs.last_fully_persisted_tick` records the highest durably committed tick
+- `simulation_runs.analysis_ready` is only set on a clean completed close
+- `simulation_runs.termination_reason` distinguishes normal completion from stop/fail or warehouse-flush failure
+
+3. event inserts are idempotent
+- `labor_events`, `healthcare_events`, and `policy_actions` now use deterministic `event_key`
+- retries insert with conflict-ignore semantics instead of duplicating rows
+
+This is intentionally a minimum strong foundation, not a full observability system.
+
+## Explainability Diagnostics
+
+The warehouse now persists a lightweight always-on explainability layer:
+
+1. `tick_diagnostics`
+- one row per run/tick
+- compact policy-relevant explanations for unemployment change, health change,
+  firm distress, housing failure, and shortage breadth
+
+2. `sector_shortage_diagnostics`
+- one row per run/tick/sector
+- explicit shortage state plus compact severity and driver metrics
+
+3. `regime_events`
+- sparse transition events for:
+  - `firm_distress_enter`
+  - `firm_distress_exit`
+  - `firm_bankrupt`
+  - `failed_hiring`
+  - `eviction`
+  - `shortage_regime_enter`
+  - `shortage_regime_exit`
+
+Design intent:
+- keep this layer cheap enough for always-on debugging
+- make the economy legible for later policy logic
+- avoid building a large generic tracing system too early
+
+## Replay Manifest
+
+Each run now stores a minimal manifest in `simulation_runs`:
+
+- `seed`
+- `config_json`
+- `code_version`
+- `schema_version`
+- `decision_feature_version`
+
+This is enough for debugging, run comparison, and future policy evaluation
+without overbuilding exact replay yet.
+
+## Household Snapshot Cadence
+
+The current household-storage path is intentionally split in two:
+
+1. `household_snapshots`
+- full sampled population state
+- captured at tick `1` and then every `ECOSIM_HOUSEHOLD_SNAPSHOT_STRIDE` ticks
+- default stride is `5`
+
+2. `tracked_household_history`
+- narrow every-tick history for the tracked household subset already used by the live UI
+- avoids a full household scan on non-snapshot ticks
+
+This keeps the warehouse analytically useful without turning 10k-household runs
+into a write-heavy bottleneck immediately.
+
+## Planned Warehouse Expansion
+
+The long-term storage plan now lives in:
+
+- [docs/DATA_STORAGE_ARCHITECTURE.md](../../docs/DATA_STORAGE_ARCHITECTURE.md)
+
+That document defines:
+
+- why `PostgreSQL + TimescaleDB` is the primary target
+- what stays in memory vs websocket vs warehouse
+- proposed table families
+- key/index strategy
+- migration sequencing
+- write cadence rules
+- anti-patterns to avoid
+
+## Migration Sequence
+
+The intended rollout order is:
+
+1. expand aggregate warehouse
+2. add event tables
+3. add firm snapshots
+4. add household snapshots
+5. add decision-feature tables
+6. add diagnostics and regime-change events
+7. add query views and product-facing endpoints
+
+The aggregate, event, firm snapshot, household snapshot, decision-feature,
+and diagnostics layers are now implemented.
+
+The next concrete implementation target is:
+
+- keep explainability semantics stable as simulation mechanics evolve
+- add only targeted trace depth where debugging value is clear
+- keep future history APIs aligned with the warehouse grain rather than websocket payloads
+
+## Decision Feature Definitions
+
+The current `decision_features` table stores one row per tick with compact,
+trend-aware values derived in memory from exact tick telemetry. The current
+implementation uses:
+
+- `unemployment_short_ma` / `unemployment_long_ma`
+  - 5-tick and 20-tick moving averages of unemployment rate
+- `inflation_short_ma`
+  - 5-tick moving average of percentage change in the consumer price basket
+  - basket currently uses mean `Food`, `Housing`, and `Services` prices
+- `hiring_momentum` / `layoff_momentum`
+  - short minus long moving average of hires / layoffs per 100 households
+- `vacancy_fill_ratio`
+  - current tick `total_hires / open_vacancies`, clamped to `[0, 1]`
+- `wage_pressure`
+  - percentage gap between unemployed expected wage and current mean wage
+  - guarded by the configured minimum-wage floor to avoid divide-by-zero blowups
+- `healthcare_pressure`
+  - current healthcare queue depth per healthcare staff member
+- `consumer_distress_score`
+  - weighted score from unemployment, low-cash share, low-health share, and low-happiness share
+- `fiscal_stress_score`
+  - weighted score from negative government cash and negative fiscal flow relative to current GDP
+- `inequality_pressure_score`
+  - weighted score from Gini plus the `top10_share - bottom50_share` concentration gap
+
+This table is intentionally compact. It is for live policy context and audit,
+not for replacing raw aggregate or snapshot storage.
+
+## Live Decision Context
+
+The server now also maintains a rolling in-memory decision context for future
+policy logic and local LLM integration.
+
+Purpose:
+
+- give a live agent a recent trend window without scraping websocket payloads
+- keep the freshest context available even before a warehouse batch flush
+
+Current surfaces:
+
+1. `SimulationManager.get_live_decision_context(window=...)`
+2. `GET /decision-context/live`
+
+The live context window stores:
+
+- current macro state (`unemploymentRate`, `meanWage`, `gdp`, government cash / flow)
+- labor pressure (`openVacancies`, `totalHires`, `totalLayoffs`)
+- healthcare pressure (`healthcareQueueDepth`)
+- key prices (`avgFoodPrice`, `avgHousingPrice`, `avgServicesPrice`)
+- the derived decision-feature scores
+- the most recent policy changes
+
+When the warehouse is enabled, persisted `decision_features` still come from
+the exact aggregate path. When the warehouse is disabled, the live decision
+window still updates from the server's in-memory metrics path.
+
+## Implementation Rules
+
+These rules matter for speed:
+
+1. keep simulation execution in memory
+2. batch writes
+3. avoid per-row commits
+4. avoid full-household snapshotting by default until profiled
+5. do not let websocket payloads dictate warehouse schema
+
+## Validation
+
+The storage and query layer now has three test levels:
+
+1. manager/unit coverage in `backend/data/tests/test_db_manager.py`
+2. end-to-end SQLite warehouse coverage in `backend/data/tests/test_warehouse_integration.py`
+3. server API coverage in `backend/tests_server/test_server_api.py`
+
+The integration test exercises the real server-side warehouse path:
+
+- open warehouse run
+- execute real economy ticks
+- batch aggregates, decision features, firm snapshots, sampled household snapshots, tracked-household history, and events
+- flush to SQLite
+- verify reads through `DatabaseManager`
+
+The server API tests verify:
+
+- live rolling decision-context reads
+- persisted run listing
+- persisted run comparison reads
+- persisted tick-metric reads
+- persisted decision-feature reads
+- persisted sector drill-down reads
+
+## Local Setup
+
+SQLite:
 
 ```bash
 python backend/data/migrations/001_create_warehouse.py
 ```
 
-This creates `backend/data/ecosim.db` with the complete schema.
-
-### 1b. Initialize PostgreSQL + TimescaleDB (Optional)
+Existing SQLite DB upgrade:
 
 ```bash
-# Start local DB (from repo root)
+python backend/data/migrations/003_expand_sqlite_aggregate_warehouse.py
+```
+
+PostgreSQL/Timescale:
+
+```bash
 docker compose -f docker-compose.timescale.yml up -d
-
-# Set DSN for migration and runtime
-# PowerShell example:
-$env:ECOSIM_WAREHOUSE_DSN="postgresql://ecosim:ecosim@localhost:5432/ecosim"
-
-# Apply PostgreSQL/Timescale schema
 python backend/data/migrations/002_create_timescale_warehouse.py
 ```
 
-Runtime backend selection is controlled by:
-- `ECOSIM_ENABLE_WAREHOUSE` (`0` or `1`)
-- `ECOSIM_WAREHOUSE_BACKEND` (`sqlite`, `postgres`, or `timescale`)
-- `ECOSIM_SQLITE_PATH` (optional SQLite file path)
-- `ECOSIM_WAREHOUSE_DSN` (required for PostgreSQL/Timescale)
-
-### 2. Use DatabaseManager
-
-```python
-from data.db_manager import DatabaseManager, SimulationRun, TickMetrics, PolicyConfig
-
-# Initialize
-db = DatabaseManager()
-
-# Create a run
-run = SimulationRun(
-    run_id='my_run_001',
-    num_households=1000,
-    num_firms=30,
-    description='Test simulation'
-)
-db.create_run(run)
-
-# Insert tick metrics (batch)
-metrics = [TickMetrics(...) for tick in range(500)]
-db.insert_tick_metrics(metrics)
-
-# Add policy config
-policy = PolicyConfig(run_id='my_run_001', wage_tax=0.20, ...)
-db.insert_policy_config(policy)
-
-# Mark completed
-db.update_run_status('my_run_001', 'completed', total_ticks=500)
-
-# Query
-summary = db.get_run_summary('my_run_001')
-print(f"Average GDP: {summary['avg_gdp']}")
-```
-
-### 3. Run Tests
+Existing PostgreSQL/Timescale DB upgrade:
 
 ```bash
-# Unit tests (9 tests)
-python backend/data/tests/test_db_manager.py
-
-# Sample data test
-python backend/data/test_sample_data.py
+python backend/data/migrations/004_expand_postgres_aggregate_warehouse.py
 ```
 
----
+Existing SQLite event-table upgrade:
 
-## Database Schema
-
-### simulation_runs
-```sql
-run_id TEXT PRIMARY KEY
-created_at TIMESTAMP
-ended_at TIMESTAMP
-status TEXT ('running', 'completed', 'failed', 'stopped')
-num_households INTEGER
-num_firms INTEGER
-total_ticks INTEGER
-final_gdp REAL
-final_unemployment REAL
-final_gini REAL
-final_avg_happiness REAL
-final_avg_health REAL
-final_gov_balance REAL
-description TEXT
-tags TEXT
-```
-
-**Indexes**: created_at, status, tags
-
-### tick_metrics
-```sql
-id INTEGER PRIMARY KEY
-run_id TEXT (FK → simulation_runs)
-tick INTEGER
-created_at TIMESTAMP
-gdp REAL
-unemployment_rate REAL
-mean_wage REAL
-median_wage REAL
-avg_happiness REAL
-avg_health REAL
-avg_morale REAL
-total_net_worth REAL
-gini_coefficient REAL
-top10_wealth_share REAL
-bottom50_wealth_share REAL
-gov_cash_balance REAL
-gov_profit REAL
-total_firms INTEGER
-struggling_firms INTEGER
-avg_food_price REAL
-avg_housing_price REAL
-avg_services_price REAL
-```
-
-**Indexes**: run_id, (run_id, tick), tick
-**Unique**: (run_id, tick)
-
-### policy_config
-```sql
-id INTEGER PRIMARY KEY
-run_id TEXT UNIQUE (FK → simulation_runs)
-wage_tax REAL
-profit_tax REAL
-wealth_tax_rate REAL
-wealth_tax_threshold REAL
-universal_basic_income REAL
-unemployment_benefit_rate REAL
-minimum_wage REAL
-inflation_rate REAL
-birth_rate REAL
-agent_stabilizers_enabled BOOLEAN
-```
-
-**Indexes**: run_id, universal_basic_income, minimum_wage
-
----
-
-## API Reference
-
-### DatabaseManager
-
-#### Simulation Runs
-- `create_run(run: SimulationRun) -> str` - Create new run
-- `get_run(run_id: str) -> SimulationRun` - Get run by ID
-- `get_runs(status=None, limit=100, offset=0) -> List[SimulationRun]` - List runs
-- `update_run_status(run_id, status, total_ticks=None, final_metrics=None)` - Update status
-
-#### Tick Metrics
-- `insert_tick_metrics(metrics: List[TickMetrics])` - Batch insert (use for 50-100 ticks at a time)
-- `get_tick_metrics(run_id, tick_start=0, tick_end=999999, columns=None) -> List[Dict]` - Get time series
-- `get_run_summary(run_id) -> Dict` - Get aggregate stats (avg_gdp, avg_unemployment, etc.)
-
-#### Policy Config
-- `insert_policy_config(policy: PolicyConfig)` - Insert policy
-- `get_policy_config(run_id) -> PolicyConfig` - Get policy
-
-#### Utilities
-- `execute_query(query: str, params: tuple) -> List[Dict]` - Run custom SQL
-- `get_database_stats() -> Dict` - Get DB statistics
-
----
-
-## Data Models
-
-### SimulationRun
-```python
-@dataclass
-class SimulationRun:
-    run_id: str
-    status: str = 'running'  # 'running', 'completed', 'failed', 'stopped'
-    num_households: int = 0
-    num_firms: int = 0
-    total_ticks: int = 0
-    created_at: Optional[str] = None
-    ended_at: Optional[str] = None
-    final_gdp: Optional[float] = None
-    final_unemployment: Optional[float] = None
-    final_gini: Optional[float] = None
-    final_avg_happiness: Optional[float] = None
-    final_avg_health: Optional[float] = None
-    final_gov_balance: Optional[float] = None
-    description: Optional[str] = None
-    tags: Optional[str] = None  # Comma-separated
-```
-
-### TickMetrics
-```python
-@dataclass
-class TickMetrics:
-    run_id: str
-    tick: int
-    gdp: float
-    unemployment_rate: float
-    mean_wage: float
-    median_wage: float
-    avg_happiness: float
-    avg_health: float
-    avg_morale: float
-    total_net_worth: float
-    gini_coefficient: float
-    top10_wealth_share: float
-    bottom50_wealth_share: float
-    gov_cash_balance: float
-    gov_profit: float
-    total_firms: int
-    struggling_firms: int
-    avg_food_price: Optional[float] = None
-    avg_housing_price: Optional[float] = None
-    avg_services_price: Optional[float] = None
-```
-
-### PolicyConfig
-```python
-@dataclass
-class PolicyConfig:
-    run_id: str
-    wage_tax: float
-    profit_tax: float
-    wealth_tax_rate: float
-    wealth_tax_threshold: float
-    universal_basic_income: float
-    unemployment_benefit_rate: float
-    minimum_wage: float
-    inflation_rate: float
-    birth_rate: float
-    agent_stabilizers_enabled: bool = False
-```
-
----
-
-## Example Queries
-
-### Get all completed runs
-```python
-runs = db.get_runs(status='completed', limit=10)
-for run in runs:
-    print(f"{run.run_id}: GDP={run.final_gdp}, Gini={run.final_gini}")
-```
-
-### Get time-series for specific metric
-```python
-metrics = db.get_tick_metrics('run_001', tick_start=0, tick_end=500, columns=['tick', 'gdp'])
-gdp_history = [(m['tick'], m['gdp']) for m in metrics]
-```
-
-### Compare multiple runs
-```python
-for run_id in ['run_001', 'run_002', 'run_003']:
-    summary = db.get_run_summary(run_id)
-    policy = db.get_policy_config(run_id)
-    print(f"{run_id}: UBI=${policy.universal_basic_income}, Avg GDP=${summary['avg_gdp']}")
-```
-
-### Custom SQL query
-```python
-results = db.execute_query("""
-    SELECT r.run_id, r.final_gdp, p.universal_basic_income
-    FROM simulation_runs r
-    JOIN policy_config p ON r.run_id = p.run_id
-    WHERE r.status = 'completed'
-    AND p.universal_basic_income > 200
-    ORDER BY r.final_gdp DESC
-    LIMIT 10
-""")
-```
-
----
-
-## Performance Notes
-
-### Batch Inserts
-Always batch insert tick metrics for optimal performance:
-
-```python
-# Good (batch of 50-100)
-metrics_batch = []
-for tick in range(500):
-    metrics_batch.append(TickMetrics(...))
-    if len(metrics_batch) >= 50:
-        db.insert_tick_metrics(metrics_batch)
-        metrics_batch.clear()
-
-# Bad (one at a time - slow)
-for tick in range(500):
-    db.insert_tick_metrics([TickMetrics(...)])
-```
-
-### Indexes
-The schema includes optimized indexes for:
-- Time-series queries: `(run_id, tick)`
-- Filtering by status: `status`
-- Sorting by date: `created_at DESC`
-- Policy comparisons: `universal_basic_income`, `minimum_wage`
-
-### Query Optimization
-Use column filtering for large datasets:
-```python
-# Only fetch needed columns
-metrics = db.get_tick_metrics(
-    'run_001',
-    columns=['tick', 'gdp', 'unemployment_rate']
-)
-```
-
----
-
-## File Structure
-
-```
-backend/data/
-├── schema.sql                # Database schema
-├── postgres_schema.sql       # PostgreSQL + Timescale schema
-├── db_manager.py            # DatabaseManager class + data models
-├── postgres_manager.py      # PostgreSQL/Timescale manager
-├── warehouse_factory.py     # Backend selector (sqlite/postgres)
-├── ecosim.db                # SQLite database file
-├── README.md                # This file
-├── test_sample_data.py      # Sample data generator
-├── migrations/
-│   ├── __init__.py
-│   └── 001_create_warehouse.py  # Migration script
-│   └── 002_create_timescale_warehouse.py  # PostgreSQL/Timescale migration
-└── tests/
-    └── test_db_manager.py   # Unit tests (9 tests)
-```
-
----
-
-## Testing
-
-### Unit Tests (9 tests)
 ```bash
-python backend/data/tests/test_db_manager.py
+python backend/data/migrations/005_add_sqlite_event_tables.py
 ```
 
-Tests cover:
-- ✅ Creating runs
-- ✅ Updating run status
-- ✅ Filtering runs by status
-- ✅ Batch inserting tick metrics
-- ✅ Querying tick ranges
-- ✅ Getting run summaries
-- ✅ Policy configuration
-- ✅ Database statistics
-- ✅ Custom queries
+Existing SQLite firm-snapshot upgrade:
 
-### Sample Data Test
 ```bash
-python backend/data/test_sample_data.py
+python backend/data/migrations/007_add_sqlite_firm_snapshots.py
 ```
 
-Generates a complete simulation run with:
-- 500 ticks of realistic economic data
-- Policy configuration
-- Summary statistics
-- Demonstrates full data warehouse functionality
+Existing PostgreSQL/Timescale event-table upgrade:
 
----
+```bash
+python backend/data/migrations/006_add_postgres_event_tables.py
+```
 
-## Next Steps (Phase 2)
+Existing PostgreSQL/Timescale firm-snapshot upgrade:
 
-Phase 1 is complete! Next up:
+```bash
+python backend/data/migrations/008_add_postgres_firm_snapshots.py
+```
 
-1. **Phase 2: Real-time Data Ingestion**
-   - StreamCapture middleware
-   - Integration with server.py WebSocket
-   - Automatic data capture during simulations
+Existing SQLite household-snapshot upgrade:
 
-2. **Phase 3: Analytics API**
-   - REST API for querying data
-   - Comparison endpoints
-   - Export functionality
+```bash
+python backend/data/migrations/009_add_sqlite_household_snapshots.py
+```
 
-See [DATA_ENG_IMPLEMENTATION_ROADMAP.md](../../docs/DATA_ENG_IMPLEMENTATION_ROADMAP.md) for details.
+Existing PostgreSQL/Timescale household-snapshot upgrade:
 
----
+```bash
+python backend/data/migrations/010_add_postgres_household_snapshots.py
+```
 
-## Support
+Existing SQLite decision-feature upgrade:
 
-- Database file: `backend/data/ecosim.db`
-- Schema: `backend/data/schema.sql`
-- Tests: `backend/data/tests/`
-- Migration: `backend/data/migrations/001_create_warehouse.py`
+```bash
+python backend/data/migrations/011_add_sqlite_decision_features.py
+```
 
-For issues, check:
-1. Database initialized? Run migration script
-2. Tests passing? Run `test_db_manager.py`
-3. Sample data works? Run `test_sample_data.py`
+Existing PostgreSQL/Timescale decision-feature upgrade:
 
----
+```bash
+python backend/data/migrations/012_add_postgres_decision_features.py
+```
 
-**Phase 1 Status**: ✅ COMPLETE
-**Last Updated**: 2025-12-27
+Existing SQLite reliability/manifest upgrade:
+
+```bash
+python backend/data/migrations/013_add_sqlite_reliability_manifest.py
+```
+
+Existing PostgreSQL/Timescale reliability/manifest upgrade:
+
+```bash
+python backend/data/migrations/014_add_postgres_reliability_manifest.py
+```
+
+Existing SQLite diagnostics/regime-event upgrade:
+
+```bash
+python backend/data/migrations/015_add_sqlite_diagnostics_and_regime_events.py
+```
+
+Existing PostgreSQL/Timescale diagnostics/regime-event upgrade:
+
+```bash
+python backend/data/migrations/016_add_postgres_diagnostics_and_regime_events.py
+```
+
+Warehouse tests:
+
+```bash
+.\.venv\Scripts\python.exe -m pytest backend/data/tests -q
+```
+
+Server API tests:
+
+```bash
+.\.venv\Scripts\python.exe -m pytest backend/tests_server/test_server_api.py -q
+```
+
+Combined validation:
+
+```bash
+.\.venv\Scripts\python.exe -m pytest backend/tests_server/test_server_api.py backend/data/tests -q
+```
+
+Current read endpoints:
+
+- `GET /decision-context/live?window=20`
+- `GET /warehouse/runs`
+- `GET /warehouse/compare?run_ids=run_a&run_ids=run_b`
+- `GET /warehouse/runs/{run_id}/summary`
+- `GET /warehouse/runs/{run_id}/tick-metrics`
+- `GET /warehouse/runs/{run_id}/decision-features`
+- `GET /warehouse/runs/{run_id}/sector-metrics`
+
+Environment variables:
+
+- `ECOSIM_ENABLE_WAREHOUSE`
+- `ECOSIM_WAREHOUSE_BACKEND`
+- `ECOSIM_SQLITE_PATH`
+- `ECOSIM_WAREHOUSE_DSN`

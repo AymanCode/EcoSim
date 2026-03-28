@@ -2,8 +2,8 @@
 Economy Simulation Engine
 
 Implements the main simulation coordinator that orchestrates households,
-firms, and government through tick-based cycles. Includes optional
-stochastic shocks for scenario variation across runs.
+firms, government, and an optional bank through tick-based cycles.
+Includes optional stochastic shocks for scenario variation across runs.
 
 Performance optimizations:
 - Caches household/firm lookups for O(1) access
@@ -19,7 +19,7 @@ from typing import Dict, List, Tuple, Optional
 from config import CONFIG
 import numpy as np
 import math
-from agents import HouseholdAgent, FirmAgent, GovernmentAgent, _get_good_category
+from agents import HouseholdAgent, FirmAgent, BankAgent, GovernmentAgent, _get_good_category
 
 logger = logging.getLogger(__name__)
 
@@ -37,7 +37,8 @@ class Economy:
         households: List[HouseholdAgent],
         firms: List[FirmAgent],
         government: GovernmentAgent,
-        queued_firms: Optional[List[FirmAgent]] = None
+        queued_firms: Optional[List[FirmAgent]] = None,
+        bank: Optional[BankAgent] = None,
     ):
         """
         Initialize the economy with pre-constructed agents.
@@ -46,10 +47,13 @@ class Economy:
             households: List of household agents
             firms: List of firm agents
             government: Government agent instance
+            queued_firms: Optional pre-queued firms awaiting entry
+            bank: Optional bank agent for credit channel (None = govt-direct lending)
         """
         self.households = households
         self.firms = firms
         self.government = government
+        self.bank: Optional[BankAgent] = bank
         self.config = CONFIG
         self.queued_firms: List[FirmAgent] = queued_firms or []
         self.target_total_firms = 0
@@ -116,8 +120,40 @@ class Economy:
         self.unemployed_reservation_clamp_ticks = max(1, int(os.getenv("ECOSIM_UNEMPLOYED_CLAMP_TICKS", "8")))
         self.last_labor_diagnostics: Dict[str, float] = {}
         self.last_labor_plan_adjustments: Dict[str, float] = {}
+        self.last_health_diagnostics: Dict[str, float] = {}
+        self.last_firm_distress_diagnostics: Dict[str, float] = {}
+        self.last_housing_diagnostics: Dict[str, float] = {}
+        self.last_sector_shortage_diagnostics: List[Dict[str, object]] = []
+        self.last_labor_events: List[Dict[str, object]] = []
+        self.last_healthcare_events: List[Dict[str, object]] = []
+        self.last_regime_events: List[Dict[str, object]] = []
+        self._sector_shortage_state: Dict[str, bool] = {}
         self._labor_compare_mismatch_count = 0
         self._propagate_stabilizer_flags()
+
+    def _append_regime_event(
+        self,
+        event_type: str,
+        entity_type: str,
+        entity_id: Optional[int] = None,
+        sector: Optional[str] = None,
+        reason_code: Optional[str] = None,
+        severity: Optional[float] = None,
+        metric_value: Optional[float] = None,
+        payload: Optional[Dict[str, object]] = None,
+    ) -> None:
+        """Append one high-value regime/state transition event for this tick."""
+        self.last_regime_events.append({
+            "tick": int(self.current_tick + 1),
+            "event_type": str(event_type),
+            "entity_type": str(entity_type),
+            "entity_id": int(entity_id) if entity_id is not None else None,
+            "sector": str(sector) if sector is not None else None,
+            "reason_code": str(reason_code) if reason_code is not None else None,
+            "severity": float(severity) if severity is not None else None,
+            "metric_value": float(metric_value) if metric_value is not None else None,
+            "payload": payload or None,
+        })
 
     def _propagate_stabilizer_flags(self) -> None:
         """Push stabilizer flags down to agents."""
@@ -496,14 +532,23 @@ class Economy:
                 # Medical payments go to government (simplified - could go to healthcare provider)
                 self.government.cash_balance += medical_payment
 
-            # Apply purchases
+            # Apply purchases (with sector subsidy if active)
             purchases = per_household_purchases.get(hid, {})
             total_spending = 0.0
+            subsidy_target = self.government.sector_subsidy_target
+            subsidy_rate = self.government._sector_subsidy_rate
             for good, (quantity, price_paid) in purchases.items():
                 total_cost = quantity * price_paid
-                total_spending += total_cost
-                household.cash_balance -= total_cost
                 category = cat_lookup.get(good, good.lower())
+                # Sector subsidy: government pays subsidy_rate of cost
+                if subsidy_rate > 0.0 and subsidy_target != "none" and category == subsidy_target:
+                    govt_share = total_cost * subsidy_rate
+                    household_cost = total_cost - govt_share
+                    self.government.cash_balance -= govt_share
+                else:
+                    household_cost = total_cost
+                total_spending += household_cost
+                household.cash_balance -= household_cost
                 if category == "housing" and quantity > 0:
                     household.owns_housing = True
                     household.met_housing_need = True
@@ -620,6 +665,16 @@ class Economy:
         if self.post_warmup_stimulus_ticks > 0:
             self._apply_post_warmup_stimulus()
 
+        self.last_regime_events = []
+        self.last_health_diagnostics = {}
+        self.last_firm_distress_diagnostics = {}
+        self.last_housing_diagnostics = {}
+        self.last_sector_shortage_diagnostics = []
+
+        # Reset bank per-tick telemetry (no-op when bank is None)
+        if self.bank is not None:
+            self.bank.reset_tick_telemetry()
+
         # Random economic shocks (stochastic events)
         self._apply_random_shocks()
         self._reset_healthcare_tick_state()
@@ -650,6 +705,13 @@ class Economy:
         firm_production_plans = {}
         firm_price_plans = {}
         firm_wage_plans = {}
+        firm_state_before = {
+            firm.firm_id: {
+                "burn_mode": bool(getattr(firm, "burn_mode", False)),
+                "survival_mode": bool(getattr(firm, "survival_mode", False)),
+            }
+            for firm in self.firms
+        }
 
         for firm in self.firms:
             # Plan production and labor
@@ -686,6 +748,8 @@ class Economy:
                 production_plan["planned_layoffs_ids"] = []
                 firm.planned_hires_count = 0
                 firm.planned_layoffs_ids = []
+
+        self._record_firm_distress_transitions(firm_state_before)
 
         # Enforce minimum wage floor (government policy)
         minimum_wage = self.government.get_minimum_wage()
@@ -731,6 +795,12 @@ class Economy:
             firm_wage_plans,
             household_labor_plans
         )
+        self._record_labor_events(
+            firm_labor_outcomes=firm_labor_outcomes,
+            firm_wage_plans=firm_wage_plans,
+            household_labor_plans=household_labor_plans,
+        )
+        self._record_failed_hiring_events(firm_production_plans, firm_labor_outcomes)
 
         # Phase 4: Apply labor outcomes
         # Use cached wage percentiles (update every 5 ticks for performance)
@@ -864,6 +934,11 @@ class Economy:
                 firm_wage_plans[firm.firm_id]
             )
 
+        # Phase 9.5: Bank loan repayments (firms & households → bank)
+        # Runs after wages and sales so borrowers have income before repayment.
+        if self.bank is not None:
+            self._collect_bank_loan_repayments()
+
         # Phase 10: Apply income, taxes, transfers, purchases to households
         self._batch_apply_household_updates(
             transfer_plan,
@@ -890,13 +965,31 @@ class Economy:
             total_property_taxes
         )
 
-        # Phase 11.5: Government bond purchases with surplus (1 household per tick distribution)
-        # Redirect bond spending to Misc firm
+        # Phase 11.1: Update government budget pressure (soft deficit constraint)
+        # NOTE: infra/tech spending added to tick_spending after Phase 11.5 (below)
+
+        # Phase 11.3: Bank deposit sweep & interest (households → bank)
+        if self.bank is not None:
+            self._process_bank_deposits()
+
+        # Phase 11.4: Bank credit scoring update
+        if self.bank is not None:
+            self._update_credit_scores()
+            self.bank.cleanup_settled_loans()
+
+        # Phase 11.5: Government discretionary spending (infrastructure, technology, bonds)
+        infra_spent = self.government.invest_in_infrastructure()
+        tech_spent = self.government.invest_in_technology()
+
+        # Bond purchases with surplus — redirect to Misc firm
         govt_investments = self.government.make_investments()
-        
-        total_govt_investments = sum(govt_investments.values()) if govt_investments else 0.0
+
+        total_govt_investments = (
+            (sum(govt_investments.values()) if govt_investments else 0.0)
+            + infra_spent + tech_spent
+        )
         self.last_tick_gov_investments = total_govt_investments
-        
+
         if govt_investments:
             for amount in govt_investments.values():
                 self._collect_misc_revenue(amount)
@@ -916,6 +1009,14 @@ class Economy:
         # Government collects investment taxes
         self.government.cash_balance += total_investment_taxes
 
+        # Phase 11.7: Update budget pressure now that all revenue and spending are known
+        tick_revenue = (
+            total_wage_taxes + total_profit_taxes + total_price_ceiling_taxes
+            + total_property_taxes + total_investment_taxes
+        )
+        tick_spending = total_transfers + infra_spent + tech_spent
+        self._update_budget_pressure(tick_revenue, tick_spending)
+
         # Phase 11.75: Update household wellbeing (happiness, morale, health)
         if self.in_warmup:
             current_price_snapshot = {firm.good_name: firm.price for firm in self.firms}
@@ -927,7 +1028,7 @@ class Economy:
         self._apply_doctor_health_lock()
 
         # Phase 12: Handle firm bankruptcies and exits
-        self._handle_firm_exits()
+        bankruptcies_this_tick = self._handle_firm_exits()
 
         # Phase 13: Potentially create new firms
         self._maybe_create_new_firms()
@@ -938,6 +1039,13 @@ class Economy:
 
         # Phase 15: Update world-level statistics
         self._update_statistics(per_firm_sales)
+        self._update_health_diagnostics()
+        self._update_firm_distress_diagnostics(
+            firm_production_plans=firm_production_plans,
+            firm_labor_outcomes=firm_labor_outcomes,
+            bankruptcies_this_tick=bankruptcies_this_tick,
+        )
+        self._update_sector_shortage_diagnostics()
 
         # Phase 16: Distribute firm profits to owners (dividend payments)
         # This recycles wealth from firms back to households
@@ -950,6 +1058,238 @@ class Economy:
         self.current_tick += 1
         if self.post_warmup_cooldown > 0:
             self.post_warmup_cooldown -= 1
+
+    def _record_firm_distress_transitions(self, firm_state_before: Dict[int, Dict[str, bool]]) -> None:
+        """Emit enter/exit events when firms cross into or out of distress modes."""
+        for firm in self.firms:
+            previous = firm_state_before.get(firm.firm_id, {"burn_mode": False, "survival_mode": False})
+            prev_distressed = bool(previous.get("burn_mode")) or bool(previous.get("survival_mode"))
+            current_burn = bool(getattr(firm, "burn_mode", False))
+            current_survival = bool(getattr(firm, "survival_mode", False))
+            current_distressed = current_burn or current_survival
+
+            if current_burn and not bool(previous.get("burn_mode", False)):
+                self._append_regime_event(
+                    event_type="firm_distress_enter",
+                    entity_type="firm",
+                    entity_id=firm.firm_id,
+                    sector=firm.good_category,
+                    reason_code="burn_mode",
+                    severity=float(max(getattr(firm, "high_inventory_streak", 0), 1)),
+                    metric_value=float(firm.cash_balance),
+                )
+            if current_survival and not bool(previous.get("survival_mode", False)):
+                self._append_regime_event(
+                    event_type="firm_distress_enter",
+                    entity_type="firm",
+                    entity_id=firm.firm_id,
+                    sector=firm.good_category,
+                    reason_code="survival_mode",
+                    severity=1.0,
+                    metric_value=float(firm.cash_balance),
+                )
+            if prev_distressed and not current_distressed:
+                exit_reason = "burn_mode" if bool(previous.get("burn_mode", False)) else "survival_mode"
+                self._append_regime_event(
+                    event_type="firm_distress_exit",
+                    entity_type="firm",
+                    entity_id=firm.firm_id,
+                    sector=firm.good_category,
+                    reason_code=exit_reason,
+                    severity=0.0,
+                    metric_value=float(firm.cash_balance),
+                )
+
+    def _record_failed_hiring_events(
+        self,
+        firm_production_plans: Dict[int, Dict],
+        firm_labor_outcomes: Dict[int, Dict[str, object]],
+    ) -> None:
+        """Emit failed-hiring events when firms leave vacancies unfilled."""
+        for firm_id, production_plan in firm_production_plans.items():
+            planned_hires = int(production_plan.get("planned_hires_count", 0) or 0)
+            if planned_hires <= 0:
+                continue
+
+            outcome = firm_labor_outcomes.get(firm_id, {}) or {}
+            actual_hires = len(outcome.get("hired_households_ids", []) or [])
+            unfilled_roles = max(0, planned_hires - actual_hires)
+            if unfilled_roles <= 0:
+                continue
+
+            firm = self.firm_lookup.get(firm_id)
+            self._append_regime_event(
+                event_type="failed_hiring",
+                entity_type="firm",
+                entity_id=firm_id,
+                sector=getattr(firm, "good_category", None),
+                reason_code="unfilled_vacancies",
+                severity=float(unfilled_roles),
+                metric_value=float(unfilled_roles),
+                payload={
+                    "planned_hires": planned_hires,
+                    "actual_hires": actual_hires,
+                },
+            )
+
+    @staticmethod
+    def _clamp_pressure(value: float, lower: float = 0.0, upper: float = 1.0) -> float:
+        """Bound a diagnostic pressure metric to a stable range."""
+        return float(max(lower, min(upper, value)))
+
+    def _update_health_diagnostics(self) -> None:
+        """Store compact healthcare-side diagnostics for the current tick."""
+        healthcare_queue_depth = int(
+            sum(
+                len(getattr(firm, "healthcare_queue", []))
+                for firm in self.firms
+                if (firm.good_category or "").lower() == "healthcare"
+            )
+        )
+        self.last_health_diagnostics = {
+            "healthcare_queue_depth": float(healthcare_queue_depth),
+            "healthcare_completed_count": float(self.healthcare_completed_visits_this_tick),
+            "healthcare_denied_count": float(self.healthcare_affordability_rejects_this_tick),
+        }
+
+    def _update_firm_distress_diagnostics(
+        self,
+        firm_production_plans: Dict[int, Dict],
+        firm_labor_outcomes: Dict[int, Dict[str, object]],
+        bankruptcies_this_tick: int,
+    ) -> None:
+        """Store compact firm-distress diagnostics for the current tick."""
+        burn_mode_firm_count = 0
+        survival_mode_firm_count = 0
+        zero_cash_firm_count = 0
+        weak_demand_firm_count = 0
+        inventory_pressure_firm_count = 0
+        failed_hiring_firm_count = 0
+        failed_hiring_roles_count = 0
+
+        for firm in self.firms:
+            if bool(getattr(firm, "burn_mode", False)):
+                burn_mode_firm_count += 1
+            if bool(getattr(firm, "survival_mode", False)):
+                survival_mode_firm_count += 1
+            if float(getattr(firm, "cash_balance", 0.0)) <= 0.0:
+                zero_cash_firm_count += 1
+            if float(self.last_tick_sell_through_rate.get(firm.firm_id, 0.5)) < 0.5:
+                weak_demand_firm_count += 1
+            if int(getattr(firm, "high_inventory_streak", 0)) > 0:
+                inventory_pressure_firm_count += 1
+
+            planned_hires = int(firm_production_plans.get(firm.firm_id, {}).get("planned_hires_count", 0) or 0)
+            actual_hires = len((firm_labor_outcomes.get(firm.firm_id, {}) or {}).get("hired_households_ids", []) or [])
+            unfilled_roles = max(0, planned_hires - actual_hires)
+            if unfilled_roles > 0:
+                failed_hiring_firm_count += 1
+                failed_hiring_roles_count += unfilled_roles
+
+        self.last_firm_distress_diagnostics = {
+            "burn_mode_firm_count": float(burn_mode_firm_count),
+            "survival_mode_firm_count": float(survival_mode_firm_count),
+            "zero_cash_firm_count": float(zero_cash_firm_count),
+            "weak_demand_firm_count": float(weak_demand_firm_count),
+            "inventory_pressure_firm_count": float(inventory_pressure_firm_count),
+            "failed_hiring_firm_count": float(failed_hiring_firm_count),
+            "failed_hiring_roles_count": float(failed_hiring_roles_count),
+            "bankruptcy_count": float(bankruptcies_this_tick),
+        }
+
+    def _update_sector_shortage_diagnostics(self) -> None:
+        """Store compact per-sector shortage diagnostics and emit regime transitions."""
+        sector_names = ["Food", "Housing", "Services", "Healthcare"]
+        rows: List[Dict[str, object]] = []
+        total_households = max(1, len(self.households))
+        homeless_households = int(self.last_housing_diagnostics.get("homeless_household_count", 0.0))
+        housing_shortage_flag = bool(self.last_housing_diagnostics.get("housing_shortage_flag", 0.0))
+        healthcare_denied = float(self.last_health_diagnostics.get("healthcare_denied_count", 0.0))
+
+        for sector in sector_names:
+            sector_firms = [firm for firm in self.firms if (firm.good_category or "").lower() == sector.lower()]
+            sell_through_values = [float(self.last_tick_sell_through_rate.get(firm.firm_id, 0.0)) for firm in sector_firms]
+            mean_sell_through = float(sum(sell_through_values) / len(sell_through_values)) if sell_through_values else 0.0
+            total_employees = sum(len(firm.employees) for firm in sector_firms)
+            total_vacancies = sum(max(0, int(getattr(firm, "planned_hires_count", 0))) for firm in sector_firms)
+            total_inventory = float(sum(max(0.0, float(getattr(firm, "inventory_units", 0.0))) for firm in sector_firms))
+            total_units_sold = float(sum(max(0.0, self.last_tick_sales_units.get(firm.firm_id, 0.0)) for firm in sector_firms))
+            mean_price = float(sum(float(firm.price) for firm in sector_firms) / len(sector_firms)) if sector_firms else 0.0
+            baseline_price = max(1.0, float(CONFIG.baseline_prices.get(sector, mean_price or 1.0)))
+
+            vacancy_pressure = self._clamp_pressure(total_vacancies / max(total_employees, 1))
+            inventory_coverage = total_inventory / max(total_units_sold, 1.0)
+            inventory_pressure = self._clamp_pressure(1.0 - min(inventory_coverage, 1.0))
+            price_pressure = self._clamp_pressure(max(0.0, mean_price / baseline_price - 1.0))
+            queue_pressure = 0.0
+            occupancy_pressure = 0.0
+
+            if sector.lower() == "healthcare":
+                total_queue = float(sum(len(getattr(firm, "healthcare_queue", [])) for firm in sector_firms))
+                total_staff = float(sum(max(0, len(firm.employees)) for firm in sector_firms))
+                queue_pressure = self._clamp_pressure(total_queue / max(total_staff, 1.0))
+                shortage_active = queue_pressure >= 0.75 or healthcare_denied > 0.0
+                primary_driver = "affordability" if healthcare_denied > 0.0 and healthcare_denied >= total_queue else "queue"
+                shortage_severity = self._clamp_pressure(queue_pressure * 0.7 + self._clamp_pressure(healthcare_denied / max(total_households, 1)) * 0.3) * 100.0
+            elif sector.lower() == "housing":
+                total_units = float(sum(max(0, int(getattr(firm, "max_rental_units", 0))) for firm in sector_firms))
+                total_tenants = float(sum(len(getattr(firm, "current_tenants", [])) for firm in sector_firms))
+                occupancy_pressure = self._clamp_pressure(total_tenants / max(total_units, 1.0))
+                shortage_active = housing_shortage_flag or homeless_households > 0
+                no_supply = float(self.last_housing_diagnostics.get("housing_no_supply_count", 0.0))
+                unaffordable = float(self.last_housing_diagnostics.get("housing_unaffordable_count", 0.0))
+                primary_driver = "no_supply" if no_supply >= unaffordable else "unaffordable"
+                shortage_severity = self._clamp_pressure(
+                    occupancy_pressure * 0.5
+                    + self._clamp_pressure(homeless_households / max(total_households, 1)) * 0.5
+                ) * 100.0
+            else:
+                shortage_active = mean_sell_through >= 0.85 and (inventory_pressure >= 0.35 or vacancy_pressure >= 0.1)
+                driver_components = {
+                    "inventory": inventory_pressure,
+                    "vacancy": vacancy_pressure,
+                    "price": price_pressure,
+                }
+                primary_driver = max(driver_components, key=driver_components.get) if shortage_active else "stable"
+                shortage_severity = self._clamp_pressure(
+                    mean_sell_through * 0.4 + inventory_pressure * 0.35 + vacancy_pressure * 0.25
+                ) * 100.0
+
+            rows.append({
+                "sector": sector,
+                "shortage_active": bool(shortage_active),
+                "shortage_severity": float(shortage_severity),
+                "primary_driver": str(primary_driver),
+                "mean_sell_through_rate": float(mean_sell_through),
+                "vacancy_pressure": float(vacancy_pressure),
+                "inventory_pressure": float(inventory_pressure),
+                "price_pressure": float(price_pressure),
+                "queue_pressure": float(queue_pressure),
+                "occupancy_pressure": float(occupancy_pressure),
+            })
+
+            previous_active = bool(self._sector_shortage_state.get(sector, False))
+            if shortage_active and not previous_active:
+                self._append_regime_event(
+                    event_type="shortage_regime_enter",
+                    entity_type="sector",
+                    sector=sector,
+                    reason_code=str(primary_driver),
+                    severity=float(shortage_severity),
+                    metric_value=float(shortage_severity),
+                )
+            elif previous_active and not shortage_active:
+                self._append_regime_event(
+                    event_type="shortage_regime_exit",
+                    entity_type="sector",
+                    sector=sector,
+                    reason_code=str(primary_driver),
+                    severity=0.0,
+                    metric_value=0.0,
+                )
+            self._sector_shortage_state[sector] = bool(shortage_active)
+
+        self.last_sector_shortage_diagnostics = rows
 
     def _normalize_household_labor_plans(
         self,
@@ -1059,6 +1399,74 @@ class Economy:
             self._compare_labor_match_outcomes(fast_outcomes, legacy_outcomes)
 
         return fast_outcomes
+
+    def _record_labor_events(
+        self,
+        firm_labor_outcomes: Dict[int, Dict[str, object]],
+        firm_wage_plans: Dict[int, Dict[str, float]],
+        household_labor_plans: Dict[int, Dict[str, object]],
+    ) -> None:
+        """Capture exact hire and layoff events before outcomes mutate agents."""
+        events: List[Dict[str, object]] = []
+        event_tick = int(self.current_tick + 1)
+
+        for firm_id, outcome in firm_labor_outcomes.items():
+            firm = self.firm_lookup.get(firm_id)
+            if firm is None:
+                continue
+
+            wage_offer = float(
+                firm_wage_plans.get(firm_id, {}).get(
+                    "wage_offer_next",
+                    getattr(firm, "wage_offer", 0.0),
+                )
+            )
+            actual_wages = outcome.get("actual_wages", {}) or {}
+
+            for household_id in outcome.get("hired_households_ids", []):
+                household = self.household_lookup.get(household_id)
+                labor_plan = household_labor_plans.get(household_id, {})
+                events.append({
+                    "tick": event_tick,
+                    "household_id": int(household_id),
+                    "firm_id": int(firm_id),
+                    "event_type": "hire",
+                    "actual_wage": float(actual_wages.get(household_id, wage_offer)),
+                    "wage_offer": wage_offer,
+                    "reservation_wage": float(
+                        labor_plan.get(
+                            "reservation_wage",
+                            getattr(household, "reservation_wage", 0.0),
+                        )
+                    ),
+                    "skill_level": float(getattr(household, "skills_level", 0.0)),
+                })
+
+            for household_id in outcome.get("confirmed_layoffs_ids", []):
+                household = self.household_lookup.get(household_id)
+                labor_plan = household_labor_plans.get(household_id, {})
+                events.append({
+                    "tick": event_tick,
+                    "household_id": int(household_id),
+                    "firm_id": int(firm_id),
+                    "event_type": "layoff",
+                    "actual_wage": float(
+                        firm.actual_wages.get(
+                            household_id,
+                            getattr(household, "wage", 0.0),
+                        )
+                    ),
+                    "wage_offer": float(getattr(firm, "wage_offer", 0.0)),
+                    "reservation_wage": float(
+                        labor_plan.get(
+                            "reservation_wage",
+                            getattr(household, "reservation_wage", 0.0),
+                        )
+                    ),
+                    "skill_level": float(getattr(household, "skills_level", 0.0)),
+                })
+
+        self.last_labor_events = events
 
     def _compute_labor_diagnostics(
         self,
@@ -1884,14 +2292,20 @@ class Economy:
         return max(existing_ids) + 1 if existing_ids else 1
 
     def _refresh_target_total_firms(self) -> None:
-        """Recalculate desired firm counts based on current population and pipeline size."""
+        """Recalculate desired firm count from household-to-firm ratio.
+
+        The target is bidirectional — it can decrease when firms die and demand
+        doesn't justify replacements.  The only hard floor is the baseline
+        (government) firm count plus any queued firms awaiting activation.
+        """
         households = max(1, len(self.households))
         per_thousand = CONFIG.firms.target_firms_per_1000_households
-        dynamic_target = int(math.ceil((households / 1000.0) * per_thousand))
+        demand_target = int(math.ceil((households / 1000.0) * per_thousand))
         baseline_count = sum(1 for f in self.firms if f.is_baseline)
-        dynamic_target = max(dynamic_target, baseline_count)
-        pipeline = len(self.firms) + len(self.queued_firms)
-        self.target_total_firms = max(dynamic_target, pipeline, self.target_total_firms)
+        queued_count = len(self.queued_firms)
+        # Floor: at least enough for baselines + anything already queued
+        floor = baseline_count + queued_count
+        self.target_total_firms = max(demand_target, floor)
 
     def _activate_queued_firms(self) -> None:
         """
@@ -2253,7 +2667,7 @@ class Economy:
 
         return actual_production
 
-    def _handle_firm_exits(self) -> None:
+    def _handle_firm_exits(self) -> int:
         """
         Remove bankrupt firms from the economy.
 
@@ -2281,6 +2695,15 @@ class Economy:
                         household.wage = 0.0
 
                 firms_to_remove.append(firm)
+                self._append_regime_event(
+                    event_type="firm_bankrupt",
+                    entity_type="firm",
+                    entity_id=firm.firm_id,
+                    sector=firm.good_category,
+                    reason_code="zero_cash_streak" if firm.zero_cash_streak >= zero_cash_max_streak else "cash_threshold",
+                    severity=float(max(abs(firm.cash_balance), firm.zero_cash_streak)),
+                    metric_value=float(firm.cash_balance),
+                )
 
         # Remove bankrupt firms
         for firm in firms_to_remove:
@@ -2298,34 +2721,59 @@ class Economy:
             if firm.firm_id in self.firm_lookup:
                 del self.firm_lookup[firm.firm_id]
 
-    def _maybe_create_new_firms(self) -> None:
+            # Write off bank loans on bankruptcy
+            if self.bank is not None:
+                for loan in list(self.bank.active_loans):
+                    if loan["borrower_type"] == "firm" and loan["borrower_id"] == firm.firm_id:
+                        self.bank.write_off_loan(loan)
+                        self.bank.update_firm_credit_score(firm.firm_id, -0.20)
+
+        return len(firms_to_remove)
+
+    def _sector_demand_signal(self, category: str) -> float:
+        """Return a [0, 1] demand signal for a sector.
+
+        1.0 = extreme undersupply (all firms selling everything instantly).
+        0.0 = glut (firms can't sell anything).
+        Based on mean sell-through rate of non-baseline firms in the sector.
         """
-        Potentially create new firms to replace bankrupt ones.
+        rates = [
+            self.last_tick_sell_through_rate.get(f.firm_id, 0.5)
+            for f in self.firms
+            if f.good_category == category and not f.is_baseline
+        ]
+        if not rates:
+            # No private firms in sector yet — moderate demand assumed
+            return 0.6
+        return max(0.0, min(1.0, sum(rates) / len(rates)))
 
-        New firms are created if:
-        1. Total number of firms is below a minimum threshold
-        2. There's demand in the economy (some households have cash)
+    def _maybe_create_new_firms(self) -> None:
+        """Create new firms when the economy has room, using a 3-tier funding model.
 
-        Mutates state.
+        Tiers:
+          1. Bootstrapped (~65%): small random capital $5K-$30K, no loan.
+             Cheap, disposable — market filters winners from losers.
+          2. Bank-backed (~25%): seed loan from bank when the sector shows
+             unmet demand (high sell-through). Uses credit score + demand signal.
+          3. Government-backed (~10%): subsidized loan through bank during
+             high unemployment or critical sector undersupply.
         """
         from agents import FirmAgent
 
-        # Warm-up period blocks private firm creation to avoid destabilizing start
         if self.in_warmup:
             return
 
-        # Check if there's economic activity (households have cash)
         total_household_cash = sum(h.cash_balance for h in self.households)
         if total_household_cash < 1000.0:
-            return  # Not enough demand to support new firms
-
-        desired_pipeline = int(self.target_total_firms * 1.1) if self.target_total_firms else len(self.firms) + 1
-        if len(self.firms) + len(self.queued_firms) >= max(desired_pipeline, self.target_total_firms):
             return
 
-        # Create a new firm
+        if len(self.firms) + len(self.queued_firms) >= self.target_total_firms:
+            return
+
+        # ── choose sector ────────────────────────────────────────────
+
         existing_ids = [f.firm_id for f in self.firms]
-        existing_ids.extend(firm.firm_id for firm in self.queued_firms)
+        existing_ids.extend(f.firm_id for f in self.queued_firms)
         new_firm_id = max(existing_ids, default=0) + 1
 
         categories = ["Food", "Housing", "Services"]
@@ -2344,89 +2792,151 @@ class Economy:
             else:
                 chosen_category = "Food"
 
-        # Determine firm personality (deterministic based on firm_id)
-        # Use modulo to cycle through personalities
+        # ── personality & quality ────────────────────────────────────
+
         personality_index = new_firm_id % 3
-        if personality_index == 0:
-            personality = "aggressive"
-        elif personality_index == 1:
-            personality = "conservative"
-        else:
-            personality = "moderate"
+        personality = ("aggressive", "conservative", "moderate")[personality_index]
 
-        # Base quality level affected by government technology investment
-        base_quality = 5.0 * self.government.technology_quality_multiplier
-
-        # Determine median quality in category for seeding
         category_qualities = [f.quality_level for f in self.firms if f.good_category == chosen_category]
         median_quality = np.median(category_qualities) if category_qualities else 5.0
 
-        # Government seed loan if available
-        seed_cash = min(250000.0, max(50000.0, total_household_cash * 0.02))
-        if self.government.cash_balance > seed_cash:
-            self.government.cash_balance -= seed_cash
-        else:
-            seed_cash = 50000.0
-
-        # Assign a random household as CEO owner (after warmup, tick > 52)
         ceo_id = None
         if self.current_tick > 52 and self.households:
-            # Pick a random household to be the CEO
             ceo_id = np.random.choice([h.household_id for h in self.households])
 
-        # Housing-specific initialization
         max_rental_units = 0
         property_tax_rate = 0.0
         if chosen_category == "Housing":
             max_rental_units = np.random.randint(0, 51)
-            seed_cash = max(50000.0, max_rental_units * 10000.0)
-            if self.government.cash_balance > seed_cash:
-                self.government.cash_balance -= seed_cash
-            else:
-                seed_cash = 50000.0
             property_tax_rate = 0.005 * max_rental_units
 
-        # Calculate loan repayment: 1% annual interest, 3-year payment plan
-        # Interest rate: 1% per year = 1/52% per week
-        # Total amount to repay: principal * (1 + 0.01 * 3) = principal * 1.03
-        # Payment per tick: total / (52 weeks * 3 years) = total / 156
-        total_repayment = seed_cash * 1.03
-        weekly_payment = total_repayment / 156.0
+        # ── select funding tier ──────────────────────────────────────
+
+        demand_signal = self._sector_demand_signal(chosen_category)
+        unemployed_count = sum(1 for h in self.households if not h.is_employed)
+        unemployment_rate = unemployed_count / max(1, len(self.households))
+
+        # Deterministic tier selection based on firm_id for reproducibility
+        tier_rng = random.Random(CONFIG.random_seed + new_firm_id * 7919)
+        tier_roll = tier_rng.random()  # [0, 1)
+
+        # Shift thresholds based on conditions:
+        # High unemployment → more govt-backed (tier 3)
+        # High sector demand → more bank-backed (tier 2)
+        govt_threshold = 0.05 + min(0.10, unemployment_rate * 0.3)  # 5-15%
+        bank_threshold = govt_threshold + 0.15 + min(0.15, demand_signal * 0.2)  # +15-30%
+        # Remainder is bootstrapped
+
+        seed_cash = 0.0
+        govt_loan_principal = 0.0
+        govt_loan_remaining = 0.0
+        govt_loan_payment = 0.0
+        bank_loan_principal = 0.0
+        bank_loan_remaining = 0.0
+        bank_loan_payment = 0.0
+        seed_term_ticks = 156  # 3 years
+
+        if tier_roll < govt_threshold:
+            # ── Tier 3: Government-backed ────────────────────────────
+            # Subsidized loan through bank or direct from government.
+            seed_cash = min(100_000.0, max(30_000.0, total_household_cash * 0.01))
+            if chosen_category == "Housing":
+                seed_cash = max(seed_cash, max_rental_units * 8000.0)
+            seed_rate = 0.005  # Subsidized: 0.5% annual
+
+            if self.bank is not None:
+                loan = self.bank.issue_government_backed_loan(
+                    "firm", new_firm_id, seed_cash, seed_rate,
+                    seed_term_ticks, self.government,
+                )
+                if loan is not None:
+                    interest_mult = 1.0 + seed_rate
+                    total_repay = seed_cash * interest_mult
+                    bank_loan_principal = seed_cash
+                    bank_loan_remaining = total_repay
+                    bank_loan_payment = total_repay / seed_term_ticks
+                else:
+                    # Government can't afford it — downgrade to bootstrapped
+                    seed_cash = tier_rng.uniform(5_000.0, 30_000.0)
+            elif self.government.cash_balance > seed_cash:
+                # No bank — direct government loan
+                self.government.cash_balance -= seed_cash
+                seed_rate_govt = 0.01
+                total_repayment = seed_cash * (1.0 + seed_rate_govt)
+                govt_loan_principal = seed_cash
+                govt_loan_remaining = total_repayment
+                govt_loan_payment = total_repayment / seed_term_ticks
+            else:
+                # Government broke — downgrade to bootstrapped
+                seed_cash = tier_rng.uniform(5_000.0, 30_000.0)
+
+        elif tier_roll < bank_threshold:
+            # ── Tier 2: Bank-backed ──────────────────────────────────
+            # Bank seed loan based on sector demand + default credit score.
+            seed_cash = min(80_000.0, max(20_000.0, total_household_cash * 0.008))
+            if chosen_category == "Housing":
+                seed_cash = max(seed_cash, max_rental_units * 6000.0)
+
+            if self.bank is not None and self.bank.can_lend():
+                credit_score = self.bank.get_firm_credit_score(new_firm_id)  # 0.5 default
+                # Require minimum demand signal to justify bank lending
+                if demand_signal >= 0.4 and self.bank.lendable_cash >= seed_cash:
+                    rate = self.bank._risk_adjusted_rate(credit_score, spread=0.04)
+                    self.bank.originate_loan("firm", new_firm_id, seed_cash, rate, seed_term_ticks)
+                    interest_mult = 1.0 + rate
+                    total_repay = seed_cash * interest_mult
+                    bank_loan_principal = seed_cash
+                    bank_loan_remaining = total_repay
+                    bank_loan_payment = total_repay / seed_term_ticks
+                else:
+                    # Bank won't fund — downgrade to bootstrapped
+                    seed_cash = tier_rng.uniform(5_000.0, 30_000.0)
+            else:
+                # No bank or circuit breaker — bootstrapped
+                seed_cash = tier_rng.uniform(5_000.0, 30_000.0)
+
+        else:
+            # ── Tier 1: Bootstrapped (majority) ──────────────────────
+            seed_cash = tier_rng.uniform(5_000.0, 30_000.0)
+            if chosen_category == "Housing":
+                # Housing needs slightly more to have any rental units
+                seed_cash = max(seed_cash, max_rental_units * 2000.0)
+
+        # ── create the firm ──────────────────────────────────────────
 
         new_firm = FirmAgent(
             firm_id=new_firm_id,
             good_name=f"{chosen_category}Product{new_firm_id}",
             cash_balance=seed_cash,
-            inventory_units=100.0 if chosen_category != "Housing" else 0.0,  # Housing has no inventory
+            inventory_units=100.0 if chosen_category != "Housing" else 0.0,
             good_category=chosen_category,
             quality_level=min(10.0, max(1.0, median_quality + np.random.uniform(-1.0, 1.0))),
             wage_offer=35.0,
-            price=150.0 if chosen_category == "Housing" else 8.0,  # Rent starts at $150/week
+            price=150.0 if chosen_category == "Housing" else 8.0,
             expected_sales_units=50.0 if chosen_category != "Housing" else float(max_rental_units),
             production_capacity_units=500.0 if chosen_category != "Housing" else float(max_rental_units),
             productivity_per_worker=10.0,
             units_per_worker=18.0,
             personality=personality,
-            government_loan_principal=seed_cash,
-            government_loan_remaining=total_repayment,
-            loan_payment_per_tick=weekly_payment,
+            government_loan_principal=govt_loan_principal,
+            government_loan_remaining=govt_loan_remaining,
+            loan_payment_per_tick=govt_loan_payment,
+            bank_loan_principal=bank_loan_principal,
+            bank_loan_remaining=bank_loan_remaining,
+            bank_loan_payment_per_tick=bank_loan_payment,
             ceo_household_id=ceo_id,
             max_rental_units=max_rental_units,
-            property_tax_rate=property_tax_rate
+            property_tax_rate=property_tax_rate,
         )
-
-        # Set personality-based behavior parameters
         new_firm.set_personality(personality)
 
         self.firms.append(new_firm)
 
-        # Initialize tracking for new firm
         self.last_tick_sales_units[new_firm_id] = 0.0
         self.last_tick_revenue[new_firm_id] = 0.0
         self.last_tick_sell_through_rate[new_firm_id] = 0.5
         self.last_tick_prices[new_firm.good_name] = new_firm.price
 
-        # Add to firm cache
         self.firm_lookup[new_firm_id] = new_firm
 
     def _update_loan_commitments(self) -> None:
@@ -2462,10 +2972,77 @@ class Economy:
             firm.loan_required_headcount = 0
             firm.loan_support_ticks = 0
 
-    def _offer_emergency_loans(self, unemployment_rate: float) -> None:
+    def _issue_firm_loan(
+        self,
+        firm: "FirmAgent",
+        amount: float,
+        term_ticks: int,
+        govt_rate: float,
+        spread: float = 0.05,
+    ) -> bool:
+        """Try bank first, then government-backed bank loan, then direct government loan.
+
+        Returns True if the loan was successfully issued through any channel.
+        This is the central bank-first/govt-fallback pattern used by all loan
+        origination methods.
         """
-        Provide temporary low-interest loans to cash-strapped firms
-        whenever unemployment breaches the configured trigger.
+        bank = self.bank
+
+        if bank is not None:
+            credit_score = bank.get_firm_credit_score(firm.firm_id)
+
+            # Check leverage ceiling
+            max_borrowable = bank._max_firm_borrowable(firm.firm_id, firm.trailing_revenue_12t)
+            effective_amount = min(amount, max_borrowable)
+            if effective_amount <= 0:
+                # Over-leveraged — fall through to government
+                pass
+            elif credit_score < 0.25:
+                # Credit too low for bank — fall through to government
+                pass
+            elif bank.can_lend() and bank.lendable_cash >= effective_amount:
+                # Bank can fund it directly
+                rate = bank._risk_adjusted_rate(credit_score, spread)
+                bank.originate_loan("firm", firm.firm_id, effective_amount, rate, term_ticks)
+                firm.cash_balance += effective_amount
+                firm.bank_loan_principal += effective_amount
+                interest_mult = 1.0 + rate
+                total_repay = effective_amount * interest_mult
+                firm.bank_loan_remaining += total_repay
+                firm.bank_loan_payment_per_tick += total_repay / max(1, term_ticks)
+                return True
+            else:
+                # Circuit breaker active — try government-backed loan through bank
+                rate = bank._risk_adjusted_rate(credit_score, spread)
+                loan = bank.issue_government_backed_loan(
+                    "firm", firm.firm_id, effective_amount, rate,
+                    term_ticks, self.government,
+                )
+                if loan is not None:
+                    firm.cash_balance += effective_amount
+                    firm.bank_loan_principal += effective_amount
+                    interest_mult = 1.0 + rate
+                    total_repay = effective_amount * interest_mult
+                    firm.bank_loan_remaining += total_repay
+                    firm.bank_loan_payment_per_tick += total_repay / max(1, term_ticks)
+                    return True
+
+        # Fallback: direct government loan (existing behavior)
+        interest_multiplier = 1.0 + govt_rate
+        total_repayment = amount * interest_multiplier
+        firm.cash_balance += amount
+        firm.government_loan_principal += amount
+        firm.government_loan_remaining += total_repayment
+        firm.loan_payment_per_tick += total_repayment / max(1, term_ticks)
+        self.government.cash_balance -= amount
+        return True
+
+    def _offer_emergency_loans(self, unemployment_rate: float) -> None:
+        """Provide temporary low-interest loans to cash-strapped firms.
+
+        Tries the bank first (if available and lending). If the bank's circuit
+        breaker is active, attempts a government-backed loan through the bank.
+        Falls back to direct government lending if no bank exists.
         """
         config = CONFIG.government
         if unemployment_rate < config.emergency_loan_trigger:
@@ -2497,7 +3074,6 @@ class Economy:
             1,
             int(CONFIG.time.ticks_per_year * config.emergency_loan_term_years)
         )
-        interest_multiplier = 1.0 + config.emergency_loan_interest
 
         for firm in candidate_firms:
             if per_tick_budget <= 0 or self.government.cash_balance <= reserve_floor:
@@ -2512,11 +3088,14 @@ class Economy:
             if loan_amount <= 0:
                 continue
 
-            firm.cash_balance += loan_amount
-            total_repayment = loan_amount * interest_multiplier
-            firm.government_loan_principal += loan_amount
-            firm.government_loan_remaining += total_repayment
-            firm.loan_payment_per_tick += total_repayment / term_ticks
+            issued = self._issue_firm_loan(
+                firm, loan_amount, term_ticks, config.emergency_loan_interest,
+                spread=0.05,
+            )
+            if not issued:
+                continue
+
+            # Enforcement: hiring commitment tied to the loan
             enforcement_ticks = max(1, config.emergency_loan_enforcement_ticks)
             required_headcount = max(
                 config.emergency_loan_min_headcount,
@@ -2529,20 +3108,12 @@ class Economy:
             )
             firm.loan_required_headcount = max(firm.loan_required_headcount, required_headcount)
             firm.loan_support_ticks = max(firm.loan_support_ticks, enforcement_ticks)
-            self.government.cash_balance -= loan_amount
             per_tick_budget -= loan_amount
 
     def _offer_inventory_liquidation_loans(self) -> None:
-        """
-        Provide loans to firms with poor sales to help with R&D and inventory liquidation.
+        """Provide loans to firms with poor sales for R&D and inventory liquidation.
 
-        Loans are offered to firms where:
-        - Items sold < items produced (underselling)
-        - Inventory > 2× production rate (inventory buildup)
-
-        Loan amount: 10% of firm's current cash balance (scaled, not fixed)
-        Interest rate: 2% annual (2/52 = 0.0385% per tick)
-        Term: 3 years (156 ticks)
+        Uses bank-first/govt-fallback pattern via ``_issue_firm_loan``.
         """
         # Check government has funds available (minimum 1% reserve)
         min_reserve = self.government.cash_balance * 0.01
@@ -2568,42 +3139,41 @@ class Economy:
         # Prioritize firms with worst sales performance
         candidate_firms.sort(key=lambda f: f.last_units_sold / max(f.last_units_produced, 1.0))
 
-        # Loan parameters
         term_ticks = 156  # 3 years (52 ticks/year × 3)
-        annual_interest_rate = 0.02  # 2% annual
-        interest_multiplier = 1.0 + annual_interest_rate
+        annual_interest_rate = 0.02
 
         for firm in candidate_firms:
             if per_tick_budget <= 0 or self.government.cash_balance <= min_reserve:
                 break
 
-            # Loan amount: 10% of firm's current cash balance (scaled)
             loan_amount = firm.cash_balance * 0.10
 
             # Don't give loans if firm already has outstanding balance > 50% of cash
-            if firm.government_loan_remaining > firm.cash_balance * 0.5:
+            total_outstanding = firm.government_loan_remaining + firm.bank_loan_remaining
+            if total_outstanding > firm.cash_balance * 0.5:
                 continue
 
-            # Cap loan at available budget and government reserves
             actual_loan = min(loan_amount, per_tick_budget, self.government.cash_balance - min_reserve)
-            if actual_loan <= 100:  # Minimum viable loan
+            if actual_loan <= 100:
                 continue
 
-            # Grant loan
-            firm.cash_balance += actual_loan
-            total_repayment = actual_loan * interest_multiplier
-            firm.government_loan_principal += actual_loan
-            firm.government_loan_remaining += total_repayment
-            firm.loan_payment_per_tick += total_repayment / term_ticks
-
-            self.government.cash_balance -= actual_loan
-            per_tick_budget -= actual_loan
+            issued = self._issue_firm_loan(
+                firm, actual_loan, term_ticks, annual_interest_rate,
+                spread=0.03,
+            )
+            if issued:
+                per_tick_budget -= actual_loan
 
     def _ensure_public_works_capacity(self, unemployment_rate: float) -> None:
-        """Stand up or scale public works firms to absorb excess labor."""
-        config = CONFIG.government
-        if unemployment_rate < config.public_works_unemployment_threshold:
+        """Stand up or scale public works firms to absorb excess labor.
+
+        Gated by the ``public_works`` lever — only runs when the lever
+        is set to ``"on"``.  The old unemployment-threshold trigger has
+        been removed; the future LLM decides when to toggle this.
+        """
+        if self.government.public_works_toggle != "on":
             return
+        config = CONFIG.government
 
         target_jobs = max(1, int(len(self.households) * config.public_works_job_fraction))
         public_firms = [f for f in self.firms if f.good_category == "PublicWorks"]
@@ -2740,9 +3310,21 @@ class Economy:
         housing_firms = [f for f in self.firms if f.good_category == "Housing"]
 
         if not housing_firms:
+            self.last_housing_diagnostics = {
+                "eviction_count": 0.0,
+                "housing_failure_count": float(len(self.households)),
+                "housing_unaffordable_count": 0.0,
+                "housing_no_supply_count": float(len(self.households)),
+                "homeless_household_count": float(len(self.households)),
+                "housing_shortage_flag": 1.0,
+            }
             return  # No housing available
 
         rent_share = CONFIG.labor_market.rent_affordability_share
+        eviction_count = 0
+        housing_failure_count = 0
+        housing_unaffordable_count = 0
+        housing_no_supply_count = 0
 
         # Phase 1: Check affordability and evict households who can't pay
         for household in self.households:
@@ -2755,6 +3337,15 @@ class Economy:
                     household.renting_from_firm_id = None
                     household.monthly_rent = 0.0
                     household.owns_housing = False
+                    eviction_count += 1
+                    self._append_regime_event(
+                        event_type="eviction",
+                        entity_type="household",
+                        entity_id=household.household_id,
+                        sector="Housing",
+                        reason_code="provider_missing",
+                        severity=1.0,
+                    )
                     continue
 
                 # Check if household can afford rent (rent <= configured share of earned wage only).
@@ -2768,6 +3359,16 @@ class Economy:
                     household.monthly_rent = 0.0
                     household.owns_housing = False
                     household.happiness = max(0.0, household.happiness - 0.3)  # Happiness penalty for eviction
+                    eviction_count += 1
+                    self._append_regime_event(
+                        event_type="eviction",
+                        entity_type="household",
+                        entity_id=household.household_id,
+                        sector="Housing",
+                        reason_code="unaffordable",
+                        severity=1.0,
+                        metric_value=float(max(household.monthly_rent - max_affordable_rent, 0.0)),
+                    )
                 else:
                     # Pay rent
                     household.cash_balance -= household.monthly_rent
@@ -2804,6 +3405,13 @@ class Economy:
                 # Pay first month's rent
                 household.cash_balance -= rent
                 chosen_firm.cash_balance += rent
+            else:
+                housing_failure_count += 1
+                any_supply = any(len(f.current_tenants) < f.max_rental_units for f in housing_firms)
+                if any_supply:
+                    housing_unaffordable_count += 1
+                else:
+                    housing_no_supply_count += 1
 
         total_units = sum(f.max_rental_units for f in housing_firms)
         shortage = total_units < len(self.households)
@@ -2827,6 +3435,16 @@ class Economy:
 
             if shortage and occupancy_rate >= lm.occupancy_high_threshold and self.current_tick % lm.rent_shortage_interval_ticks == 0:
                 firm.price *= lm.rent_shortage_multiplier
+
+        homeless_household_count = sum(1 for household in self.households if household.renting_from_firm_id is None)
+        self.last_housing_diagnostics = {
+            "eviction_count": float(eviction_count),
+            "housing_failure_count": float(housing_failure_count),
+            "housing_unaffordable_count": float(housing_unaffordable_count),
+            "housing_no_supply_count": float(housing_no_supply_count),
+            "homeless_household_count": float(homeless_household_count),
+            "housing_shortage_flag": float(1.0 if shortage else 0.0),
+        }
 
     def _apply_housing_repairs(self) -> None:
         """Apply random weekly repair costs to housing firms."""
@@ -2925,6 +3543,7 @@ class Economy:
         self.healthcare_attempted_slots_this_tick = 0.0
         self.healthcare_completed_visits_this_tick = 0.0
         self.healthcare_affordability_rejects_this_tick = 0.0
+        self.last_healthcare_events = []
 
         for household in self.households:
             household.healthcare_consumed_this_tick = 0.0
@@ -2950,6 +3569,7 @@ class Economy:
                 household.health = lock_value
 
     def _healthcare_firms(self) -> List[FirmAgent]:
+        """Return the subset of firms that produce healthcare services."""
         return [f for f in self.firms if f.good_category.lower() == "healthcare"]
 
     def _choose_healthcare_provider(self, household: HouseholdAgent, firms: List[FirmAgent]) -> Optional[FirmAgent]:
@@ -2998,6 +3618,7 @@ class Economy:
 
             provider.healthcare_queue.append(household.household_id)
             household.queued_healthcare_firm_id = provider.firm_id
+            household.healthcare_queue_enter_tick = self.current_tick
             provider.healthcare_requests_last_tick += 1.0
             self.healthcare_requests_this_tick += 1.0
 
@@ -3067,11 +3688,16 @@ class Economy:
             max(0.0, self.government.social_happiness_multiplier - 1.0)
             * CONFIG.government.social_program_health_scaling
         )
-        subsidy_share = max(0.0, min(1.0, CONFIG.government.healthcare_visit_subsidy_share))
+        # Use sector_subsidy lever if targeting healthcare; otherwise fall back to config
+        if self.government.sector_subsidy_target == "healthcare" and self.government._sector_subsidy_rate > 0:
+            subsidy_share = self.government._sector_subsidy_rate
+        else:
+            subsidy_share = max(0.0, min(1.0, CONFIG.government.healthcare_visit_subsidy_share))
 
         for firm in healthcare_firms:
             firm.inventory_units = 0.0
             self._prioritize_healthcare_queue(firm)
+            event_tick = int(self.current_tick + 1)
 
             capacity_float = self._healthcare_effective_capacity(firm)
             capacity_with_carry = capacity_float + max(0.0, firm.healthcare_capacity_carryover)
@@ -3115,17 +3741,45 @@ class Economy:
                 if household is None:
                     continue
 
+                queue_enter_tick = getattr(household, "healthcare_queue_enter_tick", -1)
+                queue_wait_ticks = (
+                    max(0, self.current_tick - queue_enter_tick)
+                    if queue_enter_tick >= 0
+                    else 0
+                )
+
                 visit_price = max(0.0, firm.price)
                 household_cost = visit_price * (1.0 - subsidy_share)
                 government_cost = visit_price - household_cost
 
                 if household.cash_balance + 1e-9 < household_cost:
-                    # Cannot afford this tick; keep queued.
-                    next_queue.append(household_id)
-                    household.queued_healthcare_firm_id = firm.firm_id
-                    self.healthcare_affordability_rejects_this_tick += 1.0
-                    continue
+                    # Cannot afford — try medical loan (bank-first, then skip)
+                    loan_issued = False
+                    shortfall = household_cost - household.cash_balance
+                    if shortfall > 0 and household.medical_loan_remaining <= 0:
+                        loan_issued = self._issue_medical_loan(household, shortfall)
 
+                    if not loan_issued:
+                        # Still can't afford; keep queued.
+                        next_queue.append(household_id)
+                        household.queued_healthcare_firm_id = firm.firm_id
+                        self.healthcare_affordability_rejects_this_tick += 1.0
+                        self.last_healthcare_events.append({
+                            "tick": event_tick,
+                            "household_id": int(household_id),
+                            "firm_id": int(firm.firm_id),
+                            "event_type": "visit_denied_affordability",
+                            "queue_wait_ticks": int(queue_wait_ticks),
+                            "visit_price": float(visit_price),
+                            "household_cost": float(household_cost),
+                            "government_cost": float(government_cost),
+                            "health_before": float(household.health),
+                            "health_after": float(household.health),
+                        })
+                        continue
+                    # Loan granted — household now has enough cash, fall through to payment
+
+                health_before = float(household.health)
                 if household_cost > 0.0:
                     household.cash_balance -= household_cost
                 if government_cost > 0.0:
@@ -3144,6 +3798,19 @@ class Economy:
                 household.healthcare_consumed_this_tick += 1.0
                 household.last_checkup_tick = self.current_tick
                 household.queued_healthcare_firm_id = None
+                household.healthcare_queue_enter_tick = -1
+                self.last_healthcare_events.append({
+                    "tick": event_tick,
+                    "household_id": int(household_id),
+                    "firm_id": int(firm.firm_id),
+                    "event_type": "visit_completed",
+                    "queue_wait_ticks": int(queue_wait_ticks),
+                    "visit_price": float(visit_price),
+                    "household_cost": float(household_cost),
+                    "government_cost": float(government_cost),
+                    "health_before": health_before,
+                    "health_after": float(household.health),
+                })
 
                 completed += 1
 
@@ -3161,6 +3828,276 @@ class Economy:
         - _process_healthcare_services
         """
         return
+
+    def _update_budget_pressure(
+        self,
+        revenue: float,
+        spending: float,
+    ) -> None:
+        """Update the government's soft budget constraint each tick.
+
+        Computes a rolling deficit ratio (EMA of per-tick deficit / GDP)
+        and derives a ``spending_efficiency`` penalty that makes sustained
+        large deficits progressively more costly.
+
+        The constraint is *soft* — the government can choose to run
+        deficits (e.g. counter-cyclical stimulus), but compounding
+        inefficiency creates real tradeoffs that a future LLM must
+        learn to navigate.
+
+        Thresholds:
+            deficit_ratio < 0.05  → no penalty (healthy)
+            0.05 – 0.15          → mild efficiency loss (crowding out)
+            0.15 – 0.30          → forced partial spending cutbacks
+            > 0.30               → austerity — discretionary spending halved
+
+        Args:
+            revenue: Total government revenue this tick (taxes + loan repayments).
+            spending: Total government spending this tick (transfers + investments + subsidies).
+        """
+        gdp = sum(self.last_tick_revenue.values()) if self.last_tick_revenue else 1.0
+        gdp = max(gdp, 1.0)
+
+        deficit_this_tick = spending - revenue
+        instant_ratio = deficit_this_tick / gdp
+
+        # Exponential moving average (α=0.05 → ~20-tick half-life)
+        self.government.deficit_ratio = (
+            0.95 * self.government.deficit_ratio + 0.05 * instant_ratio
+        )
+
+        # Track for observation
+        self.government.last_tick_revenue = revenue
+        self.government.last_tick_spending = spending
+
+        # Derive spending efficiency penalty
+        dr = self.government.deficit_ratio
+        if dr < 0.05:
+            self.government.spending_efficiency = 1.0
+        elif dr < 0.15:
+            # Linear ramp from 1.0 → 0.8 over the 0.05-0.15 band
+            self.government.spending_efficiency = 1.0 - 0.2 * ((dr - 0.05) / 0.10)
+        elif dr < 0.30:
+            # Further cuts: 0.8 → 0.5
+            fraction = (dr - 0.15) / 0.15
+            self.government.spending_efficiency = 0.8 - 0.3 * fraction
+        else:
+            # Austerity: hard floor at 0.5
+            self.government.spending_efficiency = 0.5
+
+    # ── Bank integration methods ──────────────────────────────────────
+
+    def _collect_bank_loan_repayments(self) -> None:
+        """Phase 9.5: Collect repayments on all active bank loans.
+
+        For each active loan, attempt to collect the scheduled payment from
+        the borrower's cash balance. Updates credit scores on payment/miss.
+        Falls back gracefully if a borrower can't be found (e.g., exited firm).
+        """
+        bank = self.bank
+        if bank is None:
+            return
+
+        for loan in list(bank.active_loans):
+            if loan["remaining"] <= 1e-6:
+                continue
+
+            scheduled = loan["payment_per_tick"]
+            if loan["borrower_type"] == "firm":
+                firm = self.firm_lookup.get(loan["borrower_id"])
+                if firm is None:
+                    # Firm exited — write off
+                    bank.write_off_loan(loan)
+                    bank.update_firm_credit_score(loan["borrower_id"], -0.20)
+                    continue
+                payment = min(scheduled, loan["remaining"], max(0.0, firm.cash_balance))
+                if payment > 1e-6:
+                    firm.cash_balance -= payment
+                    bank.collect_repayment(loan, payment)
+                    bank.update_firm_credit_score(firm.firm_id, +0.01)
+                else:
+                    loan["missed_payments"] = loan.get("missed_payments", 0) + 1
+                    bank.update_firm_credit_score(loan["borrower_id"], -0.05)
+
+            elif loan["borrower_type"] == "household":
+                hh = self.household_lookup.get(loan["borrower_id"])
+                if hh is None:
+                    bank.write_off_loan(loan)
+                    bank.update_household_credit_score(loan["borrower_id"], -0.20)
+                    continue
+                payment = min(scheduled, loan["remaining"], max(0.0, hh.cash_balance))
+                if payment > 1e-6:
+                    hh.cash_balance -= payment
+                    # Also update the household's medical_loan_remaining mirror field
+                    hh.medical_loan_remaining = max(0.0, hh.medical_loan_remaining - payment)
+                    if hh.medical_loan_remaining <= 1e-6:
+                        hh.medical_loan_remaining = 0.0
+                        hh.medical_loan_principal = 0.0
+                        hh.medical_loan_payment_per_tick = 0.0
+                    bank.collect_repayment(loan, payment)
+                    bank.update_household_credit_score(hh.household_id, +0.01)
+                else:
+                    loan["missed_payments"] = loan.get("missed_payments", 0) + 1
+                    bank.update_household_credit_score(loan["borrower_id"], -0.05)
+
+                    # Household default: 8 consecutive missed payments
+                    if loan["missed_payments"] >= 8:
+                        bank.write_off_loan(loan)
+                        bank.update_household_credit_score(loan["borrower_id"], -0.20)
+                        hh.medical_loan_remaining = 0.0
+                        hh.medical_loan_principal = 0.0
+                        hh.medical_loan_payment_per_tick = 0.0
+
+    def _process_bank_deposits(self) -> None:
+        """Phase 11.3: Sweep excess household cash into bank deposits and pay interest.
+
+        Each household has its own ``deposit_buffer_weeks`` (how many weeks of
+        expenses to keep liquid) and ``deposit_fraction`` (what share of excess
+        to deposit each tick).  Both are derived from the household's
+        ``saving_tendency`` at initialization, producing population-level
+        heterogeneity that averages to ~6 weeks buffer / ~20% fraction.
+
+        Households can also withdraw from deposits when cash drops below
+        their buffer threshold (demand deposits).
+        """
+        bank = self.bank
+        if bank is None:
+            return
+
+        min_wage = self.government.get_minimum_wage()
+        for hh in self.households:
+            # Pay interest on existing deposits
+            if hh.bank_deposit > 0.0:
+                interest = bank.pay_deposit_interest(hh.bank_deposit)
+                hh.bank_deposit += interest
+                hh.cash_balance += interest
+
+            # Per-household liquidity buffer: buffer_weeks × estimated weekly spending
+            weekly_spend = max(hh.last_consumption_spending, min_wage, 50.0)
+            liquidity_floor = weekly_spend * hh.deposit_buffer_weeks
+
+            if hh.cash_balance > liquidity_floor:
+                # Deposit a fraction of excess
+                excess = hh.cash_balance - liquidity_floor
+                deposit_amount = excess * hh.deposit_fraction
+                if deposit_amount > 1.0:  # Don't bother with dust
+                    hh.cash_balance -= deposit_amount
+                    hh.bank_deposit += deposit_amount
+                    bank.accept_deposit(hh.household_id, deposit_amount)
+            elif hh.cash_balance < liquidity_floor * 0.5 and hh.bank_deposit > 0.0:
+                # Cash critically low — withdraw from deposits
+                shortfall = liquidity_floor * 0.5 - hh.cash_balance
+                withdraw = min(shortfall, hh.bank_deposit)
+                actual = bank.withdraw(hh.household_id, withdraw)
+                hh.bank_deposit -= actual
+                hh.cash_balance += actual
+
+    def _update_credit_scores(self) -> None:
+        """Phase 11.4: Periodic credit score adjustments based on financial health signals.
+
+        Runs once per tick. Supplements the per-repayment score changes with
+        broader signals like revenue strength and employment stability.
+
+        Performance: builds a firm-debt lookup once (O(loans)) to avoid
+        O(firms × loans) nested scan for leverage checks.
+        """
+        bank = self.bank
+        if bank is None:
+            return
+
+        # Pre-build firm debt lookup: O(loans) instead of O(firms × loans)
+        firm_debt_map: Dict[int, float] = {}
+        for loan in bank.active_loans:
+            if loan["borrower_type"] == "firm":
+                bid = loan["borrower_id"]
+                firm_debt_map[bid] = firm_debt_map.get(bid, 0.0) + loan["remaining"]
+
+        for firm in self.firms:
+            fid = firm.firm_id
+
+            # Update trailing revenue EMA (alpha ~= 2/13 for 12-tick window)
+            alpha = 2.0 / 13.0
+            firm.trailing_revenue_12t = (
+                alpha * firm.last_revenue + (1.0 - alpha) * firm.trailing_revenue_12t
+            )
+
+            # Revenue health: strong revenue relative to payroll
+            total_payroll = sum(firm.actual_wages.values()) if firm.actual_wages else 0.0
+            if total_payroll > 0 and firm.last_revenue > 2.0 * total_payroll:
+                bank.update_firm_credit_score(fid, +0.01)
+
+            # Zero revenue streak
+            if firm.last_revenue <= 0 and firm.zero_cash_streak >= 4:
+                bank.update_firm_credit_score(fid, -0.03)
+
+            # High leverage warning (O(1) lookup instead of O(loans) scan)
+            existing_debt = firm_debt_map.get(fid, 0.0)
+            if existing_debt > 3.0 * max(firm.trailing_revenue_12t, 1.0):
+                bank.update_firm_credit_score(fid, -0.02)
+
+        for hh in self.households:
+            hid = hh.household_id
+            # Employment stability bonus (unemployment_duration == 0 for 8+ ticks
+            # is approximated by checking employed + low duration)
+            if hh.is_employed and hh.unemployment_duration == 0:
+                # Only award every 8th tick to approximate "8+ consecutive ticks"
+                if self.current_tick % 8 == 0:
+                    bank.update_household_credit_score(hid, +0.01)
+            # Unemployment penalty
+            if not hh.is_employed and hh.unemployment_duration >= 4:
+                bank.update_household_credit_score(hid, -0.01)
+
+    def _issue_medical_loan(self, household: "HouseholdAgent", amount: float) -> bool:
+        """Issue a medical loan to a household. Bank-first, no fallback (medical loans are optional).
+
+        Only one medical loan can be active at a time (debt stacking prevention).
+        Returns True if loan was issued and household now has the cash.
+        """
+        if household.medical_loan_remaining > 0:
+            return False  # Already has an active medical loan
+
+        bank = self.bank
+        term_ticks = 52  # 1 year
+
+        if bank is not None:
+            credit_score = bank.get_household_credit_score(household.household_id)
+            if credit_score < 0.15:
+                return False  # Credit too low
+
+            rate = bank._risk_adjusted_rate(credit_score, spread=0.03)
+            if bank.can_lend() and bank.lendable_cash >= amount:
+                loan = bank.originate_loan(
+                    "household", household.household_id, amount, rate, term_ticks,
+                )
+                household.cash_balance += amount
+                household.medical_loan_principal = amount
+                total_repay = amount * (1.0 + rate)
+                household.medical_loan_remaining = total_repay
+                min_wage = self.government.get_minimum_wage()
+                household.medical_loan_payment_per_tick = 0.10 * min_wage
+                return True
+            else:
+                # Circuit breaker — try government-backed through bank
+                loan = bank.issue_government_backed_loan(
+                    "household", household.household_id, amount, rate,
+                    term_ticks, self.government,
+                )
+                if loan is not None:
+                    household.cash_balance += amount
+                    household.medical_loan_principal = amount
+                    total_repay = amount * (1.0 + rate)
+                    household.medical_loan_remaining = total_repay
+                    min_wage = self.government.get_minimum_wage()
+                    household.medical_loan_payment_per_tick = 0.10 * min_wage
+                    return True
+
+        # No bank — use household's own take_medical_loan (simple implementation)
+        # But only if they're employed (existing guard from the method)
+        if household.is_employed:
+            household.take_medical_loan(amount)
+            return True
+
+        return False
 
     def _adjust_government_policy(self) -> None:
         """
@@ -3404,23 +4341,59 @@ class Economy:
         # GDP calculation (sum of all firm revenues this tick)
         metrics["gdp_this_tick"] = sum(self.last_tick_revenue.values())
 
-        # Government metrics
-        metrics["government_cash"] = self.government.cash_balance
-        metrics["wage_tax_rate"] = self.government.wage_tax_rate
-        metrics["profit_tax_rate"] = self.government.profit_tax_rate
-        metrics["unemployment_benefit"] = self.government.unemployment_benefit_level
-        metrics["transfer_budget"] = self.government.transfer_budget
+        # Government metrics — lever settings (action space)
+        gov = self.government
+        metrics["gov_tax_policy"] = gov.tax_policy
+        metrics["gov_benefit_level"] = gov.benefit_level
+        metrics["gov_public_works"] = gov.public_works_toggle
+        metrics["gov_minimum_wage_policy"] = gov.minimum_wage_policy
+        metrics["gov_sector_subsidy_target"] = gov.sector_subsidy_target
+        metrics["gov_sector_subsidy_level"] = gov.sector_subsidy_level
+        metrics["gov_infrastructure_spending"] = gov.infrastructure_spending
+        metrics["gov_technology_spending"] = gov.technology_spending
 
-        # Infrastructure multipliers
-        metrics["infrastructure_productivity"] = self.government.infrastructure_productivity_multiplier
-        metrics["technology_quality"] = self.government.technology_quality_multiplier
-        metrics["social_happiness"] = self.government.social_happiness_multiplier
+        # Government metrics — derived numeric parameters
+        metrics["government_cash"] = gov.cash_balance
+        metrics["wage_tax_rate"] = gov.wage_tax_rate
+        metrics["profit_tax_rate"] = gov.profit_tax_rate
+        metrics["unemployment_benefit"] = gov.unemployment_benefit_level
+        metrics["transfer_budget"] = gov.transfer_budget
+        metrics["minimum_wage_floor"] = gov._minimum_wage_floor
+
+        # Government metrics — budget pressure
+        metrics["deficit_ratio"] = gov.deficit_ratio
+        metrics["spending_efficiency"] = gov.spending_efficiency
+        metrics["gov_revenue_this_tick"] = gov.last_tick_revenue
+        metrics["gov_spending_this_tick"] = gov.last_tick_spending
+
+        # Infrastructure / technology multipliers
+        metrics["infrastructure_productivity"] = gov.infrastructure_productivity_multiplier
+        metrics["technology_quality"] = gov.technology_quality_multiplier
+        metrics["social_happiness"] = gov.social_happiness_multiplier
+
+        # Bank metrics (optional)
+        if self.bank is not None:
+            bank = self.bank
+            metrics["bank_cash_reserves"] = bank.cash_reserves
+            metrics["bank_total_deposits"] = bank.total_deposits
+            metrics["bank_total_loans_outstanding"] = bank.total_loans_outstanding
+            metrics["bank_base_interest_rate"] = bank.base_interest_rate
+            metrics["bank_loan_loss_provision"] = bank.loan_loss_provision
+            metrics["bank_active_loan_count"] = len(bank.active_loans)
+            metrics["bank_can_lend"] = 1.0 if bank.can_lend() else 0.0
+            metrics["bank_lendable_cash"] = bank.lendable_cash
+            metrics["bank_new_loans_this_tick"] = bank.last_tick_new_loans
+            metrics["bank_defaults_this_tick"] = bank.last_tick_defaults
+            metrics["bank_repayments_this_tick"] = bank.last_tick_repayments
+            metrics["bank_deposit_interest_this_tick"] = bank.last_tick_deposit_interest_paid
 
         # Total wealth in economy
+        bank_reserves = self.bank.cash_reserves if self.bank is not None else 0.0
         metrics["total_economy_cash"] = (
             metrics["total_household_cash"] +
             metrics["total_firm_cash"] +
-            metrics["government_cash"]
+            metrics["government_cash"] +
+            bank_reserves
         )
 
         # Current tick

@@ -12,7 +12,7 @@ The frontend is a React + Vite application styled with Tailwind CSS and the "Obe
 
 ```bash
 # Backend (must be running first)
-uvicorn backend.server:app --reload --port 8002
+python -m uvicorn backend.server:app --reload --port 8002
 
 # Frontend
 cd frontend-react

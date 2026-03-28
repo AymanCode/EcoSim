@@ -1,10 +1,10 @@
 """
 EcoSim Agent System
 
-Defines the three core agent types for the economic simulation:
-HouseholdAgent, FirmAgent, and GovernmentAgent. Each agent encapsulates
-its own decision-making logic for labor, consumption, production, pricing,
-and fiscal policy.
+Defines the four core agent types for the economic simulation:
+HouseholdAgent, FirmAgent, BankAgent, and GovernmentAgent. Each agent
+encapsulates its own decision-making logic for labor, consumption,
+production, pricing, credit, and fiscal policy.
 """
 
 import math
@@ -118,6 +118,12 @@ class HouseholdAgent:
     medical_loan_principal: float = 0.0  # Original medical loan amount
     medical_loan_remaining: float = 0.0  # Remaining balance with interest
     medical_loan_payment_per_tick: float = 0.0  # Payment per tick (10% of wage)
+
+    # Bank deposit account (optional — 0.0 when no bank exists)
+    bank_deposit: float = 0.0
+    deposit_buffer_weeks: float = 6.0   # Weeks of expenses to keep liquid before depositing
+    deposit_fraction: float = 0.20      # Fraction of excess cash deposited per tick
+
     # Medical workforce pipeline
     medical_training_status: str = "none"  # one of: none, student, resident, doctor
     medical_training_start_tick: int = -1
@@ -162,6 +168,7 @@ class HouseholdAgent:
     next_healthcare_request_tick: int = 0
     last_checkup_tick: int = -52
     queued_healthcare_firm_id: Optional[int] = None
+    healthcare_queue_enter_tick: int = -1
 
     # Feature 3: Bounded Rationality - Awareness Pool
     awareness_pool: Dict[str, List[int]] = field(default_factory=dict)  # category -> list of firm_ids
@@ -227,6 +234,15 @@ class HouseholdAgent:
         self.quality_lavishness = sample_range(config.quality_lavishness_range, clip_min=0.1, clip_max=5.0)
         self.frugality = sample_range(config.frugality_range, clip_min=0.1, clip_max=5.0)
         self.saving_tendency = sample_range(config.saving_tendency_range, clip_min=0.0, clip_max=1.0)
+
+        # Bank deposit behavior derived from saving_tendency.
+        # saving_tendency ~ [0, 1]:  0 = spendthrift, 1 = extreme saver
+        # Population mean saving_tendency ≈ 0.5 → mean buffer ≈ 6 weeks, mean fraction ≈ 0.20
+        # Range: buffer 3-10 weeks, fraction 0.05-0.40
+        st = self.saving_tendency
+        self.deposit_buffer_weeks = 3.0 + 7.0 * st       # [3, 10] weeks
+        self.deposit_fraction = 0.05 + 0.35 * st          # [0.05, 0.40]
+
         self.household_service_happiness_base_boost = sample_range(
             config.service_happiness_base_boost_range,
             clip_min=0.0,
@@ -340,6 +356,19 @@ class HouseholdAgent:
         self.min_services_per_tick = sample_range(config.min_services_per_tick_range, clip_min=0.1, clip_max=5.0)
 
     def _normalize_category_weights(self, weights: Dict[str, float]) -> Dict[str, float]:
+        """Normalize spending-category budget weights so they sum to 1.0.
+
+        Negative weights are clamped to zero and duplicate category keys
+        (differing only in case) are merged.  If every weight is non-positive,
+        falls back to an equal split across food / housing / services so the
+        household never ends up with a zero-budget plan.
+
+        Args:
+            weights: Raw category → weight mapping (may contain mixed-case keys).
+
+        Returns:
+            Lowercased category → fraction mapping that sums to 1.0.
+        """
         normalized: Dict[str, float] = {}
         total = 0.0
         for category, weight in weights.items():
@@ -833,6 +862,25 @@ class HouseholdAgent:
         options: List[Dict[str, float]],
         style: str
     ) -> Optional[Dict[str, float]]:
+        """Select the best firm from *options* according to the household's
+        purchasing style.
+
+        Three styles are supported:
+        - **cheap**: lowest price, breaking ties by higher quality.
+        - **quality**: highest quality, breaking ties by lower price.
+        - **value**: best quality-per-dollar ratio.
+
+        If the preferred style yields no viable candidate (e.g. all prices
+        are zero), falls back through the remaining styles in the order
+        cheap → quality → value → first option.
+
+        Args:
+            options: List of firm dicts with at least ``price`` and ``quality``.
+            style: One of ``"cheap"``, ``"quality"``, or ``"value"``.
+
+        Returns:
+            The chosen firm dict, or ``None`` if *options* is empty.
+        """
         if not options:
             return None
 
@@ -932,6 +980,7 @@ class HouseholdAgent:
             "next_healthcare_request_tick": self.next_healthcare_request_tick,
             "last_checkup_tick": self.last_checkup_tick,
             "queued_healthcare_firm_id": self.queued_healthcare_firm_id,
+            "healthcare_queue_enter_tick": self.healthcare_queue_enter_tick,
             "consumption_budget_share": self.consumption_budget_share,
             "good_weights": dict(self.good_weights),
             "category_weights": dict(self.category_weights),
@@ -956,6 +1005,9 @@ class HouseholdAgent:
             "medical_school_debt_remaining": self.medical_school_debt_remaining,
             "medical_school_payment_per_tick": self.medical_school_payment_per_tick,
             "medical_doctor_capacity_cap": self.medical_doctor_capacity_cap,
+            "bank_deposit": self.bank_deposit,
+            "medical_loan_principal": self.medical_loan_principal,
+            "medical_loan_remaining": self.medical_loan_remaining,
         }
 
     def apply_overrides(self, overrides: Dict[str, object]) -> None:
@@ -1955,11 +2007,16 @@ class HouseholdAgent:
 
 @dataclass(slots=True)
 class FirmAgent:
-    """
-    Represents a firm in the economic simulation.
+    """Represents a firm in the economic simulation.
 
-    Firms produce goods, hire workers, set prices and wages,
-    and respond to market conditions. All behavior is deterministic.
+    Firms produce goods, hire workers, set prices and wages, and respond
+    to market conditions.  Each firm is assigned a personality
+    (aggressive / moderate / conservative) that governs its risk tolerance,
+    price adjustment speed, and R&D intensity.
+
+    Behavior is deterministic when the simulation RNG is seeded — per-agent
+    random draws derive from the firm's ID so that identical seeds produce
+    identical trajectories.
     """
 
     # Identity & product (required fields first)
@@ -2061,6 +2118,12 @@ class FirmAgent:
     stabilization_disabled: bool = False  # Experiment flag
     survival_mode: bool = False  # Feature 1: Emergency restructuring flag
 
+    # Bank credit tracking (optional — unused when no bank exists)
+    bank_loan_principal: float = 0.0       # Sum of active bank loan principals
+    bank_loan_remaining: float = 0.0       # Sum of active bank loan remaining balances
+    bank_loan_payment_per_tick: float = 0.0  # Total per-tick payment across all bank loans
+    trailing_revenue_12t: float = 0.0      # EMA of revenue over ~12 ticks for leverage check
+
     def __post_init__(self):
         """Validate invariants after initialization."""
         if self.production_capacity_units < 0:
@@ -2154,6 +2217,10 @@ class FirmAgent:
             "last_units_sold": self.last_units_sold,
             "government_loan_remaining": self.government_loan_remaining,
             "loan_payment_per_tick": self.loan_payment_per_tick,
+            "bank_loan_principal": self.bank_loan_principal,
+            "bank_loan_remaining": self.bank_loan_remaining,
+            "bank_loan_payment_per_tick": self.bank_loan_payment_per_tick,
+            "trailing_revenue_12t": self.trailing_revenue_12t,
             "age_in_ticks": self.age_in_ticks,
             "burn_mode": self.burn_mode,
             "high_inventory_streak": self.high_inventory_streak,
@@ -2256,6 +2323,7 @@ class FirmAgent:
 
     # --- Capacity / productivity helpers ---
     def _firm_config(self):
+        """Return the shared ``CONFIG.firms`` dataclass for firm-level tuning knobs."""
         return CONFIG.firms
 
     def _capacity_for_workers(self, worker_count: float) -> float:
@@ -2860,6 +2928,32 @@ class FirmAgent:
         }
 
     def plan_wage(self, unemployment_rate: float = 0.0, unemployment_benefit: float = 0.0) -> Dict[str, float]:
+        """Determine the wage offer for the next tick.
+
+        Wage-setting follows a revenue-share model: the firm targets a
+        ``target_labor_share`` of realised revenue-per-worker, dampened by
+        the current unemployment rate (higher unemployment → less upward
+        wage pressure).  The final offer is clamped between ±15 % of the
+        current wage and bounded by ``[min_labor_share, max_labor_share]``
+        of revenue so the firm never pays more than it earns.
+
+        Special cases:
+        - **Baseline (government) firms** cap wages at 150 % of the
+          minimum-wage floor — they model stable public-sector employment.
+        - **Healthcare firms** respond to queue backlog pressure: wages
+          rise faster when patient demand exceeds staff capacity.
+        - **Zero-revenue or negative-margin firms** trend wages downward
+          toward the fundamental level without sudden drops.
+
+        Args:
+            unemployment_rate: Economy-wide unemployment fraction (0-1).
+            unemployment_benefit: Current government benefit level, used to
+                set the wage floor at 1.5× benefits so employment always
+                dominates unemployment income.
+
+        Returns:
+            Dict with ``wage_offer_next`` — the wage the firm will post.
+        """
         firm_config = self._firm_config()
         if self.is_baseline and self.last_tick_planned_hires >= 1_000_000:
             return {"wage_offer_next": self.wage_offer}
@@ -3302,26 +3396,312 @@ class FirmAgent:
 
 
 @dataclass(slots=True)
+class BankAgent:
+    """Central bank agent that provides the economy's credit channel.
+
+    Handles all lending (firm emergency, seed, liquidation, household medical),
+    deposit accounts, credit scoring, and interest rate mechanics. Designed as
+    an optional add-on: the simulation works without it (all loan paths fall
+    back to government direct lending when ``bank is None``).
+
+    Credit scoring uses a [0, 1] scale with slow buildup (+0.01 per on-time
+    tick) and meaningful penalties for missed payments and defaults. A circuit
+    breaker halts new lending when reserves drop below the reserve ratio, but
+    the government can still inject liquidity through
+    ``issue_government_backed_loan``.
+    """
+
+    bank_id: int = 0
+    cash_reserves: float = 500_000.0
+    total_deposits: float = 0.0
+    total_loans_outstanding: float = 0.0
+
+    # Rate policy
+    base_interest_rate: float = 0.03       # 3% annual
+    deposit_rate: float = 0.01             # 1% annual on deposits
+    reserve_ratio: float = 0.10            # Fraction of deposits held as reserves
+
+    # Loss tracking
+    loan_loss_provision: float = 0.0       # Accumulated write-offs from defaults
+
+    # Per-tick telemetry
+    last_tick_interest_income: float = 0.0
+    last_tick_deposit_interest_paid: float = 0.0
+    last_tick_new_loans: float = 0.0
+    last_tick_defaults: float = 0.0
+    last_tick_repayments: float = 0.0
+
+    # Credit scores: agent_id -> float [0.0, 1.0]
+    firm_credit_scores: Dict[int, float] = field(default_factory=dict)
+    household_credit_scores: Dict[int, float] = field(default_factory=dict)
+
+    # Active loan ledger: list of dicts tracking each loan
+    # Each entry: {borrower_type, borrower_id, principal, remaining, payment_per_tick,
+    #              rate, term_remaining, govt_backed}
+    active_loans: list = field(default_factory=list)
+
+    # ── helpers ──────────────────────────────────────────────────────
+
+    @property
+    def required_reserves(self) -> float:
+        """Minimum cash the bank must hold against deposits."""
+        return self.total_deposits * self.reserve_ratio
+
+    @property
+    def lendable_cash(self) -> float:
+        """Cash available for new loans (reserves minus requirement)."""
+        return max(0.0, self.cash_reserves - self.required_reserves)
+
+    def can_lend(self) -> bool:
+        """Return True if the bank has reserves above the circuit-breaker floor."""
+        return self.cash_reserves > self.required_reserves
+
+    # ── credit scoring ───────────────────────────────────────────────
+
+    def get_firm_credit_score(self, firm_id: int) -> float:
+        """Return a firm's credit score, initializing to 0.5 if unknown."""
+        return self.firm_credit_scores.get(firm_id, 0.5)
+
+    def get_household_credit_score(self, household_id: int) -> float:
+        """Return a household's credit score, initializing to 0.5 if unknown."""
+        return self.household_credit_scores.get(household_id, 0.5)
+
+    def update_firm_credit_score(self, firm_id: int, delta: float) -> None:
+        """Adjust a firm's credit score by *delta*, clamped to [0, 1]."""
+        current = self.firm_credit_scores.get(firm_id, 0.5)
+        self.firm_credit_scores[firm_id] = max(0.0, min(1.0, current + delta))
+
+    def update_household_credit_score(self, household_id: int, delta: float) -> None:
+        """Adjust a household's credit score by *delta*, clamped to [0, 1]."""
+        current = self.household_credit_scores.get(household_id, 0.5)
+        self.household_credit_scores[household_id] = max(0.0, min(1.0, current + delta))
+
+    # ── lending ──────────────────────────────────────────────────────
+
+    def _risk_adjusted_rate(self, credit_score: float, spread: float = 0.05) -> float:
+        """Annual interest rate for a borrower, adding a risk premium to base rate.
+
+        ``spread`` is the maximum additional rate for a score of 0.0.
+        """
+        return self.base_interest_rate + (1.0 - credit_score) * spread
+
+    def _firm_existing_debt(self, firm_id: int) -> float:
+        """Total outstanding debt for a firm. O(n) scan but called rarely per tick."""
+        return sum(
+            loan["remaining"] for loan in self.active_loans
+            if loan["borrower_type"] == "firm" and loan["borrower_id"] == firm_id
+        )
+
+    def _can_firm_borrow(self, firm_id: int, amount: float, trailing_revenue: float) -> bool:
+        """Check leverage ceiling: total debt + new amount must be < 3× trailing revenue.
+
+        Returns False if the firm would breach the ceiling, preventing debt stacking.
+        """
+        return (self._firm_existing_debt(firm_id) + amount) < 3.0 * max(trailing_revenue, 1.0)
+
+    def _max_firm_borrowable(self, firm_id: int, trailing_revenue: float) -> float:
+        """Maximum additional debt a firm can take before hitting the 3× leverage ceiling."""
+        return max(0.0, 3.0 * max(trailing_revenue, 1.0) - self._firm_existing_debt(firm_id))
+
+    def originate_loan(
+        self,
+        borrower_type: str,
+        borrower_id: int,
+        principal: float,
+        annual_rate: float,
+        term_ticks: int,
+        govt_backed: bool = False,
+    ) -> dict:
+        """Create a new loan record and disburse funds from bank reserves.
+
+        If *govt_backed*, the loan is tracked but funds were already drawn
+        from government cash (used during circuit-breaker emergencies).
+
+        Returns the loan record dict.
+        """
+        interest_multiplier = 1.0 + annual_rate
+        total_repayment = principal * interest_multiplier
+        payment_per_tick = total_repayment / max(1, term_ticks)
+
+        loan = {
+            "borrower_type": borrower_type,
+            "borrower_id": borrower_id,
+            "principal": principal,
+            "remaining": total_repayment,
+            "payment_per_tick": payment_per_tick,
+            "rate": annual_rate,
+            "term_remaining": term_ticks,
+            "govt_backed": govt_backed,
+            "missed_payments": 0,
+        }
+        self.active_loans.append(loan)
+        self.total_loans_outstanding += total_repayment
+
+        if not govt_backed:
+            self.cash_reserves -= principal
+
+        self.last_tick_new_loans += principal
+        return loan
+
+    def collect_repayment(self, loan: dict, payment: float) -> None:
+        """Record a repayment against a loan. Updates bank reserves and totals."""
+        loan["remaining"] -= payment
+        loan["term_remaining"] = max(0, loan["term_remaining"] - 1)
+        loan["missed_payments"] = 0  # Reset miss streak on successful payment
+        self.total_loans_outstanding = max(0.0, self.total_loans_outstanding - payment)
+
+        if not loan["govt_backed"]:
+            self.cash_reserves += payment
+        self.last_tick_repayments += payment
+
+    def write_off_loan(self, loan: dict) -> None:
+        """Write off a defaulted loan. Absorbs loss into provision."""
+        remaining = loan["remaining"]
+        self.loan_loss_provision += remaining
+        self.total_loans_outstanding = max(0.0, self.total_loans_outstanding - remaining)
+        self.last_tick_defaults += remaining
+        loan["remaining"] = 0.0
+        loan["term_remaining"] = 0
+
+    def issue_government_backed_loan(
+        self,
+        borrower_type: str,
+        borrower_id: int,
+        principal: float,
+        annual_rate: float,
+        term_ticks: int,
+        govt: "GovernmentAgent",
+    ) -> Optional[dict]:
+        """Issue a loan funded by government cash when bank reserves are insufficient.
+
+        Used during circuit-breaker situations so emergency lending can continue.
+        Returns the loan record, or None if government also can't fund it.
+        """
+        if govt.cash_balance < principal:
+            return None
+
+        govt.cash_balance -= principal
+        return self.originate_loan(
+            borrower_type=borrower_type,
+            borrower_id=borrower_id,
+            principal=principal,
+            annual_rate=annual_rate,
+            term_ticks=term_ticks,
+            govt_backed=True,
+        )
+
+    # ── deposits ─────────────────────────────────────────────────────
+
+    def accept_deposit(self, household_id: int, amount: float) -> None:
+        """Accept a deposit from a household into the bank."""
+        self.cash_reserves += amount
+        self.total_deposits += amount
+
+    def withdraw(self, household_id: int, amount: float) -> float:
+        """Withdraw from a household's deposit. Returns actual amount withdrawn."""
+        actual = min(amount, self.cash_reserves)
+        self.cash_reserves -= actual
+        self.total_deposits = max(0.0, self.total_deposits - actual)
+        return actual
+
+    def pay_deposit_interest(self, deposit_amount: float) -> float:
+        """Calculate and return weekly interest on a household's deposit balance."""
+        weekly_rate = self.deposit_rate / 52.0
+        interest = deposit_amount * weekly_rate
+        self.cash_reserves -= interest
+        self.total_deposits += interest
+        self.last_tick_deposit_interest_paid += interest
+        return interest
+
+    # ── tick reset ───────────────────────────────────────────────────
+
+    def reset_tick_telemetry(self) -> None:
+        """Zero out per-tick tracking fields at the start of each tick."""
+        self.last_tick_interest_income = 0.0
+        self.last_tick_deposit_interest_paid = 0.0
+        self.last_tick_new_loans = 0.0
+        self.last_tick_defaults = 0.0
+        self.last_tick_repayments = 0.0
+
+    def cleanup_settled_loans(self) -> None:
+        """Remove fully repaid or written-off loans from the active ledger."""
+        self.active_loans = [l for l in self.active_loans if l["remaining"] > 1e-6]
+
+    # ── serialization ────────────────────────────────────────────────
+
+    def to_dict(self) -> dict:
+        """Serialize bank state for frontend / metrics."""
+        return {
+            "bank_id": self.bank_id,
+            "cash_reserves": self.cash_reserves,
+            "total_deposits": self.total_deposits,
+            "total_loans_outstanding": self.total_loans_outstanding,
+            "base_interest_rate": self.base_interest_rate,
+            "deposit_rate": self.deposit_rate,
+            "reserve_ratio": self.reserve_ratio,
+            "loan_loss_provision": self.loan_loss_provision,
+            "lendable_cash": self.lendable_cash,
+            "can_lend": self.can_lend(),
+            "active_loan_count": len(self.active_loans),
+            "last_tick_new_loans": self.last_tick_new_loans,
+            "last_tick_defaults": self.last_tick_defaults,
+            "last_tick_repayments": self.last_tick_repayments,
+            "last_tick_deposit_interest_paid": self.last_tick_deposit_interest_paid,
+        }
+
+
+@dataclass(slots=True)
 class GovernmentAgent:
-    """
-    Represents a government in the economic simulation.
+    """Represents the government in the economic simulation.
 
-    The government collects taxes on wages and profits,
-    and distributes unemployment benefits and transfers to households.
-    All behavior is deterministic.
+    The government is a policy actor that controls 7 discrete levers:
+    tax_policy, benefit_level, public_works, minimum_wage_policy,
+    sector_subsidy, infrastructure_spending, and technology_spending.
+
+    Each lever translates to concrete numeric parameters that affect
+    the economy.  A future LLM agent will choose lever settings each
+    tick; until then, all levers use defaults that replicate the
+    current automatic stabiliser behaviour.
+
+    Mechanical operations (tax collection, benefit disbursement,
+    fiscal accounting) remain automatic — they execute whatever the
+    current lever settings dictate.
     """
 
-    # Financial state
+    # ── Financial state ──────────────────────────────────────────────
     cash_balance: float = 0.0
 
-    # Policy parameters
-    wage_tax_rate: float = 0.15  # [0,1]
-    profit_tax_rate: float = 0.20  # [0,1]
-    investment_tax_rate: float = 0.10  # [0,1] - Tax on R&D and investments
+    # ── Policy lever settings (v1 action space) ──────────────────────
+    # Each lever is a string key into a fixed option set.
+    # Defaults replicate current automatic behaviour.
+    tax_policy: str = "neutral"               # {low, neutral, progressive, aggressive}
+    benefit_level: str = "neutral"            # {low, neutral, high, crisis}
+    public_works_toggle: str = "off"          # {off, on}
+    minimum_wage_policy: str = "neutral"      # {low, neutral, high}
+    sector_subsidy_target: str = "none"       # {none, food, housing, services, healthcare}
+    sector_subsidy_level: int = 0             # {0, 10, 25, 50} — percent of price govt pays
+    infrastructure_spending: str = "none"     # {none, low, medium, high}
+    technology_spending: str = "none"         # {none, low, medium}
+
+    # ── Derived numeric parameters (set by apply_policy_levers) ──────
+    wage_tax_rate: float = 0.15               # [0,1]
+    profit_tax_rate: float = 0.20             # [0,1]
+    investment_tax_rate: float = 0.10         # [0,1] - Tax on R&D and investments
     unemployment_benefit_level: float = 30.0  # per-tick payment to unemployed
-    min_cash_threshold: float = 100.0  # safety net threshold
-    transfer_budget: float = 10000.0  # max total transfers per tick
-    ubi_amount: float = 0.0  # optional universal basic income payment per tick
+    min_cash_threshold: float = 100.0         # safety net threshold
+    transfer_budget: float = 10000.0          # max total transfers per tick
+    _minimum_wage_floor: float = 36.0         # set by minimum_wage_policy lever
+    _sector_subsidy_rate: float = 0.0         # set by sector_subsidy_level lever
+    _transfer_budget_buffer: float = 1.5      # multiplier for sizing transfer_budget
+
+    # ── Budget tracking (soft constraint) ────────────────────────────
+    deficit_ratio: float = 0.0                # EMA of (spending - revenue) / GDP
+    spending_efficiency: float = 1.0          # 0.0-1.0, penalty from sustained deficits
+    last_tick_revenue: float = 0.0            # total tax revenue last tick
+    last_tick_spending: float = 0.0           # total govt spending last tick
+
+    # ── Legacy fields (kept for compatibility) ───────────────────────
+    ubi_amount: float = 0.0
     wealth_tax_threshold: float = 1_000_000.0
     wealth_tax_rate: float = 0.0
     target_inflation_rate: float = 0.02
@@ -3331,19 +3711,29 @@ class GovernmentAgent:
     baseline_firm_ids: Dict[str, int] = field(default_factory=dict)
 
     # Government investment capabilities
-    infrastructure_investment_budget: float = 1000.0  # Budget for infrastructure per tick
-    technology_investment_budget: float = 500.0  # Budget for technology per tick
-    social_investment_budget: float = 750.0  # Budget for social programs per tick
+    infrastructure_investment_budget: float = 0.0   # Set by infrastructure_spending lever
+    technology_investment_budget: float = 0.0        # Set by technology_spending lever
+    social_investment_budget: float = 750.0          # Legacy — social programs
     stabilization_disabled: bool = False
 
     # Economic multipliers from government investment
     infrastructure_productivity_multiplier: float = 1.0  # Affects all worker productivity
-    technology_quality_multiplier: float = 1.0  # Affects all firm quality
-    social_happiness_multiplier: float = 1.0  # Affects worker happiness/performance
+    technology_quality_multiplier: float = 1.0            # Affects all firm quality
+    social_happiness_multiplier: float = 1.0              # Affects worker happiness/performance
     wage_bracket_scalers: Dict[str, float] = field(default_factory=dict)
 
+    # ── Valid options for each lever (class-level constants) ──────────
+    VALID_TAX_POLICIES = {"low", "neutral", "progressive", "aggressive"}
+    VALID_BENEFIT_LEVELS = {"low", "neutral", "high", "crisis"}
+    VALID_PUBLIC_WORKS = {"off", "on"}
+    VALID_MIN_WAGE_POLICIES = {"low", "neutral", "high"}
+    VALID_SUBSIDY_TARGETS = {"none", "food", "housing", "services", "healthcare"}
+    VALID_SUBSIDY_LEVELS = {0, 10, 25, 50}
+    VALID_INFRA_SPENDING = {"none", "low", "medium", "high"}
+    VALID_TECH_SPENDING = {"none", "low", "medium"}
+
     def __post_init__(self):
-        """Validate invariants after initialization."""
+        """Validate invariants and apply initial lever settings."""
         if not (0.0 <= self.wage_tax_rate <= 1.0):
             raise ValueError(f"wage_tax_rate must be in [0,1], got {self.wage_tax_rate}")
         if not (0.0 <= self.profit_tax_rate <= 1.0):
@@ -3367,26 +3757,192 @@ class GovernmentAgent:
                 "p70": rng.uniform(1.10, 1.20),
                 "p90": rng.uniform(1.15, 1.25),
             }
+        # Apply lever defaults so derived fields are consistent
+        self.apply_policy_levers()
+
+    # ── Lever → numeric parameter translation ────────────────────────
+
+    def apply_policy_levers(self) -> None:
+        """Translate all 7 lever settings into concrete numeric parameters.
+
+        Called once at init and again whenever a lever is changed (by the
+        future LLM agent, by the UI, or by ``set_lever``).  This is the
+        single source of truth for how lever options map to numbers.
+        """
+        self._apply_tax_policy()
+        self._apply_benefit_level()
+        self._apply_minimum_wage_policy()
+        self._apply_sector_subsidy()
+        self._apply_infrastructure_spending()
+        self._apply_technology_spending()
+        # public_works_toggle is read directly by Economy — no derived field needed
+
+    def set_lever(self, lever: str, value) -> None:
+        """Set a single policy lever and re-derive numeric parameters.
+
+        Args:
+            lever: One of the 7 lever names (e.g. ``"tax_policy"``).
+            value: Option value (e.g. ``"progressive"``).
+
+        Raises:
+            ValueError: If *lever* is unknown or *value* is not a valid option.
+        """
+        valid_map = {
+            "tax_policy": ("tax_policy", self.VALID_TAX_POLICIES),
+            "benefit_level": ("benefit_level", self.VALID_BENEFIT_LEVELS),
+            "public_works": ("public_works_toggle", self.VALID_PUBLIC_WORKS),
+            "minimum_wage_policy": ("minimum_wage_policy", self.VALID_MIN_WAGE_POLICIES),
+            "sector_subsidy_target": ("sector_subsidy_target", self.VALID_SUBSIDY_TARGETS),
+            "sector_subsidy_level": ("sector_subsidy_level", self.VALID_SUBSIDY_LEVELS),
+            "infrastructure_spending": ("infrastructure_spending", self.VALID_INFRA_SPENDING),
+            "technology_spending": ("technology_spending", self.VALID_TECH_SPENDING),
+        }
+        if lever not in valid_map:
+            raise ValueError(f"Unknown lever '{lever}'. Valid: {list(valid_map.keys())}")
+        field_name, valid_options = valid_map[lever]
+        if value not in valid_options:
+            raise ValueError(f"Invalid value '{value}' for lever '{lever}'. Valid: {valid_options}")
+        setattr(self, field_name, value)
+        self.apply_policy_levers()
+
+    def _apply_tax_policy(self) -> None:
+        """Set wage/profit tax rates from ``tax_policy`` lever.
+
+        Options scale all bracket rates proportionally.  The progressive
+        bracket scalers (wage_bracket_scalers) stay unchanged for low /
+        neutral / progressive; the ``aggressive`` option pushes the top
+        bracket higher.
+
+        Defaults replicate current base rates (wage=0.15, profit=0.20).
+        """
+        table = {
+            "low":         (0.10, 0.12, 0.0),
+            "neutral":     (0.15, 0.20, 0.0),
+            "progressive": (0.18, 0.25, 0.05),
+            "aggressive":  (0.22, 0.32, 0.10),
+        }
+        wage, profit, top_bracket_extra = table.get(self.tax_policy, table["neutral"])
+        self.wage_tax_rate = wage
+        self.profit_tax_rate = profit
+        # Restore base bracket scalers then add top-bracket boost
+        rng = random.Random(12345)
+        self.wage_bracket_scalers = {
+            "low": rng.uniform(0.5, 0.9),
+            "median": 1.0,
+            "p60": rng.uniform(1.05, 1.15),
+            "p70": rng.uniform(1.10, 1.20),
+            "p90": rng.uniform(1.15, 1.25) + top_bracket_extra,
+        }
+
+    def _apply_benefit_level(self) -> None:
+        """Set unemployment benefit and transfer parameters from ``benefit_level`` lever.
+
+        ``neutral`` matches current defaults ($30 benefit, $100 threshold).
+        Transfer budget is recalculated each tick by Economy based on
+        actual unemployment count × benefit × buffer multiplier.
+        """
+        table = {
+            "low":     (15.0, 50.0,  1.3),
+            "neutral": (30.0, 100.0, 1.5),
+            "high":    (45.0, 150.0, 1.5),
+            "crisis":  (60.0, 200.0, 2.0),
+        }
+        benefit, threshold, _buffer = table.get(self.benefit_level, table["neutral"])
+        self.unemployment_benefit_level = benefit
+        self.min_cash_threshold = threshold
+        # _transfer_budget_buffer is used by Economy when sizing transfer_budget
+        self._transfer_budget_buffer = _buffer
+
+    def _apply_minimum_wage_policy(self) -> None:
+        """Set minimum wage floor from ``minimum_wage_policy`` lever.
+
+        Decoupled from benefit_level so the two can be set independently.
+        ``neutral`` ($36) matches current behaviour (benefit $30 × 1.2).
+        """
+        table = {
+            "low":     25.0,
+            "neutral": 36.0,
+            "high":    50.0,
+        }
+        self._minimum_wage_floor = table.get(self.minimum_wage_policy, 36.0)
+
+    def _apply_sector_subsidy(self) -> None:
+        """Set subsidy rate from ``sector_subsidy_level`` lever."""
+        self._sector_subsidy_rate = self.sector_subsidy_level / 100.0
+
+    def _apply_infrastructure_spending(self) -> None:
+        """Set infrastructure budget from ``infrastructure_spending`` lever.
+
+        Budget is per-tick spending.  Actual productivity gain is applied
+        by ``invest_in_infrastructure()`` and scaled by
+        ``spending_efficiency`` (budget pressure).
+        """
+        table = {
+            "none":   0.0,
+            "low":    500.0,
+            "medium": 1000.0,
+            "high":   2000.0,
+        }
+        self.infrastructure_investment_budget = table.get(
+            self.infrastructure_spending, 0.0
+        )
+
+    def _apply_technology_spending(self) -> None:
+        """Set technology budget from ``technology_spending`` lever.
+
+        Budget is per-tick spending.  Quality gain is applied by
+        ``invest_in_technology()`` and scaled by ``spending_efficiency``.
+        """
+        table = {
+            "none":   0.0,
+            "low":    250.0,
+            "medium": 500.0,
+        }
+        self.technology_investment_budget = table.get(
+            self.technology_spending, 0.0
+        )
 
     def to_dict(self) -> Dict[str, object]:
-        """
-        Serialize all fields to basic Python types.
+        """Serialize government state to a flat dictionary.
+
+        Includes both policy lever settings (what the LLM chose) and
+        derived numeric parameters (what those choices produce), plus
+        budget-pressure diagnostics.
 
         Returns:
-            Dictionary representation of the government state
+            Dictionary suitable for JSON serialisation and LLM observation.
         """
         return {
+            # Lever settings (action space)
+            "tax_policy": self.tax_policy,
+            "benefit_level": self.benefit_level,
+            "public_works": self.public_works_toggle,
+            "minimum_wage_policy": self.minimum_wage_policy,
+            "sector_subsidy_target": self.sector_subsidy_target,
+            "sector_subsidy_level": self.sector_subsidy_level,
+            "infrastructure_spending": self.infrastructure_spending,
+            "technology_spending": self.technology_spending,
+            # Derived numeric parameters
             "cash_balance": self.cash_balance,
             "wage_tax_rate": self.wage_tax_rate,
             "profit_tax_rate": self.profit_tax_rate,
             "unemployment_benefit_level": self.unemployment_benefit_level,
             "min_cash_threshold": self.min_cash_threshold,
             "transfer_budget": self.transfer_budget,
-            "ubi_amount": self.ubi_amount,
-            "wealth_tax_threshold": self.wealth_tax_threshold,
-            "wealth_tax_rate": self.wealth_tax_rate,
-            "target_inflation_rate": self.target_inflation_rate,
-            "birth_rate": self.birth_rate,
+            "minimum_wage_floor": self._minimum_wage_floor,
+            "sector_subsidy_rate": self._sector_subsidy_rate,
+            "infrastructure_investment_budget": self.infrastructure_investment_budget,
+            "technology_investment_budget": self.technology_investment_budget,
+            # Budget pressure
+            "deficit_ratio": self.deficit_ratio,
+            "spending_efficiency": self.spending_efficiency,
+            "last_tick_revenue": self.last_tick_revenue,
+            "last_tick_spending": self.last_tick_spending,
+            # Multipliers
+            "infrastructure_productivity_multiplier": self.infrastructure_productivity_multiplier,
+            "technology_quality_multiplier": self.technology_quality_multiplier,
+            "social_happiness_multiplier": self.social_happiness_multiplier,
+            # Legacy
             "baseline_firm_ids": dict(self.baseline_firm_ids),
         }
 
@@ -3423,21 +3979,15 @@ class GovernmentAgent:
         return self.unemployment_benefit_level
 
     def get_minimum_wage(self) -> float:
-        """
-        Calculate the minimum wage floor based on unemployment benefit.
+        """Return the minimum wage floor set by the ``minimum_wage_policy`` lever.
 
-        Minimum wage = unemployment_benefit × wage_floor_multiplier
-        Default multiplier is 1.2, so minimum wage is 20% above unemployment benefit.
-
-        This prevents situations where firms pay 1 worker $400 instead of
-        hiring 5 workers at $80 each, and ensures jobs are worthwhile vs. unemployment.
+        Decoupled from ``benefit_level`` so the two can be tuned
+        independently.  The floor is set in ``_apply_minimum_wage_policy``.
 
         Returns:
-            Minimum wage that firms must pay
+            Minimum wage that firms must pay per tick.
         """
-        # Default multiplier if config not available
-        multiplier = 1.2
-        return self.unemployment_benefit_level * multiplier
+        return self._minimum_wage_floor
 
     def plan_transfers(self, households: List[Dict[str, object]]) -> Dict[int, float]:
         """
@@ -3686,118 +4236,86 @@ class GovernmentAgent:
         self.cash_balance -= total_transfers
 
     def adjust_policies(self, unemployment_rate: float, inflation_rate: float, deficit_ratio: float, num_unemployed: int = 0, gdp: float = 0.0, total_tax_revenue: float = 0.0, num_bankrupt_firms: int = 0) -> None:
-        """
-        Dynamically adjust government policies based on economic conditions.
+        """Perform mechanical per-tick policy housekeeping.
 
-        REALISTIC GOVERNMENT BEHAVIOR:
-        - Governments tolerate deficits during recessions (counter-cyclical fiscal policy)
-        - Tax rates increase when deficits become unsustainable (debt-to-GDP > 100%)
-        - Benefits increase during high unemployment, decrease during booms
-        - Transfer budgets scale with number of unemployed (not fixed)
-
-        Mutates state.
+        This method no longer contains counter-cyclical auto-stabilisers.
+        Tax rates and benefit levels are now set by the 7 policy levers
+        (via ``apply_policy_levers``).  The only remaining automatic
+        operation is sizing the transfer budget to match actual
+        unemployment counts — this is execution, not decision-making.
 
         Args:
-            unemployment_rate: Current unemployment rate (0-1)
-            inflation_rate: Current inflation rate (can be negative for deflation)
-            deficit_ratio: Government deficit as ratio of total economic activity
-            num_unemployed: Actual count of unemployed households (for budget calculation)
+            unemployment_rate: Current unemployment rate (0-1).
+            inflation_rate: Current inflation rate (unused, kept for API compat).
+            deficit_ratio: Government deficit ratio (unused, kept for API compat).
+            num_unemployed: Actual count of unemployed households.
+            gdp: Economy-wide GDP estimate.
+            total_tax_revenue: Total tax revenue (unused, kept for API compat).
+            num_bankrupt_firms: Count of bankrupt firms (unused, kept for API compat).
         """
         if self.stabilization_disabled:
             return
 
-        # Counter-cyclical unemployment benefits are only active when benefits are enabled.
-        if self.unemployment_benefit_level > 0.0:
-            if unemployment_rate > 0.30:  # Severe recession (>30%)
-                self.unemployment_benefit_level = min(60.0, self.unemployment_benefit_level * 1.10)
-            elif unemployment_rate > 0.15:  # High unemployment (>15%)
-                self.unemployment_benefit_level = min(50.0, self.unemployment_benefit_level * 1.03)
-            elif unemployment_rate < 0.03:  # Very low unemployment (<3%)
-                self.unemployment_benefit_level = max(20.0, self.unemployment_benefit_level * 0.99)
-
-        # Dynamic tax policy based on cash flow and GDP
-        gov_cfg = CONFIG.government
-
-        # Deterministic tax response:
-        # - Raise taxes under sustained deficits / large unemployment.
-        # - Cut taxes only when unemployment is low and fiscal position is comfortably positive.
-        gdp_anchor = max(gdp, 1.0)
-        if self.cash_balance < 0.0:
-            stress = min(0.15, 0.02 + (abs(self.cash_balance) / gdp_anchor) * 0.03)
-            self.wage_tax_rate = min(gov_cfg.deficit_wage_tax_max, self.wage_tax_rate * (1.0 + stress))
-            self.profit_tax_rate = min(gov_cfg.deficit_profit_tax_max, self.profit_tax_rate * (1.0 + stress))
-        elif self.cash_balance > 0.5 * gdp_anchor and unemployment_rate < 0.08:
-            relief = 0.01
-            self.wage_tax_rate = max(gov_cfg.surplus_wage_tax_min, self.wage_tax_rate * (1.0 - relief))
-            self.profit_tax_rate = max(gov_cfg.surplus_profit_tax_min, self.profit_tax_rate * (1.0 - relief))
-
-        if num_bankrupt_firms > 0 and unemployment_rate > 0.15:
-            # Keep hiring conditions from tightening too aggressively in deep labor stress.
-            self.profit_tax_rate = max(gov_cfg.surplus_profit_tax_min, self.profit_tax_rate * 0.99)
-
-        # DYNAMIC TRANSFER BUDGET (scales with unemployment)
-        # Real governments don't have fixed transfer budgets - spending rises during recessions
-        # Set transfer_budget to cover expected unemployment benefits + 50% buffer for gap-filling
+        # Mechanical: size transfer_budget to cover actual unemployment
+        # using the buffer multiplier from the benefit_level lever.
         if num_unemployed > 0:
             expected_baseline = num_unemployed * self.unemployment_benefit_level
-            self.transfer_budget = expected_baseline * 1.5  # 50% extra for gap-filling
+            self.transfer_budget = expected_baseline * self._transfer_budget_buffer
         else:
-            # Fallback if num_unemployed not provided (backward compatibility)
             self.transfer_budget = max(0.0, self.transfer_budget)
 
     def invest_in_infrastructure(self) -> float:
-        """
-        Government invests in infrastructure to boost productivity.
+        """Spend the infrastructure budget to boost economy-wide productivity.
 
-        Infrastructure investment increases the productivity multiplier,
-        which affects all workers in the economy.
+        The actual productivity gain is scaled by ``spending_efficiency``
+        so that sustained deficits reduce the effectiveness of spending
+        (crowding-out / bureaucratic drag).
 
-        Mutates state.
+        Only spends if the lever is not ``"none"`` (budget > 0) and the
+        treasury can cover the outlay.
 
         Returns:
-            Amount invested in infrastructure
+            Amount actually invested (0.0 if skipped).
         """
-        if self.stabilization_disabled:
+        if self.infrastructure_investment_budget <= 0.0:
             return 0.0
 
         if self.cash_balance >= self.infrastructure_investment_budget:
             investment = self.infrastructure_investment_budget
             self.cash_balance -= investment
 
-            # Each $1000 invested increases productivity by 0.5%
-            productivity_gain = (investment / 1000.0) * 0.005
-            self.infrastructure_productivity_multiplier += productivity_gain
+            # Each $1000 invested → +0.5% productivity, scaled by efficiency
+            base_gain = (investment / 1000.0) * 0.005
+            effective_gain = base_gain * self.spending_efficiency
+            self.infrastructure_productivity_multiplier += effective_gain
 
             return investment
         return 0.0
 
     def invest_in_technology(self) -> float:
-        """
-        Government invests in technology to improve quality.
+        """Spend the technology budget to boost economy-wide product quality.
 
-        Technology investment increases the quality multiplier,
-        which affects all firms' product quality.
-
-        Mutates state.
+        Gain is scaled by ``spending_efficiency``.  Capped at 1.15
+        (15 % max quality improvement) so the lever has meaningful
+        differentiation between ``low`` and ``medium`` over longer runs.
 
         Returns:
-            Amount invested in technology
+            Amount actually invested (0.0 if skipped).
         """
-        if self.stabilization_disabled:
+        if self.technology_investment_budget <= 0.0:
             return 0.0
 
         if self.cash_balance >= self.technology_investment_budget:
             investment = self.technology_investment_budget
             self.cash_balance -= investment
 
-            # Each $500 invested increases quality by 0.5%
-            quality_gain = (investment / 500.0) * 0.005
+            # Each $500 invested → +0.5% quality, scaled by efficiency
+            base_gain = (investment / 500.0) * 0.005
+            effective_gain = base_gain * self.spending_efficiency
 
-            # Cap quality multiplier at 1.05 (max 5% quality improvement)
-            # This prevents quality from reaching 10.0 (perfection)
             self.technology_quality_multiplier = min(
-                1.05,
-                self.technology_quality_multiplier + quality_gain
+                1.15,
+                self.technology_quality_multiplier + effective_gain
             )
 
             return investment
