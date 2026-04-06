@@ -154,18 +154,15 @@ frontend-react/     main dashboard UI
 docs/               technical docs and architecture notes
 data/               utility data modules
 sample_data/        generated outputs (not source-of-truth code)
-frontend/           experimental static prototype
-ecosim_chartjs/     experimental Chart.js prototype
-ecosim-visual/      experimental Godot prototype
-practice/           sandbox experiments
 ```
+
+Older Chart.js / Godot / sandbox experiments are **not** in this repository (they stay local and are listed in `.gitignore`).
 
 ## Current Status
 
 - Core simulation: functional and actively iterated
 - Dashboard: functional, additional polish in progress
 - ML tooling: data generation and model training scripts available
-- Experimental folders: retained for reference, not core product path
 
 ## Generated Artifacts Policy
 
@@ -175,6 +172,7 @@ Large generated files are intentionally not tracked in Git (databases, model bin
 
 - `docs/README.md`: active documentation index
 - `docs/SIMULATION.md`: tick phases, agents, and market mechanics
+- `docs/FIRM_DYNAMICS.md`: private-firm wage, hiring, pricing, and market-signal behavior
 - `docs/TECHNICAL.md`: stack, configuration, testing, and implementation notes
 - `docs/FRONTEND.md`: dashboard behavior and WebSocket protocol
 - `docs/DATA_STORAGE_ARCHITECTURE.md`: warehouse plan, persistence guarantees, and explainability layer

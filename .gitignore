@@ -40,3 +40,18 @@ backend/sample_data/*.json
 # Keep placeholders if needed
 !sample_data/.gitkeep
 !backend/sample_data/.gitkeep
+
+# Experimental / sandbox UIs (keep locally; not published to GitHub)
+practice/
+ecosim_chartjs/
+ecosim-visual/
+frontend/
+
+# Local agent / IDE settings
+.claude/
+
+# LLM test runs and scratch status dumps
+*_llm_run_log.json
+**/llm_test_output.txt
+TRAINING_STATUS.txt
+TRAINING_STATUS_NEW.txt
