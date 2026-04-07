@@ -45,16 +45,6 @@ backend/data/ (warehouse managers, schema, migrations, tests)
 
 Detailed documentation lives in [docs/README.md](docs/README.md).
 
-## GitHub Hygiene
-
-The repository is intentionally kept source-first:
-
-- simulation code, dashboard code, tests, and docs are tracked
-- generated logs, local LLM run outputs, databases, model artifacts, and build products are ignored
-- local sandbox UIs and older experiments stay out of the published repo surface
-
-That keeps the GitHub view focused on the parts another developer actually needs to clone, run, and extend the project.
-
 ## Docker Quickstart
 
 This is the primary clone-and-run path.
@@ -129,7 +119,7 @@ Use this when you want durable run history and richer analytics locally.
 
 ```bash
 # Start PostgreSQL + TimescaleDB
-docker compose -f docker-compose.timescale.yml up -d
+docker compose -f ops/docker-compose.timescale.yml up -d
 
 # Configure warehouse backend
 # (PowerShell)
@@ -175,48 +165,31 @@ python train_ml_model.py
 
 ## Tests
 
+Install development dependencies first:
+
+```bash
+pip install -r requirements-dev.txt
+```
+
 Core backend/data validation:
 
 ```bash
-.\.venv\Scripts\python.exe -m pytest backend/data/tests backend/tests_server/test_server_api.py -q
+python -m pytest backend/data/tests backend/tests_server/test_server_api.py -q
 ```
 
 Contract regression checks:
 
 ```bash
-.\.venv\Scripts\python.exe -m pytest backend/tests_contracts -q
+python -m pytest backend/tests_contracts -q
 ```
 
 ## Repository Layout
 
 ```text
-backend/            core simulation engine, API server, tests, data scripts
-frontend-react/     main dashboard UI
-docs/               technical docs and architecture notes
-backend/data/       warehouse managers, schema, migrations, and tests
+backend/            simulation engine, API server, tests, data scripts
+frontend-react/     dashboard UI
+docs/               technical docs, changelog, and historical notes
+ops/                optional operational files such as the Timescale compose file
 ```
 
-Older Chart.js / Godot / sandbox experiments are **not** in this repository (they stay local and are listed in `.gitignore`).
-
-## Current Status
-
-- Core simulation: functional and actively iterated
-- Dashboard: functional, additional polish in progress
-- ML tooling: data generation and model training scripts available
-- Docker path: available for backend + dashboard out of the box
-
-## Generated Artifacts Policy
-
-Large generated files are intentionally not tracked in Git (databases, model binaries, logs, build artifacts, checkpoints, vendor directories). Generate them locally with the commands above.
-
-## Documentation Map
-
-- `docs/README.md`: active documentation index
-- `docs/SIMULATION.md`: tick phases, agents, and market mechanics
-- `docs/FIRM_DYNAMICS.md`: private-firm wage, hiring, pricing, and market-signal behavior
-- `docs/TECHNICAL.md`: stack, configuration, testing, and implementation notes
-- `docs/FRONTEND.md`: dashboard behavior and WebSocket protocol
-- `docs/DATA_STORAGE_ARCHITECTURE.md`: warehouse plan, persistence guarantees, and explainability layer
-- `docs/HOUSEHOLD_LABOR_DERISKING.md`: labor matching guardrails and rollout notes
-- `docs/BANKING_SYSTEM.md`: banking model and credit mechanics
-- `docs/archive/`: older docs kept for reference
+See [docs/README.md](docs/README.md) for the active documentation index and [docs/CHANGELOG.md](docs/CHANGELOG.md) for historical engineering notes.

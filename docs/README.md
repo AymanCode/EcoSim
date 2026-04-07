@@ -12,6 +12,7 @@ Technical documentation for the EcoSim simulation engine.
 | [DATA_STORAGE_ARCHITECTURE.md](DATA_STORAGE_ARCHITECTURE.md) | Holistic database plan: warehouse choice, table roadmap, persistence guarantees, diagnostics/regime events, and future policy support |
 | [HOUSEHOLD_LABOR_DERISKING.md](HOUSEHOLD_LABOR_DERISKING.md) | Household labor search/reservation guardrails, env toggles, diagnostics, and rollout notes |
 | [BANKING_SYSTEM.md](BANKING_SYSTEM.md) | Banking model, credit mechanics, and financing behavior |
+| [CHANGELOG.md](CHANGELOG.md) | Historical engineering notes and major implementation passes |
 
 ## Archive
 

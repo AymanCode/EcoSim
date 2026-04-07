@@ -362,7 +362,7 @@ python backend/data/migrations/003_expand_sqlite_aggregate_warehouse.py
 PostgreSQL/Timescale:
 
 ```bash
-docker compose -f docker-compose.timescale.yml up -d
+docker compose -f ops/docker-compose.timescale.yml up -d
 python backend/data/migrations/002_create_timescale_warehouse.py
 ```
 

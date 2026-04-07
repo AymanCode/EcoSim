@@ -48,7 +48,7 @@ ignore_missing_imports = true
 [tool.pytest.ini_options]
 pythonpath = ["backend"]
 testpaths = ["backend/tests_contracts"]
-addopts = "--cov=backend --cov-report=term-missing --cov-report=html -q"
+addopts = "-q --tb=short"
 markers = [
     "slow: marks tests as slow (deselect with '-m \"not slow\"')",
 ]

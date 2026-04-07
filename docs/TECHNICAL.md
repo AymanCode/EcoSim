@@ -150,7 +150,7 @@ truth for distress, runway, and market tightness.
 - **Labor signals**: employed households can compare against category-level
   posted wage signals instead of relying only on the economy-wide mean.
 
-For the behavior-level explanation, see [FIRM_DYNAMICS.md](FIRM_DYNAMICS.md).
+For the broader behavior-level walkthrough, see [SIMULATION.md](SIMULATION.md).
 
 ---
 
