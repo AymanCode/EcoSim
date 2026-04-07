@@ -44,7 +44,7 @@ All 400+ simulation parameters live in `backend/config.py` as a hierarchical con
 SimulationConfig (CONFIG)
 ├── time              # warmup_ticks, ticks_per_year
 ├── households        # 90+ params: elasticity, health thresholds, skill rates
-├── firms             # 80+ params: PID pricing, production, personality
+├── firms             # 80+ params: production, distress response, wage/price adjustment ranges
 ├── government        # 40+ params: tax bounds, investment budgets
 ├── labor_market      # 15+ params: matching friction, wage floors
 └── market            # 15+ params: clearing mechanics
@@ -56,7 +56,7 @@ SimulationConfig (CONFIG)
 from config import CONFIG
 
 # Read parameters
-warmup = CONFIG.time.warmup_ticks          # 52
+warmup = CONFIG.time.warmup_ticks          # 10 (was 52 — reduced for faster feedback loops)
 elasticity = CONFIG.households.food_elasticity  # 0.5
 
 # Modify at runtime
@@ -71,16 +71,86 @@ CONFIG.households.food_elasticity = 0.8
 - `food_health_mid_threshold`: 2.0 — food units for moderate health
 - `food_starvation_penalty`: 0.05 — health loss per tick without food
 - `health_recovery_per_medical_unit`: 0.02
+- `subsistence_min_cash`: 50.0 — threshold below which desperation savings drawdown activates
+- `min_spend_fraction` / `max_spend_fraction`: 0.3 / 0.9 — bounds on spend_fraction applied to disposable income
+- `savings_drawdown_rate` (per household): 1–5%/tick, personality-derived from `spending_tendency` and `saving_tendency`
 
-**Firm production:**
+**Firm production and pricing:**
 - `diminishing_returns_exponent`: 0.82 — Cobb-Douglas alpha
-- `pid_control_scaling`: 0.05 — pricing controller gain
-- `target_inventory_weeks`: 2.0
+- `target_inventory_weeks_range`: sampled per-firm desired weeks of supply
+- `aggressive_price_adjustment_range` / `moderate_price_adjustment_range` / `conservative_price_adjustment_range`
+- `survival_mode_runway_weeks`: distress threshold used by private firm planning
+- `inventory_stage1_threshold`: moderate-glut labor cut trigger before more severe pricing pressure
 
 **Government:**
 - `infrastructure_investment_budget`: 1000.0
 - `technology_investment_budget`: 500.0
 - `social_investment_budget`: 750.0
+
+### Fiscal Metrics
+
+The simulation now uses two distinct government budget metrics:
+
+- `deficit_ratio`: snapshot metric exposed in economy telemetry as `abs(government_cash) / GDP`
+- `fiscal_pressure`: rolling EMA of per-tick deficit flow `(spending - revenue) / GDP`
+
+`spending_efficiency` is derived from `fiscal_pressure`, not from the snapshot `deficit_ratio`.
+
+This separation matters because:
+
+- `deficit_ratio` is useful for dashboards and one-tick diagnostics
+- `fiscal_pressure` is the control signal that determines whether sustained deficits degrade the effectiveness of infrastructure and technology spending
+- the rolling signal is clamped to `-0.15` so large surplus periods do not create an unrecoverable negative carryover
+
+Government spending counted in the fiscal-pressure ledger includes:
+
+- transfers
+- infrastructure spending
+- technology spending
+- sector subsidies
+- bailout disbursements
+- bond purchases
+- public-works capitalization
+
+---
+
+## Firm Planning Architecture
+
+Private non-healthcare firms now compute one shared health snapshot per tick
+before production/labor, pricing, and wage planning. That snapshot is the
+bridge between planners that used to reason about firm health separately.
+
+Core snapshot fields:
+
+- `cash_runway_ticks`
+- `smoothed_profit_margin`
+- `sell_through_rate`
+- `inventory_weeks`
+- `unfilled_positions_streak`
+- `worker_turnover_this_tick`
+- `survival_mode`
+- `burn_mode`
+- `category_wage_anchor_p75`
+
+### Why it exists
+
+Previously, labor planning and wage planning could react to different implied
+states of the same firm. The shared snapshot gives both planners one source of
+truth for distress, runway, and market tightness.
+
+### What changed
+
+- **Wages**: private post-warmup wages ratchet from current `wage_offer`
+  instead of being re-anchored to one tick of realized revenue per worker.
+- **Hiring**: distressed firms can be blocked from expanding when smoothed
+  profit is negative and cash runway is short, while the older contraction tree
+  still runs.
+- **Pricing**: private firms use sampled `price_adjustment_rate` plus
+  inventory-severity scaling instead of tiny hardcoded moves.
+- **Labor signals**: employed households can compare against category-level
+  posted wage signals instead of relying only on the economy-wide mean.
+
+For the behavior-level explanation, see [FIRM_DYNAMICS.md](FIRM_DYNAMICS.md).
 
 ---
 
@@ -276,7 +346,7 @@ python generate_training_data.py
 
 **Runtime**: ~2 hours for 500 samples at standard settings.
 
-Checkpoints saved every 50 samples. See `backend/RUN_TRAINING.md` for troubleshooting.
+Checkpoints are saved every 50 samples. Use `backend/RUN_TRAINING.md` if you are running the ML data pipeline locally and need the older step-by-step troubleshooting notes.
 
 ---
 
@@ -360,5 +430,5 @@ EcoSim/
 │   ├── SIMULATION.md          # This simulation guide
 │   ├── TECHNICAL.md           # This technical reference
 │   └── FRONTEND.md            # Frontend dashboard guide
-└── CONFIG_USAGE_GUIDE.md      # Full config parameter reference
+    backend/config.py          # Canonical config definitions and defaults
 ```

@@ -1,31 +1,33 @@
-# EcoSim UI
+# EcoSim Dashboard
 
-This is a React-based UI for the EcoSim simulation.
+This frontend is the main dashboard for the EcoSim simulation.
 
-## Setup
+## Recommended Startup
 
-1.  **Backend**:
-    The backend server is located in `../backend/server.py`.
-    It requires `fastapi`, `uvicorn`, and `numpy`.
-    
-    Run the backend:
-    ```bash
-    cd ..
-    uvicorn backend.server:app --reload --port 8002
-    ```
+Run the stack from the repository root:
 
-2.  **Frontend**:
-    The frontend is a Vite + React app.
-    
-    Run the frontend:
-    ```bash
-    npm install
-    npm run dev
-    ```
+```bash
+./start.sh
+```
 
-## Usage
+Windows PowerShell:
 
--   Open the frontend URL (usually `http://localhost:5173`).
--   Click "EXECUTE" to start the simulation.
--   Go to "Config" to adjust parameters.
--   Go to "Logs" to see simulation events.
+```powershell
+.\start.ps1
+```
+
+That starts the backend and dashboard together through Docker. Open:
+
+- `http://localhost:5173`
+
+## Local Frontend-Only Development
+
+If you are iterating on the UI and want Vite hot reload:
+
+```bash
+cd frontend-react
+npm install
+npm run dev
+```
+
+The app will connect to the backend WebSocket automatically from the current host by default. To override it, set `VITE_WS_URL` before building or running the frontend.

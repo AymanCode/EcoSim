@@ -164,6 +164,20 @@ const techStyles = `
   }
 `;
 
+const resolveWebSocketEndpoint = () => {
+  const configuredEndpoint = (import.meta.env.VITE_WS_URL || '').trim();
+  if (configuredEndpoint) {
+    return configuredEndpoint;
+  }
+
+  if (typeof window !== 'undefined') {
+    const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
+    return `${protocol}://${window.location.host}/ws`;
+  }
+
+  return 'ws://localhost:8002/ws';
+};
+
 // --- COMPONENTS ---
 
 const CircularProgress = ({ value, color, label, size = 80 }) => {
@@ -399,6 +413,7 @@ const LineChart = ({ title, data, color, minScale = 0, suffix = "", formatValue 
 };
 
 export default function EcoSimUI() {
+  const wsEndpoint = resolveWebSocketEndpoint();
   const [activeView, setActiveView] = useState('CONFIG'); // Start at CONFIG
   const [isInitialized, setIsInitialized] = useState(false);
   const [isRunning, setIsRunning] = useState(false);
@@ -594,7 +609,7 @@ export default function EcoSimUI() {
 
     const connect = () => {
       if (cancelled) return;
-      ws.current = new WebSocket("ws://localhost:8002/ws");
+      ws.current = new WebSocket(wsEndpoint);
 
       ws.current.onopen = () => {
         setWsConnected(true);
@@ -725,7 +740,7 @@ export default function EcoSimUI() {
         ws.current.close();
       }
     };
-  }, []);
+  }, [wsEndpoint]);
 
   const handleInitialize = () => {
     if (setupConfig.num_households < 1 || setupConfig.num_firms < 1) {
@@ -1881,7 +1896,7 @@ export default function EcoSimUI() {
                   </p>
                   {!wsConnected && (
                     <p className="text-rose-400 text-xs mt-2">
-                      Backend link offline. Ensure backend is running at `ws://localhost:8002/ws`.
+                      Backend link offline. Ensure backend is running at <code>{wsEndpoint}</code>.
                     </p>
                   )}
                 </div>

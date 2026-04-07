@@ -1,0 +1,42 @@
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    container_name: ecosim-backend
+    environment:
+      ECOSIM_ENABLE_WAREHOUSE: "1"
+      ECOSIM_WAREHOUSE_BACKEND: "sqlite"
+      ECOSIM_SQLITE_PATH: "/app/runtime/ecosim.db"
+    expose:
+      - "8002"
+    volumes:
+      - ecosim_runtime:/app/runtime
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8002/health', timeout=5).read()"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 15s
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./frontend-react
+      dockerfile: Dockerfile
+    container_name: ecosim-frontend
+    depends_on:
+      backend:
+        condition: service_healthy
+    ports:
+      - "5173:80"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1/ || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+    restart: unless-stopped
+
+volumes:
+  ecosim_runtime:

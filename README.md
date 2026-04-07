@@ -45,42 +45,83 @@ backend/data/ (warehouse managers, schema, migrations, tests)
 
 Detailed documentation lives in [docs/README.md](docs/README.md).
 
-## Quickstart
+## GitHub Hygiene
+
+The repository is intentionally kept source-first:
+
+- simulation code, dashboard code, tests, and docs are tracked
+- generated logs, local LLM run outputs, databases, model artifacts, and build products are ignored
+- local sandbox UIs and older experiments stay out of the published repo surface
+
+That keeps the GitHub view focused on the parts another developer actually needs to clone, run, and extend the project.
+
+## Docker Quickstart
+
+This is the primary clone-and-run path.
 
 ```bash
-# Clone
- git clone https://github.com/AymanCode/EcoSim.git
- cd EcoSim
-
-# Create environment
- python -m venv .venv
-
-# Activate
-# Windows (PowerShell)
- .venv\Scripts\Activate.ps1
-# macOS/Linux
- source .venv/bin/activate
-
-# Install backend dependencies
- pip install -r requirements.txt
-
-# Run a quick demo
- python backend/demo_skill_experience.py
+git clone https://github.com/AymanCode/EcoSim.git
+cd EcoSim
+./start.sh
 ```
 
-## Run the Dashboard
+Windows PowerShell:
+
+```powershell
+git clone https://github.com/AymanCode/EcoSim.git
+cd EcoSim
+.\start.ps1
+```
+
+If you prefer raw Docker:
 
 ```bash
-# Terminal 1: backend API
-python -m uvicorn backend.server:app --reload --port 8002
+docker compose up --build -d
+```
 
-# Terminal 2: frontend
+Open the app:
+
+- dashboard: `http://localhost:5173`
+- health: `http://localhost:5173/health`
+
+The frontend now proxies the backend internally, so the default stack comes up behind a single public entrypoint. SQLite warehouse persistence is enabled automatically inside the Docker stack.
+
+If you deploy behind a different frontend origin or proxy layout, set `VITE_WS_URL` when building the frontend image.
+
+The main stack does not require any local LLM runtime. The optional household / firm LLM test harnesses remain local developer tools.
+
+## Local Development
+
+```bash
+git clone https://github.com/AymanCode/EcoSim.git
+cd EcoSim
+python -m venv .venv
+
+# Windows (PowerShell)
+.venv\Scripts\Activate.ps1
+
+# macOS/Linux
+source .venv/bin/activate
+
+pip install -r requirements.txt
+python -m uvicorn backend.server:app --reload --port 8002
+```
+
+In a second terminal:
+
+```bash
 cd frontend-react
 npm install
 npm run dev
 ```
 
 Open: `http://localhost:5173`
+
+Quick backend smoke test:
+
+```bash
+python backend/demo_skill_experience.py
+```
 
 ## Local Timescale Warehouse (Optional)
 
@@ -152,8 +193,7 @@ Contract regression checks:
 backend/            core simulation engine, API server, tests, data scripts
 frontend-react/     main dashboard UI
 docs/               technical docs and architecture notes
-data/               utility data modules
-sample_data/        generated outputs (not source-of-truth code)
+backend/data/       warehouse managers, schema, migrations, and tests
 ```
 
 Older Chart.js / Godot / sandbox experiments are **not** in this repository (they stay local and are listed in `.gitignore`).
@@ -163,6 +203,7 @@ Older Chart.js / Godot / sandbox experiments are **not** in this repository (the
 - Core simulation: functional and actively iterated
 - Dashboard: functional, additional polish in progress
 - ML tooling: data generation and model training scripts available
+- Docker path: available for backend + dashboard out of the box
 
 ## Generated Artifacts Policy
 

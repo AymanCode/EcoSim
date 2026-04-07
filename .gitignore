@@ -52,6 +52,13 @@ frontend/
 
 # LLM test runs and scratch status dumps
 *_llm_run_log.json
+*_llm_run_log_*.json
+backend/firm_llm_run_log.json
+backend/household_llm_run_log*.json
+backend/household_llm_all_archetypes_summary.json
 **/llm_test_output.txt
 TRAINING_STATUS.txt
 TRAINING_STATUS_NEW.txt
+
+# Local runtime folders
+backend/logs/
