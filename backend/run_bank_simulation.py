@@ -209,6 +209,7 @@ def collect_metrics(economy: Economy, tick_time_ms: float) -> Dict[str, float]:
         m["bank_new_loans"] = bank.last_tick_new_loans
         m["bank_defaults"] = bank.last_tick_defaults
         m["bank_repayments"] = bank.last_tick_repayments
+        m["bank_interest_income"] = bank.last_tick_interest_income
         m["bank_loss_provision"] = bank.loan_loss_provision
         m["bank_deposit_interest"] = bank.last_tick_deposit_interest_paid
 

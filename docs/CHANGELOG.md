@@ -4,6 +4,405 @@ This document tracks all implementation changes, improvements, and features adde
 
 ---
 
+## [2026-04-07 5:27 PM PDT] EcoSim 2.0 - Tier 2 Behavioral Pass and Drift Closure
+
+### Overview
+
+This pass implemented the Tier 2 behavioral fixes and finished the money-drift investigation that was still open after the Critical + Tier 1 work.
+
+The important state after this pass is:
+- the remaining deterministic money drift is closed to floating-point noise
+- the 104-tick bank-enabled validation run now finishes with effectively zero drift
+- survival mode is graduated instead of cliff-edge only
+- firms keep maintenance R&D during mild losses
+- forced +1 worker growth only applies when firms are genuinely healthy
+- wage planning now anchors on smoothed revenue instead of one noisy tick
+- wealthy households can save materially more than 15%
+- emergency loans now bridge eligible firms before layoffs
+- above-average quality now improves firm credit scores
+- the changelog and tests now reflect these Tier 2 changes
+
+### Reason Summary
+
+- drift closure was required so later macro behavior could be trusted as economics instead of hidden accounting loss
+- graduated survival mode and emergency-loan bridging were added to reduce cliff-edge layoffs and give policy or credit time to matter
+- the R&D floor and quality credit bonus were added so long-run quality investment has survival and financing value during downturns
+- conditional growth bias and revenue-EMA wage anchoring were added to remove noisy, overly forced firm behavior
+- wealth-scaled savings were added so rich households no longer over-consume relative to realistic marginal propensities to spend
+
+### Why This Pass Was Done
+
+The accounting foundation was mostly fixed in the previous pass, but the model still had two major problems:
+- one remaining money leak was still contaminating the validation scenario
+- several firm and household behaviors were still too brittle or unrealistic for the LLM government to learn from cleanly
+
+The drift investigation had to come first because any remaining money destruction would make later behavioral interpretation unreliable. Once that was sealed, the Tier 2 work focused on making distress, hiring, wage formation, savings, credit access, and R&D behave more like a coherent macro system instead of a set of hard discontinuities.
+
+### Fix 13 - Remaining money drift traced and sealed
+
+The remaining deterministic drift was traced to periodic incumbent wage refreshes in `backend/economy.py`.
+
+Root cause:
+- every 50 ticks, `_update_continuing_employee_wages()` increased `firm.actual_wages`
+- incumbent households were then carried through labor matching using stale `household.wage`
+- firms paid the higher wage bill in Phase 5, but households only received the stale lower wage in Phase 10
+- the gap was destroyed money, which produced the unexplained drops at ticks 51 and 101
+
+What changed:
+- `_update_continuing_employee_wages()` now synchronizes `household.wage` when incumbent wages are refreshed
+- both labor-matching paths now source continuing-worker wages from `firm.actual_wages` rather than stale household-side mirrors
+
+Why:
+- this was the last broad-money leak in the deterministic validation scenario
+- after the fix, final drift and unexplained flow both collapse to floating-point noise
+
+### Fix 14 - Survival mode now has caution and critical states
+
+`FirmAgent.plan_production_and_labor()` now uses runway-based distress states:
+- `caution` below 6 weeks of runway
+- `critical` below 2 weeks
+- recovery steps down through `critical -> caution -> none` instead of jumping directly back to healthy
+
+Behavior changes:
+- caution mode freezes hiring, allows only capped layoffs, and cuts production to 50%
+- critical mode keeps the old aggressive survival behavior with deep layoffs and 10% production
+
+Why:
+- the old 2-week trigger produced cliff-edge layoffs with almost no warning signal for policy or lending to respond to
+
+### Fix 15 - Loss-making firms keep a minimum R&D floor
+
+`FirmAgent.apply_rd_and_quality_update()` now applies:
+- `1% of revenue` maintenance R&D when profit is negative
+- `0%` only when the firm is genuinely cash-stressed, defined as less than 4 weeks of payroll runway
+
+Why:
+- dropping R&D straight to zero on the first loss made downturns self-reinforcing and destroyed quality too quickly
+
+### Fix 16 - Forced growth bias is now conditional
+
+The old unconditional `current_workers + 1` growth pressure is now only applied when a firm is healthy:
+- profit margin above 5%
+- cash reserves above 12 weeks of wage cost
+- not in survival mode
+- not in burn mode
+
+Why:
+- the old logic forced expansion even when firms had no real reason to grow, which masked unemployment and pushed firms into avoidable distress
+
+### Fix 17 - Wage planning now uses expected revenue EMA
+
+`FirmAgent` now tracks `expected_revenue_ema` and uses it in wage planning instead of raw one-tick revenue.
+
+What changed:
+- `expected_revenue_ema` and `revenue_ema_alpha` were added to the firm state
+- the EMA is updated in `apply_sales_and_profit()`
+- `plan_wage()` now uses the smoothed revenue anchor for the main target and its labor-share bounds
+
+Why:
+- one bad revenue tick should not crash wage targets immediately, and one good tick should not snap them back up
+
+### Fix 18 - Household savings are no longer capped at 15%
+
+`HouseholdAgent.compute_saving_rate()` now combines:
+- thriftiness
+- wealth score
+- a low-wealth suppression factor
+
+The effective cap is now up to 50%, with wealthy households realistically reaching around 40% under high-thrift settings.
+
+Why:
+- the old 15% ceiling forced rich households to spend too much and flattened the wealth and demand structure
+
+### Fix 19 - Emergency loans now bridge firms before distress restructuring
+
+`Economy._offer_emergency_loans()` now targets firms by cash runway and tries to restore them to a 6-week buffer before they fall into distress.
+
+Key conditions:
+- bank must exist
+- unemployment trigger must be active
+- firm must have positive payroll and runway below 6 weeks
+- credit score must be at least 0.35
+
+Why:
+- firms that were still creditworthy were going straight to layoffs instead of using the existing credit channel as a bridge
+
+### Fix 20 - Quality now improves firm credit scores
+
+`Economy._update_credit_scores()` now gives a `+0.005` bonus when a firm’s `quality_level` is above the category average.
+
+Why:
+- once quality affects demand, it should also act as a leading indicator of repayment stability instead of being invisible to credit scoring
+
+### Additional Hardening Done During This Pass
+
+These were not separate Tier 2 spec items, but they were necessary to complete the pass cleanly:
+
+- continuing-worker wage mirroring was fixed on both the firm side and labor-matching side to eliminate the final accounting leak
+- the deterministic validation test now uses the strict drift gate again instead of the temporary loose bound
+- wage-trend validation now excludes baseline firms and uses average actual wages rather than only posted wage offers
+
+Why:
+- these were required either to close the actual leak or to make the validation test measure the intended behavior instead of an artifact
+
+### Files Changed In This Work
+
+- `backend/agents.py`
+- `backend/economy.py`
+- `backend/tests_contracts/test_accounting_regressions.py`
+- `backend/tests_contracts/test_tier1_validation.py`
+- `docs/CHANGELOG.md`
+
+### Tests and Verification Added
+
+New or tightened regression coverage now includes:
+- continuing wage-refresh synchronization
+- minimum R&D floor under losses
+- conditional growth bias
+- revenue EMA smoothing
+- high-wealth savings behavior
+- caution/critical survival transitions
+- emergency-loan bridge behavior
+- quality bonus in firm credit scores
+- strict money-conservation validation
+
+Verification commands run during this pass:
+- `./.venv/bin/python -m py_compile backend/agents.py backend/economy.py backend/tests_contracts/test_accounting_regressions.py backend/tests_contracts/test_tier1_validation.py`
+- `./.venv/bin/pytest backend/tests_contracts/test_accounting_regressions.py -q`
+- `./.venv/bin/pytest backend/tests_contracts/test_tier1_validation.py -q`
+- `./.venv/bin/pytest backend/tests_contracts -q`
+
+Key deterministic validation result:
+- 104 ticks, bank enabled, random shocks disabled
+- final `money_drift`: approximately `4.19e-09`
+- max absolute `money_drift`: approximately `4.66e-09`
+- max absolute unexplained flow: approximately `1.86e-09`
+
+### Current Status / Not Yet Changed
+
+This pass closes the remaining known accounting drift in the deterministic validation scenario and implements the requested Tier 2 behavior changes.
+
+Still true after this work:
+- broader macro calibration is not fully re-tuned here
+- the changelog now reflects Tier 2 implementation, but it does not claim that every aspirational macro target from the prose spec is now calibrated into the model
+- the strict automated gate now focuses on the behaviors and invariants that were actually changed in this pass
+
+For future AI work:
+- treat money conservation as closed unless a new drift channel is observed in a different scenario
+- treat the 50-tick incumbent wage refresh path as a known historical bug that should not be reintroduced
+- if later macro tuning work targets unemployment, concentration, or recovery speed, that is now a behavioral calibration task rather than a hidden accounting failure
+
+---
+
+## [2026-04-07 4:42 PM PDT] EcoSim 2.0 - Critical Accounting Fixes and Tier 1 Stabilization Pass
+
+### Overview
+
+This pass implemented the full 6-item critical accounting fix set, then the Tier 1 bug-fix and diagnostics pass. The goal was to stop silent accounting corruption first, then correct Tier 1 agent behavior, and finally leave a clear handoff record for later AI work.
+
+The important state after this pass is:
+- The previously identified Tier 2 repayment sink is fixed.
+- Bank interest income is now live telemetry instead of dead code.
+- Firm loans now resolve through write-off instead of remaining as zombie debt indefinitely.
+- Wage emergency cuts no longer fight the next-tick wage planner.
+- Firms cannot price below labor cost floor in the normal pricing path.
+- Household goods spending and rent no longer drive household cash negative.
+- A broad-money conservation diagnostic now runs every tick and is exposed in telemetry.
+- One broad residual money-drift channel still exists somewhere outside the already-fixed paths. It is now measurable, but not fully eliminated.
+
+### Why This Pass Was Done
+
+The simulation had two different classes of problems:
+- silent accounting bugs that changed macro outcomes even when agent behavior was otherwise reasonable
+- Tier 1 behavioral bugs where agents technically ran but responded to incentives incorrectly
+
+The reason to do the accounting fixes first was that the LLM government was observing corrupted state. If money disappears during Tier 2 repayment, if deposit interest creates money, or if households can spend beyond cash, then later policy tuning is mostly noise because the data pipeline itself is lying.
+
+The reason to do the Tier 1 pass next was to restore behavioral meaning after accounting integrity was improved:
+- labor supply needed a monotonic desperation rule
+- bank lending needed a true zero-revenue block
+- delinquency needed real default progression instead of token-payment resets
+- quality investment needed to affect demand in the remaining fallback path
+- validation needed a live conservation diagnostic and a repeatable checkpoint
+
+### Critical Fixes 1-6 Implemented
+
+#### Fix 1 - Tier 2 loan repayments now return to government
+
+`Economy._collect_bank_loan_repayments()` in `backend/economy.py` now routes successful `govt_backed=True` repayments back into `self.government.cash_balance` instead of deleting that money from the system. This closed the Tier 2 repayment money sink.
+Why: the old path destroyed borrower cash every tick on successful Tier 2 repayment, which created false deflation and made government policy look ineffective when the real issue was broken repayment plumbing.
+
+#### Fix 2 - Bank interest income now accrues
+
+The same repayment path now computes the implied interest share of each non-government-backed payment and increments `bank.last_tick_interest_income`. The telemetry field already existed on `BankAgent`; this pass made it real.
+Why: the bank was paying deposit interest without ever recognizing loan interest income, so reserves trended downward and the credit channel could freeze for accounting reasons rather than economic ones.
+
+#### Fix 3 - Firm loan write-off trigger added
+
+Firm loans now write off after 12 consecutive missed payments in `Economy._collect_bank_loan_repayments()`. The write-off updates:
+- `loan_loss_provision`
+- `total_loans_outstanding`
+- `last_tick_defaults`
+- firm credit score
+
+This prevents non-bankrupt but permanently delinquent firms from leaving fictional exposure on the bank balance sheet forever.
+Why: without an automatic firm write-off trigger, delinquent firms could remain as zombie borrowers indefinitely, inflating `total_loans_outstanding` and corrupting leverage, default, and credit-score data.
+
+#### Fix 4 - Wage emergency cuts now feed back into the planning anchor
+
+The Phase 9 emergency wage cut path in `backend/agents.py` now synchronizes `wage_offer_next` to the post-cut wage, so the next Phase 1 planning cycle starts from the actual cut wage instead of a stale pre-cut anchor.
+Why: the planner and the emergency override were using different anchors, which created artificial wage oscillation even under steady revenue deterioration.
+
+#### Fix 5 - Firm pricing now respects labor-cost floor
+
+`FirmAgent.plan_pricing()` in `backend/agents.py` now applies a final labor-cost floor after its normal pricing waterfall:
+- use last tick realized unit labor cost when available
+- otherwise fall back to current wage / units-per-worker
+- enforce `max(self.price, self.min_price, unit_labor_cost * 1.05)`
+
+This floor applies after reactive inventory/utilization pricing logic, so firms no longer spiral into sustained below-cost sales in the normal path.
+Why: the old pricing waterfall could keep cutting price below unit labor cost, which let firms destroy their own cash on every sale and made bankruptcies look demand-driven when the pricing rule itself was broken.
+
+#### Fix 6 - Household hard budget constraint enforced
+
+The household spending path was changed in two places:
+- `HouseholdAgent.plan_consumption()` now caps planned discretionary spending to cash that is actually available while reserving rent first.
+- `Economy._batch_apply_household_updates()` now clamps realized consumption deductions to available cash so balances do not go negative.
+
+The result is that households can no longer create money by overspending goods budgets against nonexistent cash.
+Why: negative household cash was a direct money-creation bug on the demand side and made observed consumption too strong relative to actual household resources.
+
+### Tier 1 Fixes 7-12 Implemented
+
+#### Fix 7 - Global money conservation diagnostic added
+
+`Economy` now computes total money supply each tick and compares it to:
+
+`initial_money_supply + government.cumulative_net_injection`
+
+Added instrumentation includes:
+- `Economy._compute_total_money_supply()`
+- `Economy._check_money_conservation()`
+- `Economy.initial_money_supply`
+- `GovernmentAgent.cumulative_net_injection`
+- `GovernmentAgent.record_spending()`
+- `GovernmentAgent.record_revenue()`
+- telemetry fields for money supply, money drift, initial supply, and government net injection
+- dashboard/server payload wiring in `backend/server.py`
+
+This diagnostic is now the main tool for locating remaining non-government money drift.
+Why: after the critical fixes were in, there was still broad aggregate money drift somewhere in the system. Without a per-tick conservation diagnostic, future debugging would just be guesswork.
+
+#### Fix 8 - Desperation wage discount formula replaced
+
+`HouseholdAgent.plan_labor_supply()` now uses the monotonic and interpretable formula:
+
+`wage_floor_fraction = 1.0 - discount * desperation`
+
+This replaced the old non-monotonic expression that could drive reservation wages effectively to zero or behave backwards depending on the config value.
+Why: the old formula made the config parameter semantically misleading and could produce extreme or inverted labor-supply behavior depending on the chosen discount.
+
+#### Fix 9 - Zero-revenue Tier 1 leverage floor removed
+
+Tier 1 firm borrowing logic no longer uses `max(trailing_revenue_12t, 1.0)` as a fake revenue floor. Zero-revenue firms are now blocked from Tier 1 bank lending and must fall through to Tier 2 or Tier 3 paths instead, which matches the intended contract of revenue-based leverage.
+Why: Tier 1 bank lending is supposed to be revenue-backed credit. Keeping a floor at `1.0` let zero-revenue firms appear marginally lendable even though they had no demonstrated repayment base.
+
+#### Fix 10 - Partial payments no longer fully reset delinquency
+
+`Economy._collect_bank_loan_repayments()` was updated so that:
+- full scheduled payments reset `missed_payments`
+- partial payments do not reset the counter
+- partial payments incur a smaller credit penalty than a total miss
+- tiny token payments can no longer keep a delinquent loan permanently alive
+
+`BankAgent.collect_repayment()` was also updated so it does not silently zero out missed-payment history on any positive payment.
+Why: with the old logic, any tiny positive payment wiped the full missed-payment streak, which made write-off thresholds easy to game and weakened the meaning of delinquency metrics.
+
+#### Fix 11 - Quality now matters in the legacy goods fallback path
+
+The goods-market architecture was reviewed before editing. The main household planning path in Phase 2c was already quality-aware. The gap was the legacy fallback ordering in `_clear_goods_market()`, which could still sort by price alone in specific fallback flows. That fallback now uses a quality-price utility ordering instead of raw cheapest-first behavior.
+Why: firms were already spending real cash on R&D and improving `quality_level`, but some fallback market-clearing paths could still ignore that investment and erase the intended demand-side payoff.
+
+Important for future AI work:
+- The full demand architecture was not rewritten.
+- The main quality-aware household planning logic was already in place.
+- This pass only fixed the remaining price-only fallback path after reading the existing market-clearing architecture.
+
+#### Fix 12 - Tier 1 validation checkpoint added
+
+A new regression gate was added in `backend/tests_contracts/test_tier1_validation.py` to run a deterministic 104-tick bank-enabled validation scenario and assert:
+- no negative household cash
+- bank lending remains active
+- firm delinquency does not exceed the write-off threshold
+- zero-revenue firms do not hold Tier 1 loans
+- post-warmup price floors are respected
+- wage-trend behavior remains coherent under filtered trend conditions
+- quality/revenue relationship is directionally positive
+Why: this test is intended to be the regression gate before any Tier 2 behavioral work. If these invariants regress, the economy is still not stable enough to justify higher-level policy or agent improvements.
+
+### Additional Bugs Found and Fixed During Tier 1 Work
+
+The new money diagnostic exposed two extra accounting leaks that were fixed during the same pass:
+
+#### Deposit interest double-credit bug
+
+Bank deposit interest was being credited into both `bank_deposit` and `cash_balance`, which created money. This was corrected in `backend/economy.py`.
+Why: once the conservation diagnostic existed, this became an obvious spigot path that had to be closed immediately or the new diagnostic would remain noisy for the wrong reason.
+
+#### Public works startup funding bug
+
+Public-works firm startup cash was being created without debiting the government treasury. The public-works creation path now properly records the treasury outflow and government net injection.
+Why: this was another direct money-creation path uncovered during the diagnostic pass, and it would have made public-works expansion look fiscally cheap when it was actually bypassing treasury accounting.
+
+### Files Changed In This Work
+
+- `backend/agents.py`
+- `backend/economy.py`
+- `backend/run_bank_simulation.py`
+- `backend/server.py`
+- `backend/tests_contracts/conftest.py`
+- `backend/tests_contracts/test_accounting_regressions.py`
+- `backend/tests_contracts/test_tier1_validation.py`
+
+### Tests and Verification Added
+
+Regression coverage was expanded for:
+- Tier 2 repayment routing
+- bank interest income accrual
+- firm 12-miss write-off behavior
+- wage-cut anchor synchronization
+- firm labor-cost price floor
+- household no-negative-cash enforcement
+- desperation wage monotonicity
+- zero-revenue Tier 1 rejection
+- partial-payment delinquency handling
+- quality-aware legacy fallback ordering
+- deposit-interest money leak
+- public-works treasury funding
+
+Verification commands run during this work:
+- `./.venv/bin/python -m py_compile backend/agents.py backend/economy.py backend/server.py backend/tests_contracts/conftest.py backend/tests_contracts/test_accounting_regressions.py backend/tests_contracts/test_tier1_validation.py`
+- `./.venv/bin/pytest backend/tests_contracts/test_accounting_regressions.py -q`
+- `./.venv/bin/pytest backend/tests_contracts/test_tier1_validation.py -q`
+- `./.venv/bin/pytest backend/tests_contracts -q`
+
+### Current Status / Not Yet Resolved
+
+This is the main unresolved item future AI should treat as still open:
+
+- The strict global money-conservation target from the Tier 1 spec is not yet met in the deterministic 104-tick validation run.
+- The diagnostic is in place and working, but residual drift remains after all fixes above.
+- In the current validation scenario, final `money_drift` is about `-$75,140`, with max absolute drift around `335,952`.
+- Because of that, the new Tier 1 validation test currently enforces a bounded drift gate rather than the original strict `< $100` requirement.
+
+What this means operationally:
+- The specific critical accounting bugs from Fixes 1-6 are fixed and regression-tested.
+- Several additional leak/spigot paths were fixed during Tier 1 instrumentation.
+- Broad system-wide money conservation is improved and now observable, but not fully solved.
+- Further work should start from the new diagnostic rather than re-opening the already-fixed repayment, pricing, or household-cash paths without evidence.
+
+---
+
 ## [2026-03-12] Engineering Hardening Pass — Config Centralization, Determinism Fixes, Wage Telemetry Pipeline
 
 ### Overview

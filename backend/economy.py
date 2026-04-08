@@ -88,8 +88,15 @@ class Economy:
         self.last_tick_gov_property_taxes: float = 0.0
         self.last_tick_gov_transfers: float = 0.0
         self.last_tick_gov_investments: float = 0.0
+        self.last_tick_money_drift: float = 0.0
+        self.last_tick_money_supply: float = 0.0
+        self.last_tick_money_delta: float = 0.0
+        self.last_tick_money_explained_delta: float = 0.0
+        self.last_tick_money_unexplained_flow: float = 0.0
+        self.last_tick_money_flow_breakdown: Dict[str, float] = {}
         self.performance_mode = False
         self._cached_consumption_plans: Dict[int, Dict] = {}
+        self._planned_consumption_budget_by_household: Dict[int, float] = {}
 
         # Set initial defaults
         for firm in firms:
@@ -130,6 +137,15 @@ class Economy:
         self._sector_shortage_state: Dict[str, bool] = {}
         self._labor_compare_mismatch_count = 0
         self._propagate_stabilizer_flags()
+        self.initial_money_supply = self._compute_total_money_supply()
+        self.last_tick_money_supply = self.initial_money_supply
+        self._tick_money_supply_start = self.initial_money_supply
+        self._tick_deposit_transfer_volume = 0.0
+        self._tick_deposit_transfer_net = 0.0
+        self._tick_education_spending = 0.0
+        self._tick_housing_expansion_spending = 0.0
+        self._tick_bankruptcy_cash_resolution = 0.0
+        self._tick_new_firm_bootstrap_equity = 0.0
 
     def _append_regime_event(
         self,
@@ -164,6 +180,80 @@ class Economy:
             firm.stabilization_disabled = not self.enable_firm_stabilizers
         for firm in self.queued_firms:
             firm.stabilization_disabled = not self.enable_firm_stabilizers
+
+    def _compute_total_money_supply(self) -> float:
+        """Return the total in-model money stock across all cash holders."""
+        household_cash = sum(h.cash_balance for h in self.households)
+        household_deposits = sum(h.bank_deposit for h in self.households)
+        firm_cash = sum(f.cash_balance for f in self.firms)
+        queued_firm_cash = sum(f.cash_balance for f in self.queued_firms)
+        government_cash = self.government.cash_balance
+        bank_reserves = self.bank.cash_reserves if self.bank is not None else 0.0
+        misc_pool = self.misc_firm_revenue
+        return (
+            household_cash
+            + household_deposits
+            + firm_cash
+            + queued_firm_cash
+            + government_cash
+            + bank_reserves
+            + misc_pool
+        )
+
+    def _reset_money_flow_tracking(self) -> None:
+        """Reset per-tick money-flow diagnostics before mutating the economy."""
+        self._tick_money_supply_start = self._compute_total_money_supply()
+        self._tick_deposit_transfer_volume = 0.0
+        self._tick_deposit_transfer_net = 0.0
+        self._tick_education_spending = 0.0
+        self._tick_housing_expansion_spending = 0.0
+        self._tick_bankruptcy_cash_resolution = 0.0
+        self._tick_new_firm_bootstrap_equity = 0.0
+
+    def _check_money_conservation(self) -> None:
+        """Compute and log end-of-tick money drift for leak diagnostics."""
+        total_money = self._compute_total_money_supply()
+        expected_money = self.initial_money_supply
+        drift = total_money - expected_money
+        drift_pct = (drift / expected_money * 100.0) if expected_money > 0.0 else 0.0
+        tick_delta = total_money - self._tick_money_supply_start
+
+        flow_breakdown = {
+            "deposit_transfer_net": float(self._tick_deposit_transfer_net),
+            "bootstrap_firm_equity": 0.0,
+            "deposit_transfer_volume": float(self._tick_deposit_transfer_volume),
+            "education_spending_recycled": float(self._tick_education_spending),
+            "housing_expansion_recycled": float(self._tick_housing_expansion_spending),
+            "bankruptcy_cash_resolution": float(self._tick_bankruptcy_cash_resolution),
+            "bootstrap_firm_equity_volume": float(self._tick_new_firm_bootstrap_equity),
+        }
+        explained_tick_delta = (
+            flow_breakdown["deposit_transfer_net"]
+            + flow_breakdown["bootstrap_firm_equity"]
+        )
+        unexplained_tick_delta = tick_delta - explained_tick_delta
+
+        self.last_tick_money_supply = total_money
+        self.last_tick_money_drift = drift
+        self.last_tick_money_delta = tick_delta
+        self.last_tick_money_explained_delta = explained_tick_delta
+        self.last_tick_money_unexplained_flow = unexplained_tick_delta
+        self.last_tick_money_flow_breakdown = flow_breakdown
+
+        if abs(drift) > 1.0 or abs(unexplained_tick_delta) > 1.0:
+            logger.warning(
+                "Tick %s money drift $%.2f (%.4f%%): supply=$%.2f expected=$%.2f "
+                "tick_delta=$%.2f unexplained=$%.2f flows=%s govt_net_injection=$%.2f",
+                self.current_tick + 1,
+                drift,
+                drift_pct,
+                total_money,
+                expected_money,
+                tick_delta,
+                unexplained_tick_delta,
+                flow_breakdown,
+                float(getattr(self.government, "cumulative_net_injection", 0.0)),
+            )
 
     def configure_stabilizers(
         self,
@@ -217,6 +307,11 @@ class Economy:
 
         # Extract household attributes as NumPy arrays
         cash_balances = np.array([h.cash_balance for h in self.households], dtype=np.float64)
+        reserved_rents = np.array([
+            h.monthly_rent if h.renting_from_firm_id is not None else 0.0
+            for h in self.households
+        ], dtype=np.float64)
+        liquid_cash = np.maximum(0.0, cash_balances - reserved_rents)
         spending_tendencies = np.array([h.spending_tendency for h in self.households], dtype=np.float64)
         frugalities = np.array([max(h.frugality, 0.1) for h in self.households], dtype=np.float64)
         goods_values = np.array([sum(h.goods_inventory.values()) for h in self.households], dtype=np.float64)
@@ -287,8 +382,8 @@ class Economy:
 
         # H2: Subsistence floor (always spend minimum if available)
         subsistence_min = CONFIG.households.subsistence_min_cash
-        subsistence = np.minimum(cash_balances, subsistence_min)
-        discretionary_cash = np.maximum(0.0, cash_balances - subsistence)
+        subsistence = np.minimum(liquid_cash, subsistence_min)
+        discretionary_cash = np.maximum(0.0, liquid_cash - subsistence)
         discretionary_budget = discretionary_cash * spend_fraction
         budgets = subsistence + discretionary_budget
 
@@ -296,7 +391,7 @@ class Economy:
             max_frac = CONFIG.households.max_spend_fraction
             budgets = np.maximum(
                 subsistence,
-                cash_balances * max_frac
+                liquid_cash * max_frac
             )
 
         # Precompute price caches per category for reuse
@@ -364,6 +459,7 @@ class Economy:
                     "household_id": household.household_id,
                     "category_budgets": {},
                     "planned_purchases": {},
+                    "planned_budget": 0.0,
                 }
                 continue
 
@@ -381,6 +477,7 @@ class Economy:
                     "household_id": household.household_id,
                     "category_budgets": {},
                     "planned_purchases": planned_purchases,
+                    "planned_budget": float(budget),
                 }
             else:
                 # Legacy good-based allocation
@@ -440,6 +537,7 @@ class Economy:
                     "household_id": household.household_id,
                     "category_budgets": {},
                     "planned_purchases": planned_purchases,
+                    "planned_budget": float(budget),
                 }
 
         return household_consumption_plans
@@ -476,6 +574,7 @@ class Economy:
 
         # Government receives loan repayments
         self.government.cash_balance += total_loan_repayments
+        self.government.record_revenue(total_loan_repayments)
 
         # Pre-build lookup tables to avoid O(HH × firms) nested loops
         # CEO lookup: household_id -> list of (firm, median_wage)
@@ -494,6 +593,13 @@ class Economy:
 
         # Category lookup: use provided or empty dict for direct access
         cat_lookup = good_category_lookup or {}
+        bank_managed_medical_loans = set()
+        if self.bank is not None:
+            bank_managed_medical_loans = {
+                int(loan["borrower_id"])
+                for loan in self.bank.active_loans
+                if loan["borrower_type"] == "household" and loan["remaining"] > 1e-6
+            }
 
         # Single pass through all households
         for household in self.households:
@@ -527,36 +633,57 @@ class Economy:
             household.cash_balance += wage_income + ceo_salary + transfers - taxes_paid
 
             # Process medical loan payments (10% of wage per tick)
-            medical_payment = household.make_medical_loan_payment()
-            if medical_payment > 0:
-                # Medical payments go to government (simplified - could go to healthcare provider)
-                self.government.cash_balance += medical_payment
+            medical_payment = 0.0
+            if hid not in bank_managed_medical_loans:
+                medical_payment = household.make_medical_loan_payment()
+                if medical_payment > 0:
+                    # Direct medical loans still repay the government here.
+                    self.government.cash_balance += medical_payment
+                    self.government.record_revenue(medical_payment)
 
             # Apply purchases (with sector subsidy if active)
             purchases = per_household_purchases.get(hid, {})
             total_spending = 0.0
             subsidy_target = self.government.sector_subsidy_target
             subsidy_rate = self.government._sector_subsidy_rate
+            remaining_household_cash = max(0.0, household.cash_balance)
             for good, (quantity, price_paid) in purchases.items():
                 total_cost = quantity * price_paid
+                if total_cost <= 0.0:
+                    continue
                 category = cat_lookup.get(good, good.lower())
                 # Sector subsidy: government pays subsidy_rate of cost
                 if subsidy_rate > 0.0 and subsidy_target != "none" and category == subsidy_target:
                     govt_share = total_cost * subsidy_rate
                     household_cost = total_cost - govt_share
-                    self.government.cash_balance -= govt_share
                 else:
+                    govt_share = 0.0
                     household_cost = total_cost
-                total_spending += household_cost
-                household.cash_balance -= household_cost
-                if category == "housing" and quantity > 0:
+
+                actual_household_cost = min(household_cost, remaining_household_cash)
+                if actual_household_cost <= 0.0:
+                    continue
+
+                spend_scale = actual_household_cost / household_cost if household_cost > 0.0 else 0.0
+                actual_quantity = quantity * spend_scale
+                actual_total_cost = total_cost * spend_scale
+                actual_govt_share = govt_share * spend_scale
+
+                if actual_govt_share > 0.0:
+                    self.government.cash_balance -= actual_govt_share
+                    self.government.record_spending(actual_govt_share)
+
+                total_spending += actual_household_cost
+                remaining_household_cash -= actual_household_cost
+                household.cash_balance -= actual_household_cost
+                if category == "housing" and actual_quantity > 0:
                     household.owns_housing = True
                     household.met_housing_need = True
 
                 # Update inventory
                 if good not in household.goods_inventory:
                     household.goods_inventory[good] = 0.0
-                household.goods_inventory[good] += quantity
+                household.goods_inventory[good] += actual_quantity
 
                 # Update price beliefs
                 if good in household.price_beliefs:
@@ -662,6 +789,7 @@ class Economy:
         self._refresh_target_total_firms()
         if not self.in_warmup:
             self._activate_queued_firms()
+        self._reset_money_flow_tracking()
         if self.post_warmup_stimulus_ticks > 0:
             self._apply_post_warmup_stimulus()
 
@@ -761,7 +889,10 @@ class Economy:
         household_labor_plans = {}
 
         for household in self.households:
-            household.maybe_active_education()
+            education_spending = household.maybe_active_education()
+            if education_spending > 0.0:
+                self._tick_education_spending += education_spending
+                self._collect_misc_revenue(education_spending)
 
         # Labor planning still uses loop (small overhead)
         for household in self.households:
@@ -788,6 +919,11 @@ class Economy:
                 good_category_lookup,
                 unemployment_rate
             )
+
+        self._planned_consumption_budget_by_household = {
+            int(household_id): float(plan.get("planned_budget", 0.0))
+            for household_id, plan in household_consumption_plans.items()
+        }
 
         # Phase 3: Labor market matching
         firm_labor_outcomes, household_labor_outcomes = self._run_labor_matching(
@@ -884,7 +1020,10 @@ class Economy:
         # Phase 6.6: Housing firms consider unit expansion
         for firm in self.firms:
             if firm.good_category == "Housing":
-                firm.invest_in_unit_expansion()
+                expansion_spending = firm.invest_in_unit_expansion()
+                if expansion_spending > 0.0:
+                    self._tick_housing_expansion_spending += expansion_spending
+                    self._collect_misc_revenue(expansion_spending)
 
         # Phase 6.7: Misc firm operations
         self._misc_firm_add_beneficiary()  # Add 1 more random beneficiary
@@ -980,6 +1119,10 @@ class Economy:
         # Phase 11.5: Government discretionary spending (infrastructure, technology, bonds)
         infra_spent = self.government.invest_in_infrastructure()
         tech_spent = self.government.invest_in_technology()
+        if infra_spent > 0.0:
+            self.misc_firm_revenue += infra_spent
+        if tech_spent > 0.0:
+            self.misc_firm_revenue += tech_spent
 
         # Bond purchases with surplus — redirect to Misc firm
         govt_investments = self.government.make_investments()
@@ -1008,6 +1151,7 @@ class Economy:
 
         # Government collects investment taxes
         self.government.cash_balance += total_investment_taxes
+        self.government.record_revenue(total_investment_taxes)
 
         # Phase 11.7: Update budget pressure now that all revenue and spending are known
         tick_revenue = (
@@ -1053,6 +1197,8 @@ class Economy:
         for firm in self.firms:
             dividends = firm.distribute_profits(self.household_lookup)
             total_dividends_paid += dividends
+
+        self._check_money_conservation()
 
         # Advance simulation clock after completing the tick
         self.current_tick += 1
@@ -1615,11 +1761,14 @@ class Economy:
             if household.is_employed and household.household_id not in planned_layoffs_set:
                 employer_id = household.employer_id
                 employer_category = None
+                incumbent_wage = household.wage
                 if employer_id is not None and employer_id in self.firm_lookup:
-                    employer_category = self.firm_lookup[employer_id].good_category
+                    employer = self.firm_lookup[employer_id]
+                    employer_category = employer.good_category
+                    incumbent_wage = employer.actual_wages.get(household.household_id, household.wage)
                 household_labor_outcomes[household.household_id] = {
                     "employer_id": employer_id,
-                    "wage": household.wage,
+                    "wage": incumbent_wage,
                     "employer_category": employer_category
                 }
                 assigned_households.add(household.household_id)
@@ -1819,11 +1968,14 @@ class Economy:
             if household.is_employed and household_id not in planned_layoffs_set:
                 employer_id = household.employer_id
                 employer_category = None
+                incumbent_wage = household.wage
                 if employer_id is not None and employer_id in self.firm_lookup:
-                    employer_category = self.firm_lookup[employer_id].good_category
+                    employer = self.firm_lookup[employer_id]
+                    employer_category = employer.good_category
+                    incumbent_wage = employer.actual_wages.get(household_id, household.wage)
                 household_labor_outcomes[household_id] = {
                     "employer_id": employer_id,
-                    "wage": household.wage,
+                    "wage": incumbent_wage,
                     "employer_category": employer_category
                 }
                 assigned[idx] = True
@@ -2042,8 +2194,11 @@ class Economy:
                     increase_rate = random.uniform(0.02, 0.03)
                     new_wage = current_wage * (1.0 + increase_rate)
 
-                    # Update the wage
+                    # Keep the household-facing wage mirror in sync so the
+                    # higher incumbent wage is actually paid in Phase 10.
                     firm.actual_wages[employee_id] = new_wage
+                    if household.employer_id == firm.firm_id:
+                        household.wage = new_wage
                     household.last_wage_update_tick = self.current_tick
 
     def _sync_firm_employee_rosters(self) -> None:
@@ -2133,9 +2288,12 @@ class Economy:
 
         # Firm arrays for fast lookup
         firm_ids = [f.firm_id for f in firms]
+        firm_id_array = np.array(firm_ids, dtype=np.int32)
         id_to_idx = {fid: idx for idx, fid in enumerate(firm_ids)}
         firm_prices = np.array([f.price for f in firms], dtype=np.float64)
         firm_goods = [f.good_name for f in firms]
+        firm_categories = [(f.good_category or "").lower() for f in firms]
+        firm_qualities = np.array([f.quality_level for f in firms], dtype=np.float64)
         firm_remaining = np.array([f.inventory_units for f in firms], dtype=np.float64)
 
         for fid in firm_ids:
@@ -2154,6 +2312,7 @@ class Economy:
         for household_id, consumption_plan in household_consumption_plans.items():
             per_household_purchases[household_id] = {}
             planned = consumption_plan["planned_purchases"]
+            household = self.household_lookup.get(household_id)
 
             for target, desired_qty in planned.items():
                 if desired_qty <= 0:
@@ -2187,14 +2346,38 @@ class Economy:
                 # Good-name target: spread across sorted firms
                 good_name = target
                 idx_list = goods_to_indices.get(good_name)
-                if not idx_list:
+                if idx_list is None or len(idx_list) == 0:
                     continue
+
+                if household is not None and len(idx_list) > 1:
+                    category = firm_categories[int(idx_list[0])]
+                    price_anchor = household.price_beliefs.get(
+                        good_name,
+                        max(household.default_price_level, float(np.max(firm_prices[idx_list]))),
+                    )
+                    price_anchor = max(price_anchor, 0.01)
+                    utilities = (
+                        household.quality_lavishness * firm_qualities[idx_list]
+                        - household.price_sensitivity * (firm_prices[idx_list] / price_anchor)
+                    )
+                    primary_firm_id = household.current_primary_firm.get(category)
+                    if primary_firm_id is not None:
+                        utilities = utilities.copy()
+                        utilities[firm_id_array[idx_list] == int(primary_firm_id)] += 0.5
+                    ranked_positions = np.lexsort((
+                        firm_id_array[idx_list],
+                        firm_prices[idx_list],
+                        -utilities,
+                    ))
+                    ordered_idx_list = idx_list[ranked_positions]
+                else:
+                    ordered_idx_list = idx_list
 
                 remaining = desired_qty
                 total_bought = 0.0
                 price_sum = 0.0
 
-                for idx in idx_list:
+                for idx in ordered_idx_list:
                     if remaining <= 0:
                         break
                     available = firm_remaining[idx]
@@ -2707,6 +2890,16 @@ class Economy:
 
         # Remove bankrupt firms
         for firm in firms_to_remove:
+            residual_cash = float(firm.cash_balance)
+            if abs(residual_cash) > 1e-6:
+                self._tick_bankruptcy_cash_resolution += residual_cash
+                self.government.cash_balance += residual_cash
+                if residual_cash > 0.0:
+                    self.government.record_revenue(residual_cash)
+                else:
+                    self.government.record_spending(-residual_cash)
+                firm.cash_balance = 0.0
+
             self.firms.remove(firm)
 
             # Clean up tracking dictionaries
@@ -2724,7 +2917,11 @@ class Economy:
             # Write off bank loans on bankruptcy
             if self.bank is not None:
                 for loan in list(self.bank.active_loans):
-                    if loan["borrower_type"] == "firm" and loan["borrower_id"] == firm.firm_id:
+                    if (
+                        loan["borrower_type"] == "firm"
+                        and loan["borrower_id"] == firm.firm_id
+                        and loan["remaining"] > 1e-6
+                    ):
                         self.bank.write_off_loan(loan)
                         self.bank.update_firm_credit_score(firm.firm_id, -0.20)
 
@@ -2855,12 +3052,14 @@ class Economy:
                     bank_loan_principal = seed_cash
                     bank_loan_remaining = total_repay
                     bank_loan_payment = total_repay / seed_term_ticks
+                    self.government.record_spending(seed_cash)
                 else:
                     # Government can't afford it — downgrade to bootstrapped
                     seed_cash = tier_rng.uniform(5_000.0, 30_000.0)
             elif self.government.cash_balance > seed_cash:
                 # No bank — direct government loan
                 self.government.cash_balance -= seed_cash
+                self.government.record_spending(seed_cash)
                 seed_rate_govt = 0.01
                 total_repayment = seed_cash * (1.0 + seed_rate_govt)
                 govt_loan_principal = seed_cash
@@ -2902,6 +3101,29 @@ class Economy:
                 # Housing needs slightly more to have any rental units
                 seed_cash = max(seed_cash, max_rental_units * 2000.0)
 
+        owner_ids: List[int] = []
+        if seed_cash > 0.0 and govt_loan_principal <= 0.0 and bank_loan_principal <= 0.0:
+            bootstrap_owner = self.household_lookup.get(ceo_id) if ceo_id is not None else None
+            if bootstrap_owner is None:
+                viable_households = [h for h in self.households if h.cash_balance > 5_500.0]
+                if viable_households:
+                    bootstrap_owner = max(
+                        viable_households,
+                        key=lambda household: (household.cash_balance, -household.household_id),
+                    )
+            if bootstrap_owner is None:
+                return
+
+            owner_cash_available = max(0.0, bootstrap_owner.cash_balance - 500.0)
+            seed_cash = min(seed_cash, owner_cash_available)
+            if seed_cash < 5_000.0:
+                return
+
+            bootstrap_owner.cash_balance -= seed_cash
+            ceo_id = bootstrap_owner.household_id
+            owner_ids = [bootstrap_owner.household_id]
+            self._tick_new_firm_bootstrap_equity += seed_cash
+
         # ── create the firm ──────────────────────────────────────────
 
         new_firm = FirmAgent(
@@ -2927,6 +3149,7 @@ class Economy:
             ceo_household_id=ceo_id,
             max_rental_units=max_rental_units,
             property_tax_rate=property_tax_rate,
+            owners=owner_ids,
         )
         new_firm.set_personality(personality)
 
@@ -2968,6 +3191,7 @@ class Economy:
                 firm.cash_balance -= reclaimable
                 firm.government_loan_remaining = max(0.0, firm.government_loan_remaining - reclaimable)
                 self.government.cash_balance += reclaimable
+                self.government.record_revenue(reclaimable)
 
             firm.loan_required_headcount = 0
             firm.loan_support_ticks = 0
@@ -3025,6 +3249,7 @@ class Economy:
                     total_repay = effective_amount * interest_mult
                     firm.bank_loan_remaining += total_repay
                     firm.bank_loan_payment_per_tick += total_repay / max(1, term_ticks)
+                    self.government.record_spending(effective_amount)
                     return True
 
         # Fallback: direct government loan (existing behavior)
@@ -3035,17 +3260,19 @@ class Economy:
         firm.government_loan_remaining += total_repayment
         firm.loan_payment_per_tick += total_repayment / max(1, term_ticks)
         self.government.cash_balance -= amount
+        self.government.record_spending(amount)
         return True
 
     def _offer_emergency_loans(self, unemployment_rate: float) -> None:
         """Provide temporary low-interest loans to cash-strapped firms.
 
-        Tries the bank first (if available and lending). If the bank's circuit
-        breaker is active, attempts a government-backed loan through the bank.
-        Falls back to direct government lending if no bank exists.
+        Emergency bridge loans are only offered when a bank exists. A firm with
+        at least moderate credit can bridge to a healthier six-week cash runway
+        before entering distress restructuring.
         """
         config = CONFIG.government
-        if unemployment_rate < config.emergency_loan_trigger:
+        bank = self.bank
+        if bank is None or unemployment_rate < config.emergency_loan_trigger:
             return
 
         reserve_floor = config.investment_reserve_threshold
@@ -3059,32 +3286,39 @@ class Economy:
         )
         per_tick_budget = min(per_tick_budget, available_cash)
 
-        candidate_firms = [
-            f for f in self.firms
-            if (not f.is_baseline) and (
-                f.cash_balance < config.emergency_loan_cash_threshold
-                or len(f.employees) < config.emergency_loan_min_headcount
-            )
-        ]
+        candidate_firms = []
+        for firm in self.firms:
+            if firm.is_baseline or firm.burn_mode:
+                continue
+            wage_bill = firm._current_wage_bill()
+            if wage_bill <= 0.0:
+                continue
+            runway_weeks = firm.cash_balance / max(wage_bill, 1.0)
+            if runway_weeks >= 6.0:
+                continue
+            credit_score = bank.get_firm_credit_score(firm.firm_id)
+            if credit_score < 0.35:
+                continue
+            bridge_amount = max(0.0, wage_bill * 6.0 - firm.cash_balance)
+            if bridge_amount <= 0.0:
+                continue
+            candidate_firms.append((runway_weeks, firm, bridge_amount))
+
         if not candidate_firms or per_tick_budget <= 0:
             return
 
-        candidate_firms.sort(key=lambda firm: firm.cash_balance)
+        candidate_firms.sort(key=lambda item: item[0])
         term_ticks = max(
             1,
             int(CONFIG.time.ticks_per_year * config.emergency_loan_term_years)
         )
 
-        for firm in candidate_firms:
+        for _, firm, bridge_amount in candidate_firms:
             if per_tick_budget <= 0 or self.government.cash_balance <= reserve_floor:
                 break
 
-            desired = max(
-                config.emergency_loan_amount,
-                config.emergency_loan_cash_threshold - firm.cash_balance
-            )
             capacity = self.government.cash_balance - reserve_floor
-            loan_amount = min(desired, per_tick_budget, capacity)
+            loan_amount = min(bridge_amount, per_tick_budget, capacity)
             if loan_amount <= 0:
                 continue
 
@@ -3181,10 +3415,11 @@ class Economy:
         if not public_firms:
             new_firm_id = self._next_firm_id()
             capacity = float(target_jobs * 2)
+            startup_cash = CONFIG.government.public_works_job_fraction * 1_000_000.0
             public_firm = FirmAgent(
                 firm_id=new_firm_id,
                 good_name=f"PublicWorks{new_firm_id}",
-                cash_balance=CONFIG.government.public_works_job_fraction * 1_000_000.0,
+                cash_balance=startup_cash,
                 inventory_units=0.0,
                 good_category="PublicWorks",
                 quality_level=1.0,
@@ -3205,6 +3440,8 @@ class Economy:
             self.last_tick_revenue[new_firm_id] = 0.0
             self.last_tick_sell_through_rate[new_firm_id] = 0.5
             self.last_tick_prices[public_firm.good_name] = public_firm.price
+            self.government.cash_balance -= startup_cash
+            self.government.record_spending(startup_cash)
             public_firms = [public_firm]
 
         per_firm_quota = max(
@@ -3237,6 +3474,7 @@ class Economy:
 
         # Governments can run deficits; deduct directly from cash balance
         self.government.cash_balance -= total_transfer
+        self.government.record_spending(total_transfer)
         for household in self.households:
             household.cash_balance += per_household_transfer
 
@@ -3384,11 +3622,16 @@ class Economy:
         for household in homeless_households:
             income = household.wage if household.employer_id is not None else 0.0
             max_affordable_rent = income * rent_share
+            planned_goods_budget = self._planned_consumption_budget_by_household.get(
+                household.household_id, 0.0
+            )
 
             # Find cheapest housing firm with available units that household can afford
             affordable_housing = [
                 (f, f.price) for f in housing_firms
-                if len(f.current_tenants) < f.max_rental_units and f.price <= max_affordable_rent
+                if len(f.current_tenants) < f.max_rental_units
+                and f.price <= max_affordable_rent
+                and household.cash_balance >= f.price + planned_goods_budget
             ]
 
             if affordable_housing:
@@ -3534,6 +3777,7 @@ class Economy:
         net = amount - tax
         if tax > 0:
             self.government.cash_balance += tax
+            self.government.record_revenue(tax)
         if net > 0:
             self.misc_firm_revenue += net
 
@@ -3784,6 +4028,7 @@ class Economy:
                     household.cash_balance -= household_cost
                 if government_cost > 0.0:
                     self.government.cash_balance -= government_cost
+                    self.government.record_spending(government_cost)
 
                 per_firm_sales[firm.firm_id]["units_sold"] += 1.0
                 per_firm_sales[firm.firm_id]["revenue"] += visit_price
@@ -3887,6 +4132,27 @@ class Economy:
 
     # ── Bank integration methods ──────────────────────────────────────
 
+    def _sync_firm_bank_loan_mirrors(self, firm_id: int) -> None:
+        """Refresh per-firm loan mirror fields from the bank ledger."""
+        bank = self.bank
+        firm = self.firm_lookup.get(firm_id)
+        if bank is None or firm is None:
+            return
+
+        active_firm_loans = [
+            loan for loan in bank.active_loans
+            if loan["borrower_type"] == "firm"
+            and loan["borrower_id"] == firm_id
+            and loan["remaining"] > 1e-6
+        ]
+        firm.bank_loan_principal = sum(float(loan["principal"]) for loan in active_firm_loans)
+        firm.bank_loan_remaining = sum(float(loan["remaining"]) for loan in active_firm_loans)
+        firm.bank_loan_payment_per_tick = sum(
+            float(loan["payment_per_tick"])
+            for loan in active_firm_loans
+            if loan["term_remaining"] > 0
+        )
+
     def _collect_bank_loan_repayments(self) -> None:
         """Phase 9.5: Collect repayments on all active bank loans.
 
@@ -3898,11 +4164,34 @@ class Economy:
         if bank is None:
             return
 
+        def _apply_repayment_inflow(loan: Dict[str, float], payment: float) -> None:
+            if loan["govt_backed"]:
+                self.government.cash_balance += payment
+                self.government.record_revenue(payment)
+                return
+
+            rate = float(loan.get("rate", 0.0))
+            if rate > 0.0:
+                bank.last_tick_interest_income += payment * (rate / (1.0 + rate))
+
+        def _write_off_firm_loan(loan: Dict[str, float], firm_id: int) -> None:
+            bank.write_off_loan(loan)
+            self._sync_firm_bank_loan_mirrors(firm_id)
+            bank.update_firm_credit_score(firm_id, -0.20)
+
+        def _write_off_household_loan(loan: Dict[str, float], household: HouseholdAgent) -> None:
+            bank.write_off_loan(loan)
+            bank.update_household_credit_score(household.household_id, -0.20)
+            household.medical_loan_remaining = 0.0
+            household.medical_loan_principal = 0.0
+            household.medical_loan_payment_per_tick = 0.0
+
         for loan in list(bank.active_loans):
             if loan["remaining"] <= 1e-6:
                 continue
 
             scheduled = loan["payment_per_tick"]
+            full_payment_due = min(scheduled, loan["remaining"])
             if loan["borrower_type"] == "firm":
                 firm = self.firm_lookup.get(loan["borrower_id"])
                 if firm is None:
@@ -3910,14 +4199,25 @@ class Economy:
                     bank.write_off_loan(loan)
                     bank.update_firm_credit_score(loan["borrower_id"], -0.20)
                     continue
-                payment = min(scheduled, loan["remaining"], max(0.0, firm.cash_balance))
+                payment = min(full_payment_due, max(0.0, firm.cash_balance))
                 if payment > 1e-6:
                     firm.cash_balance -= payment
                     bank.collect_repayment(loan, payment)
-                    bank.update_firm_credit_score(firm.firm_id, +0.01)
+                    _apply_repayment_inflow(loan, payment)
+                    if payment >= full_payment_due - 0.01:
+                        loan["missed_payments"] = 0
+                        bank.update_firm_credit_score(firm.firm_id, +0.01)
+                    else:
+                        loan["missed_payments"] = loan.get("missed_payments", 0) + 1
+                        bank.update_firm_credit_score(firm.firm_id, -0.02)
+                        if loan["missed_payments"] >= 12:
+                            _write_off_firm_loan(loan, firm.firm_id)
+                    self._sync_firm_bank_loan_mirrors(firm.firm_id)
                 else:
                     loan["missed_payments"] = loan.get("missed_payments", 0) + 1
                     bank.update_firm_credit_score(loan["borrower_id"], -0.05)
+                    if loan["missed_payments"] >= 12:
+                        _write_off_firm_loan(loan, loan["borrower_id"])
 
             elif loan["borrower_type"] == "household":
                 hh = self.household_lookup.get(loan["borrower_id"])
@@ -3925,28 +4225,32 @@ class Economy:
                     bank.write_off_loan(loan)
                     bank.update_household_credit_score(loan["borrower_id"], -0.20)
                     continue
-                payment = min(scheduled, loan["remaining"], max(0.0, hh.cash_balance))
+                payment = min(full_payment_due, max(0.0, hh.cash_balance))
                 if payment > 1e-6:
                     hh.cash_balance -= payment
                     # Also update the household's medical_loan_remaining mirror field
                     hh.medical_loan_remaining = max(0.0, hh.medical_loan_remaining - payment)
-                    if hh.medical_loan_remaining <= 1e-6:
+                    if hh.medical_loan_remaining <= 1e-6 and payment >= full_payment_due - 0.01:
                         hh.medical_loan_remaining = 0.0
                         hh.medical_loan_principal = 0.0
                         hh.medical_loan_payment_per_tick = 0.0
                     bank.collect_repayment(loan, payment)
-                    bank.update_household_credit_score(hh.household_id, +0.01)
+                    _apply_repayment_inflow(loan, payment)
+                    if payment >= full_payment_due - 0.01:
+                        loan["missed_payments"] = 0
+                        bank.update_household_credit_score(hh.household_id, +0.01)
+                    else:
+                        loan["missed_payments"] = loan.get("missed_payments", 0) + 1
+                        bank.update_household_credit_score(hh.household_id, -0.02)
+                        if loan["missed_payments"] >= 8:
+                            _write_off_household_loan(loan, hh)
                 else:
                     loan["missed_payments"] = loan.get("missed_payments", 0) + 1
                     bank.update_household_credit_score(loan["borrower_id"], -0.05)
 
                     # Household default: 8 consecutive missed payments
                     if loan["missed_payments"] >= 8:
-                        bank.write_off_loan(loan)
-                        bank.update_household_credit_score(loan["borrower_id"], -0.20)
-                        hh.medical_loan_remaining = 0.0
-                        hh.medical_loan_principal = 0.0
-                        hh.medical_loan_payment_per_tick = 0.0
+                        _write_off_household_loan(loan, hh)
 
     def _process_bank_deposits(self) -> None:
         """Phase 11.3: Sweep excess household cash into bank deposits and pay interest.
@@ -3964,13 +4268,14 @@ class Economy:
         if bank is None:
             return
 
+        starting_supply = self._compute_total_money_supply()
+
         min_wage = self.government.get_minimum_wage()
         for hh in self.households:
             # Pay interest on existing deposits
             if hh.bank_deposit > 0.0:
                 interest = bank.pay_deposit_interest(hh.bank_deposit)
                 hh.bank_deposit += interest
-                hh.cash_balance += interest
 
             # Per-household liquidity buffer: buffer_weeks × estimated weekly spending
             weekly_spend = max(hh.last_consumption_spending, min_wage, 50.0)
@@ -3983,6 +4288,7 @@ class Economy:
                 if deposit_amount > 1.0:  # Don't bother with dust
                     hh.cash_balance -= deposit_amount
                     hh.bank_deposit += deposit_amount
+                    self._tick_deposit_transfer_volume += deposit_amount
                     bank.accept_deposit(hh.household_id, deposit_amount)
             elif hh.cash_balance < liquidity_floor * 0.5 and hh.bank_deposit > 0.0:
                 # Cash critically low — withdraw from deposits
@@ -3991,6 +4297,9 @@ class Economy:
                 actual = bank.withdraw(hh.household_id, withdraw)
                 hh.bank_deposit -= actual
                 hh.cash_balance += actual
+                self._tick_deposit_transfer_volume += actual
+
+        self._tick_deposit_transfer_net += self._compute_total_money_supply() - starting_supply
 
     def _update_credit_scores(self) -> None:
         """Phase 11.4: Periodic credit score adjustments based on financial health signals.
@@ -4012,6 +4321,15 @@ class Economy:
                 bid = loan["borrower_id"]
                 firm_debt_map[bid] = firm_debt_map.get(bid, 0.0) + loan["remaining"]
 
+        category_quality_samples: Dict[str, List[float]] = {}
+        for firm in self.firms:
+            category_quality_samples.setdefault(firm.good_category, []).append(firm.quality_level)
+        category_avg_quality = {
+            category: (sum(samples) / len(samples))
+            for category, samples in category_quality_samples.items()
+            if samples
+        }
+
         for firm in self.firms:
             fid = firm.firm_id
 
@@ -4032,8 +4350,15 @@ class Economy:
 
             # High leverage warning (O(1) lookup instead of O(loans) scan)
             existing_debt = firm_debt_map.get(fid, 0.0)
-            if existing_debt > 3.0 * max(firm.trailing_revenue_12t, 1.0):
+            if firm.trailing_revenue_12t > 0.0 and existing_debt > 3.0 * firm.trailing_revenue_12t:
                 bank.update_firm_credit_score(fid, -0.02)
+            elif firm.trailing_revenue_12t <= 0.0 and existing_debt > 0.0:
+                bank.update_firm_credit_score(fid, -0.02)
+
+            if len(category_quality_samples.get(firm.good_category, [])) > 1:
+                avg_quality = category_avg_quality.get(firm.good_category, 0.0)
+                if firm.quality_level > avg_quality:
+                    bank.update_firm_credit_score(fid, +0.005)
 
         for hh in self.households:
             hid = hh.household_id
@@ -4385,6 +4710,7 @@ class Economy:
             metrics["bank_new_loans_this_tick"] = bank.last_tick_new_loans
             metrics["bank_defaults_this_tick"] = bank.last_tick_defaults
             metrics["bank_repayments_this_tick"] = bank.last_tick_repayments
+            metrics["bank_interest_income_this_tick"] = bank.last_tick_interest_income
             metrics["bank_deposit_interest_this_tick"] = bank.last_tick_deposit_interest_paid
 
         # Total wealth in economy
@@ -4395,6 +4721,15 @@ class Economy:
             metrics["government_cash"] +
             bank_reserves
         )
+        metrics["money_supply"] = self.last_tick_money_supply
+        metrics["money_drift"] = self.last_tick_money_drift
+        metrics["money_delta_this_tick"] = self.last_tick_money_delta
+        metrics["money_unexplained_flow"] = self.last_tick_money_unexplained_flow
+        metrics["deposit_transfer_volume"] = self._tick_deposit_transfer_volume
+        metrics["education_spending_recycled"] = self._tick_education_spending
+        metrics["housing_expansion_recycled"] = self._tick_housing_expansion_spending
+        metrics["initial_money_supply"] = self.initial_money_supply
+        metrics["government_net_injection"] = float(getattr(gov, "cumulative_net_injection", 0.0))
 
         # Current tick
         metrics["current_tick"] = self.current_tick

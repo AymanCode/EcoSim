@@ -21,11 +21,21 @@ def seed_everything(seed: int) -> None:
 
 def total_money(economy: Economy) -> float:
     household_cash = sum(h.cash_balance for h in economy.households)
+    household_deposits = sum(h.bank_deposit for h in economy.households)
     firm_cash = sum(f.cash_balance for f in economy.firms)
     queued_firm_cash = sum(f.cash_balance for f in getattr(economy, "queued_firms", []))
     government_cash = economy.government.cash_balance
+    bank_reserves = economy.bank.cash_reserves if getattr(economy, "bank", None) is not None else 0.0
     misc_pool = getattr(economy, "misc_firm_revenue", 0.0)
-    return household_cash + firm_cash + queued_firm_cash + government_cash + misc_pool
+    return (
+        household_cash
+        + household_deposits
+        + firm_cash
+        + queued_firm_cash
+        + government_cash
+        + bank_reserves
+        + misc_pool
+    )
 
 
 @pytest.fixture
