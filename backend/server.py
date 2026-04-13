@@ -96,6 +96,15 @@ except Exception as exc:  # pragma: no cover - best-effort optional dependency
     TickDiagnostic = None
     create_warehouse_manager = None
 
+_LLM_IMPORT_ERROR = None
+try:
+    from llm_government import LLMGovernmentAdvisor
+    from llm_provider import create_provider
+except Exception as exc:  # pragma: no cover - optional dependency path
+    _LLM_IMPORT_ERROR = exc
+    LLMGovernmentAdvisor = None
+    create_provider = None
+
 # Setup logging with rotation
 log_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "logs")
 os.makedirs(log_dir, exist_ok=True)
@@ -138,6 +147,7 @@ class SetupConfig(BaseModel):
     num_households: int = Field(default=1000, ge=3, le=100_000)
     num_firms: int = Field(default=5, ge=1, le=1_000)
     seed: Optional[int] = Field(default=None, ge=0, le=2_147_483_647)
+    enable_llm_government: Optional[bool] = None
     disable_stabilizers: bool = False
     disabled_agents: List[str] = Field(default_factory=list)
 
@@ -171,6 +181,152 @@ def _get_warehouse_reader():
     except Exception as exc:
         raise HTTPException(status_code=503, detail=f"Warehouse reader initialization failed: {exc}") from exc
 
+
+def _decode_json_payload(payload: Any) -> Any:
+    """Return a JSON-safe decoded payload for warehouse reads."""
+    if payload is None:
+        return None
+    if isinstance(payload, (dict, list, int, float, bool)):
+        return payload
+    if isinstance(payload, str):
+        try:
+            return json.loads(payload)
+        except json.JSONDecodeError:
+            return payload
+    return payload
+
+
+def _normalize_policy_key(action_type: Optional[str]) -> Optional[str]:
+    """Map policy action types to canonical policy-state keys."""
+    if not action_type:
+        return None
+    mapping = {
+        "wage_tax_rate": "wage_tax",
+        "wage_tax": "wage_tax",
+        "profit_tax_rate": "profit_tax",
+        "profit_tax": "profit_tax",
+        "wealth_tax_rate": "wealth_tax_rate",
+        "wealth_tax": "wealth_tax_rate",
+        "wealth_tax_threshold": "wealth_tax_threshold",
+        "unemployment_benefit_rate": "unemployment_benefit_rate",
+        "unemployment_benefit_level": "unemployment_benefit_rate",
+        "minimum_wage": "minimum_wage",
+        "universal_basic_income": "universal_basic_income",
+        "ubi_amount": "universal_basic_income",
+        "inflation_rate": "inflation_rate",
+        "target_inflation_rate": "inflation_rate",
+        "birth_rate": "birth_rate",
+        "agent_stabilizers_enabled": "agent_stabilizers_enabled",
+        "stabilizers_enabled": "agent_stabilizers_enabled",
+    }
+    return mapping.get(action_type, action_type)
+
+
+def _extract_policy_value(policy_key: str, payload: Any) -> Any:
+    """Pull the most likely policy value from a stored payload."""
+    if not isinstance(payload, dict):
+        return payload
+    if "value" in payload:
+        return payload["value"]
+    if policy_key in payload:
+        return payload[policy_key]
+    if policy_key == "agent_stabilizers_enabled" and "enabled" in payload:
+        return payload["enabled"]
+    if len(payload) == 1:
+        return next(iter(payload.values()))
+    return None
+
+
+def _build_policy_state(policy_config: Optional[PolicyConfig], policy_actions: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """Reconstruct the latest policy state from the initial config plus actions."""
+    state = dict(vars(policy_config)) if policy_config is not None else {}
+    for action in policy_actions:
+        policy_key = _normalize_policy_key(action.get("action_type"))
+        if not policy_key:
+            continue
+        payload = _decode_json_payload(action.get("payload_json"))
+        value = _extract_policy_value(policy_key, payload)
+        if value is not None:
+            state[policy_key] = value
+    return state
+
+
+def _row_at_or_before(rows: List[Dict[str, Any]], target_tick: int) -> Optional[Dict[str, Any]]:
+    """Return the latest row whose tick is <= target_tick."""
+    for row in reversed(rows):
+        row_tick = row.get("tick")
+        if row_tick is not None and int(row_tick) <= target_tick:
+            return row
+    return None
+
+
+def _delta_between_rows(
+    rows: List[Dict[str, Any]],
+    field: str,
+    baseline_tick: int,
+    evaluation_tick: int,
+) -> Optional[float]:
+    """Compute a scalar delta between the nearest rows at or before two ticks."""
+    baseline_row = _row_at_or_before(rows, baseline_tick)
+    evaluation_row = _row_at_or_before(rows, evaluation_tick)
+    if baseline_row is None or evaluation_row is None:
+        return None
+    baseline_value = baseline_row.get(field)
+    evaluation_value = evaluation_row.get(field)
+    if baseline_value is None or evaluation_value is None:
+        return None
+    return round(float(evaluation_value) - float(baseline_value), 4)
+
+
+def _compute_policy_impact_memory(
+    policy_actions: List[Dict[str, Any]],
+    tick_metrics: List[Dict[str, Any]],
+    decision_features: List[Dict[str, Any]],
+    tick_diagnostics: List[Dict[str, Any]],
+    target_tick: int,
+    impact_horizon: int,
+) -> List[Dict[str, Any]]:
+    """Attach compact observed post-action deltas to recent policy actions."""
+    enriched_actions: List[Dict[str, Any]] = []
+    for action in policy_actions:
+        action_tick = int(action.get("tick", 0))
+        baseline_tick = max(0, action_tick - 1)
+        evaluation_tick = min(target_tick, action_tick + impact_horizon)
+        payload = _decode_json_payload(action.get("payload_json"))
+        enriched_actions.append(
+            {
+                "tick": action_tick,
+                "actor": action.get("actor"),
+                "actionType": action.get("action_type"),
+                "policyKey": _normalize_policy_key(action.get("action_type")),
+                "payload": payload,
+                "reasonSummary": action.get("reason_summary"),
+                "eventKey": action.get("event_key"),
+                "impact": {
+                    "baselineTick": baseline_tick,
+                    "evaluationTick": evaluation_tick,
+                    "ticksObserved": max(0, evaluation_tick - action_tick),
+                    "unemploymentRateDelta": _delta_between_rows(
+                        tick_metrics, "unemployment_rate", baseline_tick, evaluation_tick
+                    ),
+                    "gdpDelta": _delta_between_rows(tick_metrics, "gdp", baseline_tick, evaluation_tick),
+                    "avgHealthDelta": _delta_between_rows(
+                        tick_metrics, "avg_health", baseline_tick, evaluation_tick
+                    ),
+                    "consumerDistressDelta": _delta_between_rows(
+                        decision_features, "consumer_distress_score", baseline_tick, evaluation_tick
+                    ),
+                    "healthcarePressureDelta": _delta_between_rows(
+                        decision_features, "healthcare_pressure", baseline_tick, evaluation_tick
+                    ),
+                    "shortageBreadthDelta": _delta_between_rows(
+                        tick_diagnostics, "shortage_active_sector_count", baseline_tick, evaluation_tick
+                    ),
+                },
+            }
+        )
+    return enriched_actions
+
 class SimulationManager:
     """Owns the ``Economy`` instance and drives the tick loop.
 
@@ -184,6 +340,12 @@ class SimulationManager:
     ``SimulationManager`` instance can be reset and re-initialised
     without restarting the server process.
     """
+
+    # Constants for tracked subjects
+    TRACKED_HOUSEHOLDS_COUNT = 12
+    TRACKED_FIRMS_PRIVATE = 5
+    TRACKED_FIRMS_BASELINE = 2
+    TRACKED_FIRMS_TOTAL = 7
 
     def __init__(self):
         self.economy = None
@@ -244,6 +406,41 @@ class SimulationManager:
         self.last_fully_persisted_tick = 0
         self._previous_unemployment_rate = 0.0
         self._previous_avg_health = 0.0
+        self.llm_provider = None
+        self.llm_government = None
+        self.latest_government_decision: Optional[Dict[str, Any]] = None
+
+    @staticmethod
+    def _infer_sector_from_good(good_name: str) -> str:
+        """Infer sector category from good name."""
+        lower_good = good_name.lower()
+        if "housing" in lower_good:
+            return "Housing"
+        elif "service" in lower_good:
+            return "Services"
+        elif "health" in lower_good or "medical" in lower_good:
+            return "Healthcare"
+        return "Food"
+
+    def _calculate_healthcare_queue_depth(self) -> int:
+        """Sum healthcare queue depth across all healthcare firms."""
+        if not self.economy:
+            return 0
+        return int(
+            sum(
+                len(getattr(firm, "healthcare_queue", []))
+                for firm in self.economy.firms
+                if (firm.good_category or "").lower() == "healthcare"
+            )
+        )
+
+    def _build_stabilizer_state_dict(self, households: bool, firms: bool, government: bool) -> Dict[str, bool]:
+        """Build stabilizer state dictionary."""
+        return {
+            "households": households,
+            "firms": firms,
+            "government": government
+        }
 
     def _open_warehouse_run(self, config: Dict[str, Any], num_households: int, num_firms: int):
         """Initialize persistence backend and create a new run record."""
@@ -468,14 +665,7 @@ class SimulationManager:
         for household in self.economy.households:
             total_net_worth += household.cash_balance
             for good, qty in household.goods_inventory.items():
-                sector = "Food"
-                lower_good = good.lower()
-                if "housing" in lower_good:
-                    sector = "Housing"
-                elif "service" in lower_good:
-                    sector = "Services"
-                elif "health" in lower_good or "medical" in lower_good:
-                    sector = "Healthcare"
+                sector = self._infer_sector_from_good(good)
                 total_net_worth += float(qty) * float(price_by_sector.get(sector, 0.0))
 
         labor_diag = getattr(self.economy, "last_labor_diagnostics", {}) or {}
@@ -490,13 +680,7 @@ class SimulationManager:
         open_vacancies = int(sum(max(0, row["vacancies"]) for row in sector_rollups))
         total_hires = int(sum(max(0, int(getattr(firm, "last_tick_actual_hires", 0))) for firm in self.economy.firms))
         total_layoffs = int(sum(len(getattr(firm, "planned_layoffs_ids", [])) for firm in self.economy.firms))
-        healthcare_queue_depth = int(
-            sum(
-                len(getattr(firm, "healthcare_queue", []))
-                for firm in self.economy.firms
-                if (firm.good_category or "").lower() == "healthcare"
-            )
-        )
+        healthcare_queue_depth = self._calculate_healthcare_queue_depth()
         struggling_firms = int(sum(1 for firm in self.economy.firms if firm.cash_balance <= 0))
 
         tick_metric = TickMetrics(
@@ -589,13 +773,11 @@ class SimulationManager:
         open_vacancies = 0
         total_hires = 0
         total_layoffs = 0
-        healthcare_queue_depth = 0
         for firm in self.economy.firms:
             open_vacancies += max(0, int(getattr(firm, "planned_hires_count", 0)))
             total_hires += max(0, int(getattr(firm, "last_tick_actual_hires", 0)))
             total_layoffs += len(getattr(firm, "planned_layoffs_ids", []))
-            if (firm.good_category or "").lower() == "healthcare":
-                healthcare_queue_depth += len(getattr(firm, "healthcare_queue", []))
+        healthcare_queue_depth = self._calculate_healthcare_queue_depth()
 
         return SimpleNamespace(
             tick=self.tick,
@@ -1106,7 +1288,29 @@ class SimulationManager:
             "birth_rate": float(getattr(gov, "birth_rate", 0.0)),
         }
 
-    def _append_policy_change_ui_record(self, policy: str, value: float, reason: str) -> None:
+    def _snapshot_government_levers(self) -> Dict[str, Any]:
+        """Capture the discrete government lever surface for LLM policy changes."""
+        if not self.economy:
+            return {}
+
+        gov = self.economy.government
+        return {
+            "wage_tax_rate": getattr(gov, "wage_tax_rate", 0.15),
+            "profit_tax_rate": getattr(gov, "profit_tax_rate", 0.20),
+            "investment_tax_rate": getattr(gov, "investment_tax_rate", 0.10),
+            "benefit_level": getattr(gov, "benefit_level", "neutral"),
+            "public_works": getattr(gov, "public_works_toggle", "off"),
+            "minimum_wage_policy": getattr(gov, "minimum_wage_policy", "neutral"),
+            "sector_subsidy_target": getattr(gov, "sector_subsidy_target", "none"),
+            "sector_subsidy_level": int(getattr(gov, "sector_subsidy_level", 0)),
+            "infrastructure_spending": getattr(gov, "infrastructure_spending", "none"),
+            "technology_spending": getattr(gov, "technology_spending", "none"),
+            "bailout_policy": getattr(gov, "bailout_policy", "off"),
+            "bailout_target": getattr(gov, "bailout_target", "none"),
+            "bailout_budget": int(getattr(gov, "bailout_budget", 0)),
+        }
+
+    def _append_policy_change_ui_record(self, policy: str, value: Any, reason: str) -> None:
         """Maintain the small recent-policy list used by the frontend."""
         change_record = {
             "tick": self.tick,
@@ -1117,6 +1321,70 @@ class SimulationManager:
         self.policy_changes.insert(0, change_record)
         if len(self.policy_changes) > 5:
             self.policy_changes.pop()
+
+    async def _ensure_llm_government(self) -> bool:
+        """Lazily initialize the provider and government agent."""
+        if not CONFIG.llm.enable_llm_government:
+            return False
+        if self.llm_government is not None:
+            return True
+        if create_provider is None or LLMGovernmentAdvisor is None:
+            logger.warning("LLM government unavailable: %s", _LLM_IMPORT_ERROR)
+            return False
+
+        try:
+            self.llm_provider = await create_provider(CONFIG.llm)
+            self.llm_government = LLMGovernmentAdvisor(self.llm_provider, CONFIG.llm)
+            if self.economy is not None:
+                self.economy.llm_government = self.llm_government
+            logger.info("Initialized LLM government (%s).", getattr(self.llm_provider, "name", "unknown"))
+            return True
+        except Exception as exc:
+            logger.error("Failed to initialize LLM government: %s", exc)
+            self.llm_provider = None
+            self.llm_government = None
+            return False
+
+    async def _run_llm_government_if_due(self) -> Optional[Dict[str, Any]]:
+        """Run one LLM government cycle when the configured interval is reached."""
+        if not self.economy or not self.economy.should_run_llm_government():
+            return None
+        if not await self._ensure_llm_government():
+            return None
+
+        lever_before = self._snapshot_government_levers()
+        result = await self.llm_government.decide(self.economy)
+        lever_after = self._snapshot_government_levers()
+        result["tick"] = int(self.tick)
+        result["model"] = getattr(CONFIG.llm, "government_model", "")
+        result["philosophy"] = getattr(CONFIG.llm, "government_philosophy", "")
+        self.latest_government_decision = result
+        self.economy.record_llm_government_decision(result)
+
+        decisions = result.get("decisions", {}) or {}
+        if decisions:
+            reasoning = str(result.get("reasoning", ""))
+            provider_name = str(result.get("provider", "unknown"))
+            elapsed_ms = float(result.get("elapsed_ms", 0.0) or 0.0)
+            for lever, after_value in decisions.items():
+                before_value = lever_before.get(lever)
+                reason = f"LLM government set {lever} from {before_value} to {after_value}. {reasoning}"
+                self._append_policy_change_ui_record(lever, after_value, reason)
+                self._buffer_policy_action(
+                    actor="government_llm",
+                    action_type=str(lever),
+                    payload={
+                        "value": after_value,
+                        "before": before_value,
+                        "after": lever_after.get(lever, after_value),
+                        "model": getattr(CONFIG.llm, "government_model", ""),
+                        "provider": provider_name,
+                        "elapsed_ms": elapsed_ms,
+                        "parse_ok": bool(result.get("parse_ok", False)),
+                    },
+                    reason_summary=reasoning,
+                )
+        return result
 
     def _buffer_policy_action(self, actor: str, action_type: str, payload: Dict[str, Any], reason_summary: str) -> None:
         """Append one policy action to the warehouse batch."""
@@ -1306,6 +1574,8 @@ class SimulationManager:
         num_firms = validated.num_firms
         seed = int(validated.seed if validated.seed is not None else getattr(CONFIG, "random_seed", 0))
         CONFIG.random_seed = seed
+        if validated.enable_llm_government is not None:
+            CONFIG.llm.enable_llm_government = bool(validated.enable_llm_government)
         random.seed(seed)
         np.random.seed(seed)
         
@@ -1328,22 +1598,14 @@ class SimulationManager:
             households = not ("all" in disabled_agents or "households" in disabled_agents)
             firms = not ("all" in disabled_agents or "firms" in disabled_agents)
             government = not ("all" in disabled_agents or "government" in disabled_agents)
-            self.stabilizer_state = {
-                "households": households,
-                "firms": firms,
-                "government": government
-            }
+            self.stabilizer_state = self._build_stabilizer_state_dict(households, firms, government)
         else:
             self.economy.configure_stabilizers(
                 households=True,
                 firms=True,
                 government=True
             )
-            self.stabilizer_state = {
-                "households": True,
-                "firms": True,
-                "government": True
-            }
+            self.stabilizer_state = self._build_stabilizer_state_dict(True, True, True)
         
         # Apply initial tax rates if provided
         if "wage_tax" in config:
@@ -1376,16 +1638,27 @@ class SimulationManager:
         self.cached_mean_prices = None
         self.cached_supplies = None
         self.cached_total_net_worth = None
+        if self.llm_provider is not None and hasattr(self.llm_provider, "close"):
+            try:
+                asyncio.get_running_loop().create_task(self.llm_provider.close())
+            except RuntimeError:
+                pass
+        self.llm_provider = None
+        self.llm_government = None
+        self.latest_government_decision = None
         for window in self.decision_feature_windows.values():
             window.clear()
         self.live_decision_context_history.clear()
         self.latest_decision_context = None
         self._warehouse_exact_household_stats = None
         self.last_fully_persisted_tick = 0
+        if self.economy is not None:
+            self.economy.llm_government = None
+            self.economy.last_llm_government_decision = None
 
-        # Select 12 random households to track (more diverse sample)
+        # Select random households to track (more diverse sample)
         if self.economy.households:
-            self.tracked_household_ids = [h.household_id for h in random.sample(self.economy.households, min(12, len(self.economy.households)))]
+            self.tracked_household_ids = [h.household_id for h in random.sample(self.economy.households, min(self.TRACKED_HOUSEHOLDS_COUNT, len(self.economy.households)))]
         else:
             self.tracked_household_ids = []
 
@@ -1424,11 +1697,7 @@ class SimulationManager:
 
         if not disable_flag:
             self.economy.configure_stabilizers(True, True, True)
-            self.stabilizer_state = {
-                "households": True,
-                "firms": True,
-                "government": True
-            }
+            self.stabilizer_state = self._build_stabilizer_state_dict(True, True, True)
             return
 
         disabled = {agent.lower() for agent in disabled_agents}
@@ -1443,11 +1712,7 @@ class SimulationManager:
             firms=firms_enabled,
             government=government_enabled
         )
-        self.stabilizer_state = {
-            "households": households_enabled,
-            "firms": firms_enabled,
-            "government": government_enabled
-        }
+        self.stabilizer_state = self._build_stabilizer_state_dict(households_enabled, firms_enabled, government_enabled)
 
     def _select_tracked_firms(self):
         """Ensure tracked firm list highlights top private performers plus baselines."""
@@ -1464,22 +1729,22 @@ class SimulationManager:
         baseline_firms.sort(key=lambda f: f.cash_balance, reverse=True)
 
         selected = []
-        for f in private_firms[:5]:
+        for f in private_firms[:self.TRACKED_FIRMS_PRIVATE]:
             selected.append(f.firm_id)
-        for f in baseline_firms[:2]:
+        for f in baseline_firms[:self.TRACKED_FIRMS_BASELINE]:
             if f.firm_id not in selected:
                 selected.append(f.firm_id)
 
         # Fallback to additional private firms if we still have slots
-        if len(selected) < 7:
-            extra = [f.firm_id for f in private_firms[5:]] + [f.firm_id for f in baseline_firms[2:]]
+        if len(selected) < self.TRACKED_FIRMS_TOTAL:
+            extra = [f.firm_id for f in private_firms[self.TRACKED_FIRMS_PRIVATE:]] + [f.firm_id for f in baseline_firms[self.TRACKED_FIRMS_BASELINE:]]
             for fid in extra:
                 if fid not in selected:
                     selected.append(fid)
-                if len(selected) >= 7:
+                if len(selected) >= self.TRACKED_FIRMS_TOTAL:
                     break
 
-        selected = selected[:7]
+        selected = selected[:self.TRACKED_FIRMS_TOTAL]
         self.tracked_firm_ids = selected
 
         # Ensure histories exist for new selections
@@ -1522,8 +1787,13 @@ class SimulationManager:
                 )
                 self._buffer_simulation_events()
                 sample_history = (self.tick == 1) or (self.tick % history_stride == 0)
-                
-                recompute_metrics = (self.tick % self.metrics_stride == 0) or self.cached_stats is None
+
+                llm_decision_due = self.economy.should_run_llm_government()
+                recompute_metrics = (
+                    (self.tick % self.metrics_stride == 0)
+                    or self.cached_stats is None
+                    or llm_decision_due
+                )
                 if recompute_metrics:
                     econ_metrics = self.economy.get_economic_metrics()
                     stats = compute_household_stats(self.economy.households)
@@ -1555,6 +1825,18 @@ class SimulationManager:
                 gov_investments = self.economy.last_tick_gov_investments
                 gov_owned_firms = sum(1 for f in self.economy.firms if f.is_baseline)
                 active_loans = sum(1 for f in self.economy.firms if getattr(f, "government_loan_remaining", 0) > 0)
+
+                llm_metrics_snapshot = dict(econ_metrics)
+                llm_metrics_snapshot.update(
+                    {
+                        "current_tick": int(self.tick),
+                        "government_cash": float(current_gov_cash),
+                        "gov_revenue_this_tick": float(gov_revenue),
+                        "gov_spending_this_tick": float(gov_transfers + gov_investments),
+                        "gdp_this_tick": float(gdp),
+                    }
+                )
+                self.economy.append_metrics_snapshot(llm_metrics_snapshot, tick=self.tick)
                 
                 if recompute_metrics:
                     # Market Metrics (Prices & Supply)
@@ -1584,16 +1866,7 @@ class SimulationManager:
                     for h in self.economy.households:
                         total_net_worth += h.cash_balance
                         for good, qty in h.goods_inventory.items():
-                            # Infer category to get price
-                            cat = "Food"  # Default
-                            lower_good = good.lower()
-                            if "housing" in lower_good:
-                                cat = "Housing"
-                            elif "service" in lower_good:
-                                cat = "Services"
-                            elif "health" in lower_good or "medical" in lower_good:
-                                cat = "Healthcare"
-
+                            cat = self._infer_sector_from_good(good)
                             price = mean_prices.get(cat, 0.0)
                             total_net_worth += qty * price
 
@@ -1647,14 +1920,7 @@ class SimulationManager:
                         # Calculate Personal Net Worth
                         personal_net_worth = h.cash_balance
                         for good, qty in h.goods_inventory.items():
-                            cat = "Food"
-                            lower_good = good.lower()
-                            if "housing" in lower_good:
-                                cat = "Housing"
-                            elif "service" in lower_good:
-                                cat = "Services"
-                            elif "health" in lower_good or "medical" in lower_good:
-                                cat = "Healthcare"
+                            cat = self._infer_sector_from_good(good)
                             personal_net_worth += qty * mean_prices.get(cat, 0.0)
 
                         # Explain expected wage dynamics for UI transparency.
@@ -1780,6 +2046,7 @@ class SimulationManager:
                             "unemploymentDuration": int(h.unemployment_duration),
                             "canWork": bool(h.can_work),
                             "needs": {
+                                # Check both cases due to potential case-sensitivity inconsistency in goods_inventory
                                 "food": h.goods_inventory.get("Food", 0) + h.goods_inventory.get("food", 0),
                                 "housing": 1 if h.owns_housing or h.renting_from_firm_id else 0,
                                 "healthcare": h.goods_inventory.get("Healthcare", 0) + h.goods_inventory.get("healthcare", 0),
@@ -1963,6 +2230,9 @@ class SimulationManager:
                         source=live_decision_source,
                     )
 
+                if llm_decision_due:
+                    await self._run_llm_government_if_due()
+
                 new_logs = [{
                     "tick": self.tick,
                     "type": "SYS",
@@ -1984,6 +2254,7 @@ class SimulationManager:
                         "activeLoans": active_loans,
                         "bondPurchases": gov_investments / 1000000.0,  # Proxy bond purchases as govt investments
                         "policyChanges": self.policy_changes,
+                        "latestGovernmentDecision": self.latest_government_decision,
                         "happiness": stats["mean_happiness"] * 100,
                         "avgWage": stats["mean_wage"],
                         "avgExpectedWage": stats.get("mean_expected_wage", 0.0),
@@ -2193,6 +2464,22 @@ async def get_run_decision_features(
             warehouse.close()
 
 
+@app.get("/warehouse/runs/{run_id}/tick-diagnostics")
+async def get_run_tick_diagnostics(
+    run_id: str,
+    tick_start: int = Query(default=0, ge=0),
+    tick_end: int = Query(default=999999, ge=0),
+):
+    """Fetch ordered per-tick explainability diagnostics for one run."""
+    warehouse, should_close = _get_warehouse_reader()
+    try:
+        diagnostics = warehouse.get_tick_diagnostics(run_id, tick_start=tick_start, tick_end=tick_end)
+        return {"runId": run_id, "tickDiagnostics": diagnostics, "count": len(diagnostics)}
+    finally:
+        if should_close:
+            warehouse.close()
+
+
 @app.get("/warehouse/runs/{run_id}/sector-metrics")
 async def get_run_sector_metrics(
     run_id: str,
@@ -2221,6 +2508,144 @@ async def get_run_sector_metrics(
             "sectorMetrics": rows,
             "summary": summary,
             "count": len(rows),
+        }
+    finally:
+        if should_close:
+            warehouse.close()
+
+
+@app.get("/warehouse/runs/{run_id}/sector-shortages")
+async def get_run_sector_shortages(
+    run_id: str,
+    tick_start: int = Query(default=0, ge=0),
+    tick_end: int = Query(default=999999, ge=0),
+    sector: Optional[str] = Query(default=None),
+):
+    """Fetch ordered sector shortage diagnostics for one run."""
+    warehouse, should_close = _get_warehouse_reader()
+    try:
+        diagnostics = warehouse.get_sector_shortage_diagnostics(
+            run_id,
+            tick_start=tick_start,
+            tick_end=tick_end,
+            sector=sector,
+        )
+        return {
+            "runId": run_id,
+            "sector": sector,
+            "sectorShortages": diagnostics,
+            "count": len(diagnostics),
+        }
+    finally:
+        if should_close:
+            warehouse.close()
+
+
+@app.get("/warehouse/runs/{run_id}/regime-events")
+async def get_run_regime_events(
+    run_id: str,
+    tick_start: int = Query(default=0, ge=0),
+    tick_end: int = Query(default=999999, ge=0),
+    event_type: Optional[str] = Query(default=None),
+    entity_type: Optional[str] = Query(default=None),
+):
+    """Fetch ordered regime/state transition events for one run."""
+    warehouse, should_close = _get_warehouse_reader()
+    try:
+        events = warehouse.get_regime_events(
+            run_id,
+            tick_start=tick_start,
+            tick_end=tick_end,
+            event_type=event_type,
+            entity_type=entity_type,
+        )
+        return {
+            "runId": run_id,
+            "eventType": event_type,
+            "entityType": entity_type,
+            "regimeEvents": events,
+            "count": len(events),
+        }
+    finally:
+        if should_close:
+            warehouse.close()
+
+
+@app.get("/warehouse/runs/{run_id}/policy-context")
+async def get_run_policy_context(
+    run_id: str,
+    tick: Optional[int] = Query(default=None, ge=0),
+    window: int = Query(default=20, ge=1, le=200),
+    policy_lookback: int = Query(default=12, ge=1, le=100),
+    impact_horizon: int = Query(default=12, ge=1, le=100),
+):
+    """Return a compact rolling policy context window for LLM/policy consumers."""
+    warehouse, should_close = _get_warehouse_reader()
+    try:
+        run = warehouse.get_run(run_id)
+        if run is None:
+            raise HTTPException(status_code=404, detail=f"Run '{run_id}' was not found.")
+
+        persisted_tick = int(getattr(run, "last_fully_persisted_tick", 0) or 0)
+        run_total_ticks = int(getattr(run, "total_ticks", 0) or 0)
+        target_tick = tick if tick is not None else max(persisted_tick, run_total_ticks, 0)
+        window_start = max(0, target_tick - window + 1)
+
+        all_policy_actions = warehouse.get_policy_actions(run_id, tick_start=0, tick_end=target_tick)
+        recent_policy_actions = all_policy_actions[-policy_lookback:]
+        earliest_policy_tick = min((int(action.get("tick", target_tick)) for action in recent_policy_actions), default=target_tick)
+        fetch_start = max(0, min(window_start, earliest_policy_tick - 1))
+
+        policy_config = warehouse.get_policy_config(run_id)
+        tick_metrics = warehouse.get_tick_metrics(run_id, tick_start=fetch_start, tick_end=target_tick)
+        decision_features = warehouse.get_decision_features(run_id, tick_start=fetch_start, tick_end=target_tick)
+        tick_diagnostics = warehouse.get_tick_diagnostics(run_id, tick_start=fetch_start, tick_end=target_tick)
+        sector_shortages = warehouse.get_sector_shortage_diagnostics(run_id, tick_start=window_start, tick_end=target_tick)
+        regime_events = warehouse.get_regime_events(run_id, tick_start=window_start, tick_end=target_tick)
+
+        policy_state = _build_policy_state(policy_config, all_policy_actions)
+        enriched_policy_actions = _compute_policy_impact_memory(
+            recent_policy_actions,
+            tick_metrics,
+            decision_features,
+            tick_diagnostics,
+            target_tick=target_tick,
+            impact_horizon=impact_horizon,
+        )
+
+        window_tick_metrics = [row for row in tick_metrics if int(row.get("tick", -1)) >= window_start]
+        window_decision_features = [row for row in decision_features if int(row.get("tick", -1)) >= window_start]
+        window_tick_diagnostics = [row for row in tick_diagnostics if int(row.get("tick", -1)) >= window_start]
+
+        current_tick_metrics = _row_at_or_before(window_tick_metrics or tick_metrics, target_tick)
+        current_decision_features = _row_at_or_before(window_decision_features or decision_features, target_tick)
+        current_tick_diagnostics = _row_at_or_before(window_tick_diagnostics or tick_diagnostics, target_tick)
+        current_sector_shortages = [row for row in sector_shortages if int(row.get("tick", -1)) == target_tick]
+
+        return {
+            "runId": run_id,
+            "tick": target_tick,
+            "windowStart": window_start,
+            "windowEnd": target_tick,
+            "policyLookback": policy_lookback,
+            "impactHorizon": impact_horizon,
+            "totalPolicyActionsSeen": len(all_policy_actions),
+            "policyConfig": dict(vars(policy_config)) if policy_config is not None else None,
+            "policyState": policy_state,
+            "current": {
+                "tickMetrics": current_tick_metrics,
+                "decisionFeatures": current_decision_features,
+                "tickDiagnostics": current_tick_diagnostics,
+                "sectorShortages": current_sector_shortages,
+            },
+            "windows": {
+                "tickMetrics": window_tick_metrics,
+                "decisionFeatures": window_decision_features,
+                "tickDiagnostics": window_tick_diagnostics,
+                "sectorShortages": sector_shortages,
+            },
+            "recentRegimeEvents": regime_events,
+            "recentPolicyActions": enriched_policy_actions,
         }
     finally:
         if should_close:
@@ -2328,5 +2753,5 @@ async def websocket_endpoint(websocket: WebSocket):
         logger.exception("WebSocket loop crashed")
         try:
             await websocket.send_json({"error": f"WebSocket error: {e}"})
-        except Exception:
-            pass
+        except Exception as send_error:
+            logger.debug(f"Failed to send error message to client: {send_error}")
