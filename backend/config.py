@@ -13,7 +13,7 @@ from typing import Dict, Tuple
 class TimeConfig:
     """Time-related constants."""
     ticks_per_year: int = 52  # One tick = one week
-    warmup_ticks: int = 52  # First year is warmup period
+    warmup_ticks: int = 10  # Short warmup to initialize prices and wages
 
 
 @dataclass
@@ -27,10 +27,10 @@ class HouseholdBehaviorConfig:
     unemployment_spend_sensitivity: float = 0.8
 
     # Per-household trait ranges (sampled once at initialization)
-    spending_tendency_range: Tuple[float, float] = (0.7, 1.3)
+    spending_tendency_range: Tuple[float, float] = (0.1, 5.0)  # Widened from (0.7,1.3) to match normalization range
     food_preference_range: Tuple[float, float] = (0.8, 1.2)
     services_preference_range: Tuple[float, float] = (0.8, 1.2)
-    housing_preference_range: Tuple[float, float] = (0.9, 1.1)
+    housing_preference_range: Tuple[float, float] = (0.4, 1.4)
     quality_lavishness_range: Tuple[float, float] = (0.8, 1.3)
     frugality_range: Tuple[float, float] = (0.7, 1.3)
     saving_tendency_range: Tuple[float, float] = (0.0, 1.0)
@@ -164,7 +164,13 @@ class HouseholdBehaviorConfig:
 
     # Wellbeing Updates - Employment (Feature 2: symmetric labor effects)
     employed_happiness_boost: float = 0.03   # Was 0.02; symmetric with unemployment
-    unemployed_happiness_penalty: float = 0.03
+    unemployed_happiness_penalty: float = 0.003  # Per-tick penalty for unemployment (was 0.03 — unused; now used)
+
+    # Wellbeing Updates - Relative wealth loss and food shortfall
+    # Relative wealth-loss: losing X% of cash hurts regardless of absolute level
+    wealth_loss_happiness_scaling: float = 0.01   # 10% cash loss → 0.001 happiness loss per tick
+    # Food shortfall: not meeting minimum food requirement hurts proportionally
+    food_shortfall_happiness_scaling: float = 0.003  # 100% food shortfall → 0.003 happiness loss per tick
 
     # Wellbeing Updates - Consumption (food/services/healthcare)
     food_health_high_threshold: float = 5.0
@@ -421,6 +427,13 @@ class FirmBehaviorConfig:
     # Keep healthcare provider count intentionally sparse so queue/backlog dynamics stay meaningful.
     healthcare_households_per_firm_target: int = 800
 
+    # Fix 21: Capital Stock (two-factor Cobb-Douglas production)
+    initial_firm_capital: float = 15.0        # Starting capital units per firm
+    capital_depreciation_rate: float = 0.01   # 1% per tick (~70-tick half-life)
+    capital_cost_per_unit: float = 500.0      # $ per unit of capital
+    alpha_k: float = 0.25                     # Capital share exponent
+    alpha_n: float = 0.65                     # Labor share exponent
+
     # Feature 4: Pro-Cyclical R&D Strategy
     rd_base_rate: float = 0.05  # Base R&D spending as fraction of revenue
     rd_max_rate: float = 0.10  # Maximum R&D spending rate at high margins
@@ -472,12 +485,12 @@ class GovernmentPolicyConfig:
     default_wage_tax_rate: float = 0.15
     default_profit_tax_rate: float = 0.20
     default_investment_tax_rate: float = 0.10  # Tax on R&D and capital investments
-    default_unemployment_benefit: float = 30.0
+    default_unemployment_benefit: float = 15.0  # Reduced from 30.0 to incentivize work over welfare
     default_min_cash_threshold: float = 100.0
     default_transfer_budget: float = 10000.0
 
     # Wage Floor Policy (minimum wage tied to unemployment benefit)
-    wage_floor_multiplier: float = 1.2  # Minimum wage = unemployment_benefit × 1.2
+    wage_floor_multiplier: float = 1.0  # Minimum wage = unemployment_benefit × 1.0 (reduced from 1.2)
 
     # Investment Budgets
     infrastructure_investment_budget: float = 1000.0
@@ -579,7 +592,8 @@ class LaborMarketConfig:
 
     # Housing Market
     rent_affordability_share: float = 0.30  # Max share of income for rent
-    rent_floor: float = 50.0  # Minimum weekly rent
+    rent_floor: float = 50.0  # Kept for backward compatibility — not used in equilibrium logic
+    rent_floor_absolute_min: float = 10.0  # Hard floor; dynamic floor = p25_wage * rent_affordability_share
     rent_increase_high_occupancy: float = 1.02  # Rent change when >95% occupied
     rent_increase_good_occupancy: float = 1.01  # Rent change when 80-95% occupied
     rent_decrease_moderate_vacancy: float = 0.98  # Rent change when 50-70% occupied
@@ -637,6 +651,33 @@ class SimulationModeConfig:
 
 
 @dataclass
+class LLMConfig:
+    """LLM integration settings for AI-driven agents."""
+
+    # Provider selection
+    provider: str = "lmstudio"  # "ollama" | "lmstudio" | "openrouter"
+    ollama_base_url: str = "http://localhost:11434"
+    lmstudio_base_url: str = "http://127.0.0.1:1234"
+
+    # Model selection per role
+    government_model: str = "microsoft/phi-4-mini-reasoning"
+    rag_model: str = "microsoft/phi-4-mini-reasoning"
+    agent_model: str = "microsoft/phi-4-mini-reasoning"
+    openrouter_model: str = "nvidia/nemotron-nano-9b-v2:free"
+
+    # Government LLM agent
+    enable_llm_government: bool = False  # opt-in, simulation works without
+    government_decision_interval: int = 4  # ticks between decisions (monthly)
+    government_temperature: float = 0.4
+    government_philosophy: str = "capitalist"  # system prompt flavor
+    government_history_window: int = 6  # recent decision cycles shown to the model
+    government_impact_horizon: int = 8  # ticks used to evaluate post-policy changes
+
+    # Future: LLM-controlled household/firm agents
+    enable_llm_agents: bool = False
+
+
+@dataclass
 class SimulationConfig:
     """Master configuration for the entire simulation."""
 
@@ -649,6 +690,7 @@ class SimulationConfig:
     market: MarketMechanicsConfig = field(default_factory=MarketMechanicsConfig)
     debug: DebugConfig = field(default_factory=DebugConfig)
     modes: SimulationModeConfig = field(default_factory=SimulationModeConfig)
+    llm: LLMConfig = field(default_factory=LLMConfig)
 
     # Simulation Scale (Legacy - kept for backward compatibility)
     num_households: int = 10000
