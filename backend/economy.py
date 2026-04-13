@@ -1268,9 +1268,20 @@ class Economy:
             self._update_credit_scores()
             self.bank.cleanup_settled_loans()
 
-        # Phase 11.5: Government discretionary spending (infrastructure, technology, bonds)
+        # Phase 11.5: Government discretionary spending (infrastructure, technology, social, bonds)
+        # These investments are "abstract" quality improvements that don't directly go to agents,
+        # so we redirect them into the misc firm pool to keep money circulating in the economy.
         infra_spent = self.government.invest_in_infrastructure()
+        if infra_spent > 0:
+            self._collect_misc_revenue(infra_spent)
+
         tech_spent = self.government.invest_in_technology()
+        if tech_spent > 0:
+            self._collect_misc_revenue(tech_spent)
+
+        social_spent = self.government.invest_in_social_programs()
+        if social_spent > 0:
+            self._collect_misc_revenue(social_spent)
 
         # Bond purchases with surplus — redirect to Misc firm
         govt_investments = self.government.make_investments()
@@ -1278,7 +1289,7 @@ class Economy:
 
         total_govt_investments = (
             total_bond_purchases
-            + infra_spent + tech_spent
+            + infra_spent + tech_spent + social_spent
         )
         self.last_tick_gov_investments = total_govt_investments
         self.last_tick_gov_bond_purchases = total_bond_purchases
