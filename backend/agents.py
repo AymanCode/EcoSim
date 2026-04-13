@@ -3812,7 +3812,10 @@ class FirmAgent(AgentMixin):
         occupancy_rate = len(self.current_tenants) / max(self.max_rental_units, 1)
 
         # Get homeless count if economy reference available
-        homeless_count = economy.homeless_household_count if economy else 0
+        homeless_count = (
+            sum(1 for h in economy.households if h.renting_from_firm_id is None)
+            if economy else 0
+        )
 
         # Expansion gates: expand if (1) high occupancy OR (2) housing crisis
         should_consider_expansion = (occupancy_rate >= 0.85) or (homeless_count > 30)

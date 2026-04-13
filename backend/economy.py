@@ -3584,7 +3584,8 @@ class Economy:
             amount = firm.housing_expansion_loan_amount
 
             # Scenario A: Government-backed loan for startups during housing crisis
-            if firm.trailing_revenue == 0.0 and self.homeless_household_count > 40:
+            homeless_count = sum(1 for h in self.households if h.renting_from_firm_id is None)
+            if firm.trailing_revenue == 0.0 and homeless_count > 40:
                 success = self._issue_firm_loan(
                     firm,
                     amount=amount,
