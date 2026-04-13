@@ -3407,12 +3407,14 @@ class FirmAgent(AgentMixin):
         if self.is_baseline and self.last_tick_planned_hires >= 1_000_000:
             return {"wage_offer_next": self.wage_offer}
 
-        # Baseline (government) firms pay at most 150% of minimum wage floor.
-        # They act like public-sector jobs: stable but modest pay.
+        # Baseline (government) firms pay at most 250% of minimum wage floor (increased from 150%).
+        # They act like public-sector jobs: competitive pay to attract workers and resolve gridlock.
         # The cap must exceed the highest household living-cost floor
         # (0.3*housing + max_food*food ≈ $28) so warmup hiring can clear.
+        # With deflationary minimum wage ($15), baseline cap is now: $15 × 2.5 = $37.50
+        # This allows baseline firms to offer $35-37 wages, beating the $25 typical entry level
         if self.is_baseline:
-            baseline_cap = firm_config.minimum_wage_floor * 1.50
+            baseline_cap = firm_config.minimum_wage_floor * 2.50
             capped = max(firm_config.minimum_wage_floor, min(self.wage_offer, baseline_cap))
             return {"wage_offer_next": capped}
 
