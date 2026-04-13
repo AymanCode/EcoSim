@@ -3155,7 +3155,13 @@ class FirmAgent(AgentMixin):
         # Feature 3, Stage 1: Volume Cut — reduce labor to slow production when
         # inventory exceeds the moderate threshold, BEFORE resorting to price cuts.
         if not self.burn_mode and not self.is_baseline:
-            target_production = max(1.0, self.expected_sales_units)
+            # Inventory feedback loop: scale production based on excess inventory
+            expected_sales = max(1.0, self.expected_sales_units)
+            target_inventory = expected_sales * 2.0  # Maintain 2x expected sales as buffer
+            inventory_overhang = max(0.0, self.inventory_units - target_inventory)
+            correction_speed = 0.5  # Clear 50% of excess per tick
+            adjusted_production = max(0.0, expected_sales - (inventory_overhang * correction_speed))
+            target_production = max(1.0, adjusted_production)
             if self.inventory_units > firm_config.inventory_stage1_threshold * target_production:
                 labor_cut = firm_config.inventory_stage1_labor_cut
                 target_workers = max(
