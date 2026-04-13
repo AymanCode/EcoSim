@@ -2265,6 +2265,10 @@ class FirmAgent(AgentMixin):
     investment_loan_amount: float = 0.0        # $ amount needed from bank
     current_loan_rate: float = 0.05           # Last used lending rate (for MPK calc)
 
+    # Housing expansion loans (for deadlock resolution)
+    needs_housing_expansion_loan: bool = False  # Set in Phase 6.6; processed in Phase 6.6b
+    housing_expansion_loan_amount: float = 0.0  # $ amount needed from bank for unit expansion
+
     def __post_init__(self):
         """Validate invariants after initialization."""
         if self.production_capacity_units < 0:
@@ -3769,7 +3773,7 @@ class FirmAgent(AgentMixin):
         """
         self.expected_sales_units = updated_expected_sales
 
-    def invest_in_unit_expansion(self) -> bool:
+    def invest_in_unit_expansion(self, economy: Optional["Economy"] = None) -> bool:
         """
         Housing firms can invest in adding more rental units.
 
@@ -3778,21 +3782,34 @@ class FirmAgent(AgentMixin):
         - Cost increases with each additional unit (diminishing returns)
         - Base cost: $15,000 per unit
         - Cost multiplier: 1.2 ^ (current_units / 10)
-        - Firm must have at least 2x the cost in cash
+        - Self-finance if: cash >= 2x cost
+        - Otherwise: request bank expansion loan (will be processed in Phase 6.6b)
+
+        CRISIS TRIGGER:
+        - Allow expansion at ANY occupancy if homeless_household_count > 30
+        - This resolves the deadlock where zero-unit firms can never reach 85%
+
+        Args:
+            economy: Optional reference to Economy for homeless count and bank access
 
         Returns:
-            True if investment was made, False otherwise
+            True if investment was made or loan requested, False otherwise
 
         Mutates state.
         """
         if self.good_category.lower() != "housing":
             return False
 
-        # Check if we should expand (high occupancy rate)
+        # Check if we should expand (high occupancy rate OR housing crisis)
         occupancy_rate = len(self.current_tenants) / max(self.max_rental_units, 1)
 
-        if occupancy_rate < 0.85:
-            # Not enough demand to justify expansion
+        # Get homeless count if economy reference available
+        homeless_count = economy.homeless_household_count if economy else 0
+
+        # Expansion gates: expand if (1) high occupancy OR (2) housing crisis
+        should_consider_expansion = (occupancy_rate >= 0.85) or (homeless_count > 30)
+
+        if not should_consider_expansion:
             return False
 
         # Calculate cost with diminishing returns
@@ -3800,18 +3817,23 @@ class FirmAgent(AgentMixin):
         cost_multiplier = 1.2 ** (self.max_rental_units / 10.0)
         total_cost = base_cost * cost_multiplier
 
-        # Check if firm can afford it (needs 2x the cost in cash)
-        if self.cash_balance < total_cost * 2.0:
-            return False
+        # Scenario 1: Self-finance if firm has sufficient cash
+        if self.cash_balance >= total_cost * 2.0:
+            self.cash_balance -= total_cost
+            self.max_rental_units += 1
+            self.production_capacity_units += 1.0
+            self.expected_sales_units += 1.0
+            self.property_tax_rate += 0.005  # +0.5% per new unit
+            return True
 
-        # Make the investment
-        self.cash_balance -= total_cost
-        self.max_rental_units += 1
-        self.production_capacity_units += 1.0
-        self.expected_sales_units += 1.0
+        # Scenario 2: Request bank loan (will be processed in Phase 6.6b)
+        if economy is not None:
+            self.needs_housing_expansion_loan = True
+            self.housing_expansion_loan_amount = total_cost
+            return True
 
-        # Property tax increases slightly
-        self.property_tax_rate += 0.005  # +0.5% per new unit
+        # Cannot expand without cash or bank
+        return False
 
         return True
 

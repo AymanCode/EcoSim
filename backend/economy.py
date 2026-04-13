@@ -1171,7 +1171,11 @@ class Economy:
         # Phase 6.6: Housing firms consider unit expansion
         for firm in self.firms:
             if firm.good_category.lower() == "housing":
-                firm.invest_in_unit_expansion()
+                firm.invest_in_unit_expansion(economy=self)
+
+        # Phase 6.6b: Process housing expansion loans (deadlock resolution)
+        if self.bank is not None:
+            self._offer_housing_expansion_loans()
 
         # Phase 6.7: Misc firm operations
         self._misc_firm_add_beneficiary()  # Add 1 more random beneficiary
@@ -3553,6 +3557,69 @@ class Economy:
 
             firm.needs_investment_loan = False
             firm.investment_loan_amount = 0.0
+
+    def _offer_housing_expansion_loans(self) -> None:
+        """Phase 6.6b: Process housing expansion loan requests (deadlock resolution).
+
+        Housing firms that cannot self-finance unit expansion flag
+        needs_housing_expansion_loan=True. This method offers bank loans:
+
+        Scenario A (Startup Crisis): If firm.trailing_revenue == 0 AND homeless > 40,
+                                     use government-backed loan at 2% for 104 ticks
+        Scenario B (Standard Market): If firm has revenue, use market loan with
+                                      credit score and 0.03 spread
+
+        After successful loan, trigger unit expansion immediately via the cost payment.
+        """
+        bank = self.bank
+        if bank is None:
+            return
+
+        for firm in self.firms:
+            if firm.good_category.lower() != "housing":
+                continue
+            if not firm.needs_housing_expansion_loan or firm.housing_expansion_loan_amount <= 0:
+                continue
+
+            amount = firm.housing_expansion_loan_amount
+
+            # Scenario A: Government-backed loan for startups during housing crisis
+            if firm.trailing_revenue == 0.0 and self.homeless_household_count > 40:
+                success = self._issue_firm_loan(
+                    firm,
+                    amount=amount,
+                    term_ticks=104,       # 2-year term for expansion
+                    govt_rate=0.02,       # Subsidized crisis rate
+                    spread=0.0,           # No spread for govt-backed
+                )
+            # Scenario B: Market-based loan for firms with revenue
+            else:
+                if not bank.can_lend():
+                    # Bank out of reserves, skip this firm
+                    firm.needs_housing_expansion_loan = False
+                    firm.housing_expansion_loan_amount = 0.0
+                    continue
+
+                score = bank.get_firm_credit_score(firm.firm_id)
+                success = self._issue_firm_loan(
+                    firm,
+                    amount=amount,
+                    term_ticks=104,       # 2-year term for expansion
+                    govt_rate=None,       # Use bank rate
+                    spread=0.03,          # Lower spread (asset-backed property)
+                )
+
+            # If loan succeeded, execute the expansion immediately
+            if success:
+                firm.cash_balance -= amount
+                firm.max_rental_units += 1
+                firm.production_capacity_units += 1.0
+                firm.expected_sales_units += 1.0
+                firm.property_tax_rate += 0.005  # +0.5% per new unit
+
+            # Cleanup
+            firm.needs_housing_expansion_loan = False
+            firm.housing_expansion_loan_amount = 0.0
 
     def _recycle_capital_investment(self) -> None:
         """Phase 8.5: Recycle capital investment spending back to households.
