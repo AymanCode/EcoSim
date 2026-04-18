@@ -1,3 +1,12 @@
+﻿from pathlib import Path
+import sys
+
+TOOLS_ROOT = Path(__file__).resolve().parents[1]
+BACKEND_ROOT = TOOLS_ROOT.parent
+for _candidate in (BACKEND_ROOT, TOOLS_ROOT, TOOLS_ROOT / 'analysis', TOOLS_ROOT / 'checks', TOOLS_ROOT / 'llm', TOOLS_ROOT / 'runners'):
+    _candidate_str = str(_candidate)
+    if _candidate_str not in sys.path:
+        sys.path.insert(0, _candidate_str)
 """
 Small-scale simulation to validate BankAgent integration.
 
@@ -75,7 +84,7 @@ def create_economy(num_households: int = 200, enable_bank: bool = True) -> Econo
             max_rental_units=max_units,
         )
         firm.set_personality("conservative")
-        # happiness_boost_per_unit removed — services affect happiness via wellbeing path only
+        # happiness_boost_per_unit removed â€” services affect happiness via wellbeing path only
         gov.register_baseline_firm(category, firm.firm_id)
         firms.append(firm)
         next_firm_id += 1
@@ -105,7 +114,7 @@ def create_economy(num_households: int = 200, enable_bank: bool = True) -> Econo
                 is_baseline=False,
             )
             firm.set_personality(personality)
-            # happiness_boost_per_unit removed — services affect happiness via wellbeing path only
+            # happiness_boost_per_unit removed â€” services affect happiness via wellbeing path only
             queued_firms.append(firm)
             next_firm_id += 1
 
@@ -368,3 +377,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+

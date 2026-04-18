@@ -18,8 +18,7 @@ Technical documentation for the active EcoSim codebase.
 | [FIRM_DYNAMICS.md](FIRM_DYNAMICS.md) | Firm health signals, wage behavior, pricing, and hiring gates |
 | [HOUSEHOLD_LABOR_DERISKING.md](HOUSEHOLD_LABOR_DERISKING.md) | Labor-search guardrails, toggles, diagnostics, and rollout notes |
 | [BANKING_SYSTEM.md](BANKING_SYSTEM.md) | Credit mechanics and banking behavior |
-| [CHANGELOG.md](CHANGELOG.md) | Major engineering milestones and historical notes |
 
 ## Archive
 
-`archive/` holds superseded planning notes and legacy writeups. It is reference material, not the current source of truth.
+`archive/` holds superseded planning notes, historical changelogs, and legacy writeups. It is reference material, not the current source of truth.

@@ -1,3 +1,12 @@
+﻿from pathlib import Path
+import sys
+
+TOOLS_ROOT = Path(__file__).resolve().parents[1]
+BACKEND_ROOT = TOOLS_ROOT.parent
+for _candidate in (BACKEND_ROOT, TOOLS_ROOT, TOOLS_ROOT / 'analysis', TOOLS_ROOT / 'checks', TOOLS_ROOT / 'llm', TOOLS_ROOT / 'runners'):
+    _candidate_str = str(_candidate)
+    if _candidate_str not in sys.path:
+        sys.path.insert(0, _candidate_str)
 """
 Comprehensive Test Suite for HouseholdAgent
 
@@ -51,7 +60,7 @@ def test_household_creation():
         cash_balance=1000.0
     )
 
-    print(f"✓ Created household #{household.household_id}")
+    print(f"âœ“ Created household #{household.household_id}")
     print(f"  Skills: {household.skills_level}")
     print(f"  Age: {household.age}")
     print(f"  Cash: ${household.cash_balance:.2f}")
@@ -64,7 +73,7 @@ def test_household_creation():
     assert household.skills_level == 0.5, "Skills level mismatch"
     assert household.cash_balance == 1000.0, "Cash balance mismatch"
 
-    print("\n✅ TEST 1 PASSED: Household creation successful")
+    print("\nâœ… TEST 1 PASSED: Household creation successful")
     return household
 
 
@@ -85,7 +94,7 @@ def test_labor_supply_planning(household):
     assert labor_plan['searching_for_job'] == True, "Unemployed should search"
     assert labor_plan['reservation_wage'] > 0, "Reservation wage should be positive"
 
-    print("\n✅ TEST 2 PASSED: Labor supply planning works correctly")
+    print("\nâœ… TEST 2 PASSED: Labor supply planning works correctly")
 
 
 def test_health_limits_work_eligibility():
@@ -129,7 +138,7 @@ def test_consumption_planning(household):
 
     assert 'planned_purchases' in consumption_plan, "Missing planned_purchases"
 
-    print("\n✅ TEST 3 PASSED: Consumption planning works correctly")
+    print("\nâœ… TEST 3 PASSED: Consumption planning works correctly")
 
 
 def test_employment_and_wages(household):
@@ -160,7 +169,7 @@ def test_employment_and_wages(household):
     assert household.wage == 75.0, "Wage should be $75"
     assert household.employer_id == 10, "Employer ID should be 10"
 
-    print("\n✅ TEST 4 PASSED: Employment status updates correctly")
+    print("\nâœ… TEST 4 PASSED: Employment status updates correctly")
 
 
 def test_skill_development(household):
@@ -197,7 +206,7 @@ def test_skill_development(household):
     assert final_skills > initial_skills, "Skills should improve with work (requires 52+ ticks)"
     assert experience_gain == num_ticks, f"Should gain {num_ticks} ticks of experience, gained {experience_gain}"
 
-    print("\n✅ TEST 5 PASSED: Skills develop through work experience")
+    print("\nâœ… TEST 5 PASSED: Skills develop through work experience")
 
 
 def test_goods_consumption():
@@ -233,11 +242,11 @@ def test_goods_consumption():
 
     # Check depletion
     for good, final_amount in household.goods_inventory.items():
-        print(f"\n  {good}: 100 → {final_amount:.2f} ({(1 - final_amount/100)*100:.1f}% consumed)")
+        print(f"\n  {good}: 100 â†’ {final_amount:.2f} ({(1 - final_amount/100)*100:.1f}% consumed)")
 
     assert all(v < 100 for v in household.goods_inventory.values()), "Goods should be consumed"
 
-    print("\n✅ TEST 6 PASSED: Goods consumption works correctly")
+    print("\nâœ… TEST 6 PASSED: Goods consumption works correctly")
 
 
 def test_wellbeing_system():
@@ -312,7 +321,7 @@ def test_wellbeing_system():
     # Verify employment improves wellbeing over time
     assert household.morale > unemployment_morale, "Morale should improve with good employment"
 
-    print("\n✅ TEST 7 PASSED: Wellbeing system tracks employment effects")
+    print("\nâœ… TEST 7 PASSED: Wellbeing system tracks employment effects")
 
 
 def test_income_and_spending():
@@ -375,7 +384,7 @@ def test_income_and_spending():
     expected_cash = initial_cash + net_income - total_cost
     assert abs(final_cash - expected_cash) < 0.01, f"Cash mismatch: expected ${expected_cash:.2f}, got ${final_cash:.2f}"
 
-    print("\n✅ TEST 8 PASSED: Income and spending tracked correctly")
+    print("\nâœ… TEST 8 PASSED: Income and spending tracked correctly")
 
 
 def test_household_trait_uniqueness():
@@ -510,7 +519,7 @@ def run_quick_simulation():
     print(f"  Happiness: {household.happiness:.3f}")
     print(f"  Housing experience: {household.category_experience.get('Housing', 0)} ticks")
 
-    print("\n✅ SIMULATION COMPLETE: Household agent functioning normally")
+    print("\nâœ… SIMULATION COMPLETE: Household agent functioning normally")
 
 
 def main():
@@ -537,25 +546,25 @@ def main():
 
         # Summary
         print("\n" + "=" * 70)
-        print("  ALL TESTS PASSED ✅")
+        print("  ALL TESTS PASSED âœ…")
         print("=" * 70)
         print("\nHousehold agents are working correctly!")
         print("Key behaviors verified:")
-        print("  ✓ Labor supply decisions")
-        print("  ✓ Consumption planning")
-        print("  ✓ Employment and wage tracking")
-        print("  ✓ Skill development")
-        print("  ✓ Goods consumption")
-        print("  ✓ Wellbeing tracking")
-        print("  ✓ Income and spending")
+        print("  âœ“ Labor supply decisions")
+        print("  âœ“ Consumption planning")
+        print("  âœ“ Employment and wage tracking")
+        print("  âœ“ Skill development")
+        print("  âœ“ Goods consumption")
+        print("  âœ“ Wellbeing tracking")
+        print("  âœ“ Income and spending")
 
         return 0
 
     except AssertionError as e:
-        print(f"\n❌ TEST FAILED: {e}")
+        print(f"\nâŒ TEST FAILED: {e}")
         return 1
     except Exception as e:
-        print(f"\n❌ ERROR: {e}")
+        print(f"\nâŒ ERROR: {e}")
         import traceback
         traceback.print_exc()
         return 1
@@ -563,3 +572,4 @@ def main():
 
 if __name__ == "__main__":
     sys.exit(main())
+

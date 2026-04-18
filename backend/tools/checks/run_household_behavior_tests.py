@@ -1,22 +1,31 @@
+﻿from pathlib import Path
+import sys
+
+TOOLS_ROOT = Path(__file__).resolve().parents[1]
+BACKEND_ROOT = TOOLS_ROOT.parent
+for _candidate in (BACKEND_ROOT, TOOLS_ROOT, TOOLS_ROOT / 'analysis', TOOLS_ROOT / 'checks', TOOLS_ROOT / 'llm', TOOLS_ROOT / 'runners'):
+    _candidate_str = str(_candidate)
+    if _candidate_str not in sys.path:
+        sys.path.insert(0, _candidate_str)
 """
 EcoSim Household LLM Behaviour Tests
 ======================================
 Runs 5 households simultaneously in one shared economy, each representing a
 different economic archetype:
 
-  1. frugal     — high saving_tendency, high frugality, low spending_tendency
-  2. average    — traits closest to the population median
-  3. spendthrift— low saving_tendency, low frugality, high spending_tendency
-  4. random_a   — randomly selected
-  5. random_b   — a second random, different from random_a
+  1. frugal     â€” high saving_tendency, high frugality, low spending_tendency
+  2. average    â€” traits closest to the population median
+  3. spendthriftâ€” low saving_tendency, low frugality, high spending_tendency
+  4. random_a   â€” randomly selected
+  5. random_b   â€” a second random, different from random_a
 
 All 5 live in the same economy (same firms, same wages, same shocks).
 Every tick: economy steps once, then each household gets one LLM narration.
 Beta feedback fires every N ticks for all households.
 
 Output:
-  behaviour_log_<archetype>.json  — per-archetype detailed run log
-  behaviour_summary.json          — combined overview with trait cards,
+  behaviour_log_<archetype>.json  â€” per-archetype detailed run log
+  behaviour_summary.json          â€” combined overview with trait cards,
                                     per-tick state, and cross-archetype comparison
 
 Usage:
@@ -50,18 +59,18 @@ from run_household_llm_tester import (
 )
 
 
-# ──────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 # Archetype definitions and selection
-# ──────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 ARCHETYPES = ["frugal", "average", "spendthrift", "random_a", "random_b"]
 
 ARCHETYPE_DESCRIPTIONS = {
-    "frugal":      "High saving tendency, high frugality — builds cash, spends only on essentials",
-    "average":     "Traits closest to population median — the representative household",
-    "spendthrift": "Low saving tendency, low frugality — spends freely, keeps little in reserve",
-    "random_a":    "Randomly selected — unfiltered perspective",
-    "random_b":    "A second random household — different from random_a",
+    "frugal":      "High saving tendency, high frugality â€” builds cash, spends only on essentials",
+    "average":     "Traits closest to population median â€” the representative household",
+    "spendthrift": "Low saving tendency, low frugality â€” spends freely, keeps little in reserve",
+    "random_a":    "Randomly selected â€” unfiltered perspective",
+    "random_b":    "A second random household â€” different from random_a",
 }
 
 
@@ -147,9 +156,9 @@ def trait_card(hh: HouseholdAgent, archetype: str) -> Dict[str, Any]:
     }
 
 
-# ──────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 # Per-archetype run state
-# ──────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 class ArchetypeRunner:
     """Tracks conversation history, log, and previous state for one archetype."""
@@ -165,9 +174,9 @@ class ArchetypeRunner:
         self.post_warmup_ticks = 0
 
 
-# ──────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 # Main
-# ──────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 async def main():
     parser = argparse.ArgumentParser(description="EcoSim Household Behaviour Tests")
@@ -227,9 +236,9 @@ async def main():
     header = f" {'Tick':>4} | {'Warmup':>6}"
     for name in ARCHETYPES:
         header += f" | {name:>{col_w}}"
-    print("\n" + "─" * len(header))
+    print("\n" + "â”€" * len(header))
     print(header)
-    print("─" * len(header))
+    print("â”€" * len(header))
 
     # Main tick loop
     for tick in range(args.ticks):
@@ -287,14 +296,14 @@ async def main():
 
         print(row_prefix + row_suffix)
 
-        # Beta tester feedback — all archetypes, every N post-warmup ticks
+        # Beta tester feedback â€” all archetypes, every N post-warmup ticks
         if not in_warmup:
             # Use the first runner's counter (all increment together)
             first_runner = runners[ARCHETYPES[0]]
             if first_runner.post_warmup_ticks > 0 and first_runner.post_warmup_ticks % args.feedback_every == 0:
-                print(f"\n{'─' * 70}")
-                print(f"  BETA FEEDBACK — tick {economy.current_tick} ({first_runner.post_warmup_ticks} post-warmup)")
-                print(f"{'─' * 70}")
+                print(f"\n{'â”€' * 70}")
+                print(f"  BETA FEEDBACK â€” tick {economy.current_tick} ({first_runner.post_warmup_ticks} post-warmup)")
+                print(f"{'â”€' * 70}")
 
                 for name in ARCHETYPES:
                     runner = runners[name]
@@ -329,9 +338,9 @@ async def main():
 
                     runner.conversation_history = []
 
-                print(f"{'─' * 70}\n")
+                print(f"{'â”€' * 70}\n")
 
-    # ── Save per-archetype logs ──────────────────────────────────────────────
+    # â”€â”€ Save per-archetype logs â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     print(f"\n{'=' * 70}")
     print("  FINAL STATES")
     print(f"{'=' * 70}")
@@ -368,7 +377,7 @@ async def main():
         per_archetype_files[name] = log_path
         print(f"    Log: {log_path}")
 
-    # ── Save combined summary ────────────────────────────────────────────────
+    # â”€â”€ Save combined summary â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     summary = {
         "meta": {
             "run_type": "household_behaviour_tests",
@@ -402,9 +411,9 @@ async def main():
     await provider.close()
 
 
-# ──────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 # Summary helpers
-# ──────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 def _build_comparison(economy, runners: Dict[str, "ArchetypeRunner"]) -> Dict[str, Any]:
     """Side-by-side final metric comparison across all archetypes."""
@@ -480,3 +489,4 @@ def _collect_feedback(runners: Dict[str, "ArchetypeRunner"]) -> Dict[str, List[s
 
 if __name__ == "__main__":
     asyncio.run(main())
+

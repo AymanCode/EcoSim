@@ -6,8 +6,8 @@ import pytest
 from agents import GovernmentAgent
 import server
 from config import CONFIG
-from llm_government import LLMGovernmentAdvisor, apply_info_constraints_node, observe_node
-from llm_provider import LLMProvider
+from tools.llm.llm_government import LLMGovernmentAdvisor, apply_info_constraints_node, observe_node
+from tools.llm.llm_provider import LLMProvider
 
 
 class QueueProvider(LLMProvider):

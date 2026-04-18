@@ -48,7 +48,7 @@ from pydantic import BaseModel, Field, field_validator
 import numpy as np
 
 from config import CONFIG
-from run_large_simulation import (
+from tools.runners.run_large_simulation import (
     create_large_economy,
     compute_firm_snapshot_rows,
     compute_firm_stats,
@@ -98,8 +98,8 @@ except Exception as exc:  # pragma: no cover - best-effort optional dependency
 
 _LLM_IMPORT_ERROR = None
 try:
-    from llm_government import LLMGovernmentAdvisor
-    from llm_provider import create_provider
+    from tools.llm.llm_government import LLMGovernmentAdvisor
+    from tools.llm.llm_provider import create_provider
 except Exception as exc:  # pragma: no cover - optional dependency path
     _LLM_IMPORT_ERROR = exc
     LLMGovernmentAdvisor = None

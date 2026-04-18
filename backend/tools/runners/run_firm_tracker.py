@@ -1,3 +1,12 @@
+﻿from pathlib import Path
+import sys
+
+TOOLS_ROOT = Path(__file__).resolve().parents[1]
+BACKEND_ROOT = TOOLS_ROOT.parent
+for _candidate in (BACKEND_ROOT, TOOLS_ROOT, TOOLS_ROOT / 'analysis', TOOLS_ROOT / 'checks', TOOLS_ROOT / 'llm', TOOLS_ROOT / 'runners'):
+    _candidate_str = str(_candidate)
+    if _candidate_str not in sys.path:
+        sys.path.insert(0, _candidate_str)
 """Single Private Firm Tracker (Post-Warmup)
 
 Runs warmup silently, then tracks one private (non-baseline) firm's
@@ -86,7 +95,7 @@ def main():
     print(f"{'=' * 120}")
 
     header = (f"{'Tick':>4} | {'Revenue':>9} | {'WageBill':>9} | {'TaxPaid':>8} | "
-              f"{'Profit':>9} | {'Cash':>11} | {'Empl':>4} | {'Δ':>4} | "
+              f"{'Profit':>9} | {'Cash':>11} | {'Empl':>4} | {'Î”':>4} | "
               f"{'Decision':>10} | {'Inv':>6} | {'Sold':>6} | {'Price':>7} | "
               f"{'Surv':>4} | {'Margin':>7}")
     print(header)
@@ -143,7 +152,7 @@ def main():
 
     # Final analysis
     if tracked is not None:
-        print(f"\n{'─' * 70}")
+        print(f"\n{'â”€' * 70}")
         print(f"FIRM #{firm_id} ANALYSIS:")
         print(f"  Cash balance:     ${firm.cash_balance:>12,.0f}")
         print(f"  Employees:        {len(firm.employees):>12}")
@@ -170,3 +179,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+

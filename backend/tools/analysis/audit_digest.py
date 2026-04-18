@@ -1,3 +1,12 @@
+﻿from pathlib import Path
+import sys
+
+TOOLS_ROOT = Path(__file__).resolve().parents[1]
+BACKEND_ROOT = TOOLS_ROOT.parent
+for _candidate in (BACKEND_ROOT, TOOLS_ROOT, TOOLS_ROOT / 'analysis', TOOLS_ROOT / 'checks', TOOLS_ROOT / 'llm', TOOLS_ROOT / 'runners'):
+    _candidate_str = str(_candidate)
+    if _candidate_str not in sys.path:
+        sys.path.insert(0, _candidate_str)
 """EcoSim Audit Digest Pipeline
 
 Reads a raw JSONL audit dump and produces a compact, token-efficient
@@ -19,7 +28,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 
-# ── Helpers ────────────────────────────────────────────────────────────
+# â”€â”€ Helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 def _r2(v) -> str:
     """Round to 2 decimal places, return as compact string."""
@@ -58,8 +67,8 @@ def _sparkline(values: List[float], width: int = 20) -> str:
     mn, mx = min(values), max(values)
     rng = mx - mn
     if rng < 1e-9:
-        return "─" * min(width, len(values))
-    chars = "▁▂▃▄▅▆▇█"
+        return "â”€" * min(width, len(values))
+    chars = "â–â–‚â–ƒâ–„â–…â–†â–‡â–ˆ"
     step = len(values) / width if len(values) > width else 1
     sampled = []
     i = 0.0
@@ -94,7 +103,7 @@ def percentiles(values: List[float]) -> Dict[str, float]:
     }
 
 
-# ── Data Loader ────────────────────────────────────────────────────────
+# â”€â”€ Data Loader â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 def load_audit(path: str) -> Tuple[Dict, List[Dict]]:
     """Load JSONL audit file. Returns (config, list_of_tick_records)."""
@@ -121,7 +130,7 @@ def load_audit(path: str) -> Tuple[Dict, List[Dict]]:
     return config, ticks
 
 
-# ── Digest Builders ────────────────────────────────────────────────────
+# â”€â”€ Digest Builders â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 def build_config_section(config: Dict) -> str:
     """One-line config summary."""
@@ -138,7 +147,7 @@ def build_config_section(config: Dict) -> str:
 
 
 def build_macro_timeseries(ticks: List[Dict]) -> str:
-    """Compact macro metric table — one row per tick."""
+    """Compact macro metric table â€” one row per tick."""
     lines = []
     lines.append("## MACRO TIMESERIES")
     lines.append("")
@@ -633,7 +642,7 @@ def build_anomaly_flags(ticks: List[Dict]) -> str:
     return "\n".join(lines)
 
 
-# ── Main Pipeline ──────────────────────────────────────────────────────
+# â”€â”€ Main Pipeline â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 def build_digest(config: Dict, ticks: List[Dict]) -> str:
     """Build the complete compact digest."""
@@ -711,3 +720,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+

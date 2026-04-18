@@ -1,3 +1,12 @@
+﻿from pathlib import Path
+import sys
+
+TOOLS_ROOT = Path(__file__).resolve().parents[1]
+BACKEND_ROOT = TOOLS_ROOT.parent
+for _candidate in (BACKEND_ROOT, TOOLS_ROOT, TOOLS_ROOT / 'analysis', TOOLS_ROOT / 'checks', TOOLS_ROOT / 'llm', TOOLS_ROOT / 'runners'):
+    _candidate_str = str(_candidate)
+    if _candidate_str not in sys.path:
+        sys.path.insert(0, _candidate_str)
 """
 EcoSim 250-tick diagnostic run.
 Prints key economic metrics every 25 ticks and a final summary.
@@ -239,3 +248,4 @@ for i, issue in enumerate(issues, 1):
     print(f"  {i}. {issue}")
 
 print(f"\nDone.")
+

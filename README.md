@@ -1,53 +1,38 @@
 # EcoSim
 
-EcoSim is an agent-based economic simulation of households, firms, healthcare,
-housing, banks, and government interacting through labor markets, goods
-markets, and fiscal policy.
+EcoSim is an agent-based macroeconomic simulation with a live dashboard, a
+streaming API, and a persistence layer for scenario analysis. It models
+households, firms, banks, housing, healthcare, and government policy in a
+single closed-loop system.
 
-## Why This Project
+## Overview
 
-EcoSim is built as a policy sandbox: change core levers (taxes, benefits, wages, spending) and observe system-wide effects over time such as unemployment, prices, inequality, output, and household wellbeing.
+This project is built as a policy sandbox: change taxes, benefits, wage floors,
+or spending behavior and watch the economy react over time.
 
-## What It Does
+Core capabilities:
 
-- Simulates household, firm, and government decisions every tick
-- Runs market clearing and policy adjustment in a phased simulation loop
-- Streams live metrics to a React dashboard over WebSocket
-- Persists run history, events, snapshots, and diagnostics through a local warehouse
-- Supports scenario experimentation through runtime configuration
-- Includes data generation and ML training scripts for policy-outcome forecasting
+- real-time simulation of labor, goods, housing, healthcare, banking, and fiscal policy
+- live dashboard with streaming metrics over WebSocket
+- one-command Docker startup for the full stack
+- warehouse persistence for run history, diagnostics, and comparative analysis
+- configurable scenario inputs for experimentation and stress testing
 
-## Tech Stack
+## Stack
 
 | Layer | Technology |
 | --- | --- |
 | Simulation engine | Python |
-| API and streaming | FastAPI + WebSocket |
+| API | FastAPI + WebSocket |
 | Frontend | React + Vite |
-| Data output | SQLite or PostgreSQL + TimescaleDB |
-| ML pipeline | NumPy, Pandas, SciPy, XGBoost |
+| Persistence | SQLite or PostgreSQL/Timescale |
+| Analytics utilities | NumPy, Pandas, SciPy, XGBoost |
 
-## High-Level Architecture
+## Quickstart
 
-```text
-frontend-react (dashboard)
-    -> websocket
-backend/server.py (simulation manager + streaming + warehouse buffering)
-    ->
-backend/economy.py (tick orchestration)
-    ->
-backend/agents.py (HouseholdAgent, FirmAgent, GovernmentAgent)
-    +
-backend/config.py (parameterized behavior)
-    +
-backend/data/ (warehouse managers, schema, migrations, tests)
-```
+The primary path is a single command that starts the full stack and waits for it to become healthy.
 
-Detailed documentation lives in [docs/README.md](docs/README.md).
-
-## Docker Quickstart
-
-This is the primary clone-and-run path.
+macOS/Linux:
 
 ```bash
 git clone https://github.com/AymanCode/EcoSim.git
@@ -63,35 +48,45 @@ cd EcoSim
 .\start.ps1
 ```
 
-If you prefer raw Docker:
+Open:
+
+- `http://localhost:5173`
+
+Direct Docker equivalent:
 
 ```bash
-docker compose up --build -d
+docker compose up --build -d --wait
 ```
 
-Open the app:
+## Architecture
 
-- dashboard: `http://localhost:5173`
-- health: `http://localhost:5173/health`
+```text
+frontend-react/          live dashboard
+    ->
+backend/server.py        API + websocket stream + simulation manager
+    ->
+backend/economy.py       tick orchestration and market clearing
+    ->
+backend/agents.py        households, firms, bank, and government behavior
+    +
+backend/config.py        simulation parameter system
+    +
+backend/data/            warehouse models, schema, migrations, persistence
+```
 
-The frontend now proxies the backend internally, so the default stack comes up behind a single public entrypoint. SQLite warehouse persistence is enabled automatically inside the Docker stack.
+## Engineering Highlights
 
-If you deploy behind a different frontend origin or proxy layout, set `VITE_WS_URL` when building the frontend image.
-
-The main stack does not require any local LLM runtime. The optional household / firm LLM test harnesses remain local developer tools.
+- The backend keeps simulation execution in memory and streams a compact live view to the frontend.
+- Warehouse writes are batched and support richer post-run analysis than the live UI payload.
+- The repo includes both contract-style regression tests and API-level tests around persistence and runtime behavior.
+- Supplementary runners, diagnostics, and research utilities are separated into `backend/tools/` to keep the main application surface clean.
 
 ## Local Development
 
 ```bash
-git clone https://github.com/AymanCode/EcoSim.git
-cd EcoSim
 python -m venv .venv
-
-# Windows (PowerShell)
-.venv\Scripts\Activate.ps1
-
-# macOS/Linux
-source .venv/bin/activate
+source .venv/bin/activate  # macOS/Linux
+# .venv\Scripts\Activate.ps1  # Windows PowerShell
 
 pip install -r requirements.txt
 python -m uvicorn backend.server:app --reload --port 8002
@@ -105,93 +100,23 @@ npm install
 npm run dev
 ```
 
-Open: `http://localhost:5173`
-
-Quick backend smoke test:
-
-```bash
-python backend/demo_skill_experience.py
-```
-
-## Local Timescale Warehouse (Optional)
-
-Use this when you want durable run history and richer analytics locally.
-
-```bash
-# Start PostgreSQL + TimescaleDB
-docker compose -f ops/docker-compose.timescale.yml up -d
-
-# Configure warehouse backend
-# (PowerShell)
-$env:ECOSIM_ENABLE_WAREHOUSE="1"
-$env:ECOSIM_WAREHOUSE_BACKEND="timescale"
-$env:ECOSIM_WAREHOUSE_DSN="postgresql://ecosim:ecosim@localhost:5432/ecosim"
-
-# Apply schema
-python backend/data/migrations/002_create_timescale_warehouse.py
-
-# Run API
-python -m uvicorn backend.server:app --reload --port 8002
-```
-
-Warehouse architecture and interview talking points: `docs/DATA_STORAGE_ARCHITECTURE.md`.
-
-Current warehouse scope includes:
-
-- run metadata and policy config
-- aggregate tick metrics and sector metrics
-- firm snapshots
-- sampled household snapshots and tracked-household history
-- labor, healthcare, policy, and regime events
-- compact decision features
-- compact explainability diagnostics
-
-## Simulation and Data Commands
-
-```bash
-# Large-scale simulation
-python backend/run_large_simulation.py
-
-# Generate sample data for analysis/dashboard work
-python backend/generate_sample_data.py
-
-# Generate training data
-cd backend
-python generate_training_data.py
-
-# Train ML models from generated CSV
-python train_ml_model.py
-```
-
-## Tests
-
-Install development dependencies first:
+## Testing
 
 ```bash
 pip install -r requirements-dev.txt
-```
-
-Core backend/data validation:
-
-```bash
 python -m pytest backend/data/tests backend/tests_server/test_server_api.py -q
-```
-
-Contract regression checks:
-
-```bash
 python -m pytest backend/tests_contracts -q
 ```
 
 ## Repository Layout
 
 ```text
-backend/            simulation engine, API server, warehouse layer, and tests
-frontend-react/     React dashboard for live simulation control and metrics
-docs/               active technical docs plus a clearly separated archive/
-ops/                optional operational files such as the Timescale compose file
+backend/            core simulation engine, API, persistence, and tests
+frontend-react/     dashboard application
+docs/               active technical documentation
+ops/                optional infrastructure files
 ```
 
-Published repo scope is intentionally limited to the current product surface above. Generated audit dumps, local experiment folders, and scratch outputs stay local and are ignored so the public repository stays reviewable.
+Additional research runners, scenario scripts, and offline analysis helpers live under `backend/tools/`.
 
-See [docs/README.md](docs/README.md) for the active documentation index and [docs/CHANGELOG.md](docs/CHANGELOG.md) for historical engineering notes.
+Detailed documentation starts at [docs/README.md](docs/README.md).

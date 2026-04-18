@@ -1,3 +1,12 @@
+﻿from pathlib import Path
+import sys
+
+TOOLS_ROOT = Path(__file__).resolve().parents[1]
+BACKEND_ROOT = TOOLS_ROOT.parent
+for _candidate in (BACKEND_ROOT, TOOLS_ROOT, TOOLS_ROOT / 'analysis', TOOLS_ROOT / 'checks', TOOLS_ROOT / 'llm', TOOLS_ROOT / 'runners'):
+    _candidate_str = str(_candidate)
+    if _candidate_str not in sys.path:
+        sys.path.insert(0, _candidate_str)
 """
 Government Behavior Integration Test
 
@@ -122,7 +131,7 @@ def test_government_behavior_52_ticks():
         government=government
     )
     
-    print("\n✓ Economy created successfully")
+    print("\nâœ“ Economy created successfully")
     print(f"  Initial government cash: ${government.cash_balance:,.2f}")
     print(f"  Initial wage tax rate: {government.wage_tax_rate*100:.1f}%")
     print(f"  Initial profit tax rate: {government.profit_tax_rate*100:.1f}%")
@@ -157,15 +166,15 @@ def test_government_behavior_52_ticks():
     print(f"  Change: ${cash_history[-1] - cash_history[0]:+,.2f} ({(cash_history[-1]/cash_history[0] - 1)*100:+.1f}%)")
     
     print("\nPolicy Changes:")
-    print(f"  Wage tax rate: 15.0% → {government.wage_tax_rate*100:.1f}%")
-    print(f"  Profit tax rate: 20.0% → {government.profit_tax_rate*100:.1f}%")
-    print(f"  Unemployment benefit: $40.00 → ${government.unemployment_benefit_level:.2f}")
-    print(f"  Transfer budget: $2,000.00 → ${government.transfer_budget:,.2f}")
+    print(f"  Wage tax rate: 15.0% â†’ {government.wage_tax_rate*100:.1f}%")
+    print(f"  Profit tax rate: 20.0% â†’ {government.profit_tax_rate*100:.1f}%")
+    print(f"  Unemployment benefit: $40.00 â†’ ${government.unemployment_benefit_level:.2f}")
+    print(f"  Transfer budget: $2,000.00 â†’ ${government.transfer_budget:,.2f}")
     
     print("\nEconomic Impact:")
     final_unemployment_rate = unemployment_history[-1] / len(economy.households) * 100
     initial_unemployment_rate = unemployment_history[0] / len(economy.households) * 100
-    print(f"  Unemployment: {initial_unemployment_rate:.1f}% → {final_unemployment_rate:.1f}%")
+    print(f"  Unemployment: {initial_unemployment_rate:.1f}% â†’ {final_unemployment_rate:.1f}%")
     
     avg_household_cash = sum(h.cash_balance for h in economy.households) / len(economy.households)
     avg_happiness = sum(h.happiness for h in economy.households) / len(economy.households)
@@ -176,13 +185,13 @@ def test_government_behavior_52_ticks():
     print(f"  Average morale: {avg_morale:.3f}")
     
     print("\nGovernment Functions Verified:")
-    print("  ✓ Tax collection from wages and profits")
-    print("  ✓ Unemployment benefits distributed")
-    print("  ✓ Transfer budget management")
-    print("  ✓ Policy adjustments based on economic conditions")
-    print("  ✓ Fiscal balance tracking")
+    print("  âœ“ Tax collection from wages and profits")
+    print("  âœ“ Unemployment benefits distributed")
+    print("  âœ“ Transfer budget management")
+    print("  âœ“ Policy adjustments based on economic conditions")
+    print("  âœ“ Fiscal balance tracking")
     
-    print("\n✅ TEST COMPLETE: Government behavior tracked over 52 ticks")
+    print("\nâœ… TEST COMPLETE: Government behavior tracked over 52 ticks")
     return 0
 
 
@@ -203,7 +212,7 @@ def main():
     try:
         return test_government_behavior_52_ticks()
     except Exception as e:
-        print(f"\n❌ ERROR: {e}")
+        print(f"\nâŒ ERROR: {e}")
         import traceback
         traceback.print_exc()
         return 1
@@ -211,3 +220,4 @@ def main():
 
 if __name__ == "__main__":
     sys.exit(main())
+

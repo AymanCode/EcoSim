@@ -1,3 +1,12 @@
+﻿from pathlib import Path
+import sys
+
+TOOLS_ROOT = Path(__file__).resolve().parents[1]
+BACKEND_ROOT = TOOLS_ROOT.parent
+for _candidate in (BACKEND_ROOT, TOOLS_ROOT, TOOLS_ROOT / 'analysis', TOOLS_ROOT / 'checks', TOOLS_ROOT / 'llm', TOOLS_ROOT / 'runners'):
+    _candidate_str = str(_candidate)
+    if _candidate_str not in sys.path:
+        sys.path.insert(0, _candidate_str)
 """Tax Rate Impact Comparison (Post-Warmup, Private Firms Only)
 
 Runs warmup silently, then two identical post-warmup simulations:
@@ -49,7 +58,7 @@ def run_warmup(households: int):
           f"{len(economy.firms)} firms ({len(private_firms)} private), tick {economy.current_tick}")
 
     if not private_firms:
-        print("WARNING: No private firms yet — results will only show baseline firms.")
+        print("WARNING: No private firms yet â€” results will only show baseline firms.")
 
     return economy
 
@@ -129,8 +138,8 @@ def print_diff(default_hist, max_hist, ticks):
     print(f"\n{'=' * 120}")
     print(f"  COMPARISON: Default Tax vs Max Tax (post-warmup, private firms)")
     print(f"{'=' * 120}")
-    print(f"{'Tick':>5} | {'Unemp Def':>9} {'Unemp Max':>9} {'Δ':>7} | "
-          f"{'GDP Def':>10} {'GDP Max':>10} {'Δ%':>7} | "
+    print(f"{'Tick':>5} | {'Unemp Def':>9} {'Unemp Max':>9} {'Î”':>7} | "
+          f"{'GDP Def':>10} {'GDP Max':>10} {'Î”%':>7} | "
           f"{'PvtFirm D':>9} {'PvtFirm M':>9} | "
           f"{'PvtProfit D':>11} {'PvtProfit M':>11}")
     print("-" * 120)
@@ -153,10 +162,10 @@ def print_diff(default_hist, max_hist, ticks):
     d_avg_gdp = sum(r["gdp"] for r in default_hist) / len(default_hist)
     mx_avg_gdp = sum(r["gdp"] for r in max_hist) / len(max_hist)
 
-    print(f"\n{'─' * 70}")
+    print(f"\n{'â”€' * 70}")
     print(f"SUMMARY after {ticks} post-warmup ticks:")
     print(f"  {'Metric':<25} {'Default':>12} {'Max Tax':>12} {'Delta':>12}")
-    print(f"  {'─'*25} {'─'*12} {'─'*12} {'─'*12}")
+    print(f"  {'â”€'*25} {'â”€'*12} {'â”€'*12} {'â”€'*12}")
     print(f"  {'Unemployment':.<25} {d_final['unemployment_rate']*100:>11.1f}% {mx_final['unemployment_rate']*100:>11.1f}% {(mx_final['unemployment_rate']-d_final['unemployment_rate'])*100:>+11.1f}%")
     print(f"  {'Final GDP':.<25} ${d_final['gdp']:>11,.0f} ${mx_final['gdp']:>11,.0f} ${mx_final['gdp']-d_final['gdp']:>+11,.0f}")
     print(f"  {'Avg GDP':.<25} ${d_avg_gdp:>11,.0f} ${mx_avg_gdp:>11,.0f} ${mx_avg_gdp-d_avg_gdp:>+11,.0f}")
@@ -208,3 +217,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+

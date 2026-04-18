@@ -1,3 +1,4 @@
+﻿
 """EcoSim runner for one LLM-controlled private firm.
 
 Usage:
@@ -8,6 +9,16 @@ Usage:
 """
 
 from __future__ import annotations
+
+from pathlib import Path
+import sys
+
+TOOLS_ROOT = Path(__file__).resolve().parents[1]
+BACKEND_ROOT = TOOLS_ROOT.parent
+for _candidate in (BACKEND_ROOT, TOOLS_ROOT, TOOLS_ROOT / 'analysis', TOOLS_ROOT / 'checks', TOOLS_ROOT / 'llm', TOOLS_ROOT / 'runners'):
+    _candidate_str = str(_candidate)
+    if _candidate_str not in sys.path:
+        sys.path.insert(0, _candidate_str)
 
 import argparse
 import asyncio
@@ -435,3 +446,5 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
+
+

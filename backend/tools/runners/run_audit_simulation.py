@@ -1,3 +1,12 @@
+﻿from pathlib import Path
+import sys
+
+TOOLS_ROOT = Path(__file__).resolve().parents[1]
+BACKEND_ROOT = TOOLS_ROOT.parent
+for _candidate in (BACKEND_ROOT, TOOLS_ROOT, TOOLS_ROOT / 'analysis', TOOLS_ROOT / 'checks', TOOLS_ROOT / 'llm', TOOLS_ROOT / 'runners'):
+    _candidate_str = str(_candidate)
+    if _candidate_str not in sys.path:
+        sys.path.insert(0, _candidate_str)
 """EcoSim Full Audit Runner
 
 Runs a simulation and logs EVERY aspect of EVERY agent on EVERY tick
@@ -808,7 +817,7 @@ class RunAuditSummarizer:
         }
 
 
-# ── Serializers ──────────────────────────────────────────────────────
+# â”€â”€ Serializers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 def serialize_household(hh: HouseholdAgent) -> Dict[str, Any]:
     """Capture every readable field on a household."""
@@ -1612,7 +1621,7 @@ def serialize_tick(
     return record
 
 
-# ── Main ─────────────────────────────────────────────────────────────
+# â”€â”€ Main â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 def parse_args():
     p = argparse.ArgumentParser(description="EcoSim Full Audit Runner")
@@ -1645,7 +1654,7 @@ def main():
         num_households=args.households,
         num_firms_per_category=args.firms_per_category,
     )
-    # Enable audit action logging — captures all plans/outcomes per tick
+    # Enable audit action logging â€” captures all plans/outcomes per tick
     economy.audit_log_enabled = True
 
     if args.no_shocks:
@@ -1740,7 +1749,7 @@ def main():
     print(f"Final money drift: ${drift:+,.2f} ({drift / initial_money * 100:+.4f}%)")
     print(f"Lines: {args.ticks + 3} (1 config + 1 initial + {args.ticks} ticks + 1 run_summary)")
 
-    # ── Auto-generate compact LLM digest ───────────────────────────────
+    # â”€â”€ Auto-generate compact LLM digest â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     if not args.no_digest:
         from audit_digest import build_digest, estimate_tokens, load_audit
 
@@ -1757,3 +1766,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+

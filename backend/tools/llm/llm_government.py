@@ -1,3 +1,4 @@
+﻿
 """LLM government agent with optional LangGraph orchestration.
 
 This module keeps the government decision loop narrow and testable:
@@ -15,6 +16,16 @@ not depend on that package being present.
 """
 
 from __future__ import annotations
+
+from pathlib import Path
+import sys
+
+TOOLS_ROOT = Path(__file__).resolve().parents[1]
+BACKEND_ROOT = TOOLS_ROOT.parent
+for _candidate in (BACKEND_ROOT, TOOLS_ROOT, TOOLS_ROOT / 'analysis', TOOLS_ROOT / 'checks', TOOLS_ROOT / 'llm', TOOLS_ROOT / 'runners'):
+    _candidate_str = str(_candidate)
+    if _candidate_str not in sys.path:
+        sys.path.insert(0, _candidate_str)
 
 import json
 import logging
@@ -143,18 +154,18 @@ def _build_system_prompt(philosophy: str, num_households: int, num_firms: int) -
     """Build the system prompt for the government agent."""
 
     philosophy_text = PHILOSOPHY_PROMPTS.get(philosophy, PHILOSOPHY_PROMPTS["balanced"])
-    return f"""SIMULATION CONTEXT: You are the AI government of a computer-simulated economy. This is a closed simulation — not a real economy. Every piece of data you receive is a complete, authoritative snapshot of the simulation state. Do not ask for additional information. Do not ask clarifying questions. Do not say you need more data. You have everything you need to make a decision right now.
+    return f"""SIMULATION CONTEXT: You are the AI government of a computer-simulated economy. This is a closed simulation â€” not a real economy. Every piece of data you receive is a complete, authoritative snapshot of the simulation state. Do not ask for additional information. Do not ask clarifying questions. Do not say you need more data. You have everything you need to make a decision right now.
 
 Your economic philosophy: {philosophy_text}
 
 SIMULATION PARAMETERS: {num_households} households, {num_firms} firms. One simulation tick = one week.
 
-POLICY LEVERS — you control 13 levers:
+POLICY LEVERS â€” you control 13 levers:
 
 Continuous (any float in range):
-  wage_tax_rate:       [0.00 – 0.50]  Fraction of household wages taxed
-  profit_tax_rate:     [0.00 – 0.50]  Fraction of firm profits taxed
-  investment_tax_rate: [0.00 – 0.30]  Fraction of firm R&D/investment taxed
+  wage_tax_rate:       [0.00 â€“ 0.50]  Fraction of household wages taxed
+  profit_tax_rate:     [0.00 â€“ 0.50]  Fraction of firm profits taxed
+  investment_tax_rate: [0.00 â€“ 0.30]  Fraction of firm R&D/investment taxed
 
 Discrete (exact values only):
   benefit_level:          low | neutral | high | crisis
@@ -169,16 +180,16 @@ Discrete (exact values only):
   bailout_budget:         0 | 5000 | 10000 | 25000 | 50000  (integer)
 
 LEVER EFFECTS:
-  wage_tax_rate ↑       → govt revenue ↑, household take-home ↓, consumption ↓
-  profit_tax_rate ↑     → govt revenue ↑, firm cash ↓, investment ↓
-  investment_tax_rate ↑ → R&D spending ↓, quality growth ↓
-  benefit_level ↑       → unemployed income ↑, reservation wages ↑, fiscal cost ↑
-  public_works on       → unemployment ↓ fast, govt cash ↓ fast
-  minimum_wage ↑        → low-wage workers earn more, some firms shed jobs
-  sector_subsidy ↑      → demand in that sector ↑, affordability ↑, fiscal cost ↑
-  infrastructure ↑      → economy-wide productivity ↑ slowly (20+ ticks)
-  technology ↑          → product quality ↑ slowly, shifts demand toward quality
-  bailout_budget ↑      → failing firms get rescue loans, prevents sector collapse
+  wage_tax_rate â†‘       â†’ govt revenue â†‘, household take-home â†“, consumption â†“
+  profit_tax_rate â†‘     â†’ govt revenue â†‘, firm cash â†“, investment â†“
+  investment_tax_rate â†‘ â†’ R&D spending â†“, quality growth â†“
+  benefit_level â†‘       â†’ unemployed income â†‘, reservation wages â†‘, fiscal cost â†‘
+  public_works on       â†’ unemployment â†“ fast, govt cash â†“ fast
+  minimum_wage â†‘        â†’ low-wage workers earn more, some firms shed jobs
+  sector_subsidy â†‘      â†’ demand in that sector â†‘, affordability â†‘, fiscal cost â†‘
+  infrastructure â†‘      â†’ economy-wide productivity â†‘ slowly (20+ ticks)
+  technology â†‘          â†’ product quality â†‘ slowly, shifts demand toward quality
+  bailout_budget â†‘      â†’ failing firms get rescue loans, prevents sector collapse
 
 HARD RULES:
   - Only include levers you want to CHANGE from their current value.
@@ -187,7 +198,7 @@ HARD RULES:
   - If you have no changes to make, return {{"decisions": {{}}, "reasoning": "holding current policy"}}.
   - Do NOT ask questions. Do NOT request more data. Make a decision or hold.
 
-OUTPUT FORMAT — respond with valid JSON and nothing else after your reasoning:
+OUTPUT FORMAT â€” respond with valid JSON and nothing else after your reasoning:
 {{
   "decisions": {{
     "lever_name": value
@@ -282,13 +293,13 @@ GOVERNMENT BUDGET:
 SIMULATION REGIME:
 {_format_regime_state(regime_state)}
 
-ECONOMIC INDICATORS (noisy, may be lagged — see age/accuracy):
+ECONOMIC INDICATORS (noisy, may be lagged â€” see age/accuracy):
 {_format_observed_metrics(observed_metrics)}
 
-RECENT POLICY HISTORY (action → observed outcome):
+RECENT POLICY HISTORY (action â†’ observed outcome):
 {_format_recent_policy_memory(recent_policy_memory)}
 
-This is all the data available. Reason through the state of the simulation, then output your JSON decision. Do not ask for more information — the simulation cannot respond to questions. Output valid JSON now."""
+This is all the data available. Reason through the state of the simulation, then output your JSON decision. Do not ask for more information â€” the simulation cannot respond to questions. Output valid JSON now."""
 
 
 def _deterministic_rng(seed: int, tick: int, indicator: str) -> random.Random:
@@ -741,3 +752,5 @@ class LLMGovernmentAdvisor:
         """Return the most recent decision cycle."""
 
         return self._decision_history[-1] if self._decision_history else None
+
+

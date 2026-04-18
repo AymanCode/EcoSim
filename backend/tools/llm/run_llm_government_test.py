@@ -1,3 +1,12 @@
+﻿from pathlib import Path
+import sys
+
+TOOLS_ROOT = Path(__file__).resolve().parents[1]
+BACKEND_ROOT = TOOLS_ROOT.parent
+for _candidate in (BACKEND_ROOT, TOOLS_ROOT, TOOLS_ROOT / 'analysis', TOOLS_ROOT / 'checks', TOOLS_ROOT / 'llm', TOOLS_ROOT / 'runners'):
+    _candidate_str = str(_candidate)
+    if _candidate_str not in sys.path:
+        sys.path.insert(0, _candidate_str)
 """EcoSim LLM Government Runner
 
 Runs the simulation with an LLM government agent making policy decisions.
@@ -108,12 +117,12 @@ async def main():
             )
             print(f"  Model ready ({(time.perf_counter() - t0):.1f}s)")
         except Exception as e:
-            print(f"  Probe failed ({e}) — continuing, first decision may be slow")
+            print(f"  Probe failed ({e}) â€” continuing, first decision may be slow")
 
     # Simulation loop
     num_decisions = args.ticks // args.interval
     est_time = num_decisions * 90  # rough estimate: ~90s per decision with thinking model
-    print(f"\nStarting simulation — ~{num_decisions} LLM decisions expected")
+    print(f"\nStarting simulation â€” ~{num_decisions} LLM decisions expected")
     print(f"Estimated time: ~{est_time // 60}m {est_time % 60}s (depends on model speed)\n")
 
     print("-" * 100)
@@ -142,18 +151,18 @@ async def main():
             llm_label = f"{elapsed_s:.0f}s"
 
             if result["decisions"]:
-                print(f"  ┌── LLM DECISION (tick {economy.current_tick}, {elapsed_s:.1f}s) ──")
+                print(f"  â”Œâ”€â”€ LLM DECISION (tick {economy.current_tick}, {elapsed_s:.1f}s) â”€â”€")
                 for lever, value in result["decisions"].items():
                     before = result['current_policy_before'].get(lever, '?')
-                    print(f"  │  {lever}: {before} → {value}")
-                print(f"  │")
-                print(f"  │  \"{result['reasoning']}\"")
+                    print(f"  â”‚  {lever}: {before} â†’ {value}")
+                print(f"  â”‚")
+                print(f"  â”‚  \"{result['reasoning']}\"")
                 dq = result.get("data_quality_summary", {})
-                print(f"  │  [data: {dq.get('reported', 0)} reported, {dq.get('unavailable', 0)} unavailable]")
-                print(f"  └{'─' * 70}")
+                print(f"  â”‚  [data: {dq.get('reported', 0)} reported, {dq.get('unavailable', 0)} unavailable]")
+                print(f"  â””{'â”€' * 70}")
             else:
                 reason = result['reasoning'][:120]
-                print(f"  ── NO CHANGES ({elapsed_s:.1f}s): {reason}")
+                print(f"  â”€â”€ NO CHANGES ({elapsed_s:.1f}s): {reason}")
             print()
 
         # Metrics row
@@ -196,7 +205,7 @@ async def main():
 
     # Final state
     gov = economy.government
-    print(f"\n{'─' * 50}")
+    print(f"\n{'â”€' * 50}")
     print("FINAL POLICY STATE:")
     print(f"  wage_tax_rate:            {gov.wage_tax_rate:.2%}")
     print(f"  profit_tax_rate:         {gov.profit_tax_rate:.2%}")
@@ -221,3 +230,4 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
+

@@ -1,3 +1,12 @@
+﻿from pathlib import Path
+import sys
+
+TOOLS_ROOT = Path(__file__).resolve().parents[1]
+BACKEND_ROOT = TOOLS_ROOT.parent
+for _candidate in (BACKEND_ROOT, TOOLS_ROOT, TOOLS_ROOT / 'analysis', TOOLS_ROOT / 'checks', TOOLS_ROOT / 'llm', TOOLS_ROOT / 'runners'):
+    _candidate_str = str(_candidate)
+    if _candidate_str not in sys.path:
+        sys.path.insert(0, _candidate_str)
 """
 Firm Behavior Integration Test
 
@@ -120,7 +129,7 @@ def test_firm_behavior_52_ticks():
         government=government
     )
     
-    print("\n✓ Economy created successfully")
+    print("\nâœ“ Economy created successfully")
     print(f"  Initial total household cash: ${sum(h.cash_balance for h in households):,.2f}")
     print(f"  Initial total firm cash: ${sum(f.cash_balance for f in firms):,.2f}")
     print(f"  Initial government cash: ${government.cash_balance:,.2f}")
@@ -154,11 +163,11 @@ def test_firm_behavior_52_ticks():
               f"{cash_change:>+11,.2f} ({change_pct:>+6.1f}%) {len(firm.employees):<10} {firm.quality_level:<11.2f}")
     
     print("\nKey Observations:")
-    print(f"  • Total firms still operating: {len(economy.firms)}")
-    print(f"  • Total employees across all firms: {sum(len(f.employees) for f in economy.firms)}")
-    print(f"  • Unemployment rate: {sum(1 for h in economy.households if not h.is_employed) / len(economy.households) * 100:.1f}%")
-    print(f"  • Average household cash: ${sum(h.cash_balance for h in economy.households) / len(economy.households):,.2f}")
-    print(f"  • Government cash balance: ${economy.government.cash_balance:,.2f}")
+    print(f"  â€¢ Total firms still operating: {len(economy.firms)}")
+    print(f"  â€¢ Total employees across all firms: {sum(len(f.employees) for f in economy.firms)}")
+    print(f"  â€¢ Unemployment rate: {sum(1 for h in economy.households if not h.is_employed) / len(economy.households) * 100:.1f}%")
+    print(f"  â€¢ Average household cash: ${sum(h.cash_balance for h in economy.households) / len(economy.households):,.2f}")
+    print(f"  â€¢ Government cash balance: ${economy.government.cash_balance:,.2f}")
     
     # Detailed firm analysis
     print("\nDetailed Firm Metrics:")
@@ -172,7 +181,7 @@ def test_firm_behavior_52_ticks():
         print(f"    Quality: {firm.quality_level:.2f}")
         print(f"    Expected sales: {firm.expected_sales_units:.1f} units/tick")
     
-    print("\n✅ TEST COMPLETE: Firm behavior tracked over 52 ticks")
+    print("\nâœ… TEST COMPLETE: Firm behavior tracked over 52 ticks")
     return 0
 
 
@@ -246,7 +255,7 @@ def main():
     try:
         return test_firm_behavior_52_ticks()
     except Exception as e:
-        print(f"\n❌ ERROR: {e}")
+        print(f"\nâŒ ERROR: {e}")
         import traceback
         traceback.print_exc()
         return 1
@@ -254,3 +263,4 @@ def main():
 
 if __name__ == "__main__":
     sys.exit(main())
+

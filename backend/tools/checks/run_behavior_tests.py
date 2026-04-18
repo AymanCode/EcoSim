@@ -1,3 +1,12 @@
+﻿from pathlib import Path
+import sys
+
+TOOLS_ROOT = Path(__file__).resolve().parents[1]
+BACKEND_ROOT = TOOLS_ROOT.parent
+for _candidate in (BACKEND_ROOT, TOOLS_ROOT, TOOLS_ROOT / 'analysis', TOOLS_ROOT / 'checks', TOOLS_ROOT / 'llm', TOOLS_ROOT / 'runners'):
+    _candidate_str = str(_candidate)
+    if _candidate_str not in sys.path:
+        sys.path.insert(0, _candidate_str)
 """EcoSim Behavioral Test Suite (Post-Warmup)
 
 Each test:
@@ -34,9 +43,9 @@ FAIL = "FAIL"
 SKIP = "SKIP"
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 # Harness
-# ─────────────────────────────────────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 def build_snapshot(households: int) -> bytes:
     """Run warmup + settle until private firms spawn, return pickled economy."""
@@ -106,24 +115,24 @@ def check(label: str, shock_val, ctrl_val, expected_sign: str, tolerance: float 
     else:
         ok = False
     status = PASS if ok else FAIL
-    arrow = "↑" if expected_sign == ">" else "↓"
+    arrow = "â†‘" if expected_sign == ">" else "â†“"
     print(f"    [{status}] {label}: shock={shock_val:.4g} ctrl={ctrl_val:.4g} "
           f"(expected shock {arrow} ctrl)")
     return status
 
 
 def section(name: str):
-    print(f"\n{'═' * 70}")
+    print(f"\n{'â•' * 70}")
     print(f"  TEST: {name}")
-    print(f"{'═' * 70}")
+    print(f"{'â•' * 70}")
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 # Tests
-# ─────────────────────────────────────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 def test_wage_tax_shock(snap, ticks):
-    section("WAGE TAX SHOCK — raise wage_tax_rate 15% → 45%")
+    section("WAGE TAX SHOCK â€” raise wage_tax_rate 15% â†’ 45%")
     print("  Expected: household cash growth slows, gov revenue rises, "
           "consumption softens (happiness/morale hit)")
 
@@ -147,7 +156,7 @@ def test_wage_tax_shock(snap, ticks):
 
 
 def test_profit_tax_shock(snap, ticks):
-    section("PROFIT TAX SHOCK — raise profit_tax_rate 20% → 48%")
+    section("PROFIT TAX SHOCK â€” raise profit_tax_rate 20% â†’ 48%")
     print("  Expected: firm after-tax cash falls, survival stress rises, "
           "private firm count may fall, entry slows")
 
@@ -171,7 +180,7 @@ def test_profit_tax_shock(snap, ticks):
 
 
 def test_benefit_shock(snap, ticks):
-    section("UNEMPLOYMENT BENEFIT SHOCK — benefit_level neutral → crisis")
+    section("UNEMPLOYMENT BENEFIT SHOCK â€” benefit_level neutral â†’ crisis")
     print("  Expected: household cash improves, gov spending rises, benefit level rises,")
     print("  unemployed-not-searching falls (income support keeps people active in market)")
 
@@ -186,7 +195,7 @@ def test_benefit_shock(snap, ticks):
               avg(ctrl, "gov_spending_this_tick"), ">"),
         check("Unemployment benefit (final)", final(shock, "unemployment_benefit"),
               final(ctrl, "unemployment_benefit"), ">"),
-        # Higher benefit → people can afford to keep searching rather than give up
+        # Higher benefit â†’ people can afford to keep searching rather than give up
         check("Unemployed not searching (avg)", avg(shock, "labor_unemployed_not_searching"),
               avg(ctrl, "labor_unemployed_not_searching"), "<"),
         check("Median HH cash (final)", final(shock, "median_household_cash"),
@@ -196,7 +205,7 @@ def test_benefit_shock(snap, ticks):
 
 
 def test_minimum_wage_binding(snap, ticks):
-    section("MINIMUM WAGE BINDING — minimum_wage_policy neutral → high")
+    section("MINIMUM WAGE BINDING â€” minimum_wage_policy neutral â†’ high")
     print("  Expected: wage floor binding share rises, low-margin firms stressed, "
           "mean wage rises, failed hiring rises")
 
@@ -220,7 +229,7 @@ def test_minimum_wage_binding(snap, ticks):
 
 
 def test_sector_subsidy(snap, ticks):
-    section("SECTOR SUBSIDY — food sector at 50%")
+    section("SECTOR SUBSIDY â€” food sector at 50%")
     print("  Expected: gov subsidy spend rises, gov cash falls faster, "
           "distressed food firms fall, household happiness improves")
 
@@ -245,7 +254,7 @@ def test_sector_subsidy(snap, ticks):
 
 
 def test_housing_subsidy(snap, ticks):
-    section("HOUSING SUBSIDY — housing sector at 50%")
+    section("HOUSING SUBSIDY â€” housing sector at 50%")
     print("  Expected: gov subsidy spend rises, distressed housing firms fall, "
           "morale improves (shelter access), gov cash falls")
 
@@ -268,9 +277,9 @@ def test_housing_subsidy(snap, ticks):
 
 
 def test_public_works(snap, ticks):
-    section("PUBLIC WORKS — turn on during base conditions")
+    section("PUBLIC WORKS â€” turn on during base conditions")
     print("  Expected: public works jobs > 0, unemployment falls vs control.")
-    print("  NOTE: net gov spending may not rise — public works replaces unemployment")
+    print("  NOTE: net gov spending may not rise â€” public works replaces unemployment")
     print("  transfers, so the fiscal cost can offset. Test for jobs and unemployment only.")
 
     ctrl = run_ticks(restore(snap), ticks)
@@ -295,7 +304,7 @@ def test_public_works(snap, ticks):
 
 
 def test_infrastructure_lag(snap, ticks):
-    section("INFRASTRUCTURE LAG — infrastructure_spending none → high")
+    section("INFRASTRUCTURE LAG â€” infrastructure_spending none â†’ high")
     print("  Expected: infrastructure productivity multiplier rises gradually, "
           "NOT a jump in tick 1. Gov cash falls faster.")
 
@@ -321,13 +330,13 @@ def test_infrastructure_lag(snap, ticks):
     total_gain = tickN_prod - shock[0].get("infrastructure_productivity", 1.0)
     tick1_gain = shock[1].get("infrastructure_productivity", 1.0) - tick1_prod if len(shock) > 1 else 0
     if total_gain > 0 and tick1_gain / total_gain > 0.8:
-        print("    [WARN] >80% of productivity gain happened on tick 1 — lag structure may be too weak")
+        print("    [WARN] >80% of productivity gain happened on tick 1 â€” lag structure may be too weak")
 
     return results
 
 
 def test_technology_lag(snap, ticks):
-    section("TECHNOLOGY LAG — technology_spending none → medium")
+    section("TECHNOLOGY LAG â€” technology_spending none â†’ medium")
     print("  Expected: technology quality multiplier rises gradually, "
           "mean quality improves vs control over time.")
 
@@ -351,9 +360,9 @@ def test_technology_lag(snap, ticks):
 
 
 def test_zero_benefits(snap, ticks):
-    section("ZERO BENEFITS — benefit_level neutral → low")
+    section("ZERO BENEFITS â€” benefit_level neutral â†’ low")
     print("  Expected: gov spending falls, bottom wealth percentile falls,")
-    print("  unemployed-not-searching rises (no income → give up searching), happiness falls")
+    print("  unemployed-not-searching rises (no income â†’ give up searching), happiness falls")
 
     ctrl = run_ticks(restore(snap), ticks)
 
@@ -377,7 +386,7 @@ def test_zero_benefits(snap, ticks):
 
 
 def test_low_tax_revenue_stress(snap, ticks):
-    section("LOW TAX — wage_tax 15% → 5%, profit_tax 20% → 5%")
+    section("LOW TAX â€” wage_tax 15% â†’ 5%, profit_tax 20% â†’ 5%")
     print("  Expected: gov cash falls faster, gov revenue falls, "
           "HH take-home rises, firm cash rises slightly")
 
@@ -402,7 +411,7 @@ def test_low_tax_revenue_stress(snap, ticks):
 
 
 def test_healthcare_capacity(snap, ticks):
-    section("HEALTHCARE SUBSIDY — subsidize healthcare at 50%")
+    section("HEALTHCARE SUBSIDY â€” subsidize healthcare at 50%")
     print("  Expected: gov subsidy spend rises, mean health improves vs control.")
     print("  NOTE: with 200hh baseline has sufficient capacity so denied_count is 0.")
     print("  Testing health transmission and subsidy flow instead.")
@@ -427,10 +436,10 @@ def test_healthcare_capacity(snap, ticks):
 
 
 def test_gini_progressive_tax(snap, ticks):
-    section("FLAT WAGE TAX REDISTRIBUTION — wage 30% vs wage 15%")
+    section("FLAT WAGE TAX REDISTRIBUTION â€” wage 30% vs wage 15%")
     print("  NOTE: a flat rate hike taxes everyone proportionally. Wealthy households")
     print("  have accumulated savings (non-wage income) so a flat hike may NOT compress")
-    print("  Gini. Testing what actually happens — gov revenue rises, total HH cash falls.")
+    print("  Gini. Testing what actually happens â€” gov revenue rises, total HH cash falls.")
     print("  True redistribution requires bracket shape control, not just rate level.")
 
     ctrl = run_ticks(restore(snap), ticks)  # 15% wage tax (default)
@@ -453,7 +462,7 @@ def test_gini_progressive_tax(snap, ticks):
 
 
 def test_fiscal_collapse(snap, ticks):
-    section("FISCAL COLLAPSE — max spending, zero tax")
+    section("FISCAL COLLAPSE â€” max spending, zero tax")
     print("  Expected: gov cash craters, spending_efficiency falls, "
           "eventually transfers get squeezed")
 
@@ -479,7 +488,7 @@ def test_fiscal_collapse(snap, ticks):
 
 
 def test_burn_mode_trigger(snap, ticks):
-    section("BURN MODE TRIGGER — profit_tax 48% + no subsidy, watch firm stress")
+    section("BURN MODE TRIGGER â€” profit_tax 48% + no subsidy, watch firm stress")
     print("  Expected: burn_mode_firm_count and survival_mode_firm_count rise, "
           "zero_cash_firm_count rises, bankruptcies may appear")
 
@@ -502,7 +511,7 @@ def test_burn_mode_trigger(snap, ticks):
 
 
 def test_inventory_pressure(snap, ticks):
-    section("INVENTORY PRESSURE — low minimum wage forces weak demand")
+    section("INVENTORY PRESSURE â€” low minimum wage forces weak demand")
     print("  Expected: with low min wage, household spending power falls, "
           "inventory_pressure_firm_count rises, weak_demand_firm_count rises")
 
@@ -525,7 +534,7 @@ def test_inventory_pressure(snap, ticks):
 
 
 def test_skills_vs_wages(snap, ticks):
-    section("SKILLS TRANSMISSION — technology_spending grows mean_quality")
+    section("SKILLS TRANSMISSION â€” technology_spending grows mean_quality")
     print("  Expected: technology spending improves quality_multiplier, "
           "which should feed into effective mean_quality of goods")
 
@@ -545,7 +554,7 @@ def test_skills_vs_wages(snap, ticks):
 
 
 def test_deficit_ratio(snap, ticks):
-    section("DEFICIT TRACKING — high spending vs high tax")
+    section("DEFICIT TRACKING â€” high spending vs high tax")
     print("  Expected: deficit_ratio rises under spend-heavy policy, "
           "falls under high-tax policy vs control")
 
@@ -571,10 +580,10 @@ def test_deficit_ratio(snap, ticks):
     return results
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Registry — (function, min_ticks)
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# Registry â€” (function, min_ticks)
 # min_ticks: minimum ticks needed to see the effect. --ticks is floored to this.
-# ─────────────────────────────────────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 ALL_TESTS = {
     # name:             (function,                    min_ticks)
@@ -599,9 +608,9 @@ ALL_TESTS = {
 }
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 # Main
-# ─────────────────────────────────────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 def main():
     parser = argparse.ArgumentParser(description="EcoSim behavioral test suite")
@@ -626,20 +635,20 @@ def main():
         fn, min_ticks = ALL_TESTS[name]
         ticks = max(args.ticks, min_ticks)
         if ticks > args.ticks:
-            print(f"\n  (Using {ticks} ticks for '{name}' — needs at least {min_ticks})")
+            print(f"\n  (Using {ticks} ticks for '{name}' â€” needs at least {min_ticks})")
         results = fn(snap, ticks)
         passed = sum(1 for r in results if r == PASS)
         total = len(results)
         summary[name] = (passed, total, ticks)
 
     # Final scoreboard
-    print(f"\n{'═' * 70}")
+    print(f"\n{'â•' * 70}")
     print(f"  RESULTS SUMMARY")
-    print(f"{'═' * 70}")
+    print(f"{'â•' * 70}")
     total_pass = 0
     total_checks = 0
     for name, (passed, total, ticks) in summary.items():
-        bar = "█" * passed + "░" * (total - passed)
+        bar = "â–ˆ" * passed + "â–‘" * (total - passed)
         label = PASS if passed == total else FAIL
         print(f"  [{label}] {name:<20} {passed}/{total}  {bar}  ({ticks}t)")
         total_pass += passed
@@ -649,10 +658,11 @@ def main():
     if total_pass == total_checks:
         print("  Economy mechanics look correct.")
     elif total_pass / max(total_checks, 1) >= 0.75:
-        print("  Most mechanics working — review FAILs above.")
+        print("  Most mechanics working â€” review FAILs above.")
     else:
-        print("  Several mechanics not responding as expected — investigate FAILs.")
+        print("  Several mechanics not responding as expected â€” investigate FAILs.")
 
 
 if __name__ == "__main__":
     main()
+

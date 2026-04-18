@@ -1,3 +1,12 @@
+﻿from pathlib import Path
+import sys
+
+TOOLS_ROOT = Path(__file__).resolve().parents[1]
+BACKEND_ROOT = TOOLS_ROOT.parent
+for _candidate in (BACKEND_ROOT, TOOLS_ROOT, TOOLS_ROOT / 'analysis', TOOLS_ROOT / 'checks', TOOLS_ROOT / 'llm', TOOLS_ROOT / 'runners'):
+    _candidate_str = str(_candidate)
+    if _candidate_str not in sys.path:
+        sys.path.insert(0, _candidate_str)
 """
 Generate sample database for data team to work with.
 
@@ -322,8 +331,8 @@ def main():
                   f"{avg_happiness:13.3f} | ${avg_wage:7.2f} | ${economy.government.cash_balance:8.0f}")
 
     print()
-    print(f"✓ Generated {num_ticks} ticks of data")
-    print(f"✓ Database saved to: {db_path}")
+    print(f"âœ“ Generated {num_ticks} ticks of data")
+    print(f"âœ“ Database saved to: {db_path}")
     print()
 
     # Generate summary statistics
@@ -365,7 +374,7 @@ def main():
     with open(summary_path, 'w') as f:
         json.dump(summary, f, indent=2)
 
-    print(f"✓ Summary saved to: {summary_path}")
+    print(f"âœ“ Summary saved to: {summary_path}")
     print()
     print("Sample data generation complete!")
     print()
@@ -381,3 +390,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+

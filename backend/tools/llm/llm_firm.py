@@ -1,3 +1,4 @@
+﻿
 """LLM-controlled single-firm advisor for local simulation experiments.
 
 The design goal is narrow and testable:
@@ -12,6 +13,16 @@ between ticks, then injects the validated decision for the next few ticks.
 """
 
 from __future__ import annotations
+
+from pathlib import Path
+import sys
+
+TOOLS_ROOT = Path(__file__).resolve().parents[1]
+BACKEND_ROOT = TOOLS_ROOT.parent
+for _candidate in (BACKEND_ROOT, TOOLS_ROOT, TOOLS_ROOT / 'analysis', TOOLS_ROOT / 'checks', TOOLS_ROOT / 'llm', TOOLS_ROOT / 'runners'):
+    _candidate_str = str(_candidate)
+    if _candidate_str not in sys.path:
+        sys.path.insert(0, _candidate_str)
 
 import copy
 import json
@@ -485,3 +496,5 @@ class LLMFirmAdvisor:
     @property
     def last_decision(self) -> Optional[Dict[str, Any]]:
         return self._decision_history[-1] if self._decision_history else None
+
+

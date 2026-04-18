@@ -3,7 +3,7 @@ import pickle
 import pytest
 
 from config import CONFIG
-from run_large_simulation import create_large_economy
+from tools.runners.run_large_simulation import create_large_economy
 from tests_contracts.factories import seed_everything
 
 

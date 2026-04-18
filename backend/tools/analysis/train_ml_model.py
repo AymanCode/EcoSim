@@ -1,3 +1,12 @@
+﻿from pathlib import Path
+import sys
+
+TOOLS_ROOT = Path(__file__).resolve().parents[1]
+BACKEND_ROOT = TOOLS_ROOT.parent
+for _candidate in (BACKEND_ROOT, TOOLS_ROOT, TOOLS_ROOT / 'analysis', TOOLS_ROOT / 'checks', TOOLS_ROOT / 'llm', TOOLS_ROOT / 'runners'):
+    _candidate_str = str(_candidate)
+    if _candidate_str not in sys.path:
+        sys.path.insert(0, _candidate_str)
 """
 Train ML models to predict economic outcomes from policy configurations.
 
@@ -9,7 +18,7 @@ Model Architecture:
 - Output: 11 economic outcome metrics
 - Algorithm: XGBoost (gradient boosted trees)
 - Validation: 5-fold cross-validation
-- Metrics: R², RMSE, MAE
+- Metrics: RÂ², RMSE, MAE
 
 Resume-worthy features:
 - Hyperparameter tuning
@@ -41,7 +50,7 @@ def install_xgboost():
         print("XGBoost not installed. Installing...")
         import subprocess
         subprocess.check_call([sys.executable, "-m", "pip", "install", "xgboost", "scikit-learn"])
-        print("✓ XGBoost installed successfully")
+        print("âœ“ XGBoost installed successfully")
         return True
 
 def load_training_data(data_file):
@@ -154,14 +163,14 @@ def train_models(X, y, policy_features, outcome_targets):
         }
 
         # Print results
-        print(f"  Train R²: {train_r2:.4f}")
-        print(f"  Test R²:  {test_r2:.4f}")
-        print(f"  CV R²:    {cv_mean:.4f} ± {cv_std:.4f}")
+        print(f"  Train RÂ²: {train_r2:.4f}")
+        print(f"  Test RÂ²:  {test_r2:.4f}")
+        print(f"  CV RÂ²:    {cv_mean:.4f} Â± {cv_std:.4f}")
         print(f"  RMSE:     {test_rmse:.4f}")
 
         # Check for overfitting
         if train_r2 - test_r2 > 0.15:
-            print(f"  ⚠ Warning: Possible overfitting detected")
+            print(f"  âš  Warning: Possible overfitting detected")
 
     return models, evaluation_results, X_test, y_test
 
@@ -229,7 +238,7 @@ def save_models(models, evaluation_results, importance_data, policy_features, ou
     with open(metadata_file, 'w') as f:
         json.dump(metadata, indent=2, fp=f)
 
-    print(f"✓ Models saved to: {model_dir}/")
+    print(f"âœ“ Models saved to: {model_dir}/")
     print(f"  - {len(models)} XGBoost models")
     print(f"  - metadata.json")
     print()
@@ -240,8 +249,8 @@ def save_models(models, evaluation_results, importance_data, policy_features, ou
     avg_test_r2 = np.mean([r['test_r2'] for r in evaluation_results.values()])
     avg_cv_r2 = np.mean([r['cv_r2_mean'] for r in evaluation_results.values()])
 
-    print(f"Average Test R²:  {avg_test_r2:.4f}")
-    print(f"Average CV R²:    {avg_cv_r2:.4f}")
+    print(f"Average Test RÂ²:  {avg_test_r2:.4f}")
+    print(f"Average CV RÂ²:    {avg_cv_r2:.4f}")
     print()
 
     # Flag poor performers
@@ -251,10 +260,10 @@ def save_models(models, evaluation_results, importance_data, policy_features, ou
     ]
 
     if poor_performers:
-        print("⚠ Models with R² < 0.5 (may need more data or tuning):")
+        print("âš  Models with RÂ² < 0.5 (may need more data or tuning):")
         for name in poor_performers:
             r2 = evaluation_results[name]['test_r2']
-            print(f"  - {name}: R² = {r2:.4f}")
+            print(f"  - {name}: RÂ² = {r2:.4f}")
         print()
 
     return model_dir
@@ -273,7 +282,7 @@ def main():
     import glob
     data_files = glob.glob("training_data_*.csv")
     if not data_files:
-        print("✗ No training data found!")
+        print("âœ— No training data found!")
         print("  Please run: python generate_training_data.py")
         sys.exit(1)
 
@@ -285,7 +294,7 @@ def main():
     # Load data
     print("Loading training data...")
     X, y, policy_features, outcome_targets, df = load_training_data(data_file)
-    print(f"✓ Loaded {len(df)} samples")
+    print(f"âœ“ Loaded {len(df)} samples")
     print()
 
     # Train models
@@ -305,7 +314,7 @@ def main():
     )
 
     print("="*70)
-    print("✓ TRAINING COMPLETE")
+    print("âœ“ TRAINING COMPLETE")
     print("="*70)
     print()
     print("Next steps:")
@@ -317,3 +326,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+

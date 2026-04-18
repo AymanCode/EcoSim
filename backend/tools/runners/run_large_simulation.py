@@ -1,3 +1,12 @@
+﻿from pathlib import Path
+import sys
+
+TOOLS_ROOT = Path(__file__).resolve().parents[1]
+BACKEND_ROOT = TOOLS_ROOT.parent
+for _candidate in (BACKEND_ROOT, TOOLS_ROOT, TOOLS_ROOT / 'analysis', TOOLS_ROOT / 'checks', TOOLS_ROOT / 'llm', TOOLS_ROOT / 'runners'):
+    _candidate_str = str(_candidate)
+    if _candidate_str not in sys.path:
+        sys.path.insert(0, _candidate_str)
 """
 Run large-scale EcoSim simulation with 10,000 agents.
 
@@ -87,7 +96,7 @@ def create_large_economy(num_households: int = 10000, num_firms_per_category: in
         )
         baseline_firm.set_personality("conservative")
 
-        # happiness_boost_per_unit removed — services affect happiness via wellbeing path only
+        # happiness_boost_per_unit removed â€” services affect happiness via wellbeing path only
 
         gov.register_baseline_firm(category, baseline_firm.firm_id)
         baseline_firms.append(baseline_firm)
@@ -155,7 +164,7 @@ def create_large_economy(num_households: int = 10000, num_firms_per_category: in
             )
             competitive_firm.set_personality(personality)
 
-            # happiness_boost_per_unit removed — services affect happiness via wellbeing path only
+            # happiness_boost_per_unit removed â€” services affect happiness via wellbeing path only
 
             queued_firms.append(competitive_firm)
             next_firm_id += 1
@@ -226,7 +235,7 @@ def create_large_economy(num_households: int = 10000, num_firms_per_category: in
             firm.wage_offer = max(firm.wage_offer, avg_doctor_wage * 0.95)
 
         print(
-            f"✓ Seeded initial doctors: {target_doctors} "
+            f"âœ“ Seeded initial doctors: {target_doctors} "
             f"({(target_doctors / max(1, num_households)) * 100:.2f}% of households)"
         )
 
@@ -243,9 +252,9 @@ def create_large_economy(num_households: int = 10000, num_firms_per_category: in
         firm.owners = owner_ids
 
     total_firms = len(baseline_firms) + len(queued_firms)
-    print(f"✓ Ownership assigned (avg {sum(len(f.owners) for f in baseline_firms + queued_firms) / total_firms:.1f} owners/firm)")
+    print(f"âœ“ Ownership assigned (avg {sum(len(f.owners) for f in baseline_firms + queued_firms) / total_firms:.1f} owners/firm)")
 
-    print(f"✓ Economy created successfully!")
+    print(f"âœ“ Economy created successfully!")
     print(f"  Total agents: {len(households) + len(baseline_firms) + 1}")
     print(f"    - Households: {len(households)}")
     print(f"    - Firms: {len(baseline_firms)} (queued: {len(queued_firms)})")
@@ -1084,7 +1093,7 @@ def main(
 
     db_conn.close()
 
-    print(f"✓ Simulation complete!")
+    print(f"âœ“ Simulation complete!")
     print(f"  Total time: {total_time:.2f} seconds ({total_time/60:.2f} minutes)")
     print(f"  Average tick time: {avg_tick_time:.3f} seconds")
     print(f"  Ticks per second: {1/avg_tick_time:.2f}")
@@ -1156,26 +1165,26 @@ def main(
     with open(summary_path, 'w') as f:
         json.dump(summary, f, indent=2)
 
-    print(f"✓ Summary saved to: {summary_path}")
+    print(f"âœ“ Summary saved to: {summary_path}")
     print()
 
     # Get comprehensive economic metrics from the economy
     metrics = economy.get_economic_metrics()
 
     print("=" * 80)
-    print("📊 COMPREHENSIVE ECONOMIC DASHBOARD")
+    print("ðŸ“Š COMPREHENSIVE ECONOMIC DASHBOARD")
     print("=" * 80)
     print()
 
     # GDP and Economic Output
-    print("📈 ECONOMIC OUTPUT")
+    print("ðŸ“ˆ ECONOMIC OUTPUT")
     print("-" * 80)
     print(f"  Current tick GDP:             ${metrics['gdp_this_tick']:>15,.2f}")
     print(f"  Total wealth (economy):       ${metrics['total_economy_cash']:>15,.2f}")
     print()
 
     # Labor Market
-    print("👥 LABOR MARKET")
+    print("ðŸ‘¥ LABOR MARKET")
     print("-" * 80)
     print(f"  Total households:             {metrics['total_households']:>15,}")
     print(f"  Employed:                     {metrics['employed_count']:>15,}")
@@ -1188,7 +1197,7 @@ def main(
     print()
 
     # Household Wellbeing
-    print("😊 HOUSEHOLD WELLBEING")
+    print("ðŸ˜Š HOUSEHOLD WELLBEING")
     print("-" * 80)
     print(f"  Average happiness:            {metrics['mean_happiness']:>18.3f}")
     print(f"  Average morale:               {metrics['mean_morale']:>18.3f}")
@@ -1197,7 +1206,7 @@ def main(
     print()
 
     # Household Finances
-    print("💰 HOUSEHOLD FINANCES")
+    print("ðŸ’° HOUSEHOLD FINANCES")
     print("-" * 80)
     print(f"  Total household cash:         ${metrics['total_household_cash']:>15,.2f}")
     print(f"  Average cash per household:   ${metrics['mean_household_cash']:>15,.2f}")
@@ -1205,7 +1214,7 @@ def main(
     print()
 
     # Firm Sector
-    print("🏢 FIRM SECTOR")
+    print("ðŸ¢ FIRM SECTOR")
     print("-" * 80)
     print(f"  Active firms:                 {metrics['total_firms']:>18,}")
     print(f"  Total firm cash:              ${metrics['total_firm_cash']:>15,.2f}")
@@ -1219,7 +1228,7 @@ def main(
     print()
 
     # Government
-    print("🏛️  GOVERNMENT FINANCES & POLICY")
+    print("ðŸ›ï¸  GOVERNMENT FINANCES & POLICY")
     print("-" * 80)
     print(f"  Government cash:              ${metrics['government_cash']:>15,.2f}")
     print(f"  Wage tax rate:                {metrics['wage_tax_rate']:>15.1%}")
@@ -1232,7 +1241,7 @@ def main(
     print()
 
     # Performance
-    print("⚡ SIMULATION PERFORMANCE")
+    print("âš¡ SIMULATION PERFORMANCE")
     print("-" * 80)
     print(f"  Total agents:                 {num_households + len(economy.firms) + 1:>15,}")
     print(f"  Total ticks:                  {num_ticks:>18,}")
@@ -1243,7 +1252,7 @@ def main(
     print()
 
     print("=" * 80)
-    print("📸 SAMPLE TRAJECTORIES (5 households, 5 firms)")
+    print("ðŸ“¸ SAMPLE TRAJECTORIES (5 households, 5 firms)")
     print("=" * 80)
     print()
 
@@ -1261,9 +1270,9 @@ def main(
         if hh_data:
             first = hh_data[0]
             last = hh_data[-1]
-            print(f"  HH {hh_id:4d}: ${first['cash']:7.2f} → ${last['cash']:7.2f} cash | "
-                  f"Employed: {first['employed']} → {last['employed']} | "
-                  f"Happiness: {first['happiness']:.2f} → {last['happiness']:.2f}")
+            print(f"  HH {hh_id:4d}: ${first['cash']:7.2f} â†’ ${last['cash']:7.2f} cash | "
+                  f"Employed: {first['employed']} â†’ {last['employed']} | "
+                  f"Happiness: {first['happiness']:.2f} â†’ {last['happiness']:.2f}")
     print()
 
     # Print firm sample summary
@@ -1282,8 +1291,8 @@ def main(
                 first = firm_data[0]
                 last = firm_data[-1]
                 print(f"  Firm {firm_id:3d} ({last['name']:20s}): "
-                      f"${first['cash']:10,.0f} → ${last['cash']:10,.0f} cash | "
-                      f"Employees: {first['employees']:3d} → {last['employees']:3d}")
+                      f"${first['cash']:10,.0f} â†’ ${last['cash']:10,.0f} cash | "
+                      f"Employees: {first['employees']:3d} â†’ {last['employees']:3d}")
     else:
         print("  No firms tracked in sample")
     print()
@@ -1325,3 +1334,4 @@ if __name__ == "__main__":
         export_every=args.export_every,
         output_tag=args.tag
     )
+

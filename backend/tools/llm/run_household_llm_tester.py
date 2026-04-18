@@ -1,3 +1,12 @@
+﻿from pathlib import Path
+import sys
+
+TOOLS_ROOT = Path(__file__).resolve().parents[1]
+BACKEND_ROOT = TOOLS_ROOT.parent
+for _candidate in (BACKEND_ROOT, TOOLS_ROOT, TOOLS_ROOT / 'analysis', TOOLS_ROOT / 'checks', TOOLS_ROOT / 'llm', TOOLS_ROOT / 'runners'):
+    _candidate_str = str(_candidate)
+    if _candidate_str not in sys.path:
+        sys.path.insert(0, _candidate_str)
 """
 EcoSim Household LLM Beta Tester
 =================================
@@ -6,7 +15,7 @@ by an LLM that observes its real state each tick, reflects on the decisions
 the simulation made for it, and gives beta tester feedback periodically.
 
 The household participates in the real economy (rule-based decisions still run).
-The LLM is a commentator/observer for now — Phase 2 will let it override decisions.
+The LLM is a commentator/observer for now â€” Phase 2 will let it override decisions.
 
 Usage:
     python run_household_llm_tester.py
@@ -33,16 +42,16 @@ from llm_provider import LMStudioProvider
 from agents import HouseholdAgent
 
 
-# ──────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 # Prompt construction
-# ──────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 SYSTEM_PROMPT = textwrap.dedent("""\
     /no_think
-    You are a specific household living inside EcoSim — a running agent-based macroeconomic simulation.
+    You are a specific household living inside EcoSim â€” a running agent-based macroeconomic simulation.
     The simulation makes all decisions for you. Your job is to react as the person this household represents.
 
-    RESPONSE RULES — follow exactly:
+    RESPONSE RULES â€” follow exactly:
     - Answer the 4 numbered questions below each tick. One sentence each. No preamble.
     - Stay in character based on your personality traits.
     - Plain prose only. No JSON, no bullet points, no headers.
@@ -73,7 +82,7 @@ def build_identity_block(hh: HouseholdAgent) -> str:
         key=lambda x: x[1]
     )[0]
 
-    # Job-switching fields only apply when employed — show labor market reality when unemployed
+    # Job-switching fields only apply when employed â€” show labor market reality when unemployed
     if hh.is_employed:
         job_search_line = (
             f"- Won't switch jobs unless offered {hh.job_switch_threshold:.0%} more than current wage\n"
@@ -82,11 +91,11 @@ def build_identity_block(hh: HouseholdAgent) -> str:
     else:
         job_search_line = (
             f"- Actively seeking any job above ${hh.reservation_wage:.0f}/tick (no switch threshold applies when unemployed)\n"
-            f"        - Searching the labor market every tick — no cooldown when unemployed"
+            f"        - Searching the labor market every tick â€” no cooldown when unemployed"
         )
 
     return textwrap.dedent(f"""\
-        YOUR PERSONALITY (fixed — this is who you are):
+        YOUR PERSONALITY (fixed â€” this is who you are):
         - You are a {skill_desc} (skills: {hh.skills_level:.2f}/1.0)
         - You {saver_desc} (saving tendency: {hh.saving_tendency:.2f}/1.0)
         - Price sensitivity: {hh.price_sensitivity:.2f} (higher = more bothered by price changes)
@@ -112,10 +121,10 @@ def build_tick_prompt(
     housing_context = (
         "you own your home (no rent)" if hh.owns_housing else
         f"renting from a firm at ${hh.monthly_rent:.0f}/tick" if hh.monthly_rent > 0 else
-        "you have a baseline government housing allocation (rent is $0 — this is a simulation mechanic, not free market housing)"
+        "you have a baseline government housing allocation (rent is $0 â€” this is a simulation mechanic, not free market housing)"
     )
 
-    # What changed since last tick — with reasons where the sim knows them
+    # What changed since last tick â€” with reasons where the sim knows them
     events = []
     if prev_state:
         if prev_state["employed"] and not employed:
@@ -131,12 +140,12 @@ def build_tick_prompt(
             if not food_ok:
                 events.append(
                     f"health declined to {hh.health:.2f} "
-                    f"(insufficient food — consumed {hh.food_consumed_this_tick:.1f} units, need {hh.min_food_per_tick:.1f})"
+                    f"(insufficient food â€” consumed {hh.food_consumed_this_tick:.1f} units, need {hh.min_food_per_tick:.1f})"
                 )
             else:
                 events.append(
                     f"health declined slightly to {hh.health:.2f} "
-                    f"(natural decay — food was adequate but health recovers slowly)"
+                    f"(natural decay â€” food was adequate but health recovers slowly)"
                 )
         if hh.happiness < prev_state["happiness"] - 0.05:
             events.append("happiness dropped noticeably (likely from unmet needs or poverty)")
@@ -169,17 +178,17 @@ def build_tick_prompt(
     food_bought = hh.last_food_units
     food_needed = hh.min_food_per_tick
     food_status = (
-        f"bought {food_bought:.1f} units (${hh.last_food_spend:.0f}) — adequate (need {food_needed:.1f})"
+        f"bought {food_bought:.1f} units (${hh.last_food_spend:.0f}) â€” adequate (need {food_needed:.1f})"
         if food_bought >= food_needed
-        else f"bought {food_bought:.1f} units (${hh.last_food_spend:.0f}) — SHORTAGE (need {food_needed:.1f}, health at risk)"
+        else f"bought {food_bought:.1f} units (${hh.last_food_spend:.0f}) â€” SHORTAGE (need {food_needed:.1f}, health at risk)"
         if food_bought > 0
-        else f"bought nothing (SHORTAGE — need {food_needed:.1f} units, health at risk)"
+        else f"bought nothing (SHORTAGE â€” need {food_needed:.1f} units, health at risk)"
     )
     housing_status = (
         f"bought {hh.last_housing_units:.1f} units (${hh.last_housing_spend:.0f})"
         if hh.last_housing_units > 0
         else "not purchased this tick"
-    ) + (" — need met" if hh.met_housing_need else " — need NOT met")
+    ) + (" â€” need met" if hh.met_housing_need else " â€” need NOT met")
     services_status = (
         f"bought {hh.last_services_units:.1f} units (${hh.last_services_spend:.0f})"
         if hh.last_services_units > 0
@@ -211,18 +220,18 @@ def build_tick_prompt(
         f"UNEMPLOYED for {hh.unemployment_duration} ticks (searching for work above ${hh.reservation_wage:.0f}/tick)"
     )
     ownership_status = (
-        "yes — owner of firms " + ", ".join(f"#{firm_id}" for firm_id in owned_firm_ids)
+        "yes â€” owner of firms " + ", ".join(f"#{firm_id}" for firm_id in owned_firm_ids)
         if owned_firm_ids
         else "no"
     )
     dividend_status = (
-        f"yes — {_format_signed_money(dividend)} from firms "
+        f"yes â€” {_format_signed_money(dividend)} from firms "
         + ", ".join(f"#{firm_id}" for firm_id in dividend_firm_ids)
         if dividend_firm_ids
         else "no"
     )
     education_status = (
-        f"yes — spent ${abs(ledger.get('education', 0.0)):.0f} on skill building this tick"
+        f"yes â€” spent ${abs(ledger.get('education', 0.0)):.0f} on skill building this tick"
         if education_active
         else "no"
     )
@@ -260,7 +269,7 @@ def build_tick_prompt(
         - Medical training: {hh.medical_training_status}
         - Debt: ${medical_debt:.0f} remaining
         - Skills: {hh.skills_level:.2f}/1.0 (grows slowly while employed)
-        - Job search: {"on cooldown for " + str(hh.job_search_cooldown) + " more ticks (employed — periodic market check)" if hh.is_employed and hh.job_search_cooldown > 0 else "searching every tick (unemployed — no cooldown)" if not hh.is_employed else "ready to check market this tick"}
+        - Job search: {"on cooldown for " + str(hh.job_search_cooldown) + " more ticks (employed â€” periodic market check)" if hh.is_employed and hh.job_search_cooldown > 0 else "searching every tick (unemployed â€” no cooldown)" if not hh.is_employed else "ready to check market this tick"}
         - Firm ownership: {ownership_status}
         - Misc redistribution pool beneficiary: {"yes" if misc_beneficiary else "no"}
         - Education this tick: {education_status}
@@ -279,7 +288,7 @@ def build_tick_prompt(
         - Purchase detail: {purchase_detail}
         - Cash ledger:
 {ledger_block}
-        - Consumed this tick (from pantry): food {food_consumed:.1f} units{"  ← adequate" if food_consumed >= hh.min_food_per_tick else "  ← BELOW MINIMUM, health declining"}
+        - Consumed this tick (from pantry): food {food_consumed:.1f} units{"  â† adequate" if food_consumed >= hh.min_food_per_tick else "  â† BELOW MINIMUM, health declining"}
         - Reservation wage this tick: ${hh.reservation_wage:.0f} (minimum you'd accept)
         - Health note: health decays ~0.5%/tick naturally; food and healthcare visits restore it
 
@@ -316,7 +325,7 @@ def build_tick_prompt(
 
         Answer these 4 questions in character. One sentence each. No preamble.
         1. How do you feel about your cash and income this week?
-        2. Was food, housing, and services adequate — or did something fall short?
+        2. Was food, housing, and services adequate â€” or did something fall short?
         3. What is your biggest concern right now (job, health, debt, prices)?
         4. Does anything about how the simulation handled you feel wrong or unfair?\
     """)
@@ -331,18 +340,18 @@ BETA_TESTER_PROMPT = textwrap.dedent("""\
     - Were there situations where the automatic decision felt absurd for a real person?
     - What information did you need that wasn't available to you?
     - What mechanics felt missing entirely (things a real person would do but couldn't)?
-    - Were there any trap states — situations with no good exit?
+    - Were there any trap states â€” situations with no good exit?
     - What would make this feel more like a real person's economic life?
     - Rate your experience 1-10 (1=toy simulation, 10=felt real).
 
     Be specific. Reference actual ticks and situations you experienced.
-    Plain prose, no JSON. Be blunt — this is developer feedback.
+    Plain prose, no JSON. Be blunt â€” this is developer feedback.
 """)
 
 
-# ──────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 # Snapshot helper
-# ──────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 def snapshot_household(hh: HouseholdAgent) -> Dict:
     return {
@@ -391,9 +400,9 @@ def snapshot_household(hh: HouseholdAgent) -> Dict:
     }
 
 
-# ──────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 # Main
-# ──────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 def _compute_medians(households: List[HouseholdAgent]) -> Dict[str, float]:
     def med(vals: list) -> float:
@@ -417,10 +426,10 @@ def select_household(
     Return the best household for the requested archetype.
 
     Archetypes:
-      frugal      — highest saving_tendency + frugality − spending_tendency
-      spendthrift — lowest saving_tendency + frugality, highest spending_tendency
-      average     — traits closest to population medians, employed, no debt
-      random      — randomly chosen from the full pool
+      frugal      â€” highest saving_tendency + frugality âˆ’ spending_tendency
+      spendthrift â€” lowest saving_tendency + frugality, highest spending_tendency
+      average     â€” traits closest to population medians, employed, no debt
+      random      â€” randomly chosen from the full pool
     """
     rng = random.Random(seed)
 
@@ -442,7 +451,7 @@ def select_household(
                 + abs(h.spending_tendency - medians["spending_tendency"])
                 + abs(h.skills_level    - medians["skills_level"])
             )
-            # Prefer employed, no debt, no medical training — richest starting experience
+            # Prefer employed, no debt, no medical training â€” richest starting experience
             bonus = 0.0
             if h.is_employed: bonus += 0.5
             if h.medical_loan_remaining == 0 and h.medical_school_debt_remaining == 0: bonus += 0.3
@@ -450,7 +459,7 @@ def select_household(
             return bonus - trait_diff
         return max(households, key=avg_score)
 
-    # Fallback — same as original "normal" heuristic
+    # Fallback â€” same as original "normal" heuristic
     def normality_score(h: HouseholdAgent) -> float:
         score = 0.0
         if h.is_employed: score += 3.0
@@ -523,9 +532,9 @@ async def main():
     run_log = []
     prev_state = None
 
-    print("\n" + "─" * 70)
+    print("\n" + "â”€" * 70)
     print(f" {'Tick':>4} | {'Cash':>8} | {'Deposit':>8} | {'Employment':>20} | {'Health':>6} | LLM")
-    print("─" * 70)
+    print("â”€" * 70)
 
     warmup_ticks = CONFIG.time.warmup_ticks
     post_warmup_tick = 0  # counts ticks after warmup ends
@@ -548,7 +557,7 @@ async def main():
             end=" ", flush=True
         )
 
-        # Skip LLM narration during warmup — state isn't meaningful yet
+        # Skip LLM narration during warmup â€” state isn't meaningful yet
         if in_warmup:
             print("(warmup)")
             prev_state = snapshot_household(hh)
@@ -568,7 +577,7 @@ async def main():
             )
             elapsed = time.perf_counter() - t0
             print(f"{elapsed:.1f}s")
-            print(f"  💬 {response.strip()[:200]}")
+            print(f"  ðŸ’¬ {response.strip()[:200]}")
         except Exception as e:
             elapsed = time.perf_counter() - t0
             print(f"FAIL ({elapsed:.1f}s): {e}")
@@ -588,11 +597,11 @@ async def main():
 
         prev_state = snapshot_household(hh)
 
-        # Beta tester feedback — only after warmup, using real event log
+        # Beta tester feedback â€” only after warmup, using real event log
         if post_warmup_tick > 0 and post_warmup_tick % args.feedback_every == 0:
-            print(f"\n{'─' * 70}")
-            print(f"  BETA TESTER FEEDBACK — after tick {economy.current_tick} ({post_warmup_tick} post-warmup)")
-            print(f"{'─' * 70}")
+            print(f"\n{'â”€' * 70}")
+            print(f"  BETA TESTER FEEDBACK â€” after tick {economy.current_tick} ({post_warmup_tick} post-warmup)")
+            print(f"{'â”€' * 70}")
 
             # Build a grounded event summary from the real run log
             real_events = [
@@ -626,7 +635,7 @@ async def main():
             except Exception as e:
                 print(f"Feedback call failed: {e}")
 
-            print(f"{'─' * 70}\n")
+            print(f"{'â”€' * 70}\n")
 
             # Reset conversation so model doesn't OOM on long runs
             conversation_history = []
@@ -658,3 +667,4 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
+
