@@ -75,10 +75,7 @@ def create_economy(num_households: int = 200, enable_bank: bool = True) -> Econo
             max_rental_units=max_units,
         )
         firm.set_personality("conservative")
-        if category == "Services":
-            firm.happiness_boost_per_unit = 0.005
-        elif category == "Healthcare":
-            firm.happiness_boost_per_unit = 0.0
+        # happiness_boost_per_unit removed — services affect happiness via wellbeing path only
         gov.register_baseline_firm(category, firm.firm_id)
         firms.append(firm)
         next_firm_id += 1
@@ -108,8 +105,7 @@ def create_economy(num_households: int = 200, enable_bank: bool = True) -> Econo
                 is_baseline=False,
             )
             firm.set_personality(personality)
-            if category == "Services":
-                firm.happiness_boost_per_unit = random.uniform(0.005, 0.02)
+            # happiness_boost_per_unit removed — services affect happiness via wellbeing path only
             queued_firms.append(firm)
             next_firm_id += 1
 
@@ -192,7 +188,7 @@ def collect_metrics(economy: Economy, tick_time_ms: float) -> Dict[str, float]:
     # Government metrics
     gov = economy.government
     m["gov_cash"] = gov.cash_balance
-    m["gov_deficit_ratio"] = gov.deficit_ratio
+    m["gov_fiscal_pressure"] = gov.fiscal_pressure
     m["gov_spending_efficiency"] = gov.spending_efficiency
     m["gov_revenue"] = gov.last_tick_revenue
     m["gov_spending"] = gov.last_tick_spending
@@ -238,7 +234,7 @@ def format_table_row(tick: int, m: Dict[str, float], has_bank: bool) -> str:
         f"{m['firm_mean_cash']:10.0f}",
         f"{m['firm_survival_mode_count']:>3d}",
         f"{m['gov_cash']:12.0f}",
-        f"{m['gov_deficit_ratio']:5.2f}",
+        f"{m['gov_fiscal_pressure']:5.2f}",
     ]
     if has_bank:
         parts.extend([
@@ -333,7 +329,7 @@ def main():
 
     print(f"\n--- Government ---")
     print(f"  Cash balance:       ${final['gov_cash']:.0f}")
-    print(f"  Deficit ratio:      {final['gov_deficit_ratio']:.3f}")
+    print(f"  Fiscal pressure:    {final['gov_fiscal_pressure']:.3f}")
     print(f"  Spending efficiency: {final['gov_spending_efficiency']:.2f}")
 
     if has_bank:

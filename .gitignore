@@ -37,6 +37,16 @@ ml_models_*/
 sample_data/*.json
 backend/sample_data/*.json
 
+# Audit / evaluation artifacts
+audit_full_dump.jsonl
+audit_full_dump.md
+test_audit*.jsonl
+test_audit*.md
+backend/audit_full_dump.jsonl
+backend/audit_full_dump.md
+backend/audit_digest_output.md
+backend/digest.md
+
 # Keep placeholders if needed
 !sample_data/.gitkeep
 !backend/sample_data/.gitkeep
@@ -46,6 +56,7 @@ practice/
 ecosim_chartjs/
 ecosim-visual/
 frontend/
+data/
 
 # Local agent / IDE settings
 .claude/

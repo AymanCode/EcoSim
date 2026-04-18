@@ -1,2 +1,11 @@
 .env
 __pycache__/
+logs/
+audit_full_dump.jsonl
+audit_full_dump.md
+audit_digest_output.md
+digest.md
+firm_llm_run_log.json
+household_llm_all_archetypes_summary.json
+household_llm_run_log*.json
+llm_test_output.txt

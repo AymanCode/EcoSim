@@ -2,9 +2,9 @@ name: CI
 
 on:
   push:
-    branches: [main, Ayman-Branch]
+    branches: [main]
   pull_request:
-    branches: [main, Ayman-Branch]
+    branches: [main]
 
 jobs:
   test:

@@ -4,6 +4,426 @@ This document tracks all implementation changes, improvements, and features adde
 
 ---
 
+## [2026-04-15] Hiring — Personality Hard Cap, Remove Boom-Bust 25% Override
+
+### Overview
+Replaced percentage-based hire/fire limits with personality-type hard ceilings. Firms can now hire at most 1 (conservative), 2 (moderate), or 3 (aggressive) workers per tick. Firms in healthy stockout get +1 on top of their cap.
+
+### Changes
+- **`config.py`**: Set `conservative_max_hires_range = (1,1)`, `moderate_max_hires_range = (2,2)`, `aggressive_max_hires_range = (3,3)`. Same for fire ranges.
+- **`agents.py` — `_plan_labor_adjustment()`**: Removed `max(personality, ceil(workers * 0.25))` formula — personality is now the ceiling, not the floor. Removed `_stockout_hire_growth_rate()` usage (returned 1.5–4.0 as a workforce multiplier, allowing 15–40 hires per tick during stockouts). Baseline firms capped at 5/tick.
+
+### Why
+The old formula treated `max_hires_per_tick` as a floor and `ceil(current_workers × 0.25)` as the scaling arm — meaning personality had zero effect once a firm grew beyond ~8 workers. A firm with 40 workers could hire 10 in one tick regardless of personality. The stockout path made it worse: `_stockout_hire_growth_rate` returned a workforce multiplier of 1.5–4.0, producing hire_limits of 15–40 workers per tick and causing the boom-bust oscillation observed in the audit (firms 8 and 11 mass-hiring 25–39 workers then mass-shedding the next tick).
+
+---
+
+## [2026-04-15] Government Investment — Disable Infra/Tech, Social Multiplier Decay
+
+### Overview
+Disabled infrastructure and technology investment channels. Changed social investment multiplier from a per-tick reset to an accumulate-with-decay model.
+
+### Changes
+- **`config.py`**: Set `infrastructure_investment_budget = 0.0` and `technology_investment_budget = 0.0`. Both functions already short-circuit when budget is zero.
+- **`agents.py` — `invest_in_social_programs()`**: Replaced per-tick reset (`social_mult = 1.0 + gain`) with accumulation + 5%/tick decay. Multiplier now persists across ticks and decays to 1.0 over ~14 ticks when underfunded (half-life), capped at 1.15.
+
+### Why
+Infrastructure investment (`+0.5%/tick productivity`) and technology investment (`+0.5%/tick quality`) increase supply capacity but have no demand-side counterpart — additional production just accumulates as unsold stockpiles. Disabling these channels prevents the government from draining cash into multipliers that worsen inventory gluts.
+
+The social multiplier was previously stateless: any tick the government ran out of $750 the multiplier snapped back to 1.0 instantly, wiping all prior social spending. The decay model means prior investment retains ~77% of its value after 5 ticks, ~60% after 10, reaching 1.0 asymptotically — matching the real-world logic that social programs have lasting but eroding effects without sustained funding.
+
+---
+
+## [2026-04-15] Private Firm Category Redistribution — Fix Healthcare Slot Leak
+
+### Overview
+
+Fixed a cascading redistribution bug that created an unwanted private healthcare firm despite code explicitly suppressing private healthcare.
+
+### What Changed
+
+- **`backend/run_large_simulation.py`** — firm category target calculation:
+  - Replaced two sequential zero-and-redistribute blocks (one for Healthcare, one for Housing) with a single unified pass.
+  - Both protected categories (`no_private_categories = {"Healthcare", "Housing"}`) are zeroed out first, then all their combined slots are redistributed in one loop that only targets `allowed_categories` (categories not in the protected set).
+
+### Why We Did It
+
+The previous two-pass approach had a cascading bug. Pass 1 zeroed Healthcare and redistributed its slots to `[Food, Housing, Services]` — which included Housing. Pass 2 then zeroed Housing (now inflated by pass 1) and redistributed its slots to `[Food, Services, Healthcare]` — which included Healthcare. Healthcare received a slot back through the second redistribution, undoing the zero-out.
+
+With `num_firms_per_category=2` and 4 categories: pass 1 gave Housing +1 slot (from Healthcare), making Housing=3. Pass 2 redistributed 3 slots to Food/Services/Healthcare, giving Healthcare=1. Result: one private healthcare firm was created (Firm 12 in the audit), which sat permanently dormant with 0 employees and 0 revenue for all 52 ticks because it had no doctor pool.
+
+---
+
+## [2026-04-15] Healthcare Doctor Seeding — Fix 2% Population Invariant
+
+### Overview
+
+Restored the invariant that 2% of the household population are doctors at simulation start. Two bugs had broken this: a config value that seeded only 0.3% of households as doctors, and an employment reconciliation function that funneled all doctors to the first (baseline) healthcare firm regardless of their seeded assignment.
+
+### What Changed
+
+- **`backend/config.py`** — `FirmConfig.healthcare_staff_population_ratio`:
+  - Changed from `0.003` to `0.02`.
+  - This is read by both the seeding code (`run_large_simulation.py:197`) and the per-firm worker cap in `_plan_healthcare_service_labor()`. With 500 households: `ceil(500 × 0.02) = 10` doctors seeded, up from 2.
+
+- **`backend/economy.py`** — `_reconcile_employment_to_source_of_truth()`:
+  - Removed the "One-healthcare-firm model" block that forced every household with `medical_training_status in {"resident", "doctor"}` to `primary_healthcare_firm_id` (the first healthcare firm sorted by ID).
+  - Replaced with: if the household's existing `employer_id` already points to a valid healthcare firm, leave it alone. If not (e.g. a newly graduated doctor whose previous employer was a food firm), re-assign them to the least-staffed healthcare firm to load-balance the doctor pool.
+  - This preserves the round-robin seeding assignment done in `run_large_simulation.py` and correctly distributes doctors if multiple healthcare firms exist.
+
+### Why We Did It
+
+`healthcare_staff_population_ratio = 0.003` was documented as "0.3% of households per healthcare firm" — but the seeding formula `ceil(num_households × ratio)` treats it as a total headcount target, not per-firm. With 500 households and one baseline healthcare firm, the result was `ceil(500 × 0.003) = 2` doctors total. Two doctors for 500 households means the healthcare firm processes at most 2 visits per tick, creating a permanent care backlog regardless of queue depth or demand.
+
+The reconciliation bug was separate: even if doctors were seeded correctly with `employer_id` pointing to different firms, every tick the reconciliation would silently override their assignment to `primary_healthcare_firm_id = healthcare_firms[0].firm_id`. This was a hardcoded "one-healthcare-firm model" assumption that survives from an earlier single-firm design and was never removed when multi-firm support was added to other parts of the system.
+
+### Effect
+
+- 500 households → 10 doctors seeded (2% exactly)
+- Per-firm worker cap: `ceil(500 × 0.02) = 10` — does not interfere with seeded count
+- Reconciliation now respects seeded assignments and load-balances unassigned doctors
+- Healthcare service capacity scales with population as intended
+
+---
+
+## [2026-04-15] Housing Expansion Loans — Property-Backed (LTV) Bank Lending
+
+### Overview
+
+Replaced the previous housing expansion loan hack (which bypassed the bank entirely and issued a direct government transfer) with a proper property-backed (LTV) lending mechanic. Housing firms can now borrow from the bank using their rental portfolio as collateral, just like real estate mortgage finance. The government only acts as a backstop guarantor during a housing crisis, not as the primary lender.
+
+### What Changed
+
+- **`backend/economy.py`** — `_issue_firm_loan()`:
+  - Added `collateral_value: Optional[float] = None` parameter.
+  - When `collateral_value` is provided, the bank uses `0.80 × collateral_value - existing_debt` as the lending ceiling instead of the default `3 × trailing_revenue` revenue-based leverage ceiling.
+  - All other loan paths (government-backed bank loan, direct government fallback) are unchanged — the `collateral_value` only overrides the ceiling calculation for the bank's direct lending path.
+
+- **`backend/economy.py`** — `_offer_housing_expansion_loans()`:
+  - Removed the Scenario A / Scenario B split that was based on `trailing_revenue_12t == 0`.
+  - Removed the Scenario A direct government loan bypass entirely.
+  - Unified into a single path: always route through `_issue_firm_loan()` with a `collateral_value` derived from the firm's property portfolio.
+  - **Collateral calculation**: `per_unit_market_value = $20,000` (build cost × 1.33 market premium) × `firm.max_rental_units`. This reflects asset-backed lending against the property book.
+  - **Crisis guarantee**: when `homeless_count > 40`, effective collateral is raised by 50% (simulating FHA/HUD-style government backing during a housing shortage). This ensures even a 1-unit startup can borrow enough to add a second unit.
+  - Spread reduced to 2% (down from 3–5%) reflecting the lower risk of secured property lending.
+  - Government direct loan remains as a final fallback inside `_issue_firm_loan` if the bank circuit-breaker fires.
+
+### Why We Did It
+
+The root cause of the housing supply crisis was the bank's leverage ceiling: `_max_firm_borrowable = 3 × max(trailing_revenue_12t, 1)`. A new housing firm starts with `trailing_revenue_12t = 0`, so the bank could only lend `3 × 1 = $3` — essentially nothing. A prior workaround bypassed the bank entirely and issued a direct government loan, but this was wrong for two reasons: (1) it drained government cash without going through the credit channel, and (2) it prevented the bank from building a lending relationship with the housing firm.
+
+The correct fix is that housing loans should be secured against property value, not income — the same way mortgages work in real economies. A housing firm with N rental units has a real asset portfolio. The bank can lend against that at 80% LTV without needing to see revenue history. As the firm's portfolio grows through expansion, its collateral grows proportionally, giving it more borrowing capacity for future units. This creates the correct compounding mechanic: borrow → build → collateral grows → borrow more → build more.
+
+### LTV Math
+
+| Scenario | Units | Collateral | 80% LTV | Construction cost | Funds full loan? |
+|---|---|---|---|---|---|
+| 1-unit, no crisis | 1 | $20,000 | $16,000 | ~$15,276 | Yes |
+| 1-unit, crisis | 1 | $30,000 (×1.5 govt) | $24,000 | ~$15,276 | Yes |
+| 2-unit, no crisis | 2 | $40,000 | $32,000 | ~$15,552 | Yes (minus prior debt) |
+| 10-unit, no crisis | 10 | $200,000 | $160,000 | ~$19,350 | Yes |
+
+---
+
+## [2026-04-15] Money Conservation Fixes — Education Cost Routing and Housing Construction Cost
+
+### Overview
+
+Fixed two money-destruction bugs that caused systematic drift in the closed-loop conservation check. After these fixes, money drift is 0.0% for ticks 1–27 (the remaining +$5,331 at t28–t30 is from intentional `_apply_random_shocks()` demand shocks by design).
+
+### What Changed
+
+**Fix 1 — Education cost leak:**
+
+- **`backend/agents.py`** — `HouseholdAgent.maybe_active_education()`:
+  - Changed return type from `bool` (`True`/`False`) to `float` (the cost paid, or `0.0`).
+  - When a household pays $100 for education, the method now returns `100.0` instead of `True`.
+  - When the household cannot afford it, returns `0.0` instead of `False`.
+
+- **`backend/economy.py`** — `step()` household education loop:
+  - Was: `household.maybe_active_education()` (return value discarded — $100 destroyed per call).
+  - Now: accumulates `total_education_spending` across all households, then routes the total through `_collect_misc_revenue()` so the money re-enters the economy.
+
+**Fix 2 — Deposit interest double-counting:**
+
+- **`backend/agents.py`** — `BankAgent.pay_deposit_interest()`:
+  - Was: both `hh.bank_deposit += interest` AND `hh.cash_balance += interest` — money created from nowhere.
+  - Fixed: only `hh.cash_balance += interest`. Bank reserves pay out to household cash; deposits do not compound separately.
+
+**Fix 3 — Money audit formula missing bank reserves:**
+
+- **`backend/run_audit_simulation.py`**:
+  - Added `bank_reserves` to the `total_money` formula: `hh_cash + firm_cash + queued_cash + gov_cash + bank_reserves + misc_pool`.
+  - `household_deposits` is tracked separately but excluded from `total_money` because deposits are already counted inside `bank.cash_reserves`.
+
+### Why We Did It
+
+The audit tool showed -$20,000 drift at tick 1 (200 unemployed, low-skill, cash-rich households × $100 = exactly $20,000). Instrumenting each phase of `step()` identified `maybe_active_education()` as the culprit — it deducted from `hh.cash_balance` but returned a boolean with no routing of the funds. The deposit interest bug was discovered during the same audit pass as a secondary money-creation source.
+
+---
+
+## [2026-04-06] Labor Market Matching Fix — Hiring Throughput, Demand Threshold, Expansion Gate
+
+### Overview
+
+Fixed three independent bottlenecks that together caused firms to post zero planned hires despite having demand and capital, while unemployed households with acceptable reservation wages never matched. All three were upstream of the matching algorithm itself — the segment-tree matcher was correct, but firms were not emitting `planned_hires_count > 0`.
+
+### What Changed
+
+- **`backend/agents.py`** — `FirmAgent.plan_production_and_labor()`:
+  - **`max_hires_per_tick` now used**: The personality trait existed (1–4 for conservative/moderate/aggressive) but was being ignored — `scaling_limit = max(1, ceil(workers * 0.10))` overrode it entirely. Replaced with separate `hire_limit = max(max_hires_per_tick, ceil(workers * 0.25))` and `fire_limit = max(max_fires_per_tick, ceil(workers * 0.20))`. Firms can now hire up to 25% of workforce per tick, not just 10%. The personality cap still applies (conservative firms remain slow).
+  - **`demand_supports_hiring` threshold lowered**: The gate was `sell_through >= 0.85` — blocking hiring when 15% of goods went unsold. Real firms hire when demand is strong, not when demand is perfect. Lowered to `0.65`: firms can start hiring plans with 35% unsold inventory.
+  - **`expansion_blocked` gate made less conservative**: Was using `_expansion_runway_gate_ticks()` which returned 4–8 ticks of runway as the threshold. Survival mode fires at 2 ticks. The gap meant firms with 3–7 ticks of runway were blocked from hiring but not in survival mode — a dead zone. Changed to `firm_config.survival_mode_runway_weeks` (2 ticks) so expansion gate and survival mode have consistent thresholds.
+
+### Why We Did It
+
+The household LLM tester revealed 40+ tick unemployment streaks for households with $36 reservation wages while firms in the same economy were offering $45–$105 and reporting unfilled positions. The matching algorithm (O(log n) segment tree) was ruled out as the cause — it correctly finds candidates when firms emit hiring intent. Investigation of `plan_production_and_labor` found that even healthy firms with full demand were emitting `planned_hires_count = 0` because:
+1. The 10% per-tick growth cap prevented firms from ever catching up to demand surges
+2. The 85% sell-through gate required near-perfect inventory clearance before hiring
+3. The 4–8 tick expansion gate was far more conservative than the 2-tick survival-mode threshold
+
+All three reinforced each other — a firm with 80% sell-through and 3 ticks runway hit all three blocks simultaneously.
+
+---
+
+## [2026-04-05] Household Consumption Rewrite — Income-Anchored Budget with Personality-Derived Drawdown
+
+### Overview
+
+Replaced the wealth-liquidation consumption model with an income-anchored model where spending is driven by current income (wage or unemployment benefit), not accumulated cash balance. Savings now provide a slow, personality-derived trickle rather than a large per-tick spend pool. A desperation mode allows faster savings drawdown when income alone cannot cover basic survival needs.
+
+### What Changed
+
+- **`backend/agents.py`** — `Household.plan_consumption()`:
+  - New parameter `unemployment_benefit` (default `30.0`) passed from the economy tick.
+  - Dropped `resource_base = cash_balance + wage` — this was the root cause of the bug.
+  - Dropped `wealth_ratio` and the `spend_fraction += 0.3 * wealth_ratio` line that amplified spending for high-cash households.
+  - Dropped the buffer-stock wealth-targeting block (`target_ratio`, `current_ratio`, `buffer_stock_save_penalty`, `buffer_stock_spend_bonus`) — this was adding complexity on top of a broken base.
+  - New formula: `base_budget = spend_fraction * disposable_income` where `disposable_income = wage` (employed) or `unemployment_benefit` (unemployed).
+  - New savings drawdown: `drawdown = savings_drawdown_rate * cash_balance` — slow trickle, personality-derived.
+  - New desperation mode: when `base_budget < subsistence_min_cash`, household switches to `emergency_rate = min(0.20, savings_drawdown_rate * 5.0)` drawdown — economically realistic panic savings-burn.
+  - Final budget: `min(base_budget + drawdown, cash_balance)` — can never overdraft.
+
+- **`backend/agents.py`** — `Household` dataclass:
+  - New field: `savings_drawdown_rate: float = 0.02` — overridden per household by personality init.
+
+- **`backend/agents.py`** — `_initialize_personality_preferences()`:
+  - New derivation: `spender_score = spend_norm * (1.0 - saving_tendency)` where `spend_norm` normalizes `spending_tendency` to [0,1].
+  - `savings_drawdown_rate = 0.01 + 0.04 * spender_score` → range [1%, 5%] per tick.
+  - Max spender (spending_tendency=5, saving_tendency=0) draws down 5%/tick. Max saver (spending_tendency=0.1, saving_tendency=1) draws down 1%/tick.
+
+- **`backend/economy.py`** — `_batch_plan_consumption()` (primary vectorized path):
+  - Added `unemployment_benefit` parameter.
+  - Replaced `wealth_scores`, `wealth_factor`, `net_worth_est`, forced-dissaving logic with income-anchored NumPy operations.
+  - `disposable_income = np.where(employment_status, wages, unemployment_benefit)` — vectorized.
+  - Drawdown rates read from `h.savings_drawdown_rate` per household.
+  - Desperation mode vectorized: `in_desperation = base_budget < subsistence_min`.
+
+- **`backend/economy.py`** — Both `_batch_plan_consumption` call sites pass `gov_benefit`.
+
+- **`backend/test_household_agent.py`** — Updated stale comment that referenced the old "90% of cash" formula.
+
+### Why We Did It
+
+The previous model used `resource_base = cash_balance + wage` as the spending base, then applied a `spend_fraction` (0.3–0.9) to that. For households that had accumulated large cash balances during warmup (firm owners, CEO-tier households receiving dividends), this meant spending $1,500–2,000/tick on a $40 wage — 50x income. This is not consumer behavior; it is wealth liquidation.
+
+The symptom showed up clearly in the household LLM tester: a shadowed household with ~$22k burned through its cash in ~15 ticks, collapsing to $120, with no change in happiness or spending behavior visible to the narrator. The economy had two distinct regimes — endowment-fueled and income-fueled — with a cliff between them.
+
+The fix anchors spending to income (the circular flow variable) and makes savings a slow buffer. At 2%/tick, a household with $20k savings draws down $400/tick on top of income — a reasonable emergency buffer, not a wealth furnace. At zero income and zero savings, desperation mode kicks in and pulls from what little cash remains.
+
+The distributional effect of removing `wealth_ratio` (richer households spending proportionally more) is intentionally deferred. The correct mechanism for wealth-to-consumption heterogeneity is quality preference differentiation, not spend fraction scaling — rich households buy premium goods, not just more of the same goods. This will be added in a future pass.
+
+### Calibration Notes
+
+- Aggregate demand will drop compared to the warmup-endowment-fueled phase. This is correct behavior.
+- If equilibrium wages are too low, the right lever is `unemployment_benefit` (demand floor), not restoring wealth-based consumption. This is also a more realistic and interesting government policy lever.
+- `savings_drawdown_rate` range [1%, 5%]: at 2%/tick average, a household with $10k savings and zero income depletes to ~35% in one year (~52 ticks). This matches a realistic emergency runway.
+
+---
+
+## [2026-04-05] Newspaper Mechanic Fix — On-the-Job Search and Job-Switcher Stability
+
+### Overview
+
+Fixed the on-the-job search mechanic (informally: the "newspaper" mechanic) which was silently broken — producing zero job switches across the entire economy every tick. Also fixed a bug where job-switchers who failed to find a new job were incorrectly dropped to unemployed rather than staying with their old employer.
+
+### What Changed
+
+- **`backend/economy.py`** — `mean_posted_wage` calculation:
+  - Previously: used only firms that were actively hiring, which was often an empty or near-empty set after warmup → `mean_posted_wage = 0.0` → no employed worker ever found a better offer.
+  - Fixed to: use all private firms' `wage_offer_next` plans, regardless of whether they are currently hiring. This gives a real market wage signal.
+
+- **`backend/economy.py`** — Incumbent retention in `_match_labor_fast`:
+  - Previously: employed households were retained by their employer before matching, even if they were trying to switch jobs — so job-switchers never entered the matching pool.
+  - Fixed: `is_job_switching` flag checked before incumbent retention. Job-switchers are released into the pool.
+
+- **`backend/economy.py`** — Non-hiring firm inclusion:
+  - When job-switchers are present, private firms that are not actively hiring are still added to the market as potential destinations. A switcher can move to a firm that is not growing headcount.
+
+- **`backend/economy.py`** — Job-switcher fallback:
+  - If a job-switcher does not successfully match to a new employer, they fall back to their original employer rather than becoming unemployed. This prevents voluntary mobility from creating accidental layoffs.
+
+### Why We Did It
+
+The on-the-job search mechanic is what closes the wage-competition loop. Without it, firms have no competitive pressure on wages from employed workers — only from the unemployed pool. In the pre-fix simulation, 0 job switches occurred in 20 ticks. After the fix, 16 switches occurred in 20 ticks across a 200-household economy, which is realistic (roughly 8% of employed workers switching per 20-tick window).
+
+---
+
+## [2026-04-05] Happiness Recovery — Consumption-Based Positive Feedback
+
+### Overview
+
+Added consumption-based happiness recovery to balance the existing happiness decay rate. Previously, happiness decayed at 0.2%/tick with no recovery path, causing all households to slide toward the mercy floor regardless of how well-fed or employed they were.
+
+### What Changed
+
+- **`backend/agents.py`** — `update_wellbeing()`:
+  - Added `happiness_positive` accumulator driven by successful consumption events each tick.
+  - Food: +0.0008 if household met minimum food threshold.
+  - Services: +0.0005 if any services consumed this tick.
+  - Housing: +0.0007 if housing need met.
+  - Wage: +0.0005 if employed and wage >= expected wage.
+  - Combined recovery when all needs met: 0.0025/tick ≈ decay rate (0.002/tick) → rough stability for a household with all needs satisfied.
+
+### Why We Did It
+
+Happiness was a one-way ratchet downward. A household that consistently ate well, had housing, consumed services, and earned fair wages still drifted toward 0.25. The recovery values are calibrated so that a fully-satisfied household hovers near their starting value, while a household with unmet needs decays. This creates a visible wellbeing signal that responds to economic conditions.
+
+---
+
+## [2026-04-05] Warmup Ticks Default — Reduced from 52 to 10
+
+### What Changed
+
+- **`backend/config.py`**: `warmup_ticks` default changed from `52` to `10`.
+
+### Why We Did It
+
+52-tick warmup (one full year) was appropriate for early development when the economy needed a long bootstrap period. With private firms now activating correctly post-warmup and the LLM government/household testers requiring faster feedback loops, 52 ticks of warmup before anything interesting happens is too long. 10 ticks gives the economy enough time to initialize prices and wages while getting to the interesting dynamics quickly. The default can be overridden via `--warmup-ticks` CLI flag.
+
+---
+
+## [2026-04-04] Contract Coverage - Post-Warmup Cash Ledger and 3-Worker Firm Distress Probe
+
+### Overview
+
+Added focused regression coverage for two questions that came up in behavioral review: does cash stay conserved once the economy is out of warmup when there are no intentional sink mechanics, and what does a low-cash 3-worker private firm actually do under distress?
+
+### What Changed
+
+- Added a new invariant in `backend/tests_contracts/test_contracts_invariants.py` that runs a real post-warmup economy loop and asserts total cash is conserved when the scenario disables known sink mechanics like active education, housing expansion, and discretionary government spending.
+- Added a new distress-planning contract in `backend/tests_contracts/test_contracts_integration.py` that proves a low-cash 3-worker private firm enters survival mode, stops hiring, and cuts production to the survival-mode cap.
+- Added a documented `xfail` integration contract in `backend/tests_contracts/test_contracts_integration.py` for the stronger expected behavior: the same 3-worker private firm should actually lay workers off on a full tick, but currently does not.
+- Updated `backend/tests_contracts/README.md` to describe the new coverage and the known-gap probe.
+
+### Why We Did It
+
+The existing accounting invariant only covered a narrow short-horizon transfer loop, so it could not answer whether post-warmup stepping was accidentally duplicating money once the full simulation machinery was active. Separately, the labor tests covered generic distressed firms, but not the exact edge case that matters for realism review: a small private firm with only three workers and almost no cash.
+
+The new contracts separate those concerns cleanly. The cash test isolates duplication from intentional sink mechanics, and the 3-worker firm probe turns the current survival-mode edge case into an explicit, versioned test artifact instead of a one-off observation.
+
+## [2026-04-03] Fiscal Pressure Fix - Clamp Rolling Pressure, Count Hidden Treasury Outflows
+
+### Overview
+
+Fixed the government budget-pressure pipeline so `spending_efficiency` can actually respond to sustained deficits instead of staying pinned at `1.0`.
+
+### What Changed
+
+- Renamed the rolling government deficit EMA in `backend/agents.py` from `deficit_ratio` to `fiscal_pressure`.
+- Clamped `fiscal_pressure` in `backend/economy.py` to a floor of `-0.15` after the EMA update so long surplus periods build only a modest fiscal buffer instead of an unrecoverable negative well.
+- Reassigned the public `deficit_ratio` metric in `backend/economy.py` to the snapshot-style cash-to-GDP ratio, while exposing the rolling control signal separately as `fiscal_pressure`.
+- Counted bond purchases from `make_investments()` in `tick_spending` instead of omitting them from the budget-pressure ledger.
+- Counted public-works capitalization as an actual treasury outflow and included it in `tick_spending`.
+- Updated `docs/SIMULATION.md` and `docs/TECHNICAL.md` to document the new split between snapshot `deficit_ratio` and rolling `fiscal_pressure`.
+- Added diagnostics for:
+  - `gov_bond_purchases_this_tick`
+  - `gov_public_works_capitalization_this_tick`
+
+### Why We Did It
+
+The old rolling deficit signal could go massively negative during warmup or surplus periods, which meant later deficits had no practical path to degrade `spending_efficiency`. At the same time, some real government outflows were not counted in the spending ledger at all, especially public-works capitalization and bond purchases.
+
+Together, those issues made the soft fiscal constraint look implemented in code but inert in practice. After this fix, the pressure signal remains recoverable and the spending inputs better reflect what the treasury is actually doing.
+
+## [2026-04-03] Post-Warmup Policy Sanity Contracts
+
+### Overview
+
+Added a new contract suite to check that the warmed economy responds in the right direction once the simulator is out of bootstrap mode and private firms are actually active.
+
+### What Changed
+
+- Added `backend/tests_contracts/test_contracts_post_warmup.py`.
+- The new suite warms a deterministic large economy, forks it into paired policy runs, and checks directional responses for:
+  - wage-tax shocks
+  - profit-tax shocks
+  - food subsidies
+  - minimum-wage hikes
+  - public works
+  - explicit sector bailouts
+  - technology spending
+  - infrastructure spending
+
+### Why We Did It
+
+The earlier unit and integration contracts were good at catching local regressions, but they did not answer the broader question: does the post-warmup economy react in ways that look economically sane once private firms, unemployment, household demand, and government policy are all interacting together?
+
+These tests are meant to be regression guards for policy transmission, not realism proofs. They verify that major levers move the economy in sensible directions after warmup, which makes it much easier to detect when future simulator changes silently break the macro behavior.
+
+## [2026-04-01] Firm Discipline Pass - Small-Capital Startups, LLM-Gated Bailouts, Demand-Driven Hiring
+
+### Overview
+
+This pass fixes three simulator distortions that were making government policy much less meaningful than intended:
+
+- private and baseline firms were starting with far too much capital, so failure pressure was weak
+- government rescue lending was happening automatically, which meant the simulator was making bailout decisions on its own instead of letting the LLM government choose
+- private firms had hidden hiring floors and ratchets, so even obviously unprofitable firms could keep expanding headcount
+
+The goal of this pass was to restore real creative-destruction pressure. Firms should be able to start small, grow only when demand and unit economics justify it, and fail when they cannot make payroll unless the government explicitly chooses to intervene.
+
+### What Changed
+
+- Reduced initial baseline-firm cash and queued private-firm cash in `backend/run_large_simulation.py` to `$10,000`.
+- Added three explicit government bailout levers in `backend/agents.py`:
+  - `bailout_policy: off | sector | all`
+  - `bailout_target: none | food | housing | services | healthcare`
+  - `bailout_budget: 0 | 5000 | 10000 | 25000 | 50000`
+- Added bailout-cycle accounting in `backend/agents.py` so the government can see authorized budget, actual disbursement, firms assisted, and remaining budget across decision cycles.
+- Replaced the automatic emergency-loan call path in `backend/economy.py` with an explicit `_execute_bailouts()` path that only runs when the bailout levers authorize it.
+- Tightened bailout eligibility in `backend/economy.py` so newborn low-headcount firms are not rescued just for being small. Bailouts now target genuinely distressed private firms with weak payroll coverage or short cash runway.
+- Counted bailout disbursements in government spending metrics and exposed distress/bailout telemetry to the LLM in `backend/economy.py` and `backend/llm_government.py`.
+- Removed the hidden private-firm expansion ratchets in `backend/agents.py`:
+  - deleted the forced `current_workers + 1` growth behavior
+  - removed the private minimum-staff floor of `10`
+  - reduced zero-worker private bootstrap hires to at most `1-2`
+  - made private staffing respond to demand tightness, payroll coverage, and cash runway instead of a hardcoded growth floor
+- Surfaced the new bailout levers in `backend/run_llm_government_test.py` and `backend/server.py` so the simulation runner and policy snapshots stay aligned with the new action space.
+
+### Why We Did It
+
+The previous mechanics were hiding the economic consequences of bad firm decisions and bad government policy:
+
+- A firm with hundreds of thousands of dollars in starting cash can survive long after its business model has failed, which blunts the effect of taxes, wages, and consumer demand.
+- Automatic bailout lending means the simulator, not the LLM government, decides when to save failing firms. That undermines the core experiment of making the LLM act as the state.
+- Forced hiring floors and ratchets make firm behavior look irrational. A firm with collapsing revenue should not keep hiring just because a planner contains a hidden expansion rule.
+
+After this pass, government rescues are a deliberate fiscal choice with a real budget cap, and private firms are allowed to stay tiny, shrink, or die if the market does not support them.
+
+### Validation
+
+- `pytest backend/tests_contracts/test_contracts_llm.py backend/tests_contracts/test_contracts_integration.py -q`
+- `python -m py_compile backend/agents.py backend/economy.py backend/llm_government.py backend/run_large_simulation.py backend/run_llm_government_test.py backend/server.py backend/tests_contracts/test_contracts_llm.py backend/tests_contracts/test_contracts_integration.py`
+- `python backend/run_firm_tracker.py --ticks 8 --households 200 --firm-index 0`
+- `python backend/run_tax_comparison.py --ticks 6 --households 200`
+
+Observed outcomes from the focused reruns:
+
+- tracked private firms now start near `$10k`, not `$800k+`
+- a tracked unprofitable private firm bootstrapped to `1` worker and then held instead of auto-hiring up to `5`
+- private-firm median cash in the tax comparison run stayed near `$10k`, confirming that the oversized startup-capital cushion is gone
+
 ## [2026-03-12] Engineering Hardening Pass — Config Centralization, Determinism Fixes, Wage Telemetry Pipeline
 
 ### Overview

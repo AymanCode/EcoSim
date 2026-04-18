@@ -6,6 +6,7 @@ This folder uses a single naming style for readability:
 - `test_contracts_behavior.py`: direct behavior contracts (food/health, services, morale, budgeting)
 - `test_contracts_healthcare.py`: healthcare service model contracts
 - `test_contracts_integration.py`: short deterministic integration sanity checks
+- `test_contracts_post_warmup.py`: post-warmup policy sanity checks on a warmed market economy
 - `test_contracts_factories.py`: scenario-factory helpers for handcrafted and generated economies
 
 Legacy files with `test_tier*` names are kept only as aliases and are skipped at collection time.
@@ -15,6 +16,11 @@ Run all contract tests:
 ```bash
 python -m pytest backend/tests_contracts -q
 ```
+
+Recent coverage added on top of the core suites:
+
+- post-warmup cash-ledger conservation in no-sink economies
+- distressed private-firm survival-mode probes, including a documented known-gap check for 3-worker firms that should downsize but currently do not
 
 ## Scenario Factories
 

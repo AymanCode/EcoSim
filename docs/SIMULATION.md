@@ -50,10 +50,10 @@ Households are the core economic actors — they work, earn wages, buy goods, co
 
 **Behaviors per tick:**
 
-1. **Labor supply** — Decides whether to seek work, sets reservation wage based on expected wage and skills.
+1. **Labor supply** — Decides whether to seek work, sets reservation wage based on expected wage and skills. Employed households may also search for better-paying jobs via the on-the-job search mechanic (see Labor Market).
 2. **Consumption planning** — Allocates budget across food, housing, services, healthcare based on need and preferences. Food and healthcare have satiation caps to prevent hoarding.
 3. **Goods consumption** — Eats from pantry each tick (10% depletion rate). Food consumption credits `food_consumed_this_tick`; same for services and healthcare.
-4. **Wellbeing update** — Health, happiness, and morale update based on consumption, employment, and wages. Each has natural decay rates (health: 0.5%/tick, happiness: 1%/tick, morale: 2%/tick).
+4. **Wellbeing update** — Health, happiness, and morale update each tick. All three have natural decay rates. Happiness recovery is driven by consumption events (food, services, housing, fair wages).
 5. **Skill growth** — Passive skill improvement while employed (`0.001 * (1 - skills_level)` per tick). Experience accumulates per industry category.
 
 **Key Mechanics:**
@@ -62,6 +62,43 @@ Households are the core economic actors — they work, earn wages, buy goods, co
 - **Performance multiplier**: `0.5 + (morale×0.5 + health×0.3 + happiness×0.2)` — ranges from 0.5x to 1.5x, directly affects production output.
 - **Mercy floor**: When happiness drops below 0.25, decay pauses to prevent irreversible death spirals.
 - **Wage premiums**: Actual wage = `wage_offer * (1 + skill_premium + experience_premium)`. Skill premium up to 50% at max skill; experience premium 5% per year, capped at 50%.
+
+**Consumption Model:**
+
+Spending is income-anchored, not wealth-liquidating. The budget is computed as:
+
+```
+disposable_income = wage            # if employed
+                  = benefit_level   # if unemployed
+base_budget = spend_fraction * disposable_income
+drawdown    = savings_drawdown_rate * cash_balance   # personality-derived, 1–5%/tick
+budget      = min(base_budget + drawdown, cash_balance)
+```
+
+`spend_fraction` (0.3–0.9) is modulated by macro confidence (unemployment rate), happiness, and employment stability. `savings_drawdown_rate` is personality-derived in `_initialize_personality_preferences`: spenders draw down up to 5%/tick, savers as little as 1%/tick.
+
+**Desperation mode**: When `base_budget < subsistence_min_cash`, the household switches to an emergency drawdown rate (`savings_drawdown_rate × 5`, capped at 20%) to cover survival spending. This represents a household raiding savings when income is insufficient for basics.
+
+**Wellbeing Decay and Recovery:**
+
+| Signal | Decay rate | Recovery (full consumption) |
+|--------|-----------|---------------------------|
+| Health | 0.5%/tick | Healthcare visits, food above threshold |
+| Happiness | 0.2%/tick | +0.08% food, +0.05% services, +0.07% housing, +0.05% fair wage |
+| Morale | 2%/tick | Employment, wage satisfaction |
+
+A fully-satisfied household (all needs met, employed, fair wage) recovers happiness at ~0.25%/tick ≈ decay rate → stable. Unmet needs cause net decay.
+
+**Bank Account:**
+
+Each household has a `cash_balance` (liquid) and optionally a `bank_deposit` (savings). These are separate. Spending always draws from `cash_balance` only — the bank deposit cannot be spent directly.
+
+Each tick, the bank sweep runs after consumption:
+1. **Interest**: deposit earns interest, credited to both `bank_deposit` and `cash_balance`.
+2. **Auto-deposit**: if `cash_balance > liquidity_floor` (3–10 weeks of expenses, personality-derived), a fraction (5–40%) of the excess is swept into the deposit.
+3. **Auto-withdraw**: if `cash_balance < 50% of liquidity_floor` and there are deposits, the shortfall is pulled back from savings into cash.
+
+This means the bank account is a passive savings buffer — the household doesn't decide to deposit or withdraw, the mechanic runs automatically based on their saving personality.
 
 ### Firm Agent
 
@@ -83,24 +120,27 @@ Firms produce goods, hire workers, set prices, and compete for market share.
 
 **Behaviors per tick:**
 
-1. **Production planning** — Just-in-time: produce `max(expected_sales, minimum_floor)` rather than targeting inventory levels. Uses Cobb-Douglas production: `output = base_productivity * workers^alpha` (alpha = 0.82).
-2. **Labor planning** — Determines headcount needs, posts wage offers. Experienced workers get productivity bonuses.
-3. **Pricing** — PID-style inventory controller targeting ~2 weeks of supply buffer. Prices bounded by ±20% change per tick, floored at cost × 1.05.
-4. **Wage setting** — Adjusts wage offers based on hiring success, vacancy rates, and personality type.
+1. **Production and labor planning** — Private firms use a shared firm-health snapshot so staffing, distress response, pricing, and wage logic react to the same conditions. The labor planner still handles demand, inventory pressure, survival mode, burn mode, and staged cuts.
+2. **Hiring and contraction** — Distressed private firms can be blocked from expanding when smoothed profit is negative and cash runway is short, while contraction logic remains active.
+3. **Pricing** — Private prices react to inventory pressure using each firm's sampled `price_adjustment_rate` and `target_inventory_weeks`. Large gluts create larger cuts; sell-outs with low stock create smaller upward nudges. Baseline and healthcare firms keep category-specific special handling.
+4. **Wage setting** — Private post-warmup wages ratchet from the current `wage_offer` rather than being re-anchored to one tick of realized revenue per worker. Pressure comes from hiring failure, turnover, profitability, runway, sell-through, and inventory.
 
-**Firm Personalities (assigned deterministically by `firm_id % 3`):**
+**Firm Personalities and Trait Sampling:**
 
-| Personality | Investment | Risk | Price Speed | Wage Bidding | R&D |
-|-------------|-----------|------|-------------|--------------|-----|
-| Aggressive | 15% | 0.9 | Fast (10%) | Aggressive (15%) | 8% |
-| Moderate | 5% | 0.5 | Medium (5%) | Balanced (10%) | 5% |
-| Conservative | 2% | 0.2 | Slow (2%) | Cautious (5%) | 2% |
+Each firm still has a broad personality (`aggressive`, `moderate`, `conservative`), but the actual response speeds are sampled per firm rather than hard-coded to one exact number. In practice this means firms share the same decision rules while differing in:
+
+- `risk_tolerance`
+- `price_adjustment_rate`
+- `wage_adjustment_rate`
+- `target_inventory_weeks`
+- hire/fire limits
+- R&D and investment propensity
 
 **Baseline (Government) Firms:**
 
 - One per category (Food, Housing, Services, Healthcare)
 - Act as safety-net providers with lower quality
-- During warmup (first 52 ticks), hire proportional share of workforce
+- During warmup (`CONFIG.time.warmup_ticks`, default 10), hire proportional share of workforce
 - After warmup, gradually reduce staff to let private firms take over (support ratios: 1.0 during cooldown, 0.8 after)
 
 **Bankruptcy:**
@@ -120,6 +160,8 @@ The government collects taxes, provides transfers, makes investments, and adjust
 | `wage_tax_rate` | float (0-1) | Tax on household wages |
 | `profit_tax_rate` | float (0-1) | Tax on firm profits |
 | `unemployment_benefit_level` | float | Per-tick payment to unemployed |
+| `fiscal_pressure` | float | Rolling EMA of `(spending - revenue) / GDP`, used for fiscal penalties |
+| `spending_efficiency` | float (0.5-1.0) | Soft budget-pressure penalty applied to government discretionary spending |
 | `infrastructure_productivity_multiplier` | float | Economy-wide productivity boost |
 | `technology_quality_multiplier` | float | Economy-wide quality boost |
 | `social_happiness_multiplier` | float | Economy-wide happiness boost |
@@ -132,11 +174,20 @@ The government collects taxes, provides transfers, makes investments, and adjust
    - Infrastructure (+0.5% productivity per $1,000)
    - Technology (+0.5% quality per $500)
    - Social programs (+0.5% happiness per $750)
-4. **Dynamic policy** — Adjusts tax rates and benefits based on unemployment and fiscal balance:
-   - High unemployment (>15%): increase benefits 5%, transfers 10%
-   - Low unemployment (<3%): reduce benefits 2%
-   - Large deficit (<-$10K): raise taxes 2%
-   - Large surplus (>$50K): lower taxes 2%
+4. **Soft fiscal constraint** — Tracks two different budget metrics:
+   - `deficit_ratio`: snapshot-style treasury stress, computed from government cash relative to current GDP
+   - `fiscal_pressure`: rolling EMA of per-tick deficit flow, used to degrade `spending_efficiency`
+
+### Fiscal Pressure and Spending Efficiency
+
+- `fiscal_pressure` is the control signal the simulator uses for budget pressure.
+- It is updated from per-tick `(spending - revenue) / GDP` and clamped to a floor of `-0.15`, so long surplus periods create only a modest fiscal buffer rather than an unrecoverable negative well.
+- `spending_efficiency` is derived from `fiscal_pressure`:
+  - below `0.05`: no penalty
+  - `0.05-0.15`: mild efficiency loss
+  - `0.15-0.30`: stronger penalty
+  - above `0.30`: hard floor at `0.5`
+- Treasury outflows counted in this pressure path include transfers, infrastructure spending, technology spending, sector subsidies, bailout disbursements, bond purchases, and public-works capitalization.
 
 ---
 
@@ -198,7 +249,11 @@ Each tick executes these phases in order:
 
 ### Warmup Period
 
-The first 52 ticks are a warmup period where baseline (government) firms operate at higher capacity to bootstrap the economy. After warmup, baseline firms gradually reduce their workforce to let private firms compete.
+The first `CONFIG.time.warmup_ticks` ticks are a warmup period where baseline
+(government) firms operate at higher capacity to bootstrap the economy. The
+default is currently 10 ticks, but it is configuration-driven rather than
+hard-coded. After warmup, baseline firms gradually reduce their workforce to let
+private firms compete.
 
 ---
 
@@ -211,6 +266,26 @@ The first 52 ticks are a warmup period where baseline (government) firms operate
 - **Wage determination**: `actual_wage = wage_offer * (1 + skill_premium + experience_premium)`.
 - **Skill premium**: Up to 50% for max skill (0.5 * skills_level).
 - **Experience premium**: 5% per year of industry experience, capped at 50%.
+
+**Firm hiring throughput:**
+
+Firms can hire up to `max(max_hires_per_tick, ceil(workers * 0.25))` workers per tick. The `max_hires_per_tick` trait (1–4 workers depending on personality: conservative, moderate, aggressive) ensures even small/zero-worker firms can hire. The 25% scaling ensures growing firms can actually catch up to demand. Contraction is similarly bounded by `max(max_fires_per_tick, ceil(workers * 0.20))`.
+
+Hiring intent is gated by two conditions: sell-through rate ≥ 65% (firm is selling most of what it produces) and cash runway above the survival-mode threshold (2 ticks). A firm with adequate demand but short runway does not hire; a firm with good runway but poor sell-through does not hire. Both gates must pass for expansion to proceed.
+
+**On-the-Job Search (Newspaper Mechanic):**
+
+Employed households periodically check whether another firm is offering
+significantly better wages. The check is staggered by a cooldown so workers do
+not all sample the market at once. When possible, the comparison uses the
+posted wage signal from the worker's current employer category rather than one
+economy-wide average. Job-switchers enter the labor pool as active candidates
+that tick.
+
+- Category-level posted wages are computed from private firms' planned wage offers.
+- If no category-specific signal is available, the household falls back to the global mean posted wage.
+- If a job-switcher fails to match with a new employer during that tick's matching phase, they fall back to their previous employer rather than becoming unemployed. Voluntary job search cannot create accidental layoffs.
+- This mechanic creates competitive wage pressure on firms from employed workers, not just from the unemployed pool.
 
 ### Goods Market
 
@@ -231,7 +306,7 @@ The first 52 ticks are a warmup period where baseline (government) firms operate
 
 | Parameter | Default | Effect |
 |-----------|---------|--------|
-| `warmup_ticks` | 52 | Duration of government-heavy warmup |
+| `warmup_ticks` | 10 | Duration of government-heavy warmup (reduced from 52; override with `--warmup-ticks`) |
 | `food_health_mid_threshold` | 2.0 | Food units for moderate health |
 | `food_starvation_penalty` | 0.05 | Health penalty per tick without food |
 | `health_recovery_per_medical_unit` | 0.02 | Health restored per medical inventory unit consumed |
@@ -240,6 +315,8 @@ The first 52 ticks are a warmup period where baseline (government) firms operate
 | `bankruptcy_threshold` | -1000 | Cash level triggering firm exit |
 | `skill_growth_rate` | 0.001 | Passive skill improvement per tick |
 | `experience_premium_rate` | 0.05 | Wage premium per year of experience |
+| `subsistence_min_cash` | 50.0 | Budget threshold that triggers desperation savings drawdown |
+| `savings_drawdown_rate` | 1–5% | Per-household, personality-derived fraction of cash savings spent per tick |
 | `healthcare_capacity_per_worker_default` | 2.0 | Visits per healthcare worker per tick |
 
 For the full 400+ parameter reference, see `backend/config.py`.

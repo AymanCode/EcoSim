@@ -18,7 +18,7 @@ from typing import Dict, List, Optional
 
 import numpy as np
 
-from agents import HouseholdAgent, FirmAgent, GovernmentAgent
+from agents import BankAgent, HouseholdAgent, FirmAgent, GovernmentAgent
 from config import CONFIG
 from economy import Economy
 
@@ -55,6 +55,7 @@ def create_large_economy(num_households: int = 10000, num_firms_per_category: in
     baseline_prices = dict(CONFIG.baseline_prices)
 
     # Create firms
+    initial_firm_cash = 10_000.0
     baseline_firms: List[FirmAgent] = []
     queued_firms: List[FirmAgent] = []
     next_firm_id = 1
@@ -69,7 +70,7 @@ def create_large_economy(num_households: int = 10000, num_firms_per_category: in
         baseline_firm = FirmAgent(
             firm_id=next_firm_id,
             good_name=f"Baseline{category}",
-            cash_balance=2_000_000.0,  # Reduced from 10M - still comfortable but not infinite
+            cash_balance=initial_firm_cash,
             inventory_units=0.0 if category in {"Housing", "Healthcare"} else 20_000.0,
             good_category=category,
             quality_level=max(0.0, min(10.0, 3.0 + firm_rng.uniform(-0.05, 0.05))),
@@ -86,12 +87,7 @@ def create_large_economy(num_households: int = 10000, num_firms_per_category: in
         )
         baseline_firm.set_personality("conservative")
 
-        # Initialize hidden happiness boost for service firms only
-        if category == "Services":
-            # Baseline service has low happiness boost (government service quality)
-            baseline_firm.happiness_boost_per_unit = random.uniform(0.002, 0.01)
-        elif category == "Healthcare":
-            baseline_firm.happiness_boost_per_unit = 0.0
+        # happiness_boost_per_unit removed — services affect happiness via wellbeing path only
 
         gov.register_baseline_firm(category, baseline_firm.firm_id)
         baseline_firms.append(baseline_firm)
@@ -116,14 +112,21 @@ def create_large_economy(num_households: int = 10000, num_firms_per_category: in
     for idx, category in enumerate(essential_categories):
         category_private_targets[category] = per_category + (1 if idx < remainder else 0)
 
-    # Force a single healthcare provider model:
-    # exactly one baseline healthcare firm, zero private healthcare firms.
-    planned_private_healthcare = category_private_targets.get("Healthcare", 0)
-    if planned_private_healthcare > 0:
-        category_private_targets["Healthcare"] = 0
-        redistribute_categories = [cat for cat in essential_categories if cat != "Healthcare"]
-        for i in range(planned_private_healthcare):
-            category_private_targets[redistribute_categories[i % len(redistribute_categories)]] += 1
+    # Healthcare and Housing use a single-provider (baseline-only) model.
+    # Zero out ALL protected categories first, then redistribute in one pass
+    # to allowed categories only.  Doing it in two separate passes caused a
+    # cascade bug: Housing's redistribution loop included Healthcare as a
+    # target (it only excluded Housing), so Healthcare received slots back.
+    no_private_categories = {"Healthcare", "Housing"}
+    redistributable_slots = sum(
+        category_private_targets.get(cat, 0) for cat in no_private_categories
+    )
+    for cat in no_private_categories:
+        category_private_targets[cat] = 0
+
+    allowed_categories = [cat for cat in essential_categories if cat not in no_private_categories]
+    for i in range(redistributable_slots):
+        category_private_targets[allowed_categories[i % len(allowed_categories)]] += 1
 
     for idx, category in enumerate(essential_categories):
         firms_in_category = category_private_targets.get(category, 0)
@@ -137,7 +140,7 @@ def create_large_economy(num_households: int = 10000, num_firms_per_category: in
             competitive_firm = FirmAgent(
                 firm_id=next_firm_id,
                 good_name=f"{category}Co{i+1}",
-                cash_balance=800_000.0,  # Increased from 500k - competitive with baseline
+                cash_balance=initial_firm_cash,
                 inventory_units=0.0 if category == "Healthcare" else 300.0,
                 good_category=category,
                 quality_level=quality_level,
@@ -152,13 +155,7 @@ def create_large_economy(num_households: int = 10000, num_firms_per_category: in
             )
             competitive_firm.set_personality(personality)
 
-            # Initialize hidden happiness boost for service firms only
-            if category == "Services":
-                # Happiness boost between 0.005 and 0.03 per unit consumed
-                # Households don't know this value - they discover it through consumption
-                competitive_firm.happiness_boost_per_unit = random.uniform(0.005, 0.03)
-            elif category == "Healthcare":
-                competitive_firm.happiness_boost_per_unit = 0.0
+            # happiness_boost_per_unit removed — services affect happiness via wellbeing path only
 
             queued_firms.append(competitive_firm)
             next_firm_id += 1
@@ -255,11 +252,14 @@ def create_large_economy(num_households: int = 10000, num_firms_per_category: in
     print(f"    - Government: 1")
     print()
 
+    bank = BankAgent(cash_reserves=num_households * 1500.0)
+
     economy = Economy(
         households=households,
         firms=baseline_firms,
         government=gov,
-        queued_firms=queued_firms
+        queued_firms=queued_firms,
+        bank=bank,
     )
     economy.target_total_firms = max(
         len(economy.firms) + len(economy.queued_firms),

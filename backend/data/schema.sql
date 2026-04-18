@@ -429,6 +429,7 @@ CREATE TABLE IF NOT EXISTS regime_events (
 CREATE INDEX IF NOT EXISTS idx_regime_events_run_tick ON regime_events(run_id, tick);
 CREATE UNIQUE INDEX IF NOT EXISTS ux_regime_events_run_event_key ON regime_events(run_id, event_key);
 CREATE INDEX IF NOT EXISTS idx_regime_events_run_type_tick ON regime_events(run_id, event_type, tick);
+CREATE INDEX IF NOT EXISTS idx_regime_events_run_entity_type_tick ON regime_events(run_id, entity_type, tick);
 CREATE INDEX IF NOT EXISTS idx_regime_events_run_entity_tick ON regime_events(run_id, entity_type, entity_id, tick);
 CREATE INDEX IF NOT EXISTS idx_regime_events_run_sector_tick ON regime_events(run_id, sector, tick);
 

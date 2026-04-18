@@ -1913,8 +1913,8 @@ class HouseholdAgent(AgentMixin):
             self.skills_level = min(1.0, self.skills_level + 0.005)
             self.education_active_this_tick = True
             self.add_ledger_flow("education", -cost)
-            return True
-        return False
+            return cost  # Return cost so caller can route it back into the economy
+        return 0.0
 
     def apply_skill_decay(self) -> None:
         """
@@ -2967,25 +2967,21 @@ class FirmAgent(AgentMixin):
             skeleton_min = max(skeleton_min, min(self.loan_required_headcount, minimum_private_staff))
 
         # Hire/fire limits per tick.
-        # max_hires_per_tick and max_fires_per_tick are personality traits set in __post_init__
-        # (aggressive: 2-4, moderate: 1-3, conservative: 1-2) but were previously ignored.
-        # Now they act as a floor so personality matters, with 25/20% growth as the scaling arm.
+        # Personality is the hard ceiling: conservative=1, moderate=2, aggressive=3.
+        # The old 25%/20% growth-rate override is removed — it caused firms to hire
+        # 25–40 workers in a single tick during stockouts (boom-bust oscillation).
+        # Stockout firms get +1 extra hire on top of their personality cap.
         if self.is_baseline:
-            hire_limit = max(5, int(math.ceil(current_workers * 0.25)))
-            fire_limit = max(5, int(math.ceil(current_workers * 0.20)))
+            hire_limit = 5
+            fire_limit = 5
         elif current_workers <= 0:
             hire_limit = 2
             fire_limit = 0
         else:
-            hire_limit = max(self.max_hires_per_tick, int(math.ceil(current_workers * 0.25)))
-            fire_limit = max(self.max_fires_per_tick, int(math.ceil(current_workers * 0.20)))
+            hire_limit = self.max_hires_per_tick
+            fire_limit = self.max_fires_per_tick
         if healthy_stockout_expansion and current_workers > 0:
-            hire_limit = max(
-                hire_limit,
-                int(math.ceil(current_workers * self._stockout_hire_growth_rate(
-                    health_snapshot.unfilled_positions_streak
-                )))
-            )
+            hire_limit += 1
         self.burn_mode_active = self.burn_mode
 
         target_workers = max(current_workers, firm_config.min_target_workers)
@@ -3831,6 +3827,8 @@ class FirmAgent(AgentMixin):
         # Scenario 1: Self-finance if firm has sufficient cash
         if self.cash_balance >= total_cost * 2.0:
             self.cash_balance -= total_cost
+            # Route construction cost into economy (paid via economy.step caller)
+            self._pending_construction_cost = total_cost
             self.max_rental_units += 1
             self.production_capacity_units += 1.0
             self.expected_sales_units += 1.0
@@ -5010,6 +5008,10 @@ class GovernmentAgent(AgentMixin):
         Social investment increases healthcare, amenities, and other
         quality-of-life factors that boost worker happiness and performance.
 
+        The multiplier accumulates over time and decays slowly when underfunded
+        (half-life ~14 ticks at 5%/tick decay rate), rather than resetting to
+        1.0 the moment spending stops. Capped at 1.15.
+
         Mutates state.
 
         Returns:
@@ -5019,14 +5021,22 @@ class GovernmentAgent(AgentMixin):
             self.social_happiness_multiplier = 1.0
             return 0.0
 
+        # Decay first each tick — benefit erodes gradually without funding
+        decay_rate = 0.95
+        self.social_happiness_multiplier = max(
+            1.0, self.social_happiness_multiplier * decay_rate
+        )
+
         investment = min(self.cash_balance, self.social_investment_budget)
         if investment <= 0:
-            self.social_happiness_multiplier = 1.0
             return 0.0
 
         self.cash_balance -= investment
         divisor = max(CONFIG.government.social_gain_divisor, 1.0)
-        self.social_happiness_multiplier = 1.0 + (investment / divisor)
+        gain = investment / divisor
+        self.social_happiness_multiplier = min(
+            1.15, self.social_happiness_multiplier + gain
+        )
         return investment
 
     def make_investments(self) -> Dict[str, float]:

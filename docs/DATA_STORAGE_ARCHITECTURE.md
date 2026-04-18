@@ -1186,10 +1186,23 @@ Status:
 - partially implemented with:
   - `GET /warehouse/runs`
   - `GET /warehouse/compare`
+  - `GET /warehouse/runs/{run_id}/policy-context`
   - `GET /warehouse/runs/{run_id}/summary`
   - `GET /warehouse/runs/{run_id}/tick-metrics`
   - `GET /warehouse/runs/{run_id}/decision-features`
+  - `GET /warehouse/runs/{run_id}/tick-diagnostics`
   - `GET /warehouse/runs/{run_id}/sector-metrics`
+  - `GET /warehouse/runs/{run_id}/sector-shortages`
+  - `GET /warehouse/runs/{run_id}/regime-events`
+
+The `policy-context` surface is the compact read model intended for later
+government-agent and policy-RAG use. It keeps the interface small:
+
+- rolling windows for macro metrics, decision features, and diagnostics
+- current shortage state
+- recent regime events
+- recent policy actions with compact observed post-action deltas
+- reconstructed current policy state from `policy_config + policy_actions`
 
 ## Resume and Interview Value
 

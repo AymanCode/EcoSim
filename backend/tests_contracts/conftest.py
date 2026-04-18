@@ -114,10 +114,7 @@ def tiny_economy_factory(fixed_seed: int) -> Callable[..., Economy]:
                     is_baseline=baseline_firms,
                     max_rental_units=max_units,
                 )
-                if category == "Services":
-                    firm.happiness_boost_per_unit = 0.01
-                if category == "Healthcare":
-                    firm.happiness_boost_per_unit = 0.0
+                # happiness_boost_per_unit removed — services affect happiness via wellbeing path only
                 if baseline_firms:
                     government.register_baseline_firm(category, firm.firm_id)
                 firms.append(firm)

@@ -420,7 +420,7 @@ class FirmBehaviorConfig:
     healthcare_price_increase_rate: float = 0.06
     healthcare_price_decrease_rate: float = 0.03
     healthcare_price_ceiling_multiplier: float = 6.0
-    healthcare_staff_population_ratio: float = 0.003  # 0.3% of households per healthcare firm
+    healthcare_staff_population_ratio: float = 0.02   # 2% of households are doctors (economy-wide)
     healthcare_training_enrollment_interval_ticks: int = 52
     healthcare_training_enrollment_interval_after_cap_ticks: int = 104
     healthcare_training_fast_track_cap: int = 10
@@ -454,8 +454,8 @@ class FirmBehaviorConfig:
     aggressive_price_adjustment_range: Tuple[float, float] = (0.08, 0.12)
     aggressive_wage_adjustment_range: Tuple[float, float] = (0.12, 0.18)
     aggressive_rd_spending_range: Tuple[float, float] = (0.06, 0.10)
-    aggressive_max_hires_range: Tuple[int, int] = (2, 4)
-    aggressive_max_fires_range: Tuple[int, int] = (2, 4)
+    aggressive_max_hires_range: Tuple[int, int] = (3, 3)
+    aggressive_max_fires_range: Tuple[int, int] = (3, 3)
     aggressive_units_per_worker_range: Tuple[float, float] = (16.0, 20.0)
 
     conservative_investment_propensity_range: Tuple[float, float] = (0.01, 0.04)
@@ -463,8 +463,8 @@ class FirmBehaviorConfig:
     conservative_price_adjustment_range: Tuple[float, float] = (0.01, 0.04)
     conservative_wage_adjustment_range: Tuple[float, float] = (0.04, 0.07)
     conservative_rd_spending_range: Tuple[float, float] = (0.01, 0.04)
-    conservative_max_hires_range: Tuple[int, int] = (1, 2)
-    conservative_max_fires_range: Tuple[int, int] = (1, 2)
+    conservative_max_hires_range: Tuple[int, int] = (1, 1)
+    conservative_max_fires_range: Tuple[int, int] = (1, 1)
     conservative_units_per_worker_range: Tuple[float, float] = (23.0, 27.0)
 
     moderate_investment_propensity_range: Tuple[float, float] = (0.04, 0.07)
@@ -472,8 +472,8 @@ class FirmBehaviorConfig:
     moderate_price_adjustment_range: Tuple[float, float] = (0.04, 0.07)
     moderate_wage_adjustment_range: Tuple[float, float] = (0.08, 0.12)
     moderate_rd_spending_range: Tuple[float, float] = (0.04, 0.07)
-    moderate_max_hires_range: Tuple[int, int] = (1, 3)
-    moderate_max_fires_range: Tuple[int, int] = (1, 3)
+    moderate_max_hires_range: Tuple[int, int] = (2, 2)
+    moderate_max_fires_range: Tuple[int, int] = (2, 2)
     moderate_units_per_worker_range: Tuple[float, float] = (19.0, 22.0)
 
 
@@ -493,8 +493,10 @@ class GovernmentPolicyConfig:
     wage_floor_multiplier: float = 1.0  # Minimum wage = unemployment_benefit × 1.0 (reduced from 1.2)
 
     # Investment Budgets
-    infrastructure_investment_budget: float = 1000.0
-    technology_investment_budget: float = 500.0
+    # Infrastructure and technology investment disabled — additional production
+    # capacity just creates unsold stockpiles without demand-side support.
+    infrastructure_investment_budget: float = 0.0
+    technology_investment_budget: float = 0.0
     social_investment_budget: float = 750.0
     investment_reserve_threshold: float = 10000.0  # Don't invest below this
 

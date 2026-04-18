@@ -1,21 +1,25 @@
 # Documentation Index
 
-Technical documentation for the EcoSim simulation engine.
+Technical documentation for the active EcoSim codebase.
 
-## Core Documentation
+## Read This First
 
-| Document | What You'll Learn |
-|----------|-------------------|
-| [SIMULATION.md](SIMULATION.md) | How each agent works, interactions, tick lifecycle, market mechanics, healthcare system |
-| [TECHNICAL.md](TECHNICAL.md) | Tech stack, database schemas, configuration system, testing, ML training, performance |
-| [FRONTEND.md](FRONTEND.md) | Dashboard views, charts, metrics displayed, WebSocket protocol |
-| [DATA_STORAGE_ARCHITECTURE.md](DATA_STORAGE_ARCHITECTURE.md) | Holistic database plan: warehouse choice, table roadmap, persistence guarantees, diagnostics/regime events, and future policy support |
-| [HOUSEHOLD_LABOR_DERISKING.md](HOUSEHOLD_LABOR_DERISKING.md) | Household labor search/reservation guardrails, env toggles, diagnostics, and rollout notes |
-| [BANKING_SYSTEM.md](BANKING_SYSTEM.md) | Banking model, credit mechanics, and financing behavior |
-| [CHANGELOG.md](CHANGELOG.md) | Historical engineering notes and major implementation passes |
+| Document | Purpose |
+|----------|---------|
+| [SIMULATION.md](SIMULATION.md) | Core model behavior, tick lifecycle, markets, healthcare, and policy flow |
+| [TECHNICAL.md](TECHNICAL.md) | Stack, configuration, testing, performance, and implementation details |
+| [FRONTEND.md](FRONTEND.md) | Dashboard behavior, views, and WebSocket protocol |
+| [DATA_STORAGE_ARCHITECTURE.md](DATA_STORAGE_ARCHITECTURE.md) | Warehouse design, schema direction, and persistence guarantees |
+
+## Focused Topics
+
+| Document | Purpose |
+|----------|---------|
+| [FIRM_DYNAMICS.md](FIRM_DYNAMICS.md) | Firm health signals, wage behavior, pricing, and hiring gates |
+| [HOUSEHOLD_LABOR_DERISKING.md](HOUSEHOLD_LABOR_DERISKING.md) | Labor-search guardrails, toggles, diagnostics, and rollout notes |
+| [BANKING_SYSTEM.md](BANKING_SYSTEM.md) | Credit mechanics and banking behavior |
+| [CHANGELOG.md](CHANGELOG.md) | Major engineering milestones and historical notes |
 
 ## Archive
 
-Older documents kept for historical reference. Content has been consolidated into the core docs above.
-
-See [archive/](archive/) for legacy documents.
+`archive/` holds superseded planning notes and legacy writeups. It is reference material, not the current source of truth.

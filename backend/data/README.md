@@ -341,9 +341,13 @@ The server API tests verify:
 - live rolling decision-context reads
 - persisted run listing
 - persisted run comparison reads
+- persisted policy-context reads
 - persisted tick-metric reads
 - persisted decision-feature reads
+- persisted tick-diagnostic reads
 - persisted sector drill-down reads
+- persisted sector-shortage reads
+- persisted regime-event reads
 
 ## Local Setup
 
@@ -467,10 +471,23 @@ Current read endpoints:
 - `GET /decision-context/live?window=20`
 - `GET /warehouse/runs`
 - `GET /warehouse/compare?run_ids=run_a&run_ids=run_b`
+- `GET /warehouse/runs/{run_id}/policy-context?tick=120&window=20&policy_lookback=12&impact_horizon=12`
 - `GET /warehouse/runs/{run_id}/summary`
 - `GET /warehouse/runs/{run_id}/tick-metrics`
 - `GET /warehouse/runs/{run_id}/decision-features`
+- `GET /warehouse/runs/{run_id}/tick-diagnostics`
 - `GET /warehouse/runs/{run_id}/sector-metrics`
+- `GET /warehouse/runs/{run_id}/sector-shortages`
+- `GET /warehouse/runs/{run_id}/regime-events`
+
+The policy-context endpoint is the compact warehouse surface intended for a
+future government model or policy-RAG assistant. It returns:
+
+- a rolling macro/decision/diagnostic window
+- current sector shortage context
+- recent regime events
+- recent policy actions with compact observed post-action deltas
+- reconstructed current policy state from the initial config plus actions
 
 Environment variables:
 

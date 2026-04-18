@@ -1005,8 +1005,11 @@ class Economy:
         # Phase 2: Households plan
         household_labor_plans = {}
 
+        total_education_spending = 0.0
         for household in self.households:
-            household.maybe_active_education()
+            total_education_spending += household.maybe_active_education()
+        if total_education_spending > 0:
+            self._collect_misc_revenue(total_education_spending)
 
         # Tick job-search cooldowns (on-the-job / "newspaper" mechanic).
         # Only active post-warmup so warmup employment doesn't anchor expectations.
@@ -1172,6 +1175,11 @@ class Economy:
         for firm in self.firms:
             if firm.good_category.lower() == "housing":
                 firm.invest_in_unit_expansion(economy=self)
+                # Route self-financed construction cost into economy (closed-loop)
+                pending = getattr(firm, "_pending_construction_cost", 0.0)
+                if pending > 0:
+                    self._collect_misc_revenue(pending)
+                    firm._pending_construction_cost = 0.0
 
         # Phase 6.6b: Process housing expansion loans (deadlock resolution)
         if self.bank is not None:
@@ -2498,27 +2506,40 @@ class Economy:
             [firm for firm in self.firms if (firm.good_category or "").lower() == "healthcare"],
             key=lambda firm: firm.firm_id,
         )
-        primary_healthcare_firm = healthcare_firms[0] if healthcare_firms else None
-        primary_healthcare_firm_id = primary_healthcare_firm.firm_id if primary_healthcare_firm is not None else None
+        healthcare_firm_ids = {f.firm_id for f in healthcare_firms}
 
         for household in self.households:
             household_is_medical_only = household.medical_training_status in {"resident", "doctor"}
 
-            # One-healthcare-firm model: all residents/doctors are attached there.
+            # Doctors and residents can only work at healthcare firms.
+            # Honor the household's existing employer_id if it already points to a
+            # valid healthcare firm (preserves round-robin seeding and training
+            # assignments). If not — e.g. a newly trained doctor who was previously
+            # in a non-healthcare job — re-assign to the least-staffed healthcare firm
+            # so the doctor pool is spread across all healthcare firms, not just the first.
             if household_is_medical_only:
-                if primary_healthcare_firm_id is None or primary_healthcare_firm is None:
+                if not healthcare_firms:
                     household.employer_id = None
                     household.wage = 0.0
                     continue
 
-                household.employer_id = primary_healthcare_firm_id
-                assigned_wage = primary_healthcare_firm.actual_wages.get(
+                if household.employer_id not in healthcare_firm_ids:
+                    # Re-assign to the healthcare firm with the fewest doctors so far
+                    # (running count in employees_by_firm, updated as we iterate).
+                    target_firm = min(
+                        healthcare_firms,
+                        key=lambda f: len(employees_by_firm[f.firm_id]),
+                    )
+                    household.employer_id = target_firm.firm_id
+
+                assigned_firm = self.firm_lookup[household.employer_id]
+                assigned_wage = assigned_firm.actual_wages.get(
                     household.household_id,
-                    max(primary_healthcare_firm.wage_offer, household.reservation_wage),
+                    max(assigned_firm.wage_offer, household.reservation_wage),
                 )
                 household.wage = max(assigned_wage, 1.0)
-                primary_healthcare_firm.actual_wages[household.household_id] = household.wage
-                employees_by_firm[primary_healthcare_firm_id].append(household.household_id)
+                assigned_firm.actual_wages[household.household_id] = household.wage
+                employees_by_firm[household.employer_id].append(household.household_id)
                 continue
 
             employer_id = household.employer_id
@@ -2782,6 +2803,17 @@ class Economy:
             self.last_tick_revenue[firm.firm_id] = 0.0
             self.last_tick_sell_through_rate[firm.firm_id] = 0.5
             self.last_tick_prices[firm.good_name] = firm.price
+
+            # Phase: Startup loan from bank to bootstrap new firms
+            if self.bank is not None and firm.cash_balance < 50_000.0:
+                startup_amount = 25_000.0
+                self._issue_firm_loan(
+                    firm,
+                    amount=startup_amount,
+                    term_ticks=208,  # 4-year repayment period
+                    govt_rate=0.03,  # Standard market rate
+                    spread=0.00,     # No spread for startups
+                )
 
     def _batch_update_wellbeing(self, happiness_multiplier: float) -> None:
         """Vectorized wellbeing update matching per-agent update_wellbeing() logic."""
@@ -3465,20 +3497,31 @@ class Economy:
         term_ticks: int,
         govt_rate: float,
         spread: float = 0.05,
+        collateral_value: Optional[float] = None,
     ) -> bool:
         """Try bank first, then government-backed bank loan, then direct government loan.
 
         Returns True if the loan was successfully issued through any channel.
         This is the central bank-first/govt-fallback pattern used by all loan
         origination methods.
+
+        Args:
+            collateral_value: If provided, use LTV-based (asset-backed) lending ceiling
+                instead of the default revenue-based leverage ceiling.  Used for housing
+                expansion loans where the collateral is the property portfolio, not income.
         """
         bank = self.bank
 
         if bank is not None:
             credit_score = bank.get_firm_credit_score(firm.firm_id)
 
-            # Check leverage ceiling
-            max_borrowable = bank._max_firm_borrowable(firm.firm_id, firm.trailing_revenue_12t)
+            # Leverage ceiling: asset-backed (LTV) or revenue-based
+            if collateral_value is not None:
+                # Property-backed lending: bank lends up to 80% of collateral value
+                ltv = 0.80
+                max_borrowable = max(0.0, ltv * collateral_value - bank._firm_existing_debt(firm.firm_id))
+            else:
+                max_borrowable = bank._max_firm_borrowable(firm.firm_id, firm.trailing_revenue_12t)
             effective_amount = min(amount, max_borrowable)
             if effective_amount <= 0:
                 # Over-leveraged — fall through to government
@@ -3514,6 +3557,11 @@ class Economy:
                     return True
 
         # Fallback: direct government loan (existing behavior)
+        if govt_rate is None:
+            govt_rate = 0.03  # Default market rate for government direct loans
+        # Government can only lend what it has
+        if self.government.cash_balance < amount:
+            return False
         interest_multiplier = 1.0 + govt_rate
         total_repayment = amount * interest_multiplier
         firm.cash_balance += amount
@@ -3562,18 +3610,26 @@ class Economy:
         """Phase 6.6b: Process housing expansion loan requests (deadlock resolution).
 
         Housing firms that cannot self-finance unit expansion flag
-        needs_housing_expansion_loan=True. This method offers bank loans:
+        needs_housing_expansion_loan=True.
 
-        Scenario A (Startup Crisis): If firm.trailing_revenue == 0 AND homeless > 40,
-                                     use government-backed loan at 2% for 104 ticks
-        Scenario B (Standard Market): If firm has revenue, use market loan with
-                                      credit score and 0.03 spread
+        Lending model: property-backed (LTV), not revenue-based.
+        The bank lends against the market value of the firm's existing rental units
+        (80% LTV, using $20,000/unit as the market valuation — build cost × 1.33
+        premium). This mirrors real estate mortgage finance where the collateral is
+        the asset portfolio, not trailing income.
 
-        After successful loan, trigger unit expansion immediately via the cost payment.
+        During a housing crisis (homeless > 40) the government acts as guarantor,
+        raising effective collateral by 50% (simulating FHA/HUD-style backing).
+        This lets even a 1-unit startup borrow enough to add a second unit.
+
+        After a successful loan the expansion is executed immediately and the
+        construction cost is routed back into the economy via _collect_misc_revenue.
         """
         bank = self.bank
         if bank is None:
             return
+
+        homeless_count = sum(1 for h in self.households if h.renting_from_firm_id is None)
 
         for firm in self.firms:
             if firm.good_category.lower() != "housing":
@@ -3581,44 +3637,38 @@ class Economy:
             if not firm.needs_housing_expansion_loan or firm.housing_expansion_loan_amount <= 0:
                 continue
 
+            if not bank.can_lend():
+                firm.needs_housing_expansion_loan = False
+                firm.housing_expansion_loan_amount = 0.0
+                continue
+
             amount = firm.housing_expansion_loan_amount
 
-            # Scenario A: Government-backed loan for startups during housing crisis
-            homeless_count = sum(1 for h in self.households if h.renting_from_firm_id is None)
-            if firm.trailing_revenue == 0.0 and homeless_count > 40:
-                success = self._issue_firm_loan(
-                    firm,
-                    amount=amount,
-                    term_ticks=104,       # 2-year term for expansion
-                    govt_rate=0.02,       # Subsidized crisis rate
-                    spread=0.0,           # No spread for govt-backed
-                )
-            # Scenario B: Market-based loan for firms with revenue
-            else:
-                if not bank.can_lend():
-                    # Bank out of reserves, skip this firm
-                    firm.needs_housing_expansion_loan = False
-                    firm.housing_expansion_loan_amount = 0.0
-                    continue
+            # Collateral = current portfolio market value (build cost × 1.33 premium).
+            # During a housing crisis the government guarantee raises effective
+            # collateral by 50%, enabling a 1-unit firm to clear the 80% LTV ceiling.
+            per_unit_market_value = 20_000.0
+            collateral_value = firm.max_rental_units * per_unit_market_value
+            if homeless_count > 40:
+                collateral_value *= 1.5  # Government crisis guarantee
 
-                score = bank.get_firm_credit_score(firm.firm_id)
-                success = self._issue_firm_loan(
-                    firm,
-                    amount=amount,
-                    term_ticks=104,       # 2-year term for expansion
-                    govt_rate=None,       # Use bank rate
-                    spread=0.03,          # Lower spread (asset-backed property)
-                )
+            success = self._issue_firm_loan(
+                firm,
+                amount=amount,
+                term_ticks=104,           # 2-year mortgage term
+                govt_rate=0.02,           # Subsidised fallback rate
+                spread=0.02,              # Low spread: asset-backed property loan
+                collateral_value=collateral_value,
+            )
 
-            # If loan succeeded, execute the expansion immediately
             if success:
                 firm.cash_balance -= amount
+                self._collect_misc_revenue(amount)  # Construction cost → economy
                 firm.max_rental_units += 1
                 firm.production_capacity_units += 1.0
                 firm.expected_sales_units += 1.0
                 firm.property_tax_rate += 0.005  # +0.5% per new unit
 
-            # Cleanup
             firm.needs_housing_expansion_loan = False
             firm.housing_expansion_loan_amount = 0.0
 
@@ -4638,10 +4688,9 @@ class Economy:
 
         min_wage = self.government.get_minimum_wage()
         for hh in self.households:
-            # Pay interest on existing deposits
+            # Pay interest on existing deposits (income goes to cash, not compounded into deposit)
             if hh.bank_deposit > 0.0:
                 interest = bank.pay_deposit_interest(hh.bank_deposit)
-                hh.bank_deposit += interest
                 hh.cash_balance += interest
                 hh.add_ledger_flow("bank", interest)
 

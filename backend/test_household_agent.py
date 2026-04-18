@@ -118,7 +118,7 @@ def test_consumption_planning(household):
     consumption_plan = household.plan_consumption(market_prices)
 
     print(f"Consumption Plan:")
-    print(f"  Budget available: ${household.cash_balance * 0.9:.2f} (90% of cash)")
+    print(f"  Disposable income: ${household.wage if household.is_employed else 30.0:.2f} (wage or benefit)")
     print(f"  Planned purchases: {len(consumption_plan['planned_purchases'])} items")
 
     for good, quantity in consumption_plan['planned_purchases'].items():

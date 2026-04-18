@@ -150,6 +150,9 @@ def run_migration():
             "CREATE INDEX IF NOT EXISTS idx_regime_events_run_type_tick ON regime_events(run_id, event_type, tick)"
         )
         conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_regime_events_run_entity_type_tick ON regime_events(run_id, entity_type, tick)"
+        )
+        conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_regime_events_run_entity_tick ON regime_events(run_id, entity_type, entity_id, tick)"
         )
         conn.execute(

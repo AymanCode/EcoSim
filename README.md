@@ -186,10 +186,12 @@ python -m pytest backend/tests_contracts -q
 ## Repository Layout
 
 ```text
-backend/            simulation engine, API server, tests, data scripts
-frontend-react/     dashboard UI
-docs/               technical docs, changelog, and historical notes
+backend/            simulation engine, API server, warehouse layer, and tests
+frontend-react/     React dashboard for live simulation control and metrics
+docs/               active technical docs plus a clearly separated archive/
 ops/                optional operational files such as the Timescale compose file
 ```
+
+Published repo scope is intentionally limited to the current product surface above. Generated audit dumps, local experiment folders, and scratch outputs stay local and are ignored so the public repository stays reviewable.
 
 See [docs/README.md](docs/README.md) for the active documentation index and [docs/CHANGELOG.md](docs/CHANGELOG.md) for historical engineering notes.

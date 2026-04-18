@@ -12,7 +12,17 @@ if str(BACKEND_ROOT) not in sys.path:
 
 import server
 from data.db_manager import DatabaseManager
-from data.models import DecisionFeature, SectorTickMetrics, SimulationRun, TickMetrics
+from data.models import (
+    DecisionFeature,
+    PolicyAction,
+    PolicyConfig,
+    RegimeEvent,
+    SectorShortageDiagnostic,
+    SectorTickMetrics,
+    SimulationRun,
+    TickDiagnostic,
+    TickMetrics,
+)
 
 
 def _apply_sqlite_schema(db_path: Path) -> None:
@@ -60,6 +70,21 @@ def test_warehouse_history_endpoints_return_tick_and_decision_rows(tmp_path, mon
         run = SimulationRun(run_id="run_api_test", status="completed", total_ticks=2)
         db.create_run(run)
         db.create_run(SimulationRun(run_id="run_api_compare_b", status="completed", total_ticks=2))
+        db.insert_policy_config(
+            PolicyConfig(
+                run_id="run_api_test",
+                wage_tax=0.12,
+                profit_tax=0.18,
+                wealth_tax_rate=0.01,
+                wealth_tax_threshold=100000.0,
+                universal_basic_income=0.0,
+                unemployment_benefit_rate=0.05,
+                minimum_wage=35.0,
+                inflation_rate=0.02,
+                birth_rate=0.01,
+                agent_stabilizers_enabled=True,
+            )
+        )
         db.insert_tick_metrics(
             [
                 TickMetrics(
@@ -222,6 +247,26 @@ def test_warehouse_history_endpoints_return_tick_and_decision_rows(tmp_path, mon
                 ),
             ]
         )
+        db.insert_policy_actions(
+            [
+                PolicyAction(
+                    run_id="run_api_test",
+                    tick=1,
+                    actor="government",
+                    action_type="minimum_wage",
+                    payload_json='{"value": 42.0}',
+                    reason_summary="Raised minimum wage",
+                ),
+                PolicyAction(
+                    run_id="run_api_test",
+                    tick=2,
+                    actor="government",
+                    action_type="wage_tax_rate",
+                    payload_json='{"value": 0.17}',
+                    reason_summary="Raised wage tax after fiscal stress",
+                ),
+            ]
+        )
         db.insert_decision_features(
             [
                 DecisionFeature(
@@ -256,6 +301,155 @@ def test_warehouse_history_endpoints_return_tick_and_decision_rows(tmp_path, mon
                 ),
             ]
         )
+        db.insert_tick_diagnostics(
+            [
+                TickDiagnostic(
+                    run_id="run_api_test",
+                    tick=1,
+                    unemployment_change_pp=0.0,
+                    unemployment_primary_driver="stable",
+                    layoffs_count=2,
+                    hires_count=5,
+                    failed_hiring_firm_count=1,
+                    failed_hiring_roles_count=2,
+                    wage_mismatch_seeker_count=4,
+                    health_blocked_worker_count=1,
+                    inactive_work_capable_count=3,
+                    avg_health_change_pp=-0.2,
+                    health_primary_driver="broad_distress",
+                    low_health_share=12.0,
+                    food_insecure_share=8.0,
+                    cash_stressed_share=20.0,
+                    pending_healthcare_visits_total=6,
+                    healthcare_queue_depth=4,
+                    healthcare_completed_count=3,
+                    healthcare_denied_count=1,
+                    firm_distress_primary_driver="weak_demand",
+                    burn_mode_firm_count=1,
+                    survival_mode_firm_count=0,
+                    zero_cash_firm_count=0,
+                    weak_demand_firm_count=2,
+                    inventory_pressure_firm_count=1,
+                    bankruptcy_count=0,
+                    housing_primary_driver="unaffordable",
+                    eviction_count=1,
+                    housing_failure_count=2,
+                    housing_unaffordable_count=2,
+                    housing_no_supply_count=0,
+                    homeless_household_count=2,
+                    shortage_active_sector_count=1,
+                ),
+                TickDiagnostic(
+                    run_id="run_api_test",
+                    tick=2,
+                    unemployment_change_pp=0.5,
+                    unemployment_primary_driver="failed_hiring",
+                    layoffs_count=3,
+                    hires_count=4,
+                    failed_hiring_firm_count=2,
+                    failed_hiring_roles_count=5,
+                    wage_mismatch_seeker_count=6,
+                    health_blocked_worker_count=1,
+                    inactive_work_capable_count=2,
+                    avg_health_change_pp=-0.4,
+                    health_primary_driver="healthcare_denial",
+                    low_health_share=13.0,
+                    food_insecure_share=8.5,
+                    cash_stressed_share=21.0,
+                    pending_healthcare_visits_total=7,
+                    healthcare_queue_depth=3,
+                    healthcare_completed_count=4,
+                    healthcare_denied_count=2,
+                    firm_distress_primary_driver="burn_mode",
+                    burn_mode_firm_count=2,
+                    survival_mode_firm_count=1,
+                    zero_cash_firm_count=1,
+                    weak_demand_firm_count=3,
+                    inventory_pressure_firm_count=2,
+                    bankruptcy_count=1,
+                    housing_primary_driver="no_supply",
+                    eviction_count=2,
+                    housing_failure_count=3,
+                    housing_unaffordable_count=1,
+                    housing_no_supply_count=2,
+                    homeless_household_count=3,
+                    shortage_active_sector_count=2,
+                ),
+            ]
+        )
+        db.insert_sector_shortage_diagnostics(
+            [
+                SectorShortageDiagnostic(
+                    run_id="run_api_test",
+                    tick=1,
+                    sector="Food",
+                    shortage_active=False,
+                    shortage_severity=12.0,
+                    primary_driver="stable",
+                    mean_sell_through_rate=0.62,
+                    vacancy_pressure=0.05,
+                    inventory_pressure=0.10,
+                    price_pressure=0.01,
+                    queue_pressure=0.0,
+                    occupancy_pressure=0.0,
+                ),
+                SectorShortageDiagnostic(
+                    run_id="run_api_test",
+                    tick=2,
+                    sector="Food",
+                    shortage_active=True,
+                    shortage_severity=48.0,
+                    primary_driver="inventory",
+                    mean_sell_through_rate=0.91,
+                    vacancy_pressure=0.14,
+                    inventory_pressure=0.55,
+                    price_pressure=0.03,
+                    queue_pressure=0.0,
+                    occupancy_pressure=0.0,
+                ),
+                SectorShortageDiagnostic(
+                    run_id="run_api_test",
+                    tick=2,
+                    sector="Housing",
+                    shortage_active=True,
+                    shortage_severity=67.0,
+                    primary_driver="no_supply",
+                    mean_sell_through_rate=0.0,
+                    vacancy_pressure=0.0,
+                    inventory_pressure=0.0,
+                    price_pressure=0.04,
+                    queue_pressure=0.0,
+                    occupancy_pressure=0.93,
+                ),
+            ]
+        )
+        db.insert_regime_events(
+            [
+                RegimeEvent(
+                    run_id="run_api_test",
+                    tick=1,
+                    event_type="firm_distress_enter",
+                    entity_type="firm",
+                    entity_id=7,
+                    sector="Services",
+                    reason_code="burn_mode",
+                    severity=1.0,
+                    metric_value=250.0,
+                    payload_json='{"cash_balance": 250.0}',
+                ),
+                RegimeEvent(
+                    run_id="run_api_test",
+                    tick=2,
+                    event_type="shortage_regime_enter",
+                    entity_type="sector",
+                    sector="Housing",
+                    reason_code="no_supply",
+                    severity=67.0,
+                    metric_value=67.0,
+                    payload_json='{"homeless_households": 3}',
+                ),
+            ]
+        )
     finally:
         db.close()
 
@@ -287,6 +481,16 @@ def test_warehouse_history_endpoints_return_tick_and_decision_rows(tmp_path, mon
     assert decision_payload["decisionFeatures"][1]["tick"] == 2
     assert decision_payload["decisionFeatures"][1]["vacancy_fill_ratio"] == 0.9
 
+    diagnostics_response = client.get(
+        "/warehouse/runs/run_api_test/tick-diagnostics",
+        params={"tick_start": 1, "tick_end": 2},
+    )
+    assert diagnostics_response.status_code == 200
+    diagnostics_payload = diagnostics_response.json()
+    assert diagnostics_payload["count"] == 2
+    assert diagnostics_payload["tickDiagnostics"][1]["tick"] == 2
+    assert diagnostics_payload["tickDiagnostics"][1]["unemployment_primary_driver"] == "failed_hiring"
+
     summary_response = client.get("/warehouse/runs/run_api_test/summary")
     assert summary_response.status_code == 200
     summary_payload = summary_response.json()
@@ -303,6 +507,48 @@ def test_warehouse_history_endpoints_return_tick_and_decision_rows(tmp_path, mon
     assert sector_payload["sectorMetrics"][0]["sector"] == "Food"
     assert sector_payload["summary"][0]["sector"] == "Food"
     assert sector_payload["summary"][0]["avg_employees"] == 31.0
+
+    shortage_response = client.get(
+        "/warehouse/runs/run_api_test/sector-shortages",
+        params={"tick_start": 1, "tick_end": 2, "sector": "Housing"},
+    )
+    assert shortage_response.status_code == 200
+    shortage_payload = shortage_response.json()
+    assert shortage_payload["count"] == 1
+    assert shortage_payload["sectorShortages"][0]["sector"] == "Housing"
+    assert shortage_payload["sectorShortages"][0]["primary_driver"] == "no_supply"
+
+    regime_response = client.get(
+        "/warehouse/runs/run_api_test/regime-events",
+        params={"tick_start": 1, "tick_end": 2, "entity_type": "sector"},
+    )
+    assert regime_response.status_code == 200
+    regime_payload = regime_response.json()
+    assert regime_payload["count"] == 1
+    assert regime_payload["regimeEvents"][0]["event_type"] == "shortage_regime_enter"
+    assert regime_payload["regimeEvents"][0]["entity_type"] == "sector"
+
+    policy_context_response = client.get(
+        "/warehouse/runs/run_api_test/policy-context",
+        params={"tick": 2, "window": 2, "policy_lookback": 5, "impact_horizon": 2},
+    )
+    assert policy_context_response.status_code == 200
+    policy_context = policy_context_response.json()
+    assert policy_context["tick"] == 2
+    assert policy_context["windowStart"] == 1
+    assert policy_context["policyConfig"]["minimum_wage"] == 35.0
+    assert policy_context["policyState"]["minimum_wage"] == 42.0
+    assert policy_context["policyState"]["wage_tax"] == 0.17
+    assert policy_context["current"]["tickMetrics"]["tick"] == 2
+    assert policy_context["current"]["decisionFeatures"]["tick"] == 2
+    assert policy_context["current"]["tickDiagnostics"]["tick"] == 2
+    assert len(policy_context["windows"]["tickMetrics"]) == 2
+    assert len(policy_context["windows"]["decisionFeatures"]) == 2
+    assert len(policy_context["windows"]["tickDiagnostics"]) == 2
+    assert len(policy_context["recentPolicyActions"]) == 2
+    assert policy_context["recentPolicyActions"][0]["policyKey"] == "minimum_wage"
+    assert policy_context["recentPolicyActions"][1]["policyKey"] == "wage_tax"
+    assert policy_context["recentPolicyActions"][1]["impact"]["evaluationTick"] == 2
 
     compare_response = client.get(
         "/warehouse/compare",

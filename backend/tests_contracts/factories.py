@@ -124,12 +124,6 @@ def make_firm(
     ctor.update(ctor_overrides)
     firm = FirmAgent(**ctor)
 
-    if "happiness_boost_per_unit" not in overrides:
-        if category_name == "Services":
-            firm.happiness_boost_per_unit = 0.01
-        elif category_name == "Healthcare":
-            firm.happiness_boost_per_unit = 0.0
-
     for key, value in post_overrides.items():
         setattr(firm, key, value)
     return firm

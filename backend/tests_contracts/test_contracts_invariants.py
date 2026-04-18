@@ -2,7 +2,9 @@ import numpy as np
 import pytest
 
 from agents import FirmAgent, HouseholdAgent
+from config import CONFIG
 from tests_contracts.conftest import seed_everything, total_money
+from tests_contracts.factories import make_households
 
 
 def test_contract_accounting_conservation_over_short_horizon(tiny_economy_factory):
@@ -56,6 +58,41 @@ def test_contract_accounting_conservation_over_short_horizon(tiny_economy_factor
     final_total = total_money(economy)
 
     assert final_total == pytest.approx(initial_total, abs=1e-4)
+
+
+def test_contract_accounting_conservation_across_post_warmup_steps_without_cash_sinks(economy_factory):
+    """Contract A2: Post-warmup cash stays conserved when sink mechanics are disabled."""
+    original_warmup_ticks = CONFIG.time.warmup_ticks
+    CONFIG.time.warmup_ticks = 4
+    try:
+        households = make_households(
+            30,
+            skills_start=0.6,  # disable active education cash sink
+            skills_step=0.0,
+            cash_start=1_200.0,
+            cash_step=20.0,
+        )
+        economy = economy_factory(
+            households=households,
+            categories=("Food", "Services"),
+            num_firms_per_category=2,
+            baseline_firms=True,
+            disable_shocks=True,
+            seed=333,
+        )
+
+        initial_total = total_money(economy)
+        observed_totals = []
+        for _ in range(10):
+            economy.step()
+            if not economy.in_warmup:
+                observed_totals.append(total_money(economy))
+
+        assert observed_totals, "expected to observe at least one post-warmup tick"
+        for observed_total in observed_totals:
+            assert observed_total == pytest.approx(initial_total, abs=1e-4)
+    finally:
+        CONFIG.time.warmup_ticks = original_warmup_ticks
 
 
 def test_contract_non_negativity_and_valid_ranges(tiny_economy_factory):

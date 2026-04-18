@@ -1073,6 +1073,24 @@ class PostgresDatabaseManager:
             rows = cur.fetchall()
         return [dict(row) for row in rows]
 
+    def get_tick_diagnostics(
+        self,
+        run_id: str,
+        tick_start: int = 0,
+        tick_end: int = 999999,
+    ) -> List[Dict]:
+        """Fetch ordered per-tick explainability diagnostics for a run."""
+        query = """
+            SELECT *
+            FROM tick_diagnostics
+            WHERE run_id = %s AND tick >= %s AND tick <= %s
+            ORDER BY tick
+        """
+        with self.conn.cursor() as cur:
+            cur.execute(query, (run_id, tick_start, tick_end))
+            rows = cur.fetchall()
+        return [dict(row) for row in rows]
+
     def insert_tick_diagnostics(self, diagnostics: List[TickDiagnostic]):
         """Batch insert compact per-tick diagnostic rows with upsert semantics."""
         if not diagnostics:
@@ -1233,6 +1251,30 @@ class PostgresDatabaseManager:
             rows,
         )
 
+    def get_sector_shortage_diagnostics(
+        self,
+        run_id: str,
+        tick_start: int = 0,
+        tick_end: int = 999999,
+        sector: Optional[str] = None,
+    ) -> List[Dict]:
+        """Fetch ordered per-sector shortage diagnostics for a run."""
+        query = """
+            SELECT *
+            FROM sector_shortage_diagnostics
+            WHERE run_id = %s AND tick >= %s AND tick <= %s
+        """
+        params: List[object] = [run_id, tick_start, tick_end]
+        if sector is not None:
+            query += " AND sector = %s"
+            params.append(sector)
+        query += " ORDER BY tick, sector"
+
+        with self.conn.cursor() as cur:
+            cur.execute(query, tuple(params))
+            rows = cur.fetchall()
+        return [dict(row) for row in rows]
+
     def _normalized_regime_events(self, events: List[RegimeEvent]) -> List[RegimeEvent]:
         """Return regime events with deterministic idempotency keys."""
         duplicates_seen: dict[tuple[object, ...], int] = defaultdict(int)
@@ -1306,6 +1348,34 @@ class PostgresDatabaseManager:
             """,
             rows,
         )
+
+    def get_regime_events(
+        self,
+        run_id: str,
+        tick_start: int = 0,
+        tick_end: int = 999999,
+        event_type: Optional[str] = None,
+        entity_type: Optional[str] = None,
+    ) -> List[Dict]:
+        """Fetch ordered regime/state transition events for a run."""
+        query = """
+            SELECT *
+            FROM regime_events
+            WHERE run_id = %s AND tick >= %s AND tick <= %s
+        """
+        params: List[object] = [run_id, tick_start, tick_end]
+        if event_type is not None:
+            query += " AND event_type = %s"
+            params.append(event_type)
+        if entity_type is not None:
+            query += " AND entity_type = %s"
+            params.append(entity_type)
+        query += " ORDER BY tick, event_id"
+
+        with self.conn.cursor() as cur:
+            cur.execute(query, tuple(params))
+            rows = cur.fetchall()
+        return [dict(row) for row in rows]
 
     # =========================================================================
     # Event operations
@@ -1525,6 +1595,34 @@ class PostgresDatabaseManager:
         data = dict(row)
         data.pop("id", None)
         return PolicyConfig(**data)
+
+    def get_policy_actions(
+        self,
+        run_id: str,
+        tick_start: int = 0,
+        tick_end: int = 999999,
+        actor: Optional[str] = None,
+        action_type: Optional[str] = None,
+    ) -> List[Dict]:
+        """Fetch ordered policy actions for a run."""
+        query = """
+            SELECT *
+            FROM policy_actions
+            WHERE run_id = %s AND tick >= %s AND tick <= %s
+        """
+        params: List[object] = [run_id, tick_start, tick_end]
+        if actor is not None:
+            query += " AND actor = %s"
+            params.append(actor)
+        if action_type is not None:
+            query += " AND action_type = %s"
+            params.append(action_type)
+        query += " ORDER BY tick, action_id"
+
+        with self.conn.cursor() as cur:
+            cur.execute(query, tuple(params))
+            rows = cur.fetchall()
+        return [dict(row) for row in rows]
 
     # =========================================================================
     # Utility operations
