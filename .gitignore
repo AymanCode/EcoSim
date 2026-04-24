@@ -60,6 +60,8 @@ data/
 
 # Local agent / IDE settings
 .claude/
+.agents/
+plugins/
 
 # LLM test runs and scratch status dumps
 *_llm_run_log.json

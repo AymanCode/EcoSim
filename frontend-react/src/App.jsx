@@ -313,7 +313,7 @@ const WealthDistributionChart = ({ gini, top10, bottom50 }) => {
 };
 
 // --- REUSABLE CHART COMPONENT ---
-const LineChart = ({ title, data, color, minScale = 0, suffix = "", formatValue = v => v.toFixed(1) }) => {
+const LineChart = ({ title, data, color, suffix = "", formatValue = v => v.toFixed(1) }) => {
   // Normalize data to array of arrays for multi-line support
   const datasets = Array.isArray(data[0]) ? data : [data];
   const colors = Array.isArray(color) ? color : [color];
@@ -459,8 +459,8 @@ export default function EcoSimUI() {
     trackedFirms: []
   });
 
-  const [activeSubjectIndex, setActiveSubjectIndex] = useState(0);
-  const [activeFirmIndex, setActiveFirmIndex] = useState(0);
+  const [requestedSubjectIndex, setActiveSubjectIndex] = useState(0);
+  const [requestedFirmIndex, setActiveFirmIndex] = useState(0);
   const [firmStats, setFirmStats] = useState(null);
 
   const [config, setConfig] = useState({
@@ -496,22 +496,8 @@ export default function EcoSimUI() {
   ];
   const subjectCount = metrics.trackedSubjects ? metrics.trackedSubjects.length : 0;
   const firmCount = metrics.trackedFirms ? metrics.trackedFirms.length : 0;
-
-  useEffect(() => {
-    if (subjectCount === 0 && activeSubjectIndex !== 0) {
-      setActiveSubjectIndex(0);
-    } else if (subjectCount > 0 && activeSubjectIndex >= subjectCount) {
-      setActiveSubjectIndex(0);
-    }
-  }, [subjectCount, activeSubjectIndex]);
-
-  useEffect(() => {
-    if (firmCount === 0 && activeFirmIndex !== 0) {
-      setActiveFirmIndex(0);
-    } else if (firmCount > 0 && activeFirmIndex >= firmCount) {
-      setActiveFirmIndex(0);
-    }
-  }, [firmCount, activeFirmIndex]);
+  const activeSubjectIndex = subjectCount > 0 && requestedSubjectIndex < subjectCount ? requestedSubjectIndex : 0;
+  const activeFirmIndex = firmCount > 0 && requestedFirmIndex < firmCount ? requestedFirmIndex : 0;
 
   const formatCurrency = (value, decimals = 0) => {
     const num = Number(value || 0);

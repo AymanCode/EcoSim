@@ -5,7 +5,7 @@ import pytest
 from agents import FirmAgent, GovernmentAgent, HouseholdAgent
 from config import CONFIG
 from economy import Economy
-from run_household_llm_tester import build_identity_block, build_tick_prompt, snapshot_household
+from tools.llm.run_household_llm_tester import build_identity_block, build_tick_prompt, snapshot_household
 
 
 def _fresh_household(household_id: int = 1) -> HouseholdAgent:
@@ -262,6 +262,7 @@ def test_contract_healthcare_receipt_survives_batch_household_update():
     assert hh.last_purchase_breakdown["healthcare"]["provider_id"] == healthcare_firm.firm_id
 
 
+@pytest.mark.llm
 def test_contract_household_prompt_and_snapshot_use_grounded_unemployment_and_receipts():
     """Contract I4: Household prompt/logs should use unemployment framing and expose receipts."""
     hh = _fresh_household(47)

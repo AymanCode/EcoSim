@@ -26,7 +26,7 @@ Core capabilities:
 | API | FastAPI + WebSocket |
 | Frontend | React + Vite |
 | Persistence | SQLite or PostgreSQL/Timescale |
-| Analytics utilities | NumPy, Pandas, SciPy, XGBoost |
+| Analytics utilities | NumPy, Pandas |
 
 ## Quickstart
 
@@ -102,10 +102,22 @@ npm run dev
 
 ## Testing
 
+Stable CI checks:
+
 ```bash
 pip install -r requirements-dev.txt
 python -m pytest backend/data/tests backend/tests_server/test_server_api.py -q
-python -m pytest backend/tests_contracts -q
+python -m pytest backend/tests_contracts -q -m "not llm and not research"
+cd frontend-react
+npm ci
+npm run lint
+npm run build
+```
+
+Research and local LLM checks are kept in the repo, but are not required for the public CI gate:
+
+```bash
+python -m pytest backend/tests_contracts -q -m "llm or research"
 ```
 
 ## Repository Layout

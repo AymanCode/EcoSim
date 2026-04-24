@@ -53,6 +53,8 @@ testpaths = ["backend/tests_contracts"]
 addopts = "-q --tb=short"
 markers = [
     "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+    "llm: marks local LLM and prompt-advisor tests that are still in progress",
+    "research: marks exploratory simulation policy checks that are useful but not CI-stable",
 ]
 
 [tool.flake8]

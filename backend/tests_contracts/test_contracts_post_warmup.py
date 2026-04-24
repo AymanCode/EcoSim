@@ -7,6 +7,9 @@ from tools.runners.run_large_simulation import create_large_economy
 from tests_contracts.factories import seed_everything
 
 
+pytestmark = pytest.mark.research
+
+
 SCENARIO_SEED = 20260403
 POST_WARMUP_HOUSEHOLDS = 120
 POST_WARMUP_WARMUP_TICKS = 8

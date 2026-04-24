@@ -11,10 +11,16 @@ This folder uses a single naming style for readability:
 
 Legacy files with `test_tier*` names are kept only as aliases and are skipped at collection time.
 
-Run all contract tests:
+Run stable contract tests:
 
 ```bash
-python -m pytest backend/tests_contracts -q
+python -m pytest backend/tests_contracts -q -m "not llm and not research"
+```
+
+Run in-progress LLM and research contracts locally:
+
+```bash
+python -m pytest backend/tests_contracts -q -m "llm or research"
 ```
 
 Recent coverage added on top of the core suites:

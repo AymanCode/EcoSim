@@ -10,6 +10,9 @@ from tools.llm.llm_government import LLMGovernmentAdvisor, apply_info_constraint
 from tools.llm.llm_provider import LLMProvider
 
 
+pytestmark = pytest.mark.llm
+
+
 class QueueProvider(LLMProvider):
     """Deterministic mock provider for contract tests."""
 
