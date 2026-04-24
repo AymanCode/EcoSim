@@ -6,7 +6,7 @@ build-backend = "setuptools.backends._legacy:_Backend"
 name = "ecosim"
 version = "2.0.0"
 description = "Agent-based economic simulation with households, firms, and government"
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 dependencies = [
     "fastapi>=0.135.0",
     "uvicorn>=0.41.0",

@@ -84,6 +84,7 @@ backend/data/            warehouse models, schema, migrations, persistence
 ## Local Development
 
 ```bash
+python --version  # requires Python 3.11+
 python -m venv .venv
 source .venv/bin/activate  # macOS/Linux
 # .venv\Scripts\Activate.ps1  # Windows PowerShell
