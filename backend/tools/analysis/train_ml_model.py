@@ -20,7 +20,7 @@ Model Architecture:
 - Validation: 5-fold cross-validation
 - Metrics: RÂ², RMSE, MAE
 
-Resume-worthy features:
+Features:
 - Hyperparameter tuning
 - Feature importance analysis
 - Model versioning
