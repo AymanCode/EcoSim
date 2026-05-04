@@ -37,6 +37,16 @@ def _get_good_category(good_name: str, good_categories: Optional[Dict[str, str]]
     return lowered
 
 
+@dataclass(slots=True)
+class LoanContract:
+    """Amortizing mortgage contract for housing firm expansion."""
+
+    principal_remaining: float
+    pmt_per_tick: float
+    ticks_remaining: int
+    origination_tick_rate: float  # per-tick rate = annual_rate / 52
+
+
 class AgentMixin:
     """Shared behaviour for all agent types."""
 
@@ -1296,17 +1306,22 @@ class HouseholdAgent(AgentMixin):
 
         base_budget = spend_fraction * disposable_income
 
-        # Savings drawdown: personality-derived fraction of accumulated cash (slow trickle)
-        drawdown = self.savings_drawdown_rate * max(0.0, self.cash_balance)
+        # Accessible liquidity: cash + 90% of bank deposits (can be withdrawn pre-purchase)
+        cash_liquidity = max(0.0, self.cash_balance)
+        deposit_liquidity = 0.90 * max(0.0, self.bank_deposit)
+        accessible_liquidity = cash_liquidity + deposit_liquidity
+
+        # Savings drawdown: personality-derived fraction of accessible liquidity (slow trickle)
+        drawdown = self.savings_drawdown_rate * accessible_liquidity
 
         # Desperation mode: when income alone can't cover survival minimum,
         # raid savings aggressively (economically realistic — people burn savings when broke)
         subsistence_min = config.subsistence_min_cash
-        if base_budget < subsistence_min and self.cash_balance > 0.0:
+        if base_budget < subsistence_min and accessible_liquidity > 0.0:
             emergency_rate = min(0.20, self.savings_drawdown_rate * 5.0)
-            drawdown = min(emergency_rate * self.cash_balance, subsistence_min - base_budget)
+            drawdown = min(emergency_rate * accessible_liquidity, subsistence_min - base_budget)
 
-        budget = min(base_budget + drawdown, max(0.0, self.cash_balance))
+        budget = min(base_budget + drawdown, accessible_liquidity)
 
         if budget <= 0:
             return {
@@ -2073,7 +2088,12 @@ class HouseholdAgent(AgentMixin):
             - hc.food_starvation_penalty
         )
 
-        health_positive = max(0.0, health_food_effect)
+        if health_food_effect > 0.0:
+            food_offset_share = max(0.0, min(1.0, hc.food_health_decay_offset_share))
+            food_offset_ratio = min(1.0, health_food_effect / max(hc.food_health_high_boost, 1e-9))
+            health_positive = self.health_decay_rate * food_offset_share * food_offset_ratio
+        else:
+            health_positive = 0.0
         health_negative = min(0.0, health_food_effect)
 
         if government_happiness_multiplier > 1.0:
@@ -2172,6 +2192,7 @@ class FirmAgent(AgentMixin):
 
     # Pricing & costs
     unit_cost: float = 5.0  # cost per unit produced
+    pricing_operating_unit_cost: float = 0.0  # cash operating cost per stable-throughput unit (no depreciation); used for price floors
     markup: float = 0.3  # markup over unit_cost
     price: float = 6.5  # current price
 
@@ -2200,6 +2221,7 @@ class FirmAgent(AgentMixin):
     wage_adjustment_rate: float = 0.1  # small positive adjustment rate
     target_inventory_multiplier: float = 1.5  # desired inventory as multiple of expected sales
     min_price: float = 5.0  # hard floor on price
+    decision_diagnostics: Dict[str, object] = field(default_factory=dict)
     max_hires_per_tick: int = 2
     max_fires_per_tick: int = 2
     target_inventory_weeks: float = 2.0  # desired weeks of supply buffer
@@ -2217,6 +2239,7 @@ class FirmAgent(AgentMixin):
     last_tick_total_costs: float = 0.0  # Track costs for dividend calculation
     payout_ratio: float = 0.0  # Fraction of net profit paid as dividends
     net_profit: float = 0.0  # Track last tick net profit
+    pending_healthcare_worker_bonus: float = 0.0
 
     # Loan tracking (for government startup loans)
     government_loan_principal: float = 0.0  # Original loan amount
@@ -2249,6 +2272,7 @@ class FirmAgent(AgentMixin):
     worker_turnover_this_tick: int = 0  # Workers lost to competitors this tick (on-the-job switching)
     stabilization_disabled: bool = False  # Experiment flag
     survival_mode: bool = False  # Feature 1: Emergency restructuring flag
+    pricing_rejection_streak: int = 0  # Consecutive ticks market rejected current price
 
     # Bank credit tracking (optional — unused when no bank exists)
     bank_loan_principal: float = 0.0       # Sum of active bank loan principals
@@ -2268,6 +2292,22 @@ class FirmAgent(AgentMixin):
     # Housing expansion loans (for deadlock resolution)
     needs_housing_expansion_loan: bool = False  # Set in Phase 6.6; processed in Phase 6.6b
     housing_expansion_loan_amount: float = 0.0  # $ amount needed from bank for unit expansion
+
+    # Amortizing housing mortgage stack (new DSCR/LTV system)
+    housing_active_loans: List[LoanContract] = field(default_factory=list)
+
+    # Services infrastructure upgrades: capacity means employee slots.
+    service_full_utilization_streak: int = 0
+    needs_service_infrastructure_loan: bool = False
+    service_infrastructure_loan_amount: float = 0.0
+    service_infrastructure_loan_remaining: float = 0.0
+    service_infrastructure_loan_payment_per_tick: float = 0.0
+    service_weak_demand_streak: int = 0
+    service_weak_demand_observation_key: tuple = field(default_factory=tuple)
+    # Rolling firm-specific Services unmet-demand window (last 5 ticks).
+    service_unmet_demand_window: List[float] = field(default_factory=list)
+    # Baseline Food: fire half of employees once at warmup→post-warmup transition.
+    baseline_food_post_warmup_transition_done: bool = False
 
     def __post_init__(self):
         """Validate invariants after initialization."""
@@ -2312,9 +2352,13 @@ class FirmAgent(AgentMixin):
                 self.healthcare_capacity_per_worker = CONFIG.firms.healthcare_capacity_per_worker_default
             if self.healthcare_backlog_horizon_ticks <= 0.0:
                 self.healthcare_backlog_horizon_ticks = CONFIG.firms.healthcare_backlog_horizon_ticks
+        if self.good_category.lower() == "services":
+            # Generic services are per-tick capacity; any seed stock is invalid.
+            self.inventory_units = 0.0
 
         # Sample personality-driven behavioral traits once at initialization.
         self.set_personality(self.personality)
+        self.pricing_operating_unit_cost = self.unit_cost
 
     def to_dict(self) -> Dict[str, object]:
         """
@@ -2372,6 +2416,12 @@ class FirmAgent(AgentMixin):
             "bank_loan_principal": self.bank_loan_principal,
             "bank_loan_remaining": self.bank_loan_remaining,
             "bank_loan_payment_per_tick": self.bank_loan_payment_per_tick,
+            "service_full_utilization_streak": self.service_full_utilization_streak,
+            "needs_service_infrastructure_loan": self.needs_service_infrastructure_loan,
+            "service_infrastructure_loan_amount": self.service_infrastructure_loan_amount,
+            "service_infrastructure_loan_remaining": self.service_infrastructure_loan_remaining,
+            "service_infrastructure_loan_payment_per_tick": self.service_infrastructure_loan_payment_per_tick,
+            "service_weak_demand_streak": self.service_weak_demand_streak,
             "trailing_revenue_12t": self.trailing_revenue_12t,
             "age_in_ticks": self.age_in_ticks,
             "burn_mode": self.burn_mode,
@@ -2449,6 +2499,10 @@ class FirmAgent(AgentMixin):
             self.max_fires_per_tick = sample_int(config.moderate_max_fires_range, 1, 10)
             self.units_per_worker = sample_float(config.moderate_units_per_worker_range, 1.0, 1_000.0)
 
+        if self.good_category.lower() == "services":
+            self.units_per_worker = sample_float(config.services_units_per_worker_range, 1.0, 7.0)
+            self.productivity_per_worker = self.units_per_worker
+
         # --- Per-firm randomized behavioral traits (independent of personality) ---
         # Skip for baseline (government safety-net) firms to preserve stable pricing
         if not self.is_baseline:
@@ -2465,11 +2519,50 @@ class FirmAgent(AgentMixin):
         """Return the shared ``CONFIG.firms`` dataclass for firm-level tuning knobs."""
         return CONFIG.firms
 
+    def _is_generic_services_firm(self) -> bool:
+        """Generic services are per-tick flow capacity, not storable production."""
+        return self.good_category.lower() == "services"
+
+    def _service_units_per_worker(self) -> float:
+        """Clamp service throughput to the intended 1-7 units-per-worker range."""
+        config = self._firm_config()
+        low, high = config.services_units_per_worker_range
+        if high < low:
+            low, high = high, low
+        return max(low, min(high, self.units_per_worker))
+
+    def _refresh_service_weak_demand_streak(self) -> float:
+        """Update Services weak-demand streak once per realized observation."""
+        utilization = max(0.0, float(self.last_units_sold)) / max(float(self.last_units_produced), 1e-6)
+        if self.is_baseline or not self._is_generic_services_firm():
+            self.service_weak_demand_streak = 0
+            self.service_weak_demand_observation_key = ()
+            return utilization
+
+        observation_key = (
+            round(float(self.last_units_sold), 6),
+            round(float(self.last_units_produced), 6),
+            round(float(self.last_profit), 6),
+        )
+        if observation_key != self.service_weak_demand_observation_key:
+            weak_demand_tick = utilization < 0.75 and self.last_profit < 0.0
+            if weak_demand_tick:
+                self.service_weak_demand_streak += 1
+            if utilization >= 0.90 or self.last_profit >= 0.0:
+                self.service_weak_demand_streak = 0
+            self.service_weak_demand_observation_key = observation_key
+
+        self.decision_diagnostics["service_utilization_for_wage_recovery"] = utilization
+        self.decision_diagnostics["service_weak_demand_streak"] = self.service_weak_demand_streak
+        return utilization
+
     def _capacity_for_workers(self, worker_count: float) -> float:
         """Two-factor Cobb-Douglas capacity: TFP * K^alpha_k * N^alpha_n."""
         config = self._firm_config()
         if worker_count <= 0:
             return 0.0
+        if self._is_generic_services_firm():
+            return self._service_units_per_worker() * worker_count
         units = max(self.units_per_worker, config.min_base_productivity)
         K = max(self.capital_stock, 0.01)
         return units * (K ** config.alpha_k) * (worker_count ** config.alpha_n)
@@ -2485,6 +2578,9 @@ class FirmAgent(AgentMixin):
         config = self._firm_config()
         if target_output <= 0:
             return config.min_target_workers
+        if self._is_generic_services_firm():
+            units = max(self._service_units_per_worker(), 1e-6)
+            return max(config.min_target_workers, math.ceil(target_output / units))
         units = max(self.units_per_worker, config.min_base_productivity)
         K = max(self.capital_stock, 0.01)
         effective_tfp = units * (K ** config.alpha_k)
@@ -2498,6 +2594,36 @@ class FirmAgent(AgentMixin):
     def _current_wage_bill(self) -> float:
         """Current payroll burden using actual wages when available."""
         return sum(self.actual_wages.get(employee_id, self.wage_offer) for employee_id in self.employees)
+
+    def _healthcare_labor_price_targets(self) -> Dict[str, float]:
+        """Return healthcare break-even and target visit price from labor costs.
+
+        Strict (total_wage / capacity) * 1.15 formula. Effective per-doctor wage
+        is floored at the global minimum-wage floor so wage_offer drift below
+        minimum cannot underprice the visit.
+        """
+        if self.good_category.lower() != "healthcare":
+            return {"break_even_price": 0.0, "target_price": 0.0, "current_margin": 0.0}
+
+        firm_config = self._firm_config()
+        capacity = max(1.0, len(self.employees) * max(self.healthcare_capacity_per_worker, 0.1))
+
+        # Enforce the global minimum-wage floor on the per-worker wage used for pricing.
+        min_wage_floor = float(getattr(firm_config, "minimum_wage_floor", 0.0))
+        effective_wage = max(float(self.wage_offer), min_wage_floor)
+        wage_bill = effective_wage * max(1, len(self.employees))
+
+        # Flat 15% margin over labor cost.
+        break_even = wage_bill / capacity
+        margin = 0.15
+        target = break_even * (1.0 + margin)
+
+        current_margin = (float(self.price) - break_even) / max(float(self.price), 1e-9)
+        return {
+            "break_even_price": break_even,
+            "target_price": target,
+            "current_margin": current_margin,
+        }
 
     def _profit_ema_alpha(self) -> float:
         """Approximate 4-tick smoothing window."""
@@ -2561,7 +2687,15 @@ class FirmAgent(AgentMixin):
             self.cash_runway_ticks = float("inf")
 
         self.last_sell_through_rate = max(0.0, min(1.5, float(sell_through_rate)))
-        self.inventory_weeks = max(0.0, float(self.inventory_units)) / max(1.0, float(self.expected_sales_units))
+        if self._is_generic_services_firm():
+            self.inventory_units = 0.0
+            self.inventory_weeks = 0.0
+            self.high_inventory_streak = 0
+            self.low_inventory_streak = 0
+            self.burn_mode = False
+            self.burn_mode_active = False
+        else:
+            self.inventory_weeks = max(0.0, float(self.inventory_units)) / max(1.0, float(self.expected_sales_units))
 
         hires_shortfall = max(0, int(self.last_tick_planned_hires) - int(self.last_tick_actual_hires))
         if hires_shortfall > 0:
@@ -2722,6 +2856,98 @@ class FirmAgent(AgentMixin):
             "updated_expected_sales": self.expected_sales_units,
         }
 
+    def _plan_services_capacity_labor(
+        self,
+        health_snapshot: FirmHealthSnapshot,
+        in_warmup: bool = False,
+        total_households: int = 0,
+        minimum_wage_floor: Optional[float] = None,
+    ) -> Dict[str, object]:
+        """Plan generic Services as current-tick capacity, not inventory production."""
+        firm_config = self._firm_config()
+        current_workers = len(self.employees)
+        self._refresh_service_weak_demand_streak()
+        service_units_per_worker = max(1.0, min(7.0, self._service_units_per_worker()))
+        service_worker_slots = max(0, int(self.production_capacity_units))
+        if total_households > 0:
+            service_worker_slots = min(service_worker_slots, int(total_households))
+        target_workers = service_worker_slots
+
+        wage_bill = self._current_wage_bill()
+        rolling_revenue = max(self.revenue_ema, max(self.last_revenue, 0.0))
+        survival_pressure = (
+            current_workers > 0
+            and health_snapshot.cash_runway_ticks < firm_config.survival_mode_runway_weeks
+        )
+
+        useful_workers = target_workers
+        if survival_pressure:
+            self.survival_mode = True
+            if rolling_revenue > 0.0 and wage_bill > 0.0:
+                avg_wage = wage_bill / max(current_workers, 1)
+                useful_workers = min(target_workers, int(rolling_revenue / max(avg_wage, 1.0)))
+                useful_workers = max(firm_config.min_skeleton_workers, useful_workers)
+            else:
+                useful_workers = min(target_workers, firm_config.min_skeleton_workers)
+        elif health_snapshot.cash_runway_ticks >= firm_config.survival_mode_runway_weeks * 2.0:
+            self.survival_mode = False
+
+        minimum_wage = (
+            float(minimum_wage_floor)
+            if minimum_wage_floor is not None
+            else firm_config.minimum_wage_floor
+        )
+        if (
+            not self.is_baseline
+            and not in_warmup
+            and self.service_weak_demand_streak >= 5
+            and self.wage_offer <= minimum_wage + 1e-6
+            and current_workers > 1
+        ):
+            target_workers = min(target_workers, current_workers - 1)
+            useful_workers = min(useful_workers, target_workers)
+            self.decision_diagnostics["services_headcount_last_resort"] = True
+
+        planned_layoffs: List[int] = []
+        if current_workers > useful_workers:
+            planned_layoffs = self.employees[:current_workers - useful_workers]
+
+        planned_hires = 0 if survival_pressure else max(0, target_workers - current_workers)
+        effective_workers = max(0, current_workers + planned_hires - len(planned_layoffs))
+        service_workers_planned = min(effective_workers, service_worker_slots)
+        planned_capacity = self._capacity_for_workers(service_workers_planned)
+
+        self.inventory_units = 0.0
+        self.inventory_weeks = 0.0
+        self.high_inventory_streak = 0
+        self.low_inventory_streak = 0
+        self.burn_mode = False
+        self.burn_mode_active = False
+        for key in list(self.decision_diagnostics.keys()):
+            if key.startswith("production_governor_"):
+                del self.decision_diagnostics[key]
+
+        self.decision_diagnostics["services_worker_slots"] = service_worker_slots
+        self.decision_diagnostics["services_units_per_worker"] = service_units_per_worker
+        self.decision_diagnostics["services_target_workers"] = target_workers
+        self.decision_diagnostics["services_effective_workers_planned"] = effective_workers
+        self.decision_diagnostics["services_workers_planned_for_capacity"] = service_workers_planned
+        self.decision_diagnostics["services_planned_capacity"] = planned_capacity
+        self.decision_diagnostics["services_survival_pressure"] = survival_pressure
+        self.decision_diagnostics["services_target_after_weak_demand"] = target_workers
+
+        self.planned_hires_count = planned_hires
+        self.planned_layoffs_ids = planned_layoffs
+        self.last_tick_planned_hires = planned_hires
+
+        return {
+            "firm_id": self.firm_id,
+            "planned_production_units": planned_capacity,
+            "planned_hires_count": planned_hires,
+            "planned_layoffs_ids": planned_layoffs,
+            "updated_expected_sales": self.expected_sales_units,
+        }
+
     def plan_production_and_labor(
         self,
         last_tick_sales_units: float,
@@ -2732,6 +2958,7 @@ class FirmAgent(AgentMixin):
         large_market: bool = False,
         post_warmup_cooldown: bool = False,
         health_snapshot: Optional[FirmHealthSnapshot] = None,
+        minimum_wage_floor: Optional[float] = None,
     ) -> Dict[str, object]:
         """
         Decide how much to produce and how many workers are needed.
@@ -2769,6 +2996,7 @@ class FirmAgent(AgentMixin):
             self.sales_expectation_alpha * last_tick_sales_units +
             (1.0 - self.sales_expectation_alpha) * self.expected_sales_units
         )
+        production_governor_sales_velocity = max(0.0, smoothed_sales)
         self.expected_sales_units = max(firm_config.min_expected_sales, smoothed_sales)
 
         if (
@@ -2806,6 +3034,14 @@ class FirmAgent(AgentMixin):
             return self._plan_healthcare_service_labor(
                 in_warmup=in_warmup,
                 total_households=total_households,
+            )
+
+        if self._is_generic_services_firm():
+            return self._plan_services_capacity_labor(
+                health_snapshot,
+                in_warmup=in_warmup,
+                total_households=total_households,
+                minimum_wage_floor=minimum_wage_floor,
             )
 
         if self.stabilization_disabled:
@@ -3034,8 +3270,11 @@ class FirmAgent(AgentMixin):
                 # Cap to half so the first firm in matching order doesn't
                 # grab everyone, leaving nothing for the second firm.
                 planned_hires = min(planned_hires, int(estimated_pop * 0.50))
-                revenue_per_worker = self.price * self.productivity_per_worker
-                self.wage_offer = min(revenue_per_worker * 0.95, 40.0)
+                if self.good_category.lower() == "food":
+                    self.wage_offer = firm_config.minimum_wage_floor
+                else:
+                    revenue_per_worker = self.price * self.productivity_per_worker
+                    self.wage_offer = min(revenue_per_worker * 0.95, 40.0)
                 planned_production_units = min(
                     self.production_capacity_units,
                     max(self.baseline_production_quota, self.production_capacity_units)
@@ -3048,6 +3287,66 @@ class FirmAgent(AgentMixin):
                     max(support_output, expected_baseline * 0.8)
                 )
                 target_workers = self._workers_for_sales(target_output)
+
+                # Baseline Food post-warmup shrinkage: as a public fallback
+                # provider, baseline Food must not maintain a large workforce
+                # while losing money or sitting on heavy inventory.
+                if self.good_category.lower() == "food":
+                    # One-time transition layoff: warmup hires ~90 workers to
+                    # bootstrap; private firms enter at warmup end. Fire half
+                    # immediately, then proceed with normal shrinkage logic.
+                    if not self.baseline_food_post_warmup_transition_done:
+                        self.baseline_food_post_warmup_transition_done = True
+                        if current_workers > 0:
+                            transition_layoff_count = current_workers // 2
+                            if transition_layoff_count > 0:
+                                planned_layoffs = list(self.employees[:transition_layoff_count])
+                                target_workers = current_workers - transition_layoff_count
+                                planned_production_units = min(
+                                    self._capacity_for_workers(max(target_workers, firm_config.min_target_workers)),
+                                    self.baseline_production_quota * 0.5,
+                                )
+                                self.planned_hires_count = 0
+                                self.planned_layoffs_ids = planned_layoffs
+                                self.last_tick_planned_hires = 0
+                                return {
+                                    "firm_id": self.firm_id,
+                                    "planned_production_units": planned_production_units,
+                                    "planned_hires_count": 0,
+                                    "planned_layoffs_ids": planned_layoffs,
+                                    "updated_expected_sales": self.expected_sales_units,
+                                }
+                    inventory_pressure_threshold = max(
+                        firm_config.min_expected_sales,
+                        self.baseline_production_quota * 2.0,
+                    )
+                    heavy_inventory = self.inventory_units > inventory_pressure_threshold
+                    very_heavy_inventory = self.inventory_units > inventory_pressure_threshold * 2.0
+                    losing_money = (
+                        float(getattr(self, "last_profit", 0.0)) < 0.0
+                        or float(getattr(self, "profit_ema", 0.0)) < 0.0
+                    )
+
+                    if heavy_inventory or losing_money:
+                        # Freeze hiring and shrink headcount via existing layoff path.
+                        target_workers = min(target_workers, current_workers)
+                        if very_heavy_inventory:
+                            shrink_fraction = 0.50
+                        elif heavy_inventory:
+                            shrink_fraction = 0.25
+                        else:
+                            shrink_fraction = 0.10
+                        target_workers = max(
+                            firm_config.min_target_workers,
+                            int(math.floor(current_workers * (1.0 - shrink_fraction))),
+                        )
+                        # Cut planned production sharply to clear inventory.
+                        if very_heavy_inventory:
+                            target_output = 0.0
+                        elif heavy_inventory:
+                            target_output = min(target_output, self.baseline_production_quota * 0.25)
+                        else:
+                            target_output = min(target_output, self.baseline_production_quota * 0.5)
 
                 delta = target_workers - current_workers
                 if delta > 0:
@@ -3177,6 +3476,29 @@ class FirmAgent(AgentMixin):
                 if layoff_count > 0:
                     planned_layoffs = self.employees[:layoff_count]
 
+        if self.good_category.lower() not in {"housing", "healthcare"}:
+            sales_velocity = production_governor_sales_velocity
+            buffer = self.target_inventory_multiplier if self.target_inventory_multiplier > 0 else 2.0
+            target_inventory = sales_velocity * buffer
+            inventory_deficit = target_inventory - self.inventory_units
+            effective_workers = max(0, current_workers + planned_hires - len(planned_layoffs))
+            max_possible_production = min(
+                self._capacity_for_workers(effective_workers),
+                self.production_capacity_units
+            )
+
+            if inventory_deficit <= 0:
+                planned_production_units = 0.0
+            else:
+                planned_production_units = min(inventory_deficit, max_possible_production)
+
+            self.decision_diagnostics["production_governor_sales_velocity"] = sales_velocity
+            self.decision_diagnostics["production_governor_target_inventory"] = target_inventory
+            self.decision_diagnostics["production_governor_inventory_deficit"] = inventory_deficit
+            self.decision_diagnostics["production_governor_max_possible_production"] = max_possible_production
+            self.decision_diagnostics["production_governor_planned_production"] = planned_production_units
+            self.decision_diagnostics["production_governor_active"] = True
+
         self.planned_hires_count = planned_hires
         self.planned_layoffs_ids = planned_layoffs
         self.last_tick_planned_hires = planned_hires
@@ -3277,6 +3599,27 @@ class FirmAgent(AgentMixin):
                 "markup_next": (target_price / self.unit_cost - 1.0) if self.unit_cost > 0 else self.markup,
             }
 
+        # Baseline Food post-warmup: clear heavy inventory by cutting price down
+        # to a labor break-even floor; do not undercut private firms when stock
+        # is normal.
+        if self.is_baseline and self.good_category.lower() == "food":
+            inventory_pressure_threshold = max(
+                firm_config.min_expected_sales,
+                self.baseline_production_quota * 2.0,
+            )
+            heavy_inventory = self.inventory_units > inventory_pressure_threshold
+            if heavy_inventory:
+                labor_cost_per_unit = self.wage_offer / max(self.productivity_per_worker, 1.0)
+                price_floor = max(self.min_price, labor_cost_per_unit)
+                very_heavy = self.inventory_units > inventory_pressure_threshold * 2.0
+                discount = 0.80 if very_heavy else 0.90
+                target_price = max(price_floor, self.price * discount)
+                return {
+                    "price_next": target_price,
+                    "markup_next": (target_price / self.unit_cost - 1.0) if self.unit_cost > 0 else self.markup,
+                    "pricing_reason": "baseline_food_inventory_clearance",
+                }
+
         if self.stabilization_disabled:
             price_next = max(self.min_price, self.price)
             if not self.is_baseline:
@@ -3285,31 +3628,110 @@ class FirmAgent(AgentMixin):
             return {"price_next": price_next, "markup_next": markup_next}
 
         if self.good_category.lower() == "healthcare":
-            base_price = CONFIG.baseline_prices.get("Healthcare", max(self.min_price, self.price))
-            price_floor = max(self.min_price, base_price * 0.6)
-            price_ceiling = max(price_floor, base_price * firm_config.healthcare_price_ceiling_multiplier)
+            price_targets = self._healthcare_labor_price_targets()
+            break_even_price = price_targets["break_even_price"]
+            target_price = max(self.min_price, price_targets["target_price"])
 
-            capacity = max(1.0, len(self.employees) * max(self.healthcare_capacity_per_worker, 0.1))
-            horizon = max(1.0, self.healthcare_backlog_horizon_ticks)
-            queue_pressure = len(self.healthcare_queue) / capacity
-            projected_pressure = (
-                self.healthcare_arrivals_ema + len(self.healthcare_queue) / horizon
-            ) / capacity
-            pressure = max(queue_pressure, projected_pressure)
+            # Surge pricing: when queue dwarfs current capacity, raise price to
+            # ration demand, clear backlog, and widen margins so the firm signals
+            # for more doctors. Multiplier scales with overload severity.
+            firm_capacity = max(
+                1.0,
+                len(self.employees) * max(self.healthcare_capacity_per_worker, 0.1),
+            )
+            queue_len = len(self.healthcare_queue)
+            overload_ratio = queue_len / firm_capacity
+            surge_multiplier = 1.0
+            if overload_ratio > 3.0:
+                surge_multiplier = min(2.5, 1.5 + 0.25 * (overload_ratio - 3.0))
+                target_price = max(self.min_price, target_price * surge_multiplier)
 
-            target_pressure = max(0.2, firm_config.healthcare_price_pressure_target)
-            if pressure > target_pressure:
-                excess = min(2.5, pressure - target_pressure)
-                price_change = 1.0 + min(0.12, firm_config.healthcare_price_increase_rate * excess)
-            elif pressure < 0.3 * target_pressure:
-                slack = (0.3 * target_pressure - pressure) / max(0.3 * target_pressure, 1e-6)
-                price_change = 1.0 - min(0.08, firm_config.healthcare_price_decrease_rate * slack)
-            else:
-                price_change = 1.0
+            self.decision_diagnostics["healthcare_break_even_price"] = break_even_price
+            self.decision_diagnostics["healthcare_target_margin"] = firm_config.healthcare_target_profit_margin
+            self.decision_diagnostics["healthcare_target_price"] = target_price
+            self.decision_diagnostics["healthcare_current_profit_margin"] = price_targets["current_margin"]
+            self.decision_diagnostics["healthcare_queue_overload_ratio"] = overload_ratio
+            self.decision_diagnostics["healthcare_surge_multiplier"] = surge_multiplier
+            self.decision_diagnostics["pricing_reason"] = (
+                "healthcare_surge_pricing" if surge_multiplier > 1.0
+                else "healthcare_labor_margin_target"
+            )
 
-            price_next = min(price_ceiling, max(price_floor, self.price * price_change))
+            price_next = target_price
             markup_next = (price_next / self.unit_cost - 1.0) if self.unit_cost > 0 else self.markup
-            return {"price_next": price_next, "markup_next": markup_next}
+            return {
+                "price_next": price_next,
+                "markup_next": markup_next,
+                "pricing_reason": self.decision_diagnostics["pricing_reason"],
+            }
+
+        if self._is_generic_services_firm():
+            effective_workers = max(
+                1,
+                len(self.employees)
+                + int(self.planned_hires_count or 0)
+                - len(self.planned_layoffs_ids or []),
+            )
+            capacity = max(0.0, float(self.last_units_produced))
+            if capacity <= 0.0:
+                service_worker_slots = max(0, int(self.production_capacity_units))
+                if service_worker_slots > 0:
+                    effective_workers = min(effective_workers, service_worker_slots)
+                capacity = self._capacity_for_workers(effective_workers)
+            capacity = max(capacity, 1.0)
+
+            wage_bill = self._current_wage_bill()
+            if wage_bill <= 0.0:
+                wage_bill = float(self.wage_offer) * effective_workers
+
+            service_debt_service = max(0.0, float(self.service_infrastructure_loan_payment_per_tick))
+
+            # Fluid microeconomic pricing: interpolate between marginal (variable)
+            # cost and full cost based on utilization. Boom markets surge above
+            # full cost; downturns drop toward variable cost so firms keep selling
+            # rather than pricing themselves out of demand.
+            variable_cost_per_unit = wage_bill / capacity
+            total_cost_per_unit = (wage_bill + service_debt_service) / capacity
+            break_even_price = total_cost_per_unit  # retain key for downstream readers
+
+            utilization = max(0.0, min(1.5, float(sell_through_rate)))
+
+            if utilization >= 0.85:
+                # Boom market: full cost recovery + markup + surge premium.
+                surge = (utilization - 0.85) * 0.5
+                target_price = total_cost_per_unit * (1.0 + float(self.markup) + surge)
+            else:
+                # Downturn: smooth interpolation between variable and total cost.
+                # 0% utilization -> variable cost only; 85% -> total cost.
+                weight = utilization / 0.85
+                target_price = (
+                    variable_cost_per_unit * (1.0 - weight)
+                    + total_cost_per_unit * weight
+                )
+
+            # EMA smoothing to dampen oscillation.
+            price_next = (self.price * 0.8) + (target_price * 0.2)
+            price_next = max(self.min_price, price_next)
+
+            if total_cost_per_unit > 0:
+                markup_next = max(0.0, (price_next / total_cost_per_unit) - 1.0)
+            else:
+                markup_next = float(self.markup)
+
+            self.decision_diagnostics["service_variable_cost_per_unit"] = variable_cost_per_unit
+            self.decision_diagnostics["service_total_cost_per_unit"] = total_cost_per_unit
+            self.decision_diagnostics["service_break_even_price"] = break_even_price
+            self.decision_diagnostics["service_capacity_for_pricing"] = capacity
+            self.decision_diagnostics["service_wage_bill_for_pricing"] = wage_bill
+            self.decision_diagnostics["service_debt_service_for_pricing"] = service_debt_service
+            self.decision_diagnostics["service_utilization"] = utilization
+            self.decision_diagnostics["service_markup_next"] = markup_next
+            self.decision_diagnostics["pricing_reason"] = "marginal_cost_interpolation"
+            return {
+                "price_next": price_next,
+                "markup_next": markup_next,
+                "pricing_reason": "marginal_cost_interpolation",
+            }
 
         if not self.is_baseline:
             price_next = self.price
@@ -3325,15 +3747,77 @@ class FirmAgent(AgentMixin):
             elif self.last_units_produced > 0 and self.last_units_sold < self.last_units_produced:
                 price_next = max(self.min_price, self.price * (1.0 - min(0.5, self.price_adjustment_rate)))
 
-            # Cost floor: price must cover unit labor cost + unit depreciation cost
-            # Only apply when there's meaningful production to avoid infinite per-unit depreciation
-            if self.last_units_produced > 1.0:
+            # Split cost floor: variable (labor, always) vs full (+ depreciation, demand-gated).
+            if self.last_units_produced > 0.0:
                 config = self._firm_config()
-                unit_depreciation = (
+                fixed_depreciation_cost = (
                     self.capital_stock * config.capital_depreciation_rate * config.capital_cost_per_unit
-                ) / self.last_units_produced
-                cost_floor = (self.unit_cost + unit_depreciation) * 1.05
-                price_next = max(price_next, cost_floor)
+                )
+                stable_throughput = max(
+                    self.expected_sales_units,
+                    self.last_units_sold,
+                    self.last_units_produced,
+                    1.0,
+                )
+                unit_depreciation = fixed_depreciation_cost / stable_throughput
+                variable_cost_floor = self.pricing_operating_unit_cost * 1.05
+                full_cost_floor = (self.pricing_operating_unit_cost + unit_depreciation) * 1.05
+
+                # Demand validation signals
+                expected_sales = max(self.expected_sales_units, 1.0)
+                sales_ratio = self.last_units_sold / expected_sales
+                revenue_baseline = max(self.revenue_ema, 1.0)
+                revenue_ratio = self.last_revenue / revenue_baseline
+                inventory_available = self.inventory_units > max(1.0, expected_sales * 0.25)
+
+                market_rejected = (
+                    sales_ratio < 0.35
+                    and revenue_ratio < 0.95
+                    and inventory_available
+                )
+
+                # Update rejection streak (caps at 8, decays by 1 each non-rejected tick)
+                if market_rejected:
+                    self.pricing_rejection_streak = min(self.pricing_rejection_streak + 1, 8)
+                else:
+                    self.pricing_rejection_streak = max(self.pricing_rejection_streak - 1, 0)
+
+                full_cost_floor_allowed = (
+                    not market_rejected
+                    and self.pricing_rejection_streak == 0
+                    and (
+                        sales_ratio >= 0.50
+                        or revenue_ratio >= 1.00
+                        or (sell_through_rate >= 0.80 and inventory_weeks <= target_weeks)
+                    )
+                )
+
+                # Variable floor: always apply
+                price_next = max(price_next, variable_cost_floor)
+
+                # Full floor: only when demand is validated
+                if full_cost_floor_allowed:
+                    cost_floor_applied = full_cost_floor > price_next
+                    price_next = max(price_next, full_cost_floor)
+                else:
+                    cost_floor_applied = False
+                    # Cap price at current price when rejection streak is active and revenue weak
+                    if self.pricing_rejection_streak > 0 and revenue_ratio < 1.0:
+                        price_next = min(price_next, max(self.price, variable_cost_floor))
+
+                self.decision_diagnostics["pricing_depreciation_denominator"] = stable_throughput
+                self.decision_diagnostics["pricing_cost_floor"] = full_cost_floor
+                self.decision_diagnostics["pricing_cost_floor_applied"] = cost_floor_applied
+                self.decision_diagnostics["pricing_variable_cost_floor"] = variable_cost_floor
+                self.decision_diagnostics["pricing_full_cost_floor"] = full_cost_floor
+                self.decision_diagnostics["pricing_full_cost_floor_allowed"] = full_cost_floor_allowed
+                self.decision_diagnostics["pricing_market_rejected"] = market_rejected
+                self.decision_diagnostics["pricing_rejection_streak"] = self.pricing_rejection_streak
+                self.decision_diagnostics["pricing_sales_ratio"] = sales_ratio
+                self.decision_diagnostics["pricing_revenue_ratio"] = revenue_ratio
+                self.decision_diagnostics["pricing_operating_unit_cost"] = self.pricing_operating_unit_cost
+                self.decision_diagnostics["pricing_stable_cost_throughput"] = stable_throughput
+                self.decision_diagnostics["pricing_accounting_unit_cost"] = self.unit_cost
 
             markup_next = (price_next / self.unit_cost) - 1.0 if self.unit_cost > 0 else self.markup
             return {
@@ -3373,6 +3857,8 @@ class FirmAgent(AgentMixin):
         unemployment_benefit: float = 0.0,
         in_warmup: bool = False,
         health_snapshot: Optional[FirmHealthSnapshot] = None,
+        unemployment_short_ma: float = 0.0,
+        minimum_wage_floor: Optional[float] = None,
     ) -> Dict[str, float]:
         """Determine the wage offer for the next tick.
 
@@ -3416,6 +3902,10 @@ class FirmAgent(AgentMixin):
         # With deflationary minimum wage ($15), baseline cap is now: $15 × 2.5 = $37.50
         # This allows baseline firms to offer $35-37 wages, beating the $25 typical entry level
         if self.is_baseline:
+            # Baseline Food acts as a public fallback provider — pin wage to
+            # the minimum wage floor exactly (do not compete with private firms).
+            if self.good_category.lower() == "food":
+                return {"wage_offer_next": firm_config.minimum_wage_floor}
             baseline_cap = firm_config.minimum_wage_floor * 2.50
             capped = max(firm_config.minimum_wage_floor, min(self.wage_offer, baseline_cap))
             return {"wage_offer_next": capped}
@@ -3423,7 +3913,42 @@ class FirmAgent(AgentMixin):
         if self.stabilization_disabled:
             return {"wage_offer_next": self.wage_offer}
 
+        if self._is_generic_services_firm() and not self.is_baseline:
+            self._refresh_service_weak_demand_streak()
+            minimum_wage = (
+                float(minimum_wage_floor)
+                if minimum_wage_floor is not None
+                else firm_config.minimum_wage_floor
+            )
+            wage_offer_next = self.wage_offer
+            if (
+                not in_warmup
+                and self.service_weak_demand_streak >= 2
+                and self.wage_offer > minimum_wage
+            ):
+                wage_offer_next = max(minimum_wage, self.wage_offer - 3.0)
+                self.decision_diagnostics["service_wage_recovery_cut"] = 3.0
+            return {"wage_offer_next": wage_offer_next}
+
         if self.good_category.lower() != "healthcare" and not self.is_baseline and not in_warmup:
+            # Phillips Curve: labor market tightness controls wage direction
+            nairu = firm_config.nairu_threshold
+            min_wage = firm_config.minimum_wage_floor
+            if unemployment_short_ma > nairu:
+                # Labor surplus: pin to minimum wage, do not escalate
+                return {"wage_offer_next": max(min_wage, unemployment_benefit * 1.5)}
+            else:
+                # Labor shortage: bump 5% on hire failure if affordable
+                hire_failed = (
+                    self.last_tick_planned_hires > 0
+                    and self.last_tick_actual_hires < self.last_tick_planned_hires
+                )
+                if hire_failed:
+                    productivity = max(1.0, self._productivity_per_worker(max(1, len(self.employees))))
+                    bumped = self.wage_offer * 1.05
+                    if bumped / productivity < self.price:
+                        return {"wage_offer_next": bumped}
+
             floor_wage = max(firm_config.minimum_wage_floor, unemployment_benefit * 1.5)
             aggressiveness = self._aggressiveness()
             conservatism = self._conservatism()
@@ -3490,34 +4015,7 @@ class FirmAgent(AgentMixin):
         floor_wage = max(firm_config.minimum_wage_floor, unemployment_benefit * 1.5)
 
         if self.good_category.lower() == "healthcare":
-            backlog = len(self.healthcare_queue)
-            projected_workers = max(1, len(self.employees) + max(0, self.planned_hires_count))
-            capacity_per_worker = max(0.1, self.healthcare_capacity_per_worker)
-            projected_capacity = max(1.0, projected_workers * capacity_per_worker)
-            horizon = max(1.0, self.healthcare_backlog_horizon_ticks)
-            projected_demand = max(0.0, self.healthcare_arrivals_ema + backlog / horizon)
-            projected_visits = min(projected_capacity, backlog + self.healthcare_arrivals_ema)
-            projected_revenue_per_worker = (
-                projected_visits * max(self.price, self.min_price)
-            ) / projected_workers
-
-            # Households' labor reservation floor uses a hard survival floor of 25.0.
-            # If healthcare demand is present, match/exceed that floor so hiring can clear backlog.
-            demand_floor = max(floor_wage, 25.0 if backlog > 0 else floor_wage)
-            demand_target = max(demand_floor, projected_revenue_per_worker * firm_config.target_labor_share)
-
-            if backlog > 0 or projected_demand > 0:
-                pressure = projected_demand / projected_capacity
-                max_raise = self.wage_offer * (1.0 + min(0.15, 0.04 + 0.02 * min(3.0, pressure)))
-                wage_offer_next = max(demand_floor, min(demand_target, max_raise))
-            else:
-                wage_offer_next = max(demand_floor, self.wage_offer * 0.99)
-
-            if realized_rev_per_worker > 0:
-                max_wage = firm_config.max_labor_share * realized_rev_per_worker
-                wage_offer_next = min(wage_offer_next, max(max_wage, demand_floor))
-
-            return {"wage_offer_next": wage_offer_next}
+            return {"wage_offer_next": firm_config.minimum_wage_floor}
 
         if self.last_revenue <= 1e-3:
             wage_target = min(self.wage_offer, max(floor_wage, fundamental_wage))
@@ -3622,12 +4120,22 @@ class FirmAgent(AgentMixin):
             # Healthcare is service throughput: no storable production/inventory.
             realized_production_units = 0.0
             self.inventory_units = 0.0
+        elif self._is_generic_services_firm():
+            service_worker_slots = max(0, int(self.production_capacity_units))
+            active_service_workers = min(len(self.employees), service_worker_slots)
+            realized_production_units = min(
+                max(0.0, realized_production_units),
+                self._capacity_for_workers(active_service_workers)
+            )
 
         # Track production for pricing decisions
         self.last_units_produced = realized_production_units
 
         # Update inventory
-        self.inventory_units += realized_production_units
+        if self._is_generic_services_firm():
+            self.inventory_units = 0.0
+        else:
+            self.inventory_units += realized_production_units
 
         # Compute wage bill based on actual wages paid
         wage_bill = self._current_wage_bill()
@@ -3642,7 +4150,7 @@ class FirmAgent(AgentMixin):
         self.capital_stock = max(0.0, self.capital_stock - depreciation_units)
         depreciation_cost = depreciation_units * cap_config.capital_cost_per_unit
 
-        # Update unit cost (includes non-cash depreciation for pricing accuracy)
+        # Accounting unit cost (includes depreciation); pricing uses pricing_operating_unit_cost separately.
         total_production_cost = wage_bill + other_variable_costs + depreciation_cost
 
         # Track total costs for dividend calculation (wage + cash costs only, not depreciation)
@@ -3654,9 +4162,19 @@ class FirmAgent(AgentMixin):
             service_capacity = max(1.0, len(self.employees) * max(self.healthcare_capacity_per_worker, 0.1))
             self.unit_cost = total_production_cost / service_capacity
         else:
-            # No production - keep previous unit cost or set to a default
-            # To avoid division by zero, we keep the existing unit_cost
+            # No production - keep previous unit cost to avoid division by zero
             pass
+
+        # Pricing cost basis: cash operating costs only, divided by stable throughput.
+        # Uses max of realized, expected, last sold, or 1 to prevent tiny-denominator explosions.
+        operating_cash_cost = wage_bill + other_variable_costs
+        pricing_stable_throughput = max(
+            realized_production_units,
+            self.expected_sales_units,
+            self.last_units_sold,
+            1.0,
+        )
+        self.pricing_operating_unit_cost = operating_cash_cost / pricing_stable_throughput
 
     def apply_sales_and_profit(self, result: Dict[str, float]) -> None:
         """
@@ -3673,6 +4191,8 @@ class FirmAgent(AgentMixin):
 
         # Update inventory (clamp at zero)
         self.inventory_units = max(0.0, self.inventory_units - units_sold)
+        if self._is_generic_services_firm():
+            self.inventory_units = 0.0
 
         # Update cash
         self.cash_balance += revenue
@@ -3713,6 +4233,25 @@ class FirmAgent(AgentMixin):
 
         # Check if wages exceed configured threshold of revenue
         wage_ratio = wage_bill / max(revenue, 1e-9)
+        if self.good_category.lower() == "healthcare":
+            target_margin = max(0.0, float(firm_config.healthcare_target_profit_margin))
+            current_margin = self.net_profit / max(revenue, 1e-9)
+            target_retained_profit = revenue * target_margin
+            bonus_pool = max(0.0, self.net_profit - target_retained_profit)
+            bonus_pool = min(bonus_pool, max(0.0, self.cash_balance))
+            minimum_wage = firm_config.minimum_wage_floor
+
+            self.wage_offer = minimum_wage
+            for employee_id in self.employees:
+                self.actual_wages[employee_id] = minimum_wage
+            self.pending_healthcare_worker_bonus = bonus_pool
+            self.decision_diagnostics["healthcare_current_profit_margin"] = current_margin
+            self.decision_diagnostics["healthcare_target_margin"] = target_margin
+            self.decision_diagnostics["healthcare_target_retained_profit"] = target_retained_profit
+            self.decision_diagnostics["healthcare_worker_bonus_pool"] = bonus_pool
+            self.decision_diagnostics["healthcare_base_wage_reset_to_minimum"] = True
+            return
+
         if not self.is_baseline and self.good_category.lower() != "healthcare":
             if (
                 wage_ratio <= firm_config.max_labor_share * 1.25
@@ -3765,6 +4304,11 @@ class FirmAgent(AgentMixin):
 
         # Update wage offer
         self.wage_offer = wage_plan["wage_offer_next"]
+        if self.good_category.lower() == "healthcare":
+            minimum_wage = self._firm_config().minimum_wage_floor
+            self.wage_offer = minimum_wage
+            for worker_id in self.employees:
+                self.actual_wages[worker_id] = minimum_wage
 
     def apply_updated_expectations(self, updated_expected_sales: float) -> None:
         """
@@ -3844,6 +4388,65 @@ class FirmAgent(AgentMixin):
         # Cannot expand without cash or bank
         return False
 
+        return True
+
+    def consider_service_infrastructure_upgrade(self, economy=None) -> bool:
+        """Flag a bank-financed Services slot upgrade after sustained full utilization
+        and firm-specific unmet demand."""
+        if not self._is_generic_services_firm():
+            return False
+
+        firm_unmet_this_tick = 0.0
+        if economy is not None:
+            unmet_map = getattr(economy, "services_unmet_demand_by_firm", None)
+            if isinstance(unmet_map, dict):
+                firm_unmet_this_tick = float(unmet_map.get(self.firm_id, 0.0))
+        self.service_unmet_demand_window.append(firm_unmet_this_tick)
+        if len(self.service_unmet_demand_window) > 5:
+            del self.service_unmet_demand_window[: len(self.service_unmet_demand_window) - 5]
+
+        if self.last_units_produced <= 0.0:
+            self.service_full_utilization_streak = 0
+            return False
+
+        utilization = max(0.0, float(self.last_units_sold)) / max(float(self.last_units_produced), 1e-6)
+        if utilization >= 0.95 or self.last_sell_through_rate >= 0.95:
+            self.service_full_utilization_streak += 1
+        else:
+            self.service_full_utilization_streak = 0
+
+        ticks_with_unmet = sum(1 for v in self.service_unmet_demand_window if v > 1e-9)
+        firm_unmet_demand_recent = sum(self.service_unmet_demand_window)
+
+        self.decision_diagnostics["service_full_utilization_streak"] = self.service_full_utilization_streak
+        self.decision_diagnostics["service_upgrade_utilization"] = utilization
+        self.decision_diagnostics["service_unmet_demand_recent"] = firm_unmet_demand_recent
+        self.decision_diagnostics["service_unmet_demand_streak"] = ticks_with_unmet
+
+        has_pending_request = (
+            self.needs_service_infrastructure_loan
+            or self.service_infrastructure_loan_amount > 0.0
+        )
+        has_active_upgrade_debt = self.service_infrastructure_loan_remaining > 1e-6
+        severe_cash_distress = (
+            self.survival_mode
+            or self.zero_cash_streak > 0
+            or self.cash_runway_ticks < self._firm_config().survival_mode_runway_weeks * 2.0
+        )
+        firm_unmet_gate_failed = ticks_with_unmet < 2
+
+        if (
+            self.service_full_utilization_streak < 5
+            or has_pending_request
+            or has_active_upgrade_debt
+            or severe_cash_distress
+            or firm_unmet_gate_failed
+        ):
+            return False
+
+        self.needs_service_infrastructure_loan = True
+        self.service_infrastructure_loan_amount = 7_000.0
+        self.decision_diagnostics["service_upgrade_requested"] = True
         return True
 
     def apply_rd_and_quality_update(self, revenue: float) -> float:
@@ -3949,6 +4552,37 @@ class FirmAgent(AgentMixin):
 
         return total_distributed
 
+    def distribute_healthcare_worker_bonus(self, household_lookup: Dict[int, 'HouseholdAgent']) -> float:
+        """Pay excess healthcare margin to current doctors as a per-tick bonus."""
+        if self.good_category.lower() != "healthcare":
+            return 0.0
+        if not self.employees or self.pending_healthcare_worker_bonus <= 0.0:
+            self.pending_healthcare_worker_bonus = 0.0
+            return 0.0
+
+        total_bonus = min(float(self.pending_healthcare_worker_bonus), max(0.0, float(self.cash_balance)))
+        if total_bonus <= 0.0:
+            self.pending_healthcare_worker_bonus = 0.0
+            return 0.0
+
+        bonus_per_worker = total_bonus / len(self.employees)
+        paid = 0.0
+        for household_id in self.employees:
+            household = household_lookup.get(household_id)
+            if household is None:
+                continue
+            household.cash_balance += bonus_per_worker
+            household.last_dividend_income += bonus_per_worker
+            household.add_ledger_flow("dividends", bonus_per_worker)
+            if self.firm_id not in household.last_dividend_firm_ids:
+                household.last_dividend_firm_ids.append(self.firm_id)
+            paid += bonus_per_worker
+
+        self.cash_balance -= paid
+        self.pending_healthcare_worker_bonus = 0.0
+        self.decision_diagnostics["healthcare_worker_bonus_paid"] = paid
+        return paid
+
 
 @dataclass(slots=True)
 class BankAgent:
@@ -3972,9 +4606,10 @@ class BankAgent:
     total_loans_outstanding: float = 0.0
 
     # Rate policy
-    base_interest_rate: float = 0.03       # 3% annual
-    deposit_rate: float = 0.01             # 1% annual on deposits
-    reserve_ratio: float = 0.10            # Fraction of deposits held as reserves
+    base_interest_rate: float = 0.03                    # 3% annual
+    savings_rate_share_of_lending_rate: float = 0.063   # depositors earn 6.3% of lending rate
+    deposit_rate: float = 0.00189                        # = base_interest_rate * savings_rate_share
+    reserve_ratio: float = 0.10                          # Fraction of deposits held as reserves
 
     # Loss tracking
     loan_loss_provision: float = 0.0       # Accumulated write-offs from defaults
@@ -3985,6 +4620,11 @@ class BankAgent:
     last_tick_new_loans: float = 0.0
     last_tick_defaults: float = 0.0
     last_tick_repayments: float = 0.0
+
+    # Minimum per-tick profit margin retained out of loan interest income before
+    # any deposit interest is paid. Bank funds depositor interest only from
+    # earned lending income above this margin (no money created from nowhere).
+    min_profit_margin_per_tick: float = 10.0
 
     # Credit scores: agent_id -> float [0.0, 1.0]
     firm_credit_scores: Dict[int, float] = field(default_factory=dict)
@@ -4010,6 +4650,11 @@ class BankAgent:
     def can_lend(self) -> bool:
         """Return True if the bank has reserves above the circuit-breaker floor."""
         return self.cash_reserves > self.required_reserves
+
+    @property
+    def current_annual_rate(self) -> float:
+        """Current lending rate (annual) used for new housing mortgages."""
+        return self.base_interest_rate
 
     # ── credit scoring ───────────────────────────────────────────────
 
@@ -4169,40 +4814,35 @@ class BankAgent:
         weekly_rate = self.deposit_rate / 52.0
         interest = deposit_amount * weekly_rate
         self.cash_reserves -= interest
-        self.total_deposits += interest
         self.last_tick_deposit_interest_paid += interest
         return interest
 
     def update_deposit_rate(self) -> None:
-        """Fix 22: Adjust deposit rate based on reserve ratio.
+        """Set deposit rate as a floating spread off the lending rate.
 
-        High reserves → lower rate (don't need more deposits).
-        Low reserves → higher rate (need to attract deposits).
-        Also caps the rate so it never exceeds what lending income can support.
+        deposit_rate = base_interest_rate * savings_rate_share_of_lending_rate,
+        with two adjustments:
+          - Spread cap: deposit_rate <= base_interest_rate * savings_rate_share * 1.25
+          - Thin loan book: if loan_to_deposit < 0.05, multiply by 0.25
+          - Safety valve: rate can't exceed what lending income can sustain
         """
-        if self.total_deposits <= 0:
-            self.deposit_rate = 0.02  # Attractive bootstrap rate
-            return
+        new_rate = self.base_interest_rate * self.savings_rate_share_of_lending_rate
 
-        actual_ratio = self.cash_reserves / self.total_deposits
-        target = self.reserve_ratio  # 0.10
+        # Spread cap: deposit rate never exceeds 1.25× the nominal share of lending rate
+        new_rate = min(new_rate, self.base_interest_rate * self.savings_rate_share_of_lending_rate * 1.25)
 
-        if actual_ratio > 0.20:
-            # Excess reserves — nudge rate down; floor at 0.5%
-            excess = (actual_ratio - 0.20) / 0.20
-            self.deposit_rate = max(0.005, 0.01 - 0.005 * min(excess, 1.0))
-        elif actual_ratio < target:
-            # Below required reserves — raise rate to attract deposits; cap at 3%
-            shortage = (target - actual_ratio) / max(target, 1e-6)
-            self.deposit_rate = min(0.03, 0.01 + 0.02 * min(shortage, 1.0))
-        else:
-            # Comfort zone (10–20%)
-            self.deposit_rate = 0.01
+        # Thin loan book adjustment
+        if self.total_deposits > 0:
+            loan_to_deposit = self.total_loans_outstanding / self.total_deposits
+            if loan_to_deposit < 0.05:
+                new_rate *= 0.25
 
         # Safety valve: deposit rate can't exceed what lending income can sustain
         if self.last_tick_interest_income > 0 and self.total_deposits > 0:
             max_sustainable = (self.last_tick_interest_income * 52.0) / self.total_deposits
-            self.deposit_rate = min(self.deposit_rate, max_sustainable)
+            new_rate = min(new_rate, max_sustainable)
+
+        self.deposit_rate = new_rate
 
     # ── tick reset ───────────────────────────────────────────────────
 
@@ -5075,4 +5715,3 @@ class GovernmentAgent(AgentMixin):
             investments["bonds"] = bond_spend
 
         return investments
-

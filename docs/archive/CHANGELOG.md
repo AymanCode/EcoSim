@@ -4,6 +4,93 @@ This document tracks all implementation changes, improvements, and features adde
 
 ---
 
+## [2026-05-03] Household Liquidity, Healthcare Deadlock Fix, Services Pricing, Bank Interest Reform
+
+### Overview
+Six interconnected patches targeting money-flow realism, healthcare queue stability, services pricing dynamics, and bank deposit interest accounting.
+
+### Changes
+
+- **`backend/config.py`**:
+  - Added `household_deposit_access_rate: float = 0.90` to `HouseholdBehaviorConfig`.
+
+- **`backend/agents.py` — household liquidity**:
+  - `plan_consumption()` uses `accessible_liquidity = max(0, cash) + 0.90 * max(0, bank_deposit)` as budget cap. Emergency drawdown and regular consumption budget now include 90% of deposits.
+  - `BankAgent` gains `min_profit_margin_per_tick: float = 10.0` field.
+
+- **`backend/agents.py` — healthcare pricing and labor**:
+  - `_healthcare_labor_price_targets()`: enforces global minimum wage floor via `effective_wage = max(wage_offer, minimum_wage_floor)`; computes target as `(wage_bill / capacity) * 1.15` — flat 15% margin, no compounding.
+  - `plan_pricing()` healthcare branch: adds surge pricing when queue length exceeds 3× capacity — `surge_multiplier = min(2.5, 1.5 + 0.25 * (overload_ratio - 3.0))` applied to base price. Prevents infinite cheap-price backlog.
+
+- **`backend/agents.py` — services pricing**:
+  - `plan_pricing()` services branch: replaced rigid markup step with demand-interpolated marginal cost pricing. Computes `variable_cost_per_unit` and `total_cost_per_unit`, interpolates target between them based on utilization, smooths via EMA (`0.8 * current + 0.2 * target`). Reduces oscillation when demand falls.
+
+- **`backend/economy.py` — pre-purchase deposit withdrawal**:
+  - `_withdraw_deposits_for_planned_consumption()`: new helper called before goods/healthcare market clearing. Withdraws `min(needed, 0.9 * bank_deposit)` from bank reserves to household cash, routed through `bank.withdraw()` for money conservation.
+  - `_batch_plan_consumption()`: adds `"budget"` key to every plan dict; computes `deposit_liquidity = 0.90 * bank_deposits` as numpy array.
+
+- **`backend/economy.py` — healthcare queue deadlock fix**:
+  - `_process_healthcare_services()`: deposits used first (before loan fallback) via `bank.withdraw()`. On loan failure, drops household from queue entirely (`queued_healthcare_firm_id = None`, `healthcare_queue_enter_tick = -1`) instead of re-appending. Eliminates infinite re-queuing of households who can never pay.
+
+- **`backend/economy.py` — housing liquidity**:
+  - `_clear_housing_rental_market()`: `accessible_liquidity = cash + 0.9 * deposit` used for affordability ceiling (`cash_ceiling = accessible_liquidity * 0.25`) and eviction trigger. New `_ensure_cash_for_payment()` helper tops up cash from deposits before rent deduction.
+
+- **`backend/economy.py` — bank interest reform**:
+  - `_process_bank_deposits()`: replaced per-household `pay_deposit_interest()` with budget-pooled payout. `budget = max(0, last_tick_interest_income - min_profit_margin_per_tick)` capped by reserves. `payout_factor = budget / total_intended` scales interest when lending income is insufficient. Deposit interest now economically sourced from loan revenue, not created from nothing.
+
+- **`backend/tests_contracts/test_contracts_deposits.py`** (new file):
+  - Contract tests for `_withdraw_deposits_for_planned_consumption`: no-withdrawal when cash covers budget, shortfall moved to cash, cap at 90% deposits, money conservation, bank-reserve cap, accumulation tracking, no-bank early return, and `plan_consumption` accessible liquidity coverage.
+
+### Why
+- Households had zero purchasing power once cash ran out even with large deposit balances — deposits sat idle. Extending accessible liquidity to 90% of deposits makes savings functional.
+- Healthcare queue grew unboundedly when unaffordable households stayed in queue forever. Dropping them unblocks the queue and surge pricing discourages overload.
+- Services prices oscillated badly when demand fell — rigid markup drove prices away from marginal cost. Demand-interpolated EMA pricing stabilizes around true cost.
+- Bank deposit interest was money-created ex nihilo (direct cash injection). Tying payouts to actual loan income minus a profit margin makes the bank economically coherent.
+- Housing evictions triggered prematurely for households that had deposit wealth but low cash. Accessible liquidity now prevents false evictions.
+
+---
+
+## [2026-04-30] Audit-Driven Stabilization: Wages, Healthcare, Production, Pricing
+
+### Overview
+Applied a set of audit-driven simulation fixes after repeated 52-tick audit runs exposed wage ratchets, weak healthcare traction, inventory overproduction, and price spikes from fixed-cost allocation.
+
+### Changes
+- **`backend/agents.py` - wage planning**:
+  - Removed weekly wage escalation tied only to low unemployment.
+  - Stopped raising wages just because a firm failed to hire.
+  - Kept healthcare base wages pinned to the minimum wage and moved excess healthcare margin into worker bonus/dividend-style payouts.
+  - Added wage diagnostics for posted wage movement and renegotiation paths.
+- **`backend/agents.py` - healthcare wellbeing and pricing**:
+  - Changed health dynamics so food can only offset part of health decay; households still need doctor visits for full health maintenance.
+  - Set healthcare visit prices from doctor labor cost plus the target margin.
+  - Added healthcare margin diagnostics and bonus payout tracking.
+- **`backend/agents.py` - production governor**:
+  - Added an inventory-deficit production governor for non-housing/non-healthcare firms.
+  - Production now targets `expected_sales_units * target_inventory_multiplier` and stops when inventory is already above target.
+  - Recomputed production after final staffing decisions so inventory labor cuts actually reduce max possible production.
+  - Added `production_governor_*` diagnostics.
+- **`backend/agents.py` - pricing cost floor**:
+  - Changed fixed capital depreciation allocation to use stable throughput instead of tiny one-tick production.
+  - Prevented near-zero-throughput firms from raising prices purely because fixed depreciation was divided by almost no output.
+  - Added `pricing_depreciation_denominator`, `pricing_cost_floor`, and `pricing_cost_floor_applied` diagnostics.
+- **`backend/economy.py` / audit output**:
+  - Extended audit visibility around household purchases, healthcare demand/throughput, firm decisions, production, pricing, and money flow.
+  - Re-ran the standard audit config multiple times: 100 households, 2 firms/category, 52 ticks, seed 42, shocks on.
+- **Tests**:
+  - Added focused contract coverage for production governor behavior, housing/healthcare exclusions, healthcare price/bonus logic, and the pricing depreciation floor.
+
+### Why
+The audit showed several connected problems:
+- Wages were climbing too quickly week-to-week, then freezing at unrealistic levels.
+- Healthcare demand existed but health maintenance was too easy through food alone, so doctor visits did not matter enough.
+- Firms continued producing from capacity even when inventory was already above the desired buffer.
+- The production governor exposed a second issue: when production became intentionally tiny, pricing divided fixed depreciation by tiny output and produced extreme price spikes.
+
+These changes make the simulation more stock-aware and less prone to artificial wage and price explosions while preserving the existing banking, government, housing, and hiring systems.
+
+---
+
 ## [2026-04-15] Hiring — Personality Hard Cap, Remove Boom-Bust 25% Override
 
 ### Overview

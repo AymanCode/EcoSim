@@ -178,6 +178,7 @@ class HouseholdBehaviorConfig:
     food_health_high_boost: float = 0.03
     food_health_mid_boost: float = 0.01
     food_starvation_penalty: float = 0.03
+    food_health_decay_offset_share: float = 0.40
     service_happiness_base_boost_range: Tuple[float, float] = (0.006, 0.014)
     healthcare_preference_range: Tuple[float, float] = (0.8, 1.2)
     # Healthcare is modeled as a non-storable service (visits), not an inventory good.
@@ -296,6 +297,9 @@ class HouseholdBehaviorConfig:
     price_alpha_up: float = 0.4  # Fast adjustment to price increases (loss aversion)
     price_alpha_down: float = 0.1  # Slow adjustment to price decreases
 
+    # Deposit liquidity: fraction of bank_deposit treated as accessible for consumption planning
+    household_deposit_access_rate: float = 0.90
+
     # Safety Checks
     extreme_negative_cash_threshold: float = -1e6
 
@@ -309,6 +313,7 @@ class FirmBehaviorConfig:
     default_production_capacity: float = 200.0
     default_productivity_per_worker: float = 10.0
     default_units_per_worker: float = 20.0
+    services_units_per_worker_range: Tuple[float, float] = (1.0, 7.0)
 
     # Diminishing Returns / Productivity
     production_scaling_exponent: float = 0.9  # Legacy exponent (deprecated)
@@ -420,6 +425,7 @@ class FirmBehaviorConfig:
     healthcare_price_increase_rate: float = 0.06
     healthcare_price_decrease_rate: float = 0.03
     healthcare_price_ceiling_multiplier: float = 6.0
+    healthcare_target_profit_margin: float = 0.15
     healthcare_staff_population_ratio: float = 0.02   # 2% of households are doctors (economy-wide)
     healthcare_training_enrollment_interval_ticks: int = 52
     healthcare_training_enrollment_interval_after_cap_ticks: int = 104
@@ -475,6 +481,18 @@ class FirmBehaviorConfig:
     moderate_max_hires_range: Tuple[int, int] = (2, 2)
     moderate_max_fires_range: Tuple[int, int] = (2, 2)
     moderate_units_per_worker_range: Tuple[float, float] = (19.0, 22.0)
+
+    # Housing mortgage underwriting (DSCR/LTV amortizing loan system)
+    housing_loan_term_ticks: int = 1040        # 20 years × 52 ticks/year
+    housing_min_dscr: float = 1.20             # Minimum debt-service coverage ratio
+    housing_max_ltv: float = 0.80              # Maximum loan-to-value ratio
+    housing_vacancy_buffer: float = 0.95       # Revenue projection conservatism factor
+    housing_max_build_per_tick: int = 2        # Max units built per tick via loan
+    housing_unit_market_value: float = 20_000.0  # Collateral value per rental unit
+
+    # Phillips Curve wage algorithm
+    nairu_threshold: float = 0.05       # Unemployment rate below which labor is scarce
+    unemployment_ma_window: int = 4     # Ticks in short-term unemployment moving average
 
 
 @dataclass
