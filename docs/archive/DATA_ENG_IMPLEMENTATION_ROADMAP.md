@@ -1,3 +1,9 @@
+> **⚠️ STALE DOCUMENT - ARCHIVED**
+>
+> This document is archived and may contain outdated information.
+> For up-to-date documentation, please check the current documentation in `docs/`.
+>
+
 # EcoSim Data Engineering - Implementation Roadmap
 **Priority: Phases 1-3 (Core Infrastructure)**
 

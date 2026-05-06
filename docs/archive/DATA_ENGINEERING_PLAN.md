@@ -1,3 +1,9 @@
+> **⚠️ STALE DOCUMENT - ARCHIVED**
+>
+> This document is archived and may contain outdated information.
+> For up-to-date documentation, please check the current documentation in `docs/`.
+>
+
 # EcoSim - Data Engineering Implementation Plan
 
 ## Executive Summary

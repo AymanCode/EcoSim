@@ -4,9 +4,81 @@ What the React dashboard displays, how to use it, and how it communicates with t
 
 ---
 
+## Neural Visualization Components
+
+The frontend uses three WebGL-canvas-based neural visualization components that render animated 3D wireframe structures representing different agent types. All components use `React`, `useEffect`, and `useRef` to manage canvas rendering with `requestAnimationFrame` for smooth animation.
+
+### NeuralAvatar (`NeuralAvatar.jsx`)
+
+Renders a holographic humanoid figure representing a household agent.
+
+**Props:**
+- `active` (bool, default `true`) — Whether the animation is active
+- `mood` (string, default `'neutral'`) — Mood state: `'happy'` or `'neutral'`, affects color palette
+- `variant` (string, default `'human'`) — Reserved for future variant support
+
+**Structure:**
+- Head: 25 points in spherical distribution
+- Body: 45 points in cylindrical distribution
+- Arms: 2 × ~11 points along Y-axis with X/Z offset
+- Legs: 2 × ~10 points along Y-axis with X/Z offset
+
+**Visual:**
+- Teal/cyan color palette (`#0d9488`, `#2dd4bf`)
+- Connection lines between nearby points (radius: 16 units)
+- Rotation speed: 0.008 radians/frame
+- Mood affects node glow intensity
+
+---
+
+### NeuralBuilding (`NeuralBuilding.jsx`)
+
+Renders a holographic multi-tier building representing a firm agent.
+
+**Props:**
+- `active` (bool, default `true`) — Whether the animation is active
+- `activityLevel` (string, default `'normal'`) — Activity level: `'normal'`, `'low'`, or `'high'`
+- `tier` (int, default `3`) — Building tier (1–3), affects height and complexity
+
+**Structure (based on tier):**
+- Tier 1: Single block, 55 units height
+- Tier 2: Two blocks, 90 units height with mid-section
+- Tier 3: Three blocks, 150 units height with spire
+
+**Visual:**
+- Emerald/green color palette for windows and structure
+- Window points on outer surfaces
+- Core energy line through center
+- Activity level affects animation speed and glow intensity
+
+---
+
+### NeuralGovernment (`NeuralGovernment.jsx`)
+
+Renders a holographic obelisk/monument representing the government agent.
+
+**Props:**
+- `active` (bool, default `true`) — Whether the animation is active
+- `activityLevel` (string, default `'normal'`) — Activity level: `'normal'` or `'high'` (high when government is in deficit)
+
+**Structure:**
+- Base: Stepped platform with wide foundation
+- Pillar: Tapering obelisk from base to apex (240 units total height)
+- Apex: "Eye" point at the top
+- Core: Energy line running through center
+
+**Visual:**
+- Indigo/violet color palette (`rgb(139, 92, 246)`)
+- Gold/white accents for apex and core
+- Core pulses based on activity level
+- Monument represents stability and authority
+
+---
+
+
 ## Overview
 
-The frontend is a React + Vite application styled with Tailwind CSS and the "Oberon Command" dark tech theme. It connects to the backend via WebSocket and displays real-time simulation data across 5 views.
+The frontend is a React + Vite application styled with Tailwind CSS and the "Oberon Command" dark tech theme. It connects to the backend via WebSocket and displays real-time simulation data across 6 views.
 
 ### Running
 
@@ -26,7 +98,7 @@ Open `http://localhost:5173` in your browser.
 
 ## Navigation
 
-The sidebar has 5 views:
+The sidebar has 6 views:
 
 | View | Icon | Description | Available |
 |------|------|-------------|-----------|
@@ -34,9 +106,10 @@ The sidebar has 5 views:
 | **Dashboard** | Activity | Main economic metrics and charts | After init |
 | **Subjects** | Users | Individual household inspection | After init |
 | **Firms** | Building | Firm analytics and tracked firm detail | After init |
+| **Gov** | Landmark | Government policy and fiscal overview | After init |
 | **Logs** | Terminal | Simulation event log | After init |
 
-The Dashboard, Subjects, Firms, and Logs views are locked until the simulation is initialized.
+The Dashboard, Subjects, Firms, Government, and Logs views are locked until the simulation is initialized.
 
 ---
 
@@ -44,16 +117,16 @@ The Dashboard, Subjects, Firms, and Logs views are locked until the simulation i
 
 **Before initialization** — Set simulation scale and policy:
 
-- **Population Scale**: 100–3,000 households (slider)
-- **Market Density**: 1–50 firms per category (slider)
+- **Population Scale**: 100–10,000 households (slider) — backend supports up to 100,000
 - **Wage Tax Rate**: 0–50% (slider)
 - **Corp Profit Tax**: 0–60% (slider)
 - **INITIALIZE PROTOCOL** button — sends SETUP command and auto-starts simulation
 
 **After initialization** — Adjust runtime policy:
 
-- **Wage Tax Rate** — live adjustment
-- **Corp Profit Tax** — live adjustment
+- **Wage Tax Rate** — live adjustment (0–50%)
+- **Corp Profit Tax** — live adjustment (0–60%)
+- **Wealth Tax Rate** — live adjustment (0–10%)
 - **Minimum Wage Floor** — $0–$100 (live)
 - **Unemployment Benefits** — 0–100% of avg wage (live)
 
@@ -67,7 +140,7 @@ Config changes are debounced (400ms) before sending to backend.
 
 ## Dashboard View
 
-The main economic monitoring view with stat tiles and 9 charts.
+The main economic monitoring view with 11 stat tiles and 9 charts.
 
 ### Top Stat Tiles (8 tiles)
 
@@ -82,7 +155,7 @@ The main economic monitoring view with stat tiles and 9 charts.
 | Avg Wage | Mean wage across employed | Dollar |
 | Happiness | Mean happiness score | 0-100 scale |
 
-### Wealth Inequality Row (3 tiles)
+### Wealth Inequality Row (3 tiles below charts)
 
 | Tile | Description |
 |------|-------------|
@@ -90,25 +163,32 @@ The main economic monitoring view with stat tiles and 9 charts.
 | Top 10% Wealth Share | Percentage of total wealth held by top 10% |
 | Bottom 50% Share | Percentage of total wealth held by bottom 50% |
 
+### System Distress Gauge
+
+- Visual gauge showing unemployment vs happiness levels
+- Appears between top tiles and charts
+
 ### Charts (9 panels in the Economic Monitor)
 
-| # | Chart | Data | Colors |
-|---|-------|------|--------|
-| 1 | GDP Growth | GDP history over time | Sky blue |
-| 2 | Wage Trends | Mean wage + Median wage (dual line) | Emerald + Amber |
-| 3 | Unemployment Rate | Unemployment % over time | Red |
-| 4 | Total Net Worth | Combined net worth over time | Purple |
-| 5 | Health Index | Mean health score (0-100) | Pink |
-| 6 | Market Prices | Food/Housing/Services/Healthcare prices (4 lines) | Amber/Emerald/Cyan/Rose |
-| 7 | Total Supply | Food/Housing/Services/Healthcare inventory (4 lines) | Amber/Emerald/Cyan/Rose |
-| 8 | Fiscal Balance | Government profit over time | Violet |
-| 9 | Wealth Distribution | Bar chart: Bottom 50% / Mid 40% / Top 10% shares | Gray/Blue/Red |
+| # | Chart | Type | Data | Colors |
+|---|-------|------|------|--------|
+| 1 | GDP Growth | Line | GDP history over time | Sky blue |
+| 2 | Wage Trends | Line (dual) | Mean wage + Median wage | Emerald + Amber |
+| 3 | Unemployment Rate | Line | Unemployment % over time | Red |
+| 4 | Total Net Worth | Line | Combined net worth over time | Purple |
+| 5 | Health Index | Line | Mean health score (0-100) | Pink |
+| 6 | Market Prices | Line (4 lines) | Food/Housing/Services/Healthcare prices | Amber/Emerald/Cyan/Rose |
+| 7 | Total Supply | Line (4 lines) | Food/Housing/Services/Healthcare inventory | Amber/Emerald/Cyan/Rose |
+| 8 | Fiscal Balance | Line | Government profit over time | Violet |
+| 9 | Wealth Distribution | Bar | Bottom 50% / Mid 40% / Top 10% shares | Gray/Blue/Red |
 
-All charts use Recharts `AreaChart` with gradient fills and auto-scaling Y-axis.
+Charts use Recharts `LineChart` (1-8) and `BarChart` (9) with gradient fills and auto-scaling Y-axis.
 
 ### System Advisory Footer
 
-Shows total firm count and market mood status.
+- Displays system warning message ("Monitor inflation risk. Supply chain nominal.")
+- Shows total firm count
+- Appears at bottom of Dashboard view
 
 ---
 
@@ -117,13 +197,17 @@ Shows total firm count and market mood status.
 Inspect individual tracked households with a detailed profile.
 
 ### Subject Tabs (top)
-- Up to 12 tracked households shown as selectable tabs
-- Each tab shows: ID, name, state (WORKING/SLEEPING/STRESSED), and a status dot
+- All tracked households shown as selectable tabs
+- Each tab shows: ID, name, state (WORKING → "ACTIVE", MED_SCHOOL → "TRAINING", UNEMPLOYED), and a status dot
+- Status dot colors: WORKING (green), MED_SCHOOL (violet), UNEMPLOYED (red)
 
 ### Left Column — Bio & Employment
-- **Bio-Metric**: Age, health percentage, current status
-- **Employment**: Employer name, current wage, shift status (active/off)
+- **Bio-Metric**: Age, health percentage, current status, medical status
+- **Employment**: Employer name, current wage, shift status (ACTIVE/OFF)
+- **Expected Wage**: Shows expected wage with reasoning (mode, reservation wage, gap to current)
+- **Unemployment Info**: Duration and pressure factors (duration, cash, health, decay)
 - **Skills & Morale**: Competency level bar (0-100%), morale index bar (0-100%)
+- **Traits**: Spending tendency, frugality, saving tendency, price sensitivity, quality lavishness, skill growth rate, health decay, healthcare seek rate, min food/services per tick
 
 ### Center Column — Neural Avatar
 - Animated holographic avatar visualization (`NeuralAvatar` component)
@@ -135,7 +219,8 @@ Inspect individual tracked households with a detailed profile.
 - **Finances**: Liquid cash, net worth, medical debt (if any)
 - **Wealth chart**: Cash balance over time (line chart)
 - **Wage chart**: Wage over time (line chart)
-- **Inventory**: Current food, housing status (yes/no), healthcare units
+- **Needs**: Food units, housing status (yes/no), healthcare units
+- **Traits Summary**: Compact view of household behavioral traits
 
 ---
 
@@ -144,17 +229,19 @@ Inspect individual tracked households with a detailed profile.
 Market analytics and individual firm inspection.
 
 ### Top Stat Tiles (4 tiles)
-- Total Firms, Total Employees, Avg Wage Offer, Struggling Firms
+- Total Firms, Total Employees, Avg Wage Offer, Struggling Firms (with distress gauge)
 
 ### Market Mood Panel
-- Shows VOLATILE or STABLE based on struggling firm ratio
+- Shows VOLATILE or STABLE based on struggling firm ratio (>15% struggling = VOLATILE)
 - Average price and quality displayed
+- Market sentiment text (e.g., "Calm winds")
 - Animated `NeuralBuilding` holographic visualization
 - Activity level varies by market stress
 
 ### Sector Breakdown
 - Grid showing each category (Food, Housing, Services, Healthcare)
 - Per category: firm count, total employees, avg cash, avg price
+- Healthcare category also shows: doctor employees, visit revenue
 
 ### Firm Tables
 - **Top Cash Positions**: 8 firms sorted by cash balance
@@ -165,8 +252,42 @@ Market analytics and individual firm inspection.
 - Select from up to 7 tracked firms
 - Detail card: Name, category, state (DISTRESS/SCALING/OPERATING)
 - Metrics: Cash, inventory, employees, quality, price, wage offer, revenue, profit
-- **Cash History** chart: Cash balance over time
-- **Profit History** chart: Profit over time
+- **Cash History** chart: Cash balance over time (line chart)
+- **Profit History** chart: Profit over time (line chart)
+
+---
+
+## Government View
+
+Government policy controls and fiscal monitoring with neural monument visualization.
+
+### Left Column — Policy Overrides & State Capacity
+
+**Policy Overrides:**
+- **Income Tax (Wage)** — live adjustment (0–50%)
+- **Corporate Tax** — live adjustment (0–60%)
+- **Wealth Tax** — live adjustment (0–10%)
+- **Unemployment Benefits** — 0–100% of avg wage (live)
+- **Minimum Wage** — $0–$100 (live)
+
+**State Capacity:**
+- **Gov Owned Firms** count
+- **Active Loans** amount
+- **Bond Purchases** amount
+
+### Center Column — Neural Government
+
+- Animated holographic obelisk/monument visualization (`NeuralGovernment` component)
+- Activity level varies based on government fiscal status (normal when profitable, high when in deficit)
+- Header overlay: "GOVERNMENT CORE" with AI Advisor status indicator
+- Monument structure with base steps, tapering pillar, and apex "eye"
+- Core energy line runs through the center of the monument
+
+### Right Column — Fiscal Monitoring
+
+- **Gov Cash**, **Gov Debt**, **Gov Profit** stat tiles
+- **National Debt History** chart (line chart)
+- AI Advisor status indicator (always online)
 
 ---
 

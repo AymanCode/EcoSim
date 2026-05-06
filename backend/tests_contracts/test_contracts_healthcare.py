@@ -214,6 +214,60 @@ def test_contract_affordability_defers_visit_without_subsidy(fixed_seed):
     assert patient.pending_visit_heal_delta > 0.0
 
 
+def test_contract_healthcare_price_targets_doctor_labor_cost_plus_margin(fixed_seed):
+    firm = _new_healthcare_firm(price=9.0)
+    firm.healthcare_capacity_per_worker = 2.0
+    firm.employees = [1, 2]
+    firm.actual_wages = {1: 80.0, 2: 100.0}
+    firm.unit_cost = 45.0
+    firm.min_price = 1.0
+
+    price_plan = firm.plan_pricing(sell_through_rate=0.0, unemployment_rate=0.5)
+
+    break_even = (80.0 + 100.0) / 4.0
+    expected_price = break_even * (1.0 + CONFIG.firms.healthcare_target_profit_margin)
+    assert price_plan["price_next"] == pytest.approx(expected_price)
+    assert price_plan["pricing_reason"] == "healthcare_labor_margin_target"
+    assert firm.decision_diagnostics["healthcare_break_even_price"] == pytest.approx(break_even)
+    assert firm.decision_diagnostics["healthcare_target_margin"] == pytest.approx(0.15)
+
+
+def test_contract_healthcare_excess_margin_is_shifted_to_doctor_bonus(fixed_seed):
+    firm = _new_healthcare_firm(price=100.0)
+    firm.employees = [1, 2]
+    firm.actual_wages = {1: 20.0, 2: 20.0}
+    firm.wage_offer = 20.0
+    firm.last_tick_total_costs = 40.0
+    firm.net_profit = 60.0
+    firm.cash_balance = 1_000.0
+
+    firm.adjust_wages_to_revenue_ratio(revenue=100.0)
+
+    expected_bonus_pool = 60.0 - (100.0 * CONFIG.firms.healthcare_target_profit_margin)
+    assert sum(firm.actual_wages.values()) == pytest.approx(CONFIG.firms.minimum_wage_floor * 2)
+    assert firm.wage_offer == pytest.approx(CONFIG.firms.minimum_wage_floor)
+    assert firm.pending_healthcare_worker_bonus == pytest.approx(expected_bonus_pool)
+    assert firm.decision_diagnostics["healthcare_base_wage_reset_to_minimum"] is True
+
+
+def test_contract_healthcare_worker_bonus_pays_doctors_as_dividend_income(fixed_seed):
+    doctor_a = _new_household(household_id=1)
+    doctor_b = _new_household(household_id=2)
+    firm = _new_healthcare_firm(price=100.0)
+    firm.employees = [1, 2]
+    firm.pending_healthcare_worker_bonus = 50.0
+    firm.cash_balance = 1_000.0
+
+    paid = firm.distribute_healthcare_worker_bonus({1: doctor_a, 2: doctor_b})
+
+    assert paid == pytest.approx(50.0)
+    assert firm.cash_balance == pytest.approx(950.0)
+    assert doctor_a.cash_balance == pytest.approx(2_025.0)
+    assert doctor_b.cash_balance == pytest.approx(2_025.0)
+    assert doctor_a.last_dividend_income == pytest.approx(25.0)
+    assert doctor_b.last_dividend_income == pytest.approx(25.0)
+
+
 def test_contract_doctors_stay_healthy_each_tick(tiny_economy_factory):
     """Healthcare contract: doctor health lock keeps doctors healthy every tick."""
     economy = tiny_economy_factory(

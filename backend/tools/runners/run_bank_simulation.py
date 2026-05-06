@@ -1,4 +1,4 @@
-﻿from pathlib import Path
+from pathlib import Path
 import sys
 
 TOOLS_ROOT = Path(__file__).resolve().parents[1]
@@ -64,19 +64,23 @@ def create_economy(num_households: int = 200, enable_bank: bool = True) -> Econo
     # Baseline firms (1 per category)
     for category in categories:
         firm_rng = random.Random(seed + next_firm_id * 10007)
-        max_units = 30 if category == "Housing" else 0
+        max_units = num_households if category == "Housing" else 0
+        is_services = category == "Services"
+        baseline_inventory = 0.0 if category in {"Housing", "Healthcare", "Services"} else 5_000.0
+        baseline_capacity = 5.0 if is_services else 20_000.0
+        baseline_units_per_worker = CONFIG.firms.services_units_per_worker_range[1] if is_services else 80.0
         firm = FirmAgent(
             firm_id=next_firm_id,
             good_name=f"Baseline{category}",
             cash_balance=500_000.0,
-            inventory_units=0.0 if category in {"Housing", "Healthcare"} else 5_000.0,
+            inventory_units=baseline_inventory,
             good_category=category,
             quality_level=3.0 + firm_rng.uniform(-0.05, 0.05),
             wage_offer=CONFIG.firms.minimum_wage_floor * 1.5,
             price=baseline_prices.get(category, 8.0),
             expected_sales_units=num_households * 0.1,
-            production_capacity_units=20_000.0,
-            units_per_worker=80.0,
+            production_capacity_units=baseline_capacity,
+            units_per_worker=baseline_units_per_worker,
             productivity_per_worker=12.0 + firm_rng.uniform(-0.2, 0.2),
             personality="conservative",
             is_baseline=True,
@@ -97,18 +101,22 @@ def create_economy(num_households: int = 200, enable_bank: bool = True) -> Econo
         for i in range(2):
             firm_rng = random.Random(seed + next_firm_id * 10007)
             personality = personalities[(i + idx) % 3]
+            is_services = category == "Services"
+            private_inventory = 0.0 if category in {"Housing", "Services"} else 300.0
+            private_capacity = 5.0 if is_services else 10_000.0
+            private_units_per_worker = CONFIG.firms.services_units_per_worker_range[1] if is_services else 40.0
             firm = FirmAgent(
                 firm_id=next_firm_id,
                 good_name=f"{category}Co{i+1}",
                 cash_balance=200_000.0,
-                inventory_units=0.0 if category == "Housing" else 300.0,
+                inventory_units=private_inventory,
                 good_category=category,
                 quality_level=5.0 + firm_rng.uniform(-0.5, 0.5),
                 wage_offer=35.0 + i * 5.0 + firm_rng.uniform(-1.0, 1.0),
                 price=baseline_prices.get(category, 8.0) * (0.95 + i * 0.1),
                 expected_sales_units=num_households * 0.03,
-                production_capacity_units=10_000.0,
-                units_per_worker=40.0,
+                production_capacity_units=private_capacity,
+                units_per_worker=private_units_per_worker,
                 productivity_per_worker=14.0 + firm_rng.uniform(-0.5, 0.5),
                 personality=personality,
                 is_baseline=False,
@@ -377,4 +385,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

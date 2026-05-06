@@ -20,7 +20,8 @@ from typing import Dict, List, Tuple, Optional
 from config import CONFIG
 import numpy as np
 import math
-from agents import HouseholdAgent, FirmAgent, BankAgent, GovernmentAgent, LoanContract, _get_good_category
+from agents import HouseholdAgent, FirmAgent, BankAgent, GovernmentAgent, LoanContract
+from utils.category_utils import get_good_category, build_good_category_lookup
 
 logger = logging.getLogger(__name__)
 
@@ -31,6 +32,28 @@ class Economy:
 
     Orchestrates all agents through a strict plan/apply cycle with
     deterministic labor and goods market clearing.
+
+    SOLID Violations:
+    - SRP (Single Responsibility Principle) VIOLATION: This class has 5,782 lines
+      and handles simulation orchestration, labor market matching, goods market
+      clearing, housing rental market, healthcare queue processing, banking
+      integration, firm lifecycle management, government policy adjustments,
+      and economic metrics calculation. A single class should have only ONE
+      reason to change, but this has ~15+ reasons to change.
+
+    - OCP (Open/Closed Principle) VIOLATION: Adding new market types,
+      policy levers, or economic shocks requires modifying this class
+      directly rather than extending it through plugins or strategy patterns.
+
+    - DIP (Dependency Inversion Principle) VIOLATION: Directly depends on
+      concrete agent implementations (HouseholdAgent, FirmAgent, BankAgent,
+      GovernmentAgent) rather than abstract interfaces or protocols.
+      Should depend on abstractions like IHousehold, IFirm, etc.
+
+    - ISP (Interface Segregation Principle) N/A: Not directly applicable
+      as Python doesn't have formal interfaces, but the large number of
+      public methods suggests clients may be forced to depend on methods
+      they don't use.
     """
 
     def __init__(
@@ -45,12 +68,21 @@ class Economy:
         Initialize the economy with pre-constructed agents.
 
         Args:
-            households: List of household agents
-            firms: List of firm agents
-            government: Government agent instance
-            queued_firms: Optional pre-queued firms awaiting entry
+            households: List of household agents participating in the economy
+            firms: List of firm agents producing goods and services
+            government: Government agent managing taxes, transfers, and policy
+            queued_firms: Optional pre-queued firms awaiting market entry
             bank: Optional bank agent for credit channel (None = govt-direct lending)
+
+        Note on SOLID Violations:
+            - SRP Violation: This constructor initializes 50+ instance variables
+              spanning simulation state, labor markets, goods markets, housing,
+              healthcare, banking, diagnostics, and configuration. A class should
+              have only ONE reason to change, but this has 15+ reasons.
+            - Consider using composition: extracting LaborMarketState, HousingState,
+              BankingState, DiagnosticState, etc. into separate classes.
         """
+        # SOLID: SRP Violation - Simulation core state
         self.households = households
         self.firms = firms
         self.government = government
@@ -61,11 +93,13 @@ class Economy:
         self._refresh_target_total_firms()
         self.large_market = len(self.households) >= CONFIG.firms.large_market_household_threshold
 
+        # SOLID: SRP Violation - Stabilizer flags should be in a separate config object
         mode_cfg = CONFIG.modes
         self.enable_household_stabilizers = mode_cfg.stabilization_enabled and mode_cfg.household_stabilizers
         self.enable_firm_stabilizers = mode_cfg.stabilization_enabled and mode_cfg.firm_stabilizers
         self.enable_government_stabilizers = mode_cfg.stabilization_enabled and mode_cfg.government_stabilizers
 
+        # SOLID: SRP Violation - Warm-up state should be in a SimulationState class
         # Track simulation progression and warm-up period state
         self.current_tick = 0
         self.warmup_ticks = max(0, int(getattr(CONFIG.time, "warmup_ticks", 52)))
@@ -78,6 +112,7 @@ class Economy:
         self.last_llm_government_decision: Optional[Dict[str, object]] = None
 
         # Performance optimization: Cache lookups for O(1) access
+        # SOLID: DIP Violation - Should use abstract interfaces, not concrete types
         self.household_lookup: Dict[int, HouseholdAgent] = {h.household_id: h for h in households}
         self.firm_lookup: Dict[int, FirmAgent] = {f.firm_id: f for f in firms}
 
@@ -85,6 +120,7 @@ class Economy:
         self.cached_wage_percentiles: Tuple[float, float, float] = (0.0, 0.0, 0.0)  # low, mid, high
         self.wage_percentile_cache_tick: int = -1
 
+        # SOLID: SRP Violation - Metrics tracking should be in a MetricsCollector class
         # Initialize tracking dictionaries with defaults
         self.last_tick_sales_units: Dict[int, float] = {}
         self.last_tick_revenue: Dict[int, float] = {}
@@ -109,16 +145,21 @@ class Economy:
             self.last_tick_sell_through_rate[firm.firm_id] = 0.5  # neutral default
             self.last_tick_prices[firm.good_name] = firm.price
 
+        # SOLID: SRP Violation - Misc firm logic should be in a separate RedistributionSystem
         # Misc firm: redistributes investment/R&D spending to random households
         self.misc_firm_revenue: float = 0.0  # Accumulated investment money
         self.misc_firm_beneficiaries: List[int] = []  # household_ids who receive payouts
         self._initialize_misc_firm_beneficiaries()
         self.post_warmup_stimulus_ticks: int = 0
         self.post_warmup_stimulus_duration: int = 0
+
+        # SOLID: SRP Violation - Healthcare state should be in HealthcareSystem class
         self.healthcare_requests_this_tick: float = 0.0
         self.healthcare_attempted_slots_this_tick: float = 0.0
         self.healthcare_completed_visits_this_tick: float = 0.0
         self.healthcare_affordability_rejects_this_tick: float = 0.0
+
+        # SOLID: SRP Violation - Labor market config should be in LaborMarketConfig
         self.last_tick_pre_purchase_deposit_withdrawals: float = 0.0
         self.last_tick_end_tick_deposit_sweeps: float = 0.0
         self.labor_match_mode = os.getenv("ECOSIM_LABOR_MATCH_MODE", "fast").strip().lower()
@@ -131,6 +172,8 @@ class Economy:
         self.force_unemployed_search = os.getenv("ECOSIM_FORCE_UNEMPLOYED_SEARCH", "1").strip().lower() in {"1", "true", "yes", "on"}
         self.clamp_unemployed_reservation = os.getenv("ECOSIM_CLAMP_UNEMPLOYED_RESERVATION", "1").strip().lower() in {"1", "true", "yes", "on"}
         self.unemployed_reservation_clamp_ticks = max(1, int(os.getenv("ECOSIM_UNEMPLOYED_CLAMP_TICKS", "8")))
+
+        # SOLID: SRP Violation - Diagnostics state should be in DiagnosticsCollector class
         self.last_labor_diagnostics: Dict[str, float] = {}
         self.last_labor_plan_adjustments: Dict[str, float] = {}
         self.last_health_diagnostics: Dict[str, float] = {}
@@ -142,12 +185,17 @@ class Economy:
         self.last_regime_events: List[Dict[str, object]] = []
         self._sector_shortage_state: Dict[str, bool] = {}
         self._labor_compare_mismatch_count = 0
+
+        # SOLID: SRP Violation - Demand tracking should be in MarketDemand class
         self.food_unmet_demand: float = 0.0
         self.services_unmet_demand: float = 0.0
         self.services_unmet_demand_by_firm: Dict[int, float] = {}
+
+        # SOLID: SRP Violation - Unemployment tracking should be in LaborMarketState
         self._unemployment_history: deque = deque(maxlen=CONFIG.firms.unemployment_ma_window)
         self.unemployment_short_ma: float = 0.0
 
+        # SOLID: SRP Violation - Audit state should be in AuditLogger class
         # Audit-mode action log: when enabled, step() stashes all intermediate
         # plans and outcomes so an external audit runner can serialize them.
         self.audit_log_enabled = False
@@ -156,8 +204,18 @@ class Economy:
         self._refresh_household_visibility_context()
         self._propagate_stabilizer_flags()
 
+    # SOLID: SRP Violation - This method handles BOTH ownership syncing AND
+    # misc beneficiary tracking. Should be split into two methods.
     def _refresh_household_visibility_context(self) -> None:
-        """Sync household-side ownership and redistribution context for narration/logging."""
+        """Sync household-side ownership and redistribution context for narration/logging.
+
+        Note:
+            This method has two responsibilities: syncing firm ownership data
+            to households AND setting misc beneficiary flags. Per Single
+            Responsibility Principle, consider splitting into:
+            - _sync_household_ownership()
+            - _sync_misc_beneficiaries()
+        """
         for household in self.households:
             household.owned_firm_ids = []
             household.is_misc_beneficiary = False
@@ -177,12 +235,35 @@ class Economy:
                 household.is_misc_beneficiary = True
 
     def _reset_household_tick_visibility(self) -> None:
-        """Reset per-tick household narration/accounting fields before cash starts moving."""
+        """Reset per-tick household narration/accounting fields before cash starts moving.
+
+        This method is called at the start of each tick (step) to ensure
+        clean state for ledger tracking and diagnostic reporting.
+        Resets fields like last_tick_cash_start, consumption tracking,
+        and other per-tick counters on all households.
+        """
         for household in self.households:
             household.reset_tick_ledger()
 
     def _capture_audit_firm_state(self, firms: Optional[List[FirmAgent]] = None) -> Dict[int, Dict[str, object]]:
-        """Capture a compact pre/post state for firm action auditing."""
+        """Capture a compact pre/post state for firm action auditing.
+
+        Creates a snapshot of key firm metrics for audit logging.
+        Used by the audit system to track state changes across ticks.
+
+        Args:
+            firms: Optional list of firms to snapshot (defaults to self.firms)
+
+        Returns:
+            Dictionary mapping firm_id to a dict of firm state values.
+            Captures: financials (cash, loans), production (inventory,
+            expected sales), employment (count, IDs, planned changes),
+            and performance (revenue, profit, quality, capital).
+
+        Note:
+            Uses getattr with defaults for forward-compatibility.
+            This method is part of the audit system (SRP concern).
+        """
         rows: Dict[int, Dict[str, object]] = {}
         source = firms if firms is not None else self.firms
         for firm in source:
@@ -225,7 +306,22 @@ class Economy:
         return rows
 
     def _capture_audit_household_state(self) -> Dict[int, Dict[str, object]]:
-        """Capture a compact pre/post state for household action auditing."""
+        """Capture a compact pre/post state for household action auditing.
+
+        Creates a snapshot of key household metrics for audit logging.
+        Used by the audit system to track state changes across ticks.
+
+        Returns:
+            Dictionary mapping household_id to a dict of household state values.
+            Captures: employment (status, employer, wage), financials
+            (cash, deposits), expectations (reservation, expected wage),
+            wellbeing (health, happiness, morale), and service state
+            (healthcare queue, housing rental).
+
+        Note:
+            This method is part of the audit system (SRP concern).
+            Uses getattr with defaults for forward-compatibility.
+        """
         rows: Dict[int, Dict[str, object]] = {}
         for household in self.households:
             rows[int(household.household_id)] = {
@@ -256,7 +352,25 @@ class Economy:
         return rows
 
     def _capture_audit_government_state(self) -> Dict[str, object]:
-        """Capture the government lever surface for per-tick action diffs."""
+        """Capture the government lever surface for per-tick action diffs.
+
+        Creates a snapshot of all government policy levers and financial state
+        for audit logging. Used to track policy changes across ticks.
+
+        Returns:
+            Dictionary with government state including:
+            - Financial: cash_balance, fiscal_pressure, spending_efficiency
+            - Tax policy: wage_tax_rate, profit_tax_rate, investment_tax_rate
+            - Spending policy: benefit_level, unemployment_benefit_level
+            - Sector policy: public_works_toggle, sector_subsidy_target/level
+            - Infrastructure: infrastructure_spending, technology_spending
+            - Crisis policy: bailout_policy, bailout_target, bailout_budget
+
+        Note:
+            This method is part of the audit system (SRP concern).
+            Captures the complete "lever surface" that an LLM government
+            or human operator can modify.
+        """
         gov = self.government
         return {
             "cash_balance": float(gov.cash_balance),
@@ -282,12 +396,22 @@ class Economy:
             "spending_efficiency": float(gov.spending_efficiency),
         }
 
+    # SOLID: SRP Violation - This method mixes configuration checking with
+    # tick-based scheduling logic. Should be in LLMGovernance class.
     def should_run_llm_government(self) -> bool:
         """Return whether the external LLM government cycle is due this tick.
 
         The decision itself is executed outside ``step()`` because the server
         loop is already async and provider calls should not be forced through a
         blocking sync wrapper inside the simulation core.
+
+        Returns:
+            True if LLM government is enabled in config and the current tick
+            falls on the configured decision interval.
+
+        Note:
+            This method directly accesses CONFIG.llm, creating tight coupling
+            to the configuration structure (Dependency Inversion Principle violation).
         """
         interval = max(1, int(getattr(CONFIG.llm, "government_decision_interval", 4)))
         return bool(getattr(CONFIG.llm, "enable_llm_government", False)) and self.current_tick > 0 and (
@@ -295,11 +419,32 @@ class Economy:
         )
 
     def record_llm_government_decision(self, decision: Dict[str, object]) -> None:
-        """Store the latest external LLM government decision for observers."""
+        """Store the latest external LLM government decision for observers.
+
+        Args:
+            decision: Dictionary containing the LLM's policy decisions
+                      (e.g., tax rates, spending levels, etc.)
+
+        Note:
+            This is a simple setter. Consider using an Observer pattern
+            or event system for notifying multiple subscribers (SRP).
+        """
         self.last_llm_government_decision = dict(decision)
 
     def append_metrics_snapshot(self, metrics: Dict[str, object], tick: Optional[int] = None) -> None:
-        """Persist a compact in-memory metrics snapshot for lagged observation."""
+        """Persist a compact in-memory metrics snapshot for lagged observation.
+
+        Used by the LLM government to observe economic state with a
+        lag (e.g., looking at metrics from 8 ticks ago).
+
+        Args:
+            metrics: Dictionary of economic indicators to snapshot
+            tick: Optional tick number (defaults to current_tick)
+
+        Note:
+            The metrics_history deque has a maxlen set during __init__.
+            This is a simple circular buffer implementation.
+        """
         self.metrics_history.append(
             {
                 "tick": int(self.current_tick if tick is None else tick),
@@ -307,6 +452,9 @@ class Economy:
             }
         )
 
+    # SOLID: SRP Violation - Event logging should be in a separate EventLogger class.
+    # This method is called from many places, mixing event tracking concern
+    # into the main Economy class.
     def _append_regime_event(
         self,
         event_type: str,
@@ -318,7 +466,28 @@ class Economy:
         metric_value: Optional[float] = None,
         payload: Optional[Dict[str, object]] = None,
     ) -> None:
-        """Append one high-value regime/state transition event for this tick."""
+        """Append one high-value regime/state transition event for this tick.
+
+        Regime events track important state transitions like:
+        - Firm distress enter/exit (burn_mode, survival_mode)
+        - Failed hiring events
+        - Evictions and housing shortages
+        - Firm bankruptcies
+
+        Args:
+            event_type: Type of event (e.g., "firm_distress_enter", "eviction")
+            entity_type: "firm", "household", "sector"
+            entity_id: ID of the entity (firm_id, household_id)
+            sector: Sector name ("Food", "Housing", etc.)
+            reason_code: Why the event occurred (e.g., "burn_mode", "unaffordable")
+            severity: Numeric severity level
+            metric_value: Related metric value
+            payload: Additional event-specific data
+
+        Note:
+            Events are stored in last_regime_events and cleared each tick.
+            This is part of the diagnostics system (SRP concern).
+        """
         self.last_regime_events.append({
             "tick": int(self.current_tick + 1),
             "event_type": str(event_type),
@@ -331,8 +500,16 @@ class Economy:
             "payload": payload or None,
         })
 
+    # SOLID: SRP Violation - Stabilizer management should be in a separate
+    # PolicyManager or StabilizerManager class.
     def _propagate_stabilizer_flags(self) -> None:
-        """Push stabilizer flags down to agents."""
+        """Push stabilizer flags down to agents.
+
+        Note:
+            This method iterates over all households and firms to propagate
+            flags. For large populations, consider batch updates or
+            lazy propagation (SRP - performance concern mixed with policy).
+        """
         self.government.stabilization_disabled = not self.enable_government_stabilizers
         for household in self.households:
             household.stabilization_disabled = not self.enable_household_stabilizers
@@ -347,7 +524,17 @@ class Economy:
         firms: Optional[bool] = None,
         government: Optional[bool] = None
     ) -> None:
-        """Enable or disable stabilizers for each agent type."""
+        """Enable or disable stabilizers for each agent type.
+
+        Args:
+            households: If not None, set household stabilizers on/off
+            firms: If not None, set firm stabilizers on/off
+            government: If not None, set government stabilizers on/off
+
+        Note:
+            This method modifies multiple subsystem states at once.
+            Consider using a Command pattern for undoable changes.
+        """
         if households is not None:
             self.enable_household_stabilizers = households
         if firms is not None:
@@ -362,6 +549,11 @@ class Economy:
 
         Args:
             disabled_agents: Iterable of agent labels ("households", "firms", "government", "all")
+
+        Note:
+            This is a convenience wrapper around configure_stabilizers().
+            The string-based agent selection is flexible but error-prone
+            (could use an enum or literal types for type safety).
         """
         disabled = {agent.lower() for agent in disabled_agents}
         disable_all = "all" in disabled
@@ -374,6 +566,10 @@ class Economy:
             government=government_enabled
         )
 
+    # SOLID: SRP Violation - This method handles BOTH vectorized computation
+    # AND legacy fallback logic. Should be split into:
+    # - _compute_batch_consumption_budgets()
+    # - _execute_legacy_consumption_planning()
     def _batch_plan_consumption(
         self,
         market_prices: Dict[str, float],
@@ -387,12 +583,39 @@ class Economy:
 
         Replaces 10k individual calls to household.plan_consumption() with NumPy operations.
         Returns identical results to individual calls, but 10-20x faster.
+
+        Args:
+            market_prices: Dictionary mapping good_name to current price
+            category_market_snapshot: Per-category list of (firm_id, price, quality)
+            good_category_lookup: Optional mapping of good_name to category
+            unemployment_rate: Current unemployment rate (0.0-1.0)
+            unemployment_benefit: Current unemployment benefit level
+
+        Returns:
+            Dictionary mapping household_id to consumption plan:
+            {
+                household_id: {
+                    "household_id": int,
+                    "category_budgets": {},
+                    "planned_purchases": {good_name: quantity},
+                    "budget": float
+                }
+            }
+
+        Note:
+            This method has 200+ lines mixing vectorized NumPy logic with
+            legacy Python fallback. Per SRP, consider extracting:
+            - Budget calculation (lines ~564-470)
+            - Price cache building (lines ~472-498)
+            - Category fraction precomputation (lines ~500-523)
+            - Legacy planning fallback (lines ~556-615)
         """
         cat_lk = good_category_lookup or {}
         def is_housing_good(good: str) -> bool:
             return cat_lk.get(good, good.lower()) == "housing"
 
         # Extract household attributes as NumPy arrays
+        # SOLID: DIP Violation - Directly accesses household internals
         cash_balances = np.array([h.cash_balance for h in self.households], dtype=np.float64)
         spending_tendencies = np.array([h.spending_tendency for h in self.households], dtype=np.float64)
         frugalities = np.array([max(h.frugality, 0.1) for h in self.households], dtype=np.float64)
@@ -443,8 +666,14 @@ class Economy:
         spend_fraction = np.clip(spend_fraction, 0.0, 1.0)
 
         # H3: Income-anchored consumption
-        # Disposable income = wage if employed, unemployment benefit otherwise
-        disposable_income = np.where(employment_status, wages, unemployment_benefit)
+        # Disposable income = wage (or unemployment benefit) plus dividend income.
+        # Households spend out of every cash inflow they received this/last tick.
+        dividend_incomes = np.array(
+            [max(0.0, float(h.last_dividend_income)) for h in self.households],
+            dtype=np.float64,
+        )
+        wage_or_benefit = np.where(employment_status, wages, unemployment_benefit)
+        disposable_income = wage_or_benefit + dividend_incomes
         base_budget = spend_fraction * disposable_income
 
         # Accessible liquidity: cash + 90% of bank deposits (can be withdrawn pre-purchase)
@@ -619,6 +848,11 @@ class Economy:
         """Return cached consumption plans when performance mode is enabled."""
         return self._cached_consumption_plans
 
+    # SOLID: SRP Violation - This method handles loan repayments, income application,
+    # tax deduction, medical payments, purchase processing, inventory management,
+    # consumption tracking, and wellbeing updates ALL in one method.
+    # Should be split into: _process_loan_repayments(), _apply_household_income(),
+    # _process_medical_payments(), _apply_household_purchases(), etc.
     def _batch_apply_household_updates(
         self,
         transfer_plan: Dict[int, float],
@@ -631,9 +865,29 @@ class Economy:
 
         Combines three separate loops into one for better cache locality.
         Eliminates method call overhead by inlining operations.
+
+        Args:
+            transfer_plan: Dictionary mapping household_id to transfer amount
+            wage_taxes: Dictionary mapping household_id to tax amount
+            per_household_purchases: Dictionary mapping household_id to
+                                {good_name: (quantity, price_paid)}
+            good_category_lookup: Optional mapping of good_name to category
+
+        Note:
+            This method is 200+ lines long with multiple responsibilities.
+            Per SRP, consider extracting:
+            - Loan repayment processing (lines ~860-872)
+            - CEO salary processing (lines ~876-882)
+            - Income/tax application (lines ~894-696)
+            - Medical loan payments (lines ~698-701)
+            - Purchase processing (lines ~704-830+)
+            - Inventory consumption (lines ~800-830)
+            - Wellbeing tracking (lines ~842-844)
         """
         hc = CONFIG.households
 
+        # SOLID: SRP Violation - Loan repayment logic should be in a
+        # LoanService or GovernmentReceivables class
         # Process loan repayments first (firms pay government)
         total_loan_repayments = 0.0
         for firm in self.firms:
@@ -856,25 +1110,58 @@ class Economy:
                           f"other=${household.last_other_income:.2f}, "
                           f"spending=${household.last_consumption_spending:.2f})")
 
+    # SOLID: SRP Violation - This method is 200+ lines and orchestrates
+    # 16+ phases. Should be split into: _execute_tick_phases(),
+    # _run_firm_planning(), _run_household_planning(), _run_market_clearing(),
+    # _run_government_operations(), _run_firm_lifecycle(), etc.
+    # SOLID: OCP Violation - Adding new phases requires modifying this method.
+    # Should use a pipeline/chain of responsibility pattern.
     def step(self) -> None:
         """
         Execute one full simulation tick.
 
-        Follows strict phase ordering:
+        This is the main entry point for advancing the simulation by one tick.
+        Follows strict phase ordering (16 main phases):
+
         1. Firms plan production, labor, prices, wages
+        1.5. Process investment loan requests
         2. Households plan labor supply and consumption
         3. Labor market matching
         4. Apply labor outcomes
         5. Firms apply production and costs
+        5b. Pre-purchase deposit withdrawals
         6. Goods market clearing
+        6.5. Housing rental market clearing
+        6.6. Housing unit expansion
+        6.8. Queue-based healthcare processing
         7. Government plans taxes
         8. Government plans transfers
         9. Apply sales, profits, taxes to firms
+        9.5. Bank loan repayments
         10. Apply income, taxes, transfers, purchases to households
         11. Apply fiscal results to government
-        12. Update world-level statistics
+        11.5. Government discretionary spending
+        11.75. Update household wellbeing
+        12. Handle firm bankruptcies and exits
+        13. Create new firms
+        14. Government adjusts policies
+        15. Update world-level statistics
+        16. Distribute dividends to household owners
+
+        Note:
+            This method is 200+ lines long with 16+ phases.
+            Per Single Responsibility Principle, consider extracting:
+            - _phase_firm_planning() (phases 1-1.5)
+            - _phase_household_planning() (phase 2)
+            - _phase_labor_market() (phases 3-4)
+            - _phase_production_and_sales() (phases 5-6)
+            - _phase_housing_and_health() (phases 6.5-6.8)
+            - _phase_government_operations() (phases 7-11.75)
+            - _phase_firm_lifecycle() (phases 12-13)
+            - _phase_finalization() (phases 14-16)
         """
         # Update warm-up flag for this tick using the configured warm-up horizon.
+        # SOLID: SRP Violation - Warm-up logic should be in a SimulationState class
         was_in_warmup = self.in_warmup
         self.in_warmup = self.current_tick < self.warmup_ticks
         if was_in_warmup and not self.in_warmup:
@@ -1004,12 +1291,14 @@ class Economy:
             )
             firm_production_plans[firm.firm_id] = production_plan
 
-            # Plan pricing
+            # Plan pricing — pass current profit tax rate so firms inflate gross
+            # margins to preserve their targeted after-tax margin.
             price_plan = firm.plan_pricing(
                 self.last_tick_sell_through_rate.get(firm.firm_id, 0.5),
                 unemployment_rate=unemployment_rate,
                 in_warmup=self.in_warmup,
                 health_snapshot=health_snapshot,
+                profit_tax_rate=float(self.government.profit_tax_rate),
             )
             firm_price_plans[firm.firm_id] = price_plan
 
@@ -1412,8 +1701,10 @@ class Economy:
         # Phase 13: Potentially create new firms
         self._maybe_create_new_firms()
 
-        # Phase 14: Government adjusts policies based on economic conditions
-        if self.enable_government_stabilizers:
+        # Phase 14: Legacy automatic government policy chooser.
+        # When the LLM government is enabled, policy choices must come only
+        # from the LLM; deterministic code still executes the chosen levers.
+        if self.enable_government_stabilizers and not getattr(CONFIG.llm, "enable_llm_government", False):
             self._adjust_government_policy()
 
         # Phase 15: Update world-level statistics
@@ -2711,6 +3002,19 @@ class Economy:
 
         Returns:
             Tuple of (per_household_purchases, per_firm_sales)
+
+        Note:
+            SOLID VIOLATION - Single Responsibility Principle (SRP):
+            This method has multiple responsibilities:
+            1. Market clearing logic (matching supply to demand)
+            2. Unmet demand tracking by category (food, services)
+            3. Price updating for services category firms
+            4. Per-household and per-firm sales accumulation
+            Consider extracting unmet demand tracking and price updating into separate methods.
+
+            SOLID VIOLATION - Open/Closed Principle (OCP):
+            Adding a new purchase target type (beyond direct firm ID and good name)
+            requires modifying the if/elif branching logic in the inner loop.
         """
         per_household_purchases: Dict[int, Dict[str, Tuple[float, float]]] = {}
         per_firm_sales: Dict[int, Dict[str, float]] = {}
@@ -2919,7 +3223,7 @@ class Economy:
 
     def _build_good_category_lookup(self) -> Dict[str, str]:
         """Map each good_name to its category (lowercased) for quick lookups."""
-        return {firm.good_name: firm.good_category.lower() for firm in self.firms}
+        return build_good_category_lookup(self.firms)
 
     def _next_firm_id(self) -> int:
         """Generate a unique firm_id across active and queued firms."""
@@ -3474,6 +3778,25 @@ class Economy:
              unmet demand (high sell-through). Uses credit score + demand signal.
           3. Government-backed (~10%): subsidized loan through bank during
              high unemployment or critical sector undersupply.
+
+        Note:
+            SOLID VIOLATION - Single Responsibility Principle (SRP):
+            This method has multiple responsibilities (~200 lines):
+            1. Sector selection logic (food vs services vs housing)
+            2. Firm personality and quality determination
+            3. Funding tier selection (3 tiers with different logic each)
+            4. Firm creation and initialization
+            5. Loan origination through multiple channels
+            Consider extracting: _select_sector(), _determine_firm_params(),
+            _select_funding_tier(), _create_firm_with_funding().
+
+            SOLID VIOLATION - Open/Closed Principle (OCP):
+            Adding a new funding tier requires modifying the if/elif/else chain
+            and the tier selection logic. Should use a strategy pattern for tiers.
+
+            SOLID VIOLATION - Dependency Inversion Principle (DIP):
+            Direct dependency on BankAgent and GovernmentAgent for loans.
+            Should depend on abstractions (e.g., LoanProvider interface).
         """
         if self.in_warmup:
             return
@@ -4412,6 +4735,21 @@ class Economy:
         6. Housing firms adjust rent based on occupancy rate
 
         Mutates state.
+
+        Note:
+            SOLID VIOLATION - Single Responsibility Principle (SRP):
+            This method has multiple responsibilities (~200 lines):
+            1. Eviction logic (affordability check, liquidity check)
+            2. Homeless household matching to available units
+            3. Rent payment processing (with deposit withdrawal)
+            4. Housing firm rent adjustment based on occupancy
+            5. Diagnostic tracking (eviction counts, homelessness stats)
+            Consider extracting: _process_evictions(), _match_homeless_to_housing(),
+            _adjust_housing_rents(), _collect_rent_payments().
+
+            SOLID VIOLATION - Dependency Inversion Principle (DIP):
+            Direct dependency on BankAgent through _ensure_cash_for_payment().
+            Housing logic is tightly coupled to banking integration.
         """
         # Get all housing firms
         housing_firms = [f for f in self.firms if f.good_category == "Housing"]
@@ -4709,7 +5047,7 @@ class Economy:
             household.last_healthcare_spend = 0.0
             household.last_healthcare_provider_id = None
             for good in list(household.goods_inventory.keys()):
-                if _get_good_category(good).lower() == "healthcare":
+                if get_good_category(good).lower() == "healthcare":
                     del household.goods_inventory[good]
 
         for firm in self.firms:
@@ -4840,6 +5178,23 @@ class Economy:
         Process queued healthcare visits up to capacity.
 
         Revenue flows to healthcare firms; household health is restored on completed visits.
+
+        Note:
+            SOLID VIOLATION - Single Responsibility Principle (SRP):
+            This method has multiple responsibilities (~150 lines):
+            1. Healthcare queue processing (priority sorting, fair rotation)
+            2. Payment processing (household cost, government subsidy)
+            3. Deposit withdrawal for unaffordable care
+            4. Medical loan origination for unpaid bills
+            5. Health updates on completed visits
+            6. Event logging for diagnostics
+            Consider extracting: _process_single_visit(), _handle_healthcare_payment(),
+            _update_health_post_visit(), _log_healthcare_event().
+
+            SOLID VIOLATION - Dependency Inversion Principle (DIP):
+            Direct dependency on BankAgent through _issue_medical_loan() and
+            _ensure_cash_for_payment() -> bank.withdraw(). Healthcare logic
+            is tightly coupled to banking integration.
         """
         healthcare_firms = self._healthcare_firms()
         if not healthcare_firms:
@@ -5448,6 +5803,25 @@ class Economy:
         Returns:
             Dictionary with economic indicators including GDP, unemployment,
             wages, firm metrics, household metrics, and government finances.
+
+        Note:
+            SOLID VIOLATION - Single Responsibility Principle (SRP):
+            This method is ~400 lines and calculates EVERY possible metric:
+            1. Household metrics (employment, wages, cash, wealth inequality)
+            2. Firm metrics (cash, inventory, employees, prices, quality)
+            3. Government metrics (lever settings, budget pressure, finances)
+            4. Bank metrics (reserves, deposits, loans, interest rates)
+            5. Capital stock and investment metrics
+            6. Welfare and wellbeing metrics
+            7. Labor market diagnostics
+            8. Firm distress diagnostics
+            This should be broken into: _calculate_household_metrics(),
+            _calculate_firm_metrics(), _calculate_government_metrics(),
+            _calculate_bank_metrics(), etc.
+
+            SOLID VIOLATION - Open/Closed Principle (OCP):
+            Adding a new metric requires modifying this method. Should use
+            a plugin/strategy pattern where metrics are registered.
         """
         metrics = {}
 

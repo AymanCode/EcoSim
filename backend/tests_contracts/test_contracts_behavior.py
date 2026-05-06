@@ -20,15 +20,16 @@ def _fresh_household(household_id: int = 1) -> HouseholdAgent:
     return hh
 
 
-def test_contract_food_drives_health_by_thresholds():
-    """Contract E: Food proportionally drives health using the configured curved rule."""
+def test_contract_food_offsets_only_part_of_health_decay_by_thresholds():
+    """Contract E: Food can offset only the configured share of natural health decay."""
     cfg = CONFIG.households
     baseline_health = 0.4
+    decay = 0.02
 
     def health_delta(food_units: float) -> float:
         hh = _fresh_household(10)
         hh.health = baseline_health
-        hh.health_decay_rate = 0.0
+        hh.health_decay_rate = decay
         hh.food_consumed_this_tick = food_units
         hh.services_consumed_this_tick = 0.0
         hh.healthcare_consumed_this_tick = 0.0
@@ -42,12 +43,21 @@ def test_contract_food_drives_health_by_thresholds():
     def expected_food_effect(food_units: float) -> float:
         ratio = min(1.0, food_units / max(0.1, cfg.food_health_high_threshold))
         curved_ratio = ratio ** 0.6
-        return curved_ratio * (cfg.food_health_high_boost + cfg.food_starvation_penalty) - cfg.food_starvation_penalty
+        raw_food_effect = (
+            curved_ratio * (cfg.food_health_high_boost + cfg.food_starvation_penalty)
+            - cfg.food_starvation_penalty
+        )
+        if raw_food_effect > 0.0:
+            offset_ratio = min(1.0, raw_food_effect / max(cfg.food_health_high_boost, 1e-9))
+            food_offset = decay * cfg.food_health_decay_offset_share * offset_ratio
+            return food_offset - decay
+        return raw_food_effect - decay
 
     assert low_delta == pytest.approx(expected_food_effect(0.0), abs=1e-8)
     assert mid_delta == pytest.approx(expected_food_effect(cfg.food_health_mid_threshold), abs=1e-8)
     assert high_delta == pytest.approx(expected_food_effect(cfg.food_health_high_threshold), abs=1e-8)
     assert high_delta > mid_delta > low_delta
+    assert high_delta == pytest.approx(-(1.0 - cfg.food_health_decay_offset_share) * decay, abs=1e-8)
 
 
 def test_contract_healthcare_consumption_restores_health_without_happiness_change():

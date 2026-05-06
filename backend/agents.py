@@ -18,23 +18,7 @@ import numpy as np
 from config import CONFIG
 
 
-def _get_good_category(good_name: str, good_categories: Optional[Dict[str, str]] = None) -> str:
-    """Best-effort inference of a good's category (defaults to lowercased name).
-
-    When *good_categories* is provided (the pre-built lookup from
-    ``Economy._build_good_category_lookup``), values are already lowercased so
-    we can return directly without extra work.
-    """
-    if good_categories:
-        cat = good_categories.get(good_name)
-        if cat:
-            return cat  # already lowercased by _build_good_category_lookup
-
-    # Fallback for callers without a lookup (e.g. __post_init__).
-    lowered = good_name.lower()
-    if "housing" in lowered:
-        return "housing"
-    return lowered
+from utils.category_utils import get_good_category
 
 
 @dataclass(slots=True)
@@ -232,8 +216,25 @@ class HouseholdAgent(AgentMixin):
     current_primary_firm: Dict[str, Optional[int]] = field(default_factory=dict)  # category -> firm_id
     last_pool_refresh_tick: int = 0  # Last tick when awareness pool was refreshed
 
-    def __post_init__(self):
-        """Validate invariants after initialization."""
+    def __post_init__(self) -> None:
+        """Validate invariants after initialization and set derived state.
+
+        Performs the following initialization sequence:
+        1. Validates all probability/cap fields are within acceptable ranges
+        2. Seeds personality traits deterministically from household_id
+        3. Resets per-tick ledger fields
+        4. Detects initial housing ownership from inventory
+
+        Raises:
+            ValueError: If any field fails validation (budget share, savings rate,
+                alpha parameters, skills level, or negative age).
+
+        Note:
+            This method is called automatically by the @dataclass(slots=True)
+            decorator after __init__.  All random sampling is seeded from
+            CONFIG.random_seed + household_id so that identical seeds produce
+            identical agent behavior.
+        """
         if not (0.0 <= self.consumption_budget_share <= 1.0):
             raise ValueError(
                 f"consumption_budget_share must be in [0,1], got {self.consumption_budget_share}"
@@ -263,7 +264,21 @@ class HouseholdAgent(AgentMixin):
                 break
 
     def reset_tick_ledger(self) -> None:
-        """Reset per-tick cash-flow visibility fields without changing core behavior."""
+        """Reset per-tick cash-flow visibility fields for a new simulation tick.
+
+        Clears all ledger entries to zero and snapshots the current cash balance
+        so that net cash movement can be computed at tick end.
+
+        Side Effects:
+            - Resets ``ledger_cash_start`` to current ``cash_balance``
+            - Zeros all ``last_tick_ledger`` categories
+            - Clears wage/transfer/dividend income tracking fields
+            - Resets ``education_active_this_tick`` flag
+
+        Note:
+            This should be called once at the beginning of each tick before
+            any income, spending, or tax operations are applied.
+        """
         self.ledger_cash_start = self.cash_balance
         self.last_tick_ledger = {
             "wage": 0.0,
@@ -288,17 +303,70 @@ class HouseholdAgent(AgentMixin):
         self.education_active_this_tick = False
 
     def add_ledger_flow(self, key: str, amount: float) -> None:
-        """Accumulate a signed cash flow into the current tick ledger."""
+        """Accumulate a signed cash flow into the current tick ledger.
+
+        Thread-safe ledger update that tracks where household cash is coming
+        from or going to during the current tick.
+
+        Args:
+            key: Ledger category (e.g., "wage", "transfers", "goods",
+                 "rent", "healthcare", "education", "taxes", "bank").
+            amount: Signed cash flow (+ for inflow, - for outflow).
+
+        Note:
+            Amounts near zero (|amount| <= 1e-12) are ignored to prevent
+            floating-point noise from polluting the ledger.
+        """
         if abs(amount) <= 1e-12:
             return
         self.last_tick_ledger[key] = self.last_tick_ledger.get(key, 0.0) + float(amount)
 
     def finalize_tick_ledger(self) -> None:
-        """Finalize the net cash delta for the current tick."""
+        """Finalize the net cash delta for the current tick.
+
+        Computes the actual cash movement during the tick by comparing
+        the current balance against the snapshot taken at ledger reset.
+
+        Side Effects:
+            - Updates ``last_tick_ledger["net"]`` with the realized
+              cash delta (positive = inflow, negative = outflow).
+
+        Note:
+            This should be called once at the end of each tick after all
+            income, spending, and tax operations have been applied.
+        """
         self.last_tick_ledger["net"] = float(self.cash_balance - self.ledger_cash_start)
 
     def _initialize_personality_preferences(self) -> None:
-        """Deterministically assign savings, weights, and purchase styles."""
+        """Initialize household personality traits deterministically from config ranges.
+
+        Samples all behavioral parameters (spending tendency, preferences,
+        savings behavior, etc.) from ``CONFIG.households`` ranges using a
+        seeded RNG so that identical ``random_seed`` values produce
+        identical agent personalities.
+
+        The following traits are set:
+        - ``spending_tendency``, ``food_preference``, ``services_preference``,
+          ``housing_preference``, ``quality_lavishness``, ``frugality``
+        - ``saving_tendency`` (governs ``deposit_buffer_weeks`` and
+          ``deposit_fraction``)
+        - ``savings_drawdown_rate`` (personality-driven fraction of savings
+          consumed per tick)
+        - Healthcare-related preferences and thresholds
+        - Medical training parameters (capacity, wages, school debt)
+        - Health decay characteristic (annual loss → per-tick rate)
+        - Category weights (budget allocation across food/housing/services)
+        - Purchase styles per category (cheap / value / quality)
+
+        Side Effects:
+            - Populates ~30 personality-driven fields from config ranges
+            - Sets ``category_weights`` and ``purchase_styles``
+            - Computes ``health_decay_rate`` from annual characteristic
+
+        Note:
+            The RNG seed is ``CONFIG.random_seed + household_id * 9973`` so
+            that each household gets a unique but deterministic trait set.
+        """
         config = CONFIG.households
         jitter = 1e-6
 
@@ -473,6 +541,10 @@ class HouseholdAgent(AgentMixin):
 
         Returns:
             Lowercased category → fraction mapping that sums to 1.0.
+
+        Example:
+            Input:  {"Food": 0.5, "food": 0.3, "housing": -0.1, "services": 0.2}
+            Output: {"food": 0.615, "services": 0.385}  (housing clamped to 0)
         """
         normalized: Dict[str, float] = {}
         total = 0.0
@@ -1290,7 +1362,9 @@ class HouseholdAgent(AgentMixin):
 
         # Income-anchored consumption: spending driven by current income, not accumulated wealth.
         # Savings provide a slow supplemental drawdown, not a spend-everything pool.
-        disposable_income = self.wage if self.is_employed else unemployment_benefit
+        # All inflows count as spendable: wage (or benefit) plus dividend income.
+        income_from_work_or_benefit = self.wage if self.is_employed else unemployment_benefit
+        disposable_income = income_from_work_or_benefit + max(0.0, self.last_dividend_income)
 
         spend_fraction = config.min_spend_fraction + (config.confidence_multiplier * confidence)
         if self.is_employed:
@@ -1910,17 +1984,20 @@ class HouseholdAgent(AgentMixin):
             return True
         return False
 
-    def maybe_active_education(self) -> bool:
+    def maybe_active_education(self) -> float:
         """
         Actively invest in education when unemployed and below median skill.
 
         Trigger: skills < 0.5, cash > 300, unemployed.
         Cost: $100, Skill gain: +0.005
+
+        Returns:
+            float: Cost paid (100.0) if education was pursued, 0.0 otherwise
         """
         if self.is_employed:
-            return False
+            return 0.0
         if self.skills_level >= 0.5 or self.cash_balance <= 300.0:
-            return False
+            return 0.0
 
         cost = 100.0
         if self.cash_balance >= cost:
@@ -2441,14 +2518,29 @@ class FirmAgent(AgentMixin):
         """
         Set firm personality and adjust behavior parameters accordingly.
 
-        Aggressive firms: High investment, aggressive pricing, higher risk
-        Conservative firms: Low investment, gradual pricing, lower risk
-        Moderate firms: Balanced approach
+        Each personality type maps to a specific risk/behavior profile:
+        - **Aggressive**: High investment propensity, aggressive pricing, higher risk tolerance,
+          higher R&D spending, larger hiring/firing limits (up to 10 per tick)
+        - **Conservative**: Low investment, gradual pricing adjustments, lower risk tolerance,
+          minimal R&D, smaller hiring/firing limits (1-3 per tick)
+        - **Moderate**: Balanced approach between aggressive and conservative
 
-        Mutates state.
+        All parameters are sampled from ranges defined in ``CONFIG.firms`` using the
+        firm's deterministic RNG (seeded from firm_id), ensuring reproducible
+        behavior across simulation runs with the same seed.
 
         Args:
-            personality: "aggressive", "conservative", or "moderate"
+            personality: One of "aggressive", "conservative", or "moderate"
+                (case-insensitive; defaults to "moderate" if unrecognized)
+
+        Side Effects:
+            - Updates self.personality, self.investment_propensity, self.risk_tolerance
+            - Updates self.price_adjustment_rate, self.wage_adjustment_rate
+            - Updates self.rd_spending_rate, self.max_hires_per_tick, self.max_fires_per_tick
+            - Updates self.units_per_worker (for services, clamped to 1-7 range)
+            - For non-baseline firms: also randomizes sales_expectation_alpha,
+              target_inventory_multiplier, target_inventory_weeks, min_price,
+              quality_improvement_per_rd_dollar, markup, unit_cost
         """
         self.personality = personality.lower()
         config = CONFIG.firms
@@ -2595,12 +2687,13 @@ class FirmAgent(AgentMixin):
         """Current payroll burden using actual wages when available."""
         return sum(self.actual_wages.get(employee_id, self.wage_offer) for employee_id in self.employees)
 
-    def _healthcare_labor_price_targets(self) -> Dict[str, float]:
+    def _healthcare_labor_price_targets(self, profit_tax_rate: float = 0.0) -> Dict[str, float]:
         """Return healthcare break-even and target visit price from labor costs.
 
         Strict (total_wage / capacity) * 1.15 formula. Effective per-doctor wage
         is floored at the global minimum-wage floor so wage_offer drift below
-        minimum cannot underprice the visit.
+        minimum cannot underprice the visit. Gross margin is inflated by the
+        profit-tax rate so the after-tax margin matches the 15% target.
         """
         if self.good_category.lower() != "healthcare":
             return {"break_even_price": 0.0, "target_price": 0.0, "current_margin": 0.0}
@@ -2613,10 +2706,12 @@ class FirmAgent(AgentMixin):
         effective_wage = max(float(self.wage_offer), min_wage_floor)
         wage_bill = effective_wage * max(1, len(self.employees))
 
-        # Flat 15% margin over labor cost.
+        # Flat 15% after-tax margin over labor cost. Inflate gross margin so that
+        # after profit_tax_rate is applied, the realised net margin matches 15%.
         break_even = wage_bill / capacity
-        margin = 0.15
-        target = break_even * (1.0 + margin)
+        target_after_tax_margin = 0.15
+        gross_margin = target_after_tax_margin / max(1.0 - float(profit_tax_rate), 0.10)
+        target = break_even * (1.0 + gross_margin)
 
         current_margin = (float(self.price) - break_even) / max(float(self.price), 1e-9)
         return {
@@ -2666,7 +2761,35 @@ class FirmAgent(AgentMixin):
         sell_through_rate: float = 0.5,
         category_wage_anchor_p75: float = 0.0,
     ) -> FirmHealthSnapshot:
-        """Compute and persist the shared firm-health view once for the tick."""
+        """Compute and persist the shared firm-health view once for the tick.
+
+        Calculates key health metrics used by multiple downstream planning methods
+        (production, pricing, wage-setting). Uses exponential moving averages
+        (EMA) for revenue and profit to smooth short-term fluctuations.
+
+        Metrics computed:
+        - ``cash_runway_ticks``: How long the firm can survive at current burn rate
+        - ``smoothed_profit_margin``: EMA of profit/revenue ratio
+        - ``sell_through_rate``: Clamped to [0.0, 1.5] for downstream use
+        - ``inventory_weeks``: Current inventory as weeks of expected sales
+        - ``unfilled_positions_streak``: Consecutive ticks with hiring shortfalls
+
+        Args:
+            sell_through_rate: Current tick's sell-through rate (units_sold/units_produced)
+            category_wage_anchor_p75: 75th percentile wage in the firm's category
+                (used for wage cap calculations)
+
+        Returns:
+            FirmHealthSnapshot: Immutable snapshot of firm health metrics
+
+        Side Effects:
+            - Updates self.revenue_ema, self.profit_ema (exponential moving averages)
+            - Updates self.smoothed_profit_margin
+            - Updates self.cash_runway_ticks
+            - Updates self.last_sell_through_rate
+            - Updates self.inventory_weeks (for non-services firms)
+            - Updates self.unfilled_positions_streak
+        """
         alpha = self._profit_ema_alpha()
         if self.revenue_ema <= 0.0 and self.profit_ema == 0.0 and self.age_in_ticks <= 1:
             self.revenue_ema = max(0.0, float(self.last_revenue))
@@ -3568,6 +3691,7 @@ class FirmAgent(AgentMixin):
         unemployment_rate: float,
         in_warmup: bool = False,
         health_snapshot: Optional[FirmHealthSnapshot] = None,
+        profit_tax_rate: float = 0.0,
     ) -> Dict[str, float]:
         """
         AGGRESSIVE INVENTORY CLEARANCE PRICING
@@ -3593,7 +3717,9 @@ class FirmAgent(AgentMixin):
             )
         if self.is_baseline and in_warmup:
             labor_cost_per_unit = self.wage_offer / max(self.productivity_per_worker, 1.0)
-            target_price = labor_cost_per_unit * 1.05
+            # Inflate the 5% markup so the after-tax margin still clears 5%.
+            gross_markup = 0.05 / max(1.0 - float(profit_tax_rate), 0.10)
+            target_price = labor_cost_per_unit * (1.0 + gross_markup)
             return {
                 "price_next": target_price,
                 "markup_next": (target_price / self.unit_cost - 1.0) if self.unit_cost > 0 else self.markup,
@@ -3628,7 +3754,7 @@ class FirmAgent(AgentMixin):
             return {"price_next": price_next, "markup_next": markup_next}
 
         if self.good_category.lower() == "healthcare":
-            price_targets = self._healthcare_labor_price_targets()
+            price_targets = self._healthcare_labor_price_targets(profit_tax_rate=profit_tax_rate)
             break_even_price = price_targets["break_even_price"]
             target_price = max(self.min_price, price_targets["target_price"])
 
@@ -3698,8 +3824,10 @@ class FirmAgent(AgentMixin):
 
             if utilization >= 0.85:
                 # Boom market: full cost recovery + markup + surge premium.
+                # Inflate gross margin so after-tax margin matches the targeted markup + surge.
                 surge = (utilization - 0.85) * 0.5
-                target_price = total_cost_per_unit * (1.0 + float(self.markup) + surge)
+                gross_margin = (float(self.markup) + surge) / max(1.0 - float(profit_tax_rate), 0.10)
+                target_price = total_cost_per_unit * (1.0 + gross_margin)
             else:
                 # Downturn: smooth interpolation between variable and total cost.
                 # 0% utilization -> variable cost only; 85% -> total cost.
@@ -3760,8 +3888,10 @@ class FirmAgent(AgentMixin):
                     1.0,
                 )
                 unit_depreciation = fixed_depreciation_cost / stable_throughput
-                variable_cost_floor = self.pricing_operating_unit_cost * 1.05
-                full_cost_floor = (self.pricing_operating_unit_cost + unit_depreciation) * 1.05
+                # Inflate the 5% margin floor so after-tax cushion still clears 5%.
+                cost_floor_gross_margin = 0.05 / max(1.0 - float(profit_tax_rate), 0.10)
+                variable_cost_floor = self.pricing_operating_unit_cost * (1.0 + cost_floor_gross_margin)
+                full_cost_floor = (self.pricing_operating_unit_cost + unit_depreciation) * (1.0 + cost_floor_gross_margin)
 
                 # Demand validation signals
                 expected_sales = max(self.expected_sales_units, 1.0)
@@ -4067,10 +4197,22 @@ class FirmAgent(AgentMixin):
         """
         Update workforce based on labor market outcome.
 
-        Mutates state.
+        Applies the results of the labor market matching process to update
+        the firm's employee list and actual wage mappings. Ensures all workers
+        are paid at least the current wage_offer (enforcing minimum wage).
 
         Args:
-            outcome: Dict with hired_households_ids and confirmed_layoffs_ids
+            outcome: Dictionary containing:
+                - ``hired_households_ids``: List of household IDs successfully hired
+                - ``confirmed_layoffs_ids``: List of household IDs confirmed for layoff
+                - ``actual_wages``: Dict mapping household_id -> actual wage paid
+                  (may differ from wage_offer due to skill premiums)
+
+        Side Effects:
+            - Removes laid-off workers from self.employees and self.actual_wages
+            - Adds newly hired workers to self.employees with their actual wages
+            - Updates self.actual_wages for existing workers to meet wage_offer floor
+            - Sets self.last_tick_actual_hires to count of successful hires
         """
         hired_households_ids = outcome.get("hired_households_ids", [])
         confirmed_layoffs_ids = outcome.get("confirmed_layoffs_ids", [])
@@ -4108,10 +4250,22 @@ class FirmAgent(AgentMixin):
         """
         Update inventory, cash, and costs based on production.
 
-        Mutates state.
+        Processes the results of the production phase, updating inventory levels,
+        deducting labor and variable costs from cash, and recalculating unit costs.
+        Handles special cases for healthcare (no inventory) and services (capacity-based).
 
         Args:
-            result: Dict with realized_production_units and optionally other_variable_costs
+            result: Dictionary containing:
+                - ``realized_production_units``: Actual units produced this tick
+                - ``other_variable_costs``: Additional variable costs (optional, default 0.0)
+
+        Side Effects:
+            - Updates self.last_units_produced for pricing decisions
+            - Updates self.inventory_units (adds production, or sets to 0 for services/healthcare)
+            - Deducts wage bill and variable costs from self.cash_balance
+            - Updates self.last_tick_total_costs for dividend calculations
+            - Applies capital depreciation to self.capital_stock
+            - Recalculates self.unit_cost (including depreciation) and self.pricing_operating_unit_cost
         """
         realized_production_units = result.get("realized_production_units", 0.0)
         other_variable_costs = result.get("other_variable_costs", 0.0)
@@ -4180,10 +4334,24 @@ class FirmAgent(AgentMixin):
         """
         Update inventory and cash based on sales.
 
-        Mutates state.
+        Processes the results of the goods market phase, updating inventory
+        (deducting sold units), adding revenue to cash, and calculating
+        net profit. Tracks zero-cash streaks and triggers wage adjustments
+        if wages consume too high a fraction of revenue.
 
         Args:
-            result: Dict with units_sold, revenue, and profit_taxes_paid
+            result: Dictionary containing:
+                - ``units_sold``: Number of units sold this tick
+                - ``revenue``: Total revenue from sales
+                - ``profit_taxes_paid``: Taxes paid on profits (deducted from revenue)
+
+        Side Effects:
+            - Deducts sold units from self.inventory_units (sets to 0 for services)
+            - Adds revenue to self.cash_balance
+            - Deducts profit taxes from self.cash_balance
+            - Updates self.last_units_sold, self.last_revenue, self.last_profit, self.net_profit
+            - Updates self.zero_cash_streak (increments if cash <= 0, resets otherwise)
+            - Triggers self.adjust_wages_to_revenue_ratio() if wage bill > 80% of revenue
         """
         units_sold = result.get("units_sold", 0.0)
         revenue = result.get("revenue", 0.0)
@@ -4215,13 +4383,27 @@ class FirmAgent(AgentMixin):
 
     def adjust_wages_to_revenue_ratio(self, revenue: float) -> None:
         """
-        Adjust wages if wage bill exceeds 80% of revenue.
+        Adjust wages if wage bill exceeds threshold of revenue.
 
-        Firms target 70-80% of revenue as wages. If wages exceed 80% of revenue,
-        reduce all wages by 10% (floored at minimum wage of $20).
+        Firms target a specific labor share of revenue (configured via
+        ``max_labor_share`` in CONFIG.firms). If the actual wage bill
+        exceeds this threshold, all wages are cut by ``max_wage_decrease_per_tick``
+        (floored at the minimum wage floor).
+
+        Special handling:
+        - **Healthcare firms**: Reset all wages to minimum_wage_floor and
+          calculate a bonus pool from excess profits (distributed later via
+          ``distribute_healthcare_worker_bonus``)
+        - **Non-baseline firms**: Only cut wages if not in a healthy financial
+          state (smoothed_profit_margin >= -0.25 and cash_runway >= threshold)
 
         Args:
-            revenue: Revenue from this tick
+            revenue: Revenue from this tick (used to calculate wage/revenue ratio)
+
+        Side Effects:
+            - For healthcare: Sets all wages to minimum_wage_floor, sets pending_healthcare_worker_bonus
+            - For others: Cuts all wages and wage_offer by max_wage_decrease_per_tick (floored at minimum_wage)
+            - Updates self.actual_wages dict and self.wage_offer
         """
         if revenue <= 0 or not self.employees:
             return
@@ -4292,11 +4474,22 @@ class FirmAgent(AgentMixin):
         """
         Update price, markup, and wage offer from plans.
 
-        Mutates state.
+        Applies the decisions from the planning phases (``plan_pricing`` and
+        ``plan_wage``) to the firm's state. For healthcare firms, wages
+        are always pinned to the minimum_wage_floor regardless of the plan.
 
         Args:
-            price_plan: Dict with price_next and markup_next
-            wage_plan: Dict with wage_offer_next
+            price_plan: Dictionary with:
+                - ``price_next``: The new price to set (clamped to self.min_price)
+                - ``markup_next``: The new markup over unit_cost
+            wage_plan: Dictionary with:
+                - ``wage_offer_next``: The new wage offer to post
+
+        Side Effects:
+            - Updates self.price (clamped to self.min_price)
+            - Updates self.markup
+            - Updates self.wage_offer
+            - For healthcare firms: Overrides wage_offer and all actual_wages to minimum_wage_floor
         """
         # Update price and markup
         self.price = max(price_plan["price_next"], self.min_price)
@@ -4391,8 +4584,32 @@ class FirmAgent(AgentMixin):
         return True
 
     def consider_service_infrastructure_upgrade(self, economy=None) -> bool:
-        """Flag a bank-financed Services slot upgrade after sustained full utilization
-        and firm-specific unmet demand."""
+        """Flag a bank-financed Services slot upgrade after sustained full utilization.
+
+        Services firms operating at >=95% utilization for 5+ ticks with 2+ ticks
+        of firm-specific unmet demand become eligible for an infrastructure loan
+        to add worker slots (capacity). The loan is processed in Phase 6.6b.
+
+        Gates (all must be true):
+        - Firm is a generic services firm (not healthcare or goods)
+        - Utilization >= 0.95 for 5+ consecutive ticks
+        - Firm-specific unmet demand in 2+ of the last 5 ticks
+        - No pending infrastructure loan request
+        - No active infrastructure loan debt
+        - Not in severe cash distress (survival_mode, zero_cash_streak, low runway)
+        - Not in housing crisis (unmet demand gate)
+
+        Args:
+            economy: Optional Economy reference (currently unused, kept for API compatibility)
+
+        Returns:
+            True if an infrastructure loan request was flagged, False otherwise
+
+        Side Effects:
+            - Sets self.needs_service_infrastructure_loan = True if approved
+            - Sets self.service_infrastructure_loan_amount = 7000.0 if approved
+            - Updates self.decision_diagnostics with upgrade decision details
+        """
         if not self._is_generic_services_firm():
             return False
 
@@ -4553,7 +4770,31 @@ class FirmAgent(AgentMixin):
         return total_distributed
 
     def distribute_healthcare_worker_bonus(self, household_lookup: Dict[int, 'HouseholdAgent']) -> float:
-        """Pay excess healthcare margin to current doctors as a per-tick bonus."""
+        """Pay excess healthcare margin to current doctors as a per-tick bonus.
+
+        Healthcare firms calculate a bonus pool from profits exceeding the
+        target margin (``healthcare_target_profit_margin`` in CONFIG). This
+        bonus is distributed equally among all current employees (doctors).
+
+        The bonus is paid directly to household cash balances and tracked
+        as dividend income for wealth accumulation.
+
+        Args:
+            household_lookup: Dict mapping household_id -> HouseholdAgent
+                (used to credit the bonus to each doctor's cash_balance)
+
+        Returns:
+            Total bonus amount paid to workers (0.0 if no bonus or not healthcare)
+
+        Side Effects:
+            - Deducts bonus from self.cash_balance
+            - Credits bonus to each employee's household.cash_balance
+            - Credits bonus to each employee's household.last_dividend_income
+            - Adds "dividends" flow to each employee's ledger via add_ledger_flow
+            - Adds firm_id to each employee's household.last_dividend_firm_ids
+            - Resets self.pending_healthcare_worker_bonus to 0.0
+            - Updates self.decision_diagnostics["healthcare_worker_bonus_paid"]
+        """
         if self.good_category.lower() != "healthcare":
             return 0.0
         if not self.employees or self.pending_healthcare_worker_bonus <= 0.0:
@@ -4659,20 +4900,66 @@ class BankAgent:
     # ── credit scoring ───────────────────────────────────────────────
 
     def get_firm_credit_score(self, firm_id: int) -> float:
-        """Return a firm's credit score, initializing to 0.5 if unknown."""
+        """Return a firm's credit score, initializing to 0.5 if unknown.
+
+        Credit scores are in the range [0.0, 1.0] where higher values
+        indicate lower risk. New firms start at 0.5 (neutral risk).
+
+        Args:
+            firm_id: The unique identifier of the firm.
+
+        Returns:
+            The firm's credit score (0.0 to 1.0). Returns 0.5 if the
+            firm has no recorded score yet.
+        """
         return self.firm_credit_scores.get(firm_id, 0.5)
 
     def get_household_credit_score(self, household_id: int) -> float:
-        """Return a household's credit score, initializing to 0.5 if unknown."""
+        """Return a household's credit score, initializing to 0.5 if unknown.
+
+        Credit scores are in the range [0.0, 1.0] where higher values
+        indicate lower risk. New households start at 0.5 (neutral risk).
+
+        Args:
+            household_id: The unique identifier of the household.
+
+        Returns:
+            The household's credit score (0.0 to 1.0). Returns 0.5 if the
+            household has no recorded score yet.
+        """
         return self.household_credit_scores.get(household_id, 0.5)
 
     def update_firm_credit_score(self, firm_id: int, delta: float) -> None:
-        """Adjust a firm's credit score by *delta*, clamped to [0, 1]."""
+        """Adjust a firm's credit score by *delta*, clamped to [0, 1].
+
+        Positive delta improves the credit score (reward for on-time payments),
+        negative delta degrades it (penalty for missed payments/defaults).
+
+        Args:
+            firm_id: The unique identifier of the firm.
+            delta: The amount to adjust the score by. Can be positive or negative.
+
+        Side Effects:
+            - Updates self.firm_credit_scores[firm_id] in-place
+            - New firms (no existing score) start at 0.5 before applying delta
+        """
         current = self.firm_credit_scores.get(firm_id, 0.5)
         self.firm_credit_scores[firm_id] = max(0.0, min(1.0, current + delta))
 
     def update_household_credit_score(self, household_id: int, delta: float) -> None:
-        """Adjust a household's credit score by *delta*, clamped to [0, 1]."""
+        """Adjust a household's credit score by *delta*, clamped to [0, 1].
+
+        Positive delta improves the credit score (reward for on-time payments),
+        negative delta degrades it (penalty for missed payments/defaults).
+
+        Args:
+            household_id: The unique identifier of the household.
+            delta: The amount to adjust the score by. Can be positive or negative.
+
+        Side Effects:
+            - Updates self.household_credit_scores[household_id] in-place
+            - New households (no existing score) start at 0.5 before applying delta
+        """
         current = self.household_credit_scores.get(household_id, 0.5)
         self.household_credit_scores[household_id] = max(0.0, min(1.0, current + delta))
 
@@ -4798,19 +5085,73 @@ class BankAgent:
     # ── deposits ─────────────────────────────────────────────────────
 
     def accept_deposit(self, household_id: int, amount: float) -> None:
-        """Accept a deposit from a household into the bank."""
+        """Accept a deposit from a household into the bank.
+
+        Increases both the bank's cash reserves and total deposit liabilities.
+        The household_id is tracked for accounting purposes but the bank
+        does not maintain per-household deposit balances (households track
+        their own deposit amounts).
+
+        Args:
+            household_id: The unique identifier of the household making the deposit.
+            amount: The amount of money being deposited.
+
+        Side Effects:
+            - Increases self.cash_reserves by amount
+            - Increases self.total_deposits by amount
+        """
         self.cash_reserves += amount
         self.total_deposits += amount
 
     def withdraw(self, household_id: int, amount: float) -> float:
-        """Withdraw from a household's deposit. Returns actual amount withdrawn."""
+        """Withdraw from a household's deposit. Returns actual amount withdrawn.
+
+        IMPORTANT: All deposit withdrawals MUST route through this method to
+        maintain correct total_deposits accounting. Never directly mutate
+        self.cash_reserves without calling this method.
+
+        The actual withdrawal may be less than requested if the bank has
+        insufficient cash reserves (constrained by available liquidity).
+
+        Args:
+            household_id: The unique identifier of the household withdrawing.
+            amount: The requested withdrawal amount.
+
+        Returns:
+            The actual amount withdrawn (may be less than requested if
+            cash_reserves are insufficient).
+
+        Side Effects:
+            - Decreases self.cash_reserves by actual amount
+            - Decreases self.total_deposits by actual amount
+        """
         actual = min(amount, self.cash_reserves)
         self.cash_reserves -= actual
         self.total_deposits = max(0.0, self.total_deposits - actual)
         return actual
 
     def pay_deposit_interest(self, deposit_amount: float) -> float:
-        """Calculate and return weekly interest on a household's deposit balance."""
+        """Calculate and return weekly interest on a household's deposit balance.
+
+        Interest is calculated using the current deposit_rate converted to
+        a weekly rate (annual rate / 52). The bank's cash reserves are
+        reduced by the interest paid, and the payment is tracked in
+        last_tick_deposit_interest_paid.
+
+        Note: Deposit interest is funded from lending income (via
+        last_tick_interest_income) minus min_profit_margin_per_tick.
+        No money is created ex nihilo.
+
+        Args:
+            deposit_amount: The household's deposit balance to calculate interest on.
+
+        Returns:
+            The interest amount paid (deposit_amount * weekly_rate).
+
+        Side Effects:
+            - Decreases self.cash_reserves by interest amount
+            - Increases self.last_tick_deposit_interest_paid by interest amount
+        """
         weekly_rate = self.deposit_rate / 52.0
         interest = deposit_amount * weekly_rate
         self.cash_reserves -= interest
@@ -4847,7 +5188,19 @@ class BankAgent:
     # ── tick reset ───────────────────────────────────────────────────
 
     def reset_tick_telemetry(self) -> None:
-        """Zero out per-tick tracking fields at the start of each tick."""
+        """Zero out per-tick tracking fields at the start of each tick.
+
+        This method should be called at the beginning of each simulation
+        tick to reset the telemetry fields that track the bank's activity
+        during that tick. This ensures each tick's metrics are independent.
+
+        Side Effects:
+            - Resets self.last_tick_interest_income to 0.0
+            - Resets self.last_tick_deposit_interest_paid to 0.0
+            - Resets self.last_tick_new_loans to 0.0
+            - Resets self.last_tick_defaults to 0.0
+            - Resets self.last_tick_repayments to 0.0
+        """
         self.last_tick_interest_income = 0.0
         self.last_tick_deposit_interest_paid = 0.0
         self.last_tick_new_loans = 0.0
@@ -4855,13 +5208,39 @@ class BankAgent:
         self.last_tick_repayments = 0.0
 
     def cleanup_settled_loans(self) -> None:
-        """Remove fully repaid or written-off loans from the active ledger."""
+        """Remove fully repaid or written-off loans from the active ledger.
+
+        Loans with remaining balance <= 1e-6 are considered settled
+        (either fully repaid or written off) and are removed from the
+        active_loans list. This should be called periodically to prevent
+        the active_loans list from growing indefinitely.
+
+        Side Effects:
+            - Filters self.active_loans in-place, keeping only loans
+              with remaining balance > 1e-6
+        """
         self.active_loans = [l for l in self.active_loans if l["remaining"] > 1e-6]
 
     # ── serialization ────────────────────────────────────────────────
 
     def to_dict(self) -> dict:
-        """Serialize bank state for frontend / metrics."""
+        """Serialize bank state for frontend / metrics.
+
+        Converts the bank's state into a JSON-serializable dictionary
+        suitable for sending via WebSocket to the frontend or for
+        metrics collection. Computes derived fields like reserve_ratio_actual
+        and average credit scores on the fly.
+
+        Returns:
+            A dictionary containing the bank's complete state, including:
+            - Identity and cash position (bank_id, cash_reserves)
+            - Deposit and loan totals (total_deposits, total_loans_outstanding)
+            - Interest rates (base_interest_rate, deposit_rate)
+            - Reserve information (reserve_ratio, reserve_ratio_actual)
+            - Risk metrics (loan_loss_provision, avg_credit_scores)
+            - Per-tick telemetry (last_tick_* fields)
+            - Computed properties (lendable_cash, can_lend, active_loan_count)
+        """
         firm_scores = list(self.firm_credit_scores.values())
         hh_scores = list(self.household_credit_scores.values())
         return {
@@ -5209,7 +5588,27 @@ class GovernmentAgent(AgentMixin):
         self.reset_tick_bailout_telemetry()
 
     def record_bailout(self, category: str, firm_id: int, amount: float) -> None:
-        """Record one bailout disbursement against the active decision cycle."""
+        """Record one bailout disbursement against the active decision cycle.
+
+        Tracks bailout spending by sector and firm, updating both the
+        current cycle totals and per-tick telemetry. Ensures the same
+        firm is only counted once in ``bailout_cycle_firms_assisted``.
+
+        Args:
+            category: The firm's sector (e.g., "food", "housing", "services", "healthcare")
+            firm_id: The unique identifier of the firm receiving the bailout
+            amount: The bailout amount being disbursed
+
+        Side Effects:
+            - Decreases self.bailout_budget_remaining by amount
+            - Increases self.bailout_cycle_disbursed by amount
+            - Increments self.bailout_cycle_firms_assisted (once per firm)
+            - Updates self.bailout_cycle_assisted_firms[firm_id] with cumulative amount
+            - Updates self.bailout_cycle_sector_spend[category] with cumulative amount
+            - Updates self.last_tick_bailout_disbursed telemetry
+            - Updates self.last_tick_bailout_sector_spend[category] telemetry
+            - Updates self.last_tick_bailout_firms_assisted count
+        """
         normalized_category = (category or "unknown").lower()
         amount = float(max(0.0, amount))
         if amount <= 0.0:
@@ -5292,11 +5691,34 @@ class GovernmentAgent(AgentMixin):
         }
 
     def register_baseline_firm(self, category: str, firm_id: int) -> None:
-        """Record the firm id for a government baseline firm."""
+        """Record the firm ID for a government baseline firm.
+
+        Baseline firms are government-owned entities that provide essential
+        services (food, healthcare, services) at stable prices. They serve
+        as a price anchor and social safety net during economic shocks.
+
+        Args:
+            category: The sector category (e.g., "food", "housing", "services", "healthcare")
+            firm_id: The unique identifier of the baseline firm
+
+        Side Effects:
+            - Sets self.baseline_firm_ids[category.lower()] = firm_id
+        """
         self.baseline_firm_ids[category.lower()] = firm_id
 
     def is_baseline_firm(self, firm_id: int) -> bool:
-        """Check if a firm belongs to the government baseline set."""
+        """Check if a firm belongs to the government baseline set.
+
+        Baseline firms are government-owned entities that provide essential
+        services. This check is used to apply special rules (e.g.,
+        wage caps, dividend restrictions, different pricing logic).
+
+        Args:
+            firm_id: The unique identifier of the firm to check
+
+        Returns:
+            True if the firm is a registered baseline firm, False otherwise
+        """
         return firm_id in self.baseline_firm_ids.values()
 
     def get_unemployment_benefit_level(self) -> float:
@@ -5539,13 +5961,23 @@ class GovernmentAgent(AgentMixin):
         """
         Update government cash based on fiscal operations.
 
-        Mutates state.
+        Applies the results of the fiscal phase: tax revenue is added
+        to the treasury, and transfer payments (benefits) are deducted.
+        Also updates the last_tick_revenue and last_tick_spending telemetry.
 
         Args:
             total_wage_taxes: Sum of all wage taxes collected
             total_profit_taxes: Sum of all profit taxes collected
-            total_transfers: Sum of all transfers paid out
+            total_transfers: Sum of all transfers paid out (unemployment benefits, etc.)
             total_property_taxes: Sum of all property taxes collected (from housing firms)
+
+        Side Effects:
+            - Increases self.cash_balance by (total_wage_taxes + total_profit_taxes + total_property_taxes)
+            - Decreases self.cash_balance by total_transfers
+            - Updates self.last_tick_revenue = total_wage_taxes + total_profit_taxes + total_property_taxes
+            - Updates self.last_tick_spending = total_transfers
+            - Updates self.fiscal_pressure (EMA of spending/revenue ratio)
+            - Updates self.spending_efficiency based on deficit/surplus streaks
         """
         # Collect taxes
         self.cash_balance += total_wage_taxes
@@ -5681,15 +6113,22 @@ class GovernmentAgent(AgentMixin):
 
     def make_investments(self) -> Dict[str, float]:
         """
-        Government bond purchases with surplus funds (removed infrastructure/social programs).
+        Government bond purchases with surplus funds.
 
-        When government has surplus, it purchases bonds from Misc firm,
-        which distributes the money to households (1 person per tick).
+        When the government has surplus cash (above ``baseline_reserve`` of $50,000),
+        it purchases bonds from the Misc firm, which distributes the money
+        to households. This acts as a wealth transfer mechanism to
+        stimulate the economy during surplus periods.
 
-        Mutates state.
+        The purchase amount is 12% of the surplus (cash_balance - baseline_reserve),
+        capped at the available surplus.
 
         Returns:
             Dict with "bonds" key containing amount spent on bond purchases
+
+        Side Effects:
+            - Decreases self.cash_balance by bond_spend (if surplus exists)
+            - Returns bond_spend for Economy to route to Misc firm for distribution
         """
         investments = {"bonds": 0.0}
 

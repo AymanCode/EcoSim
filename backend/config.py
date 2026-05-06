@@ -677,7 +677,8 @@ class LLMConfig:
     # Provider selection
     provider: str = "lmstudio"  # "ollama" | "lmstudio" | "openrouter"
     ollama_base_url: str = "http://localhost:11434"
-    lmstudio_base_url: str = "http://127.0.0.1:1234"
+    # Any OpenAI-compatible local chat server, including LM Studio or llama.cpp.
+    lmstudio_base_url: str = "http://127.0.0.1:8080"
 
     # Model selection per role
     government_model: str = "microsoft/phi-4-mini-reasoning"

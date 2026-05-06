@@ -75,19 +75,23 @@ def create_large_economy(num_households: int = 10000, num_firms_per_category: in
     print(f"Creating {len(essential_categories)} baseline firms...")
     for category in essential_categories:
         firm_rng = random.Random(CONFIG.random_seed + next_firm_id * 10007)
-        baseline_units = np.random.randint(0, 51) if category == "Housing" else 0
+        baseline_units = num_households if category == "Housing" else 0
+        is_services = category == "Services"
+        baseline_inventory = 0.0 if category in {"Housing", "Healthcare", "Services"} else 20_000.0
+        baseline_capacity = 5.0 if is_services else 100_000.0
+        baseline_units_per_worker = CONFIG.firms.services_units_per_worker_range[1] if is_services else 80.0
         baseline_firm = FirmAgent(
             firm_id=next_firm_id,
             good_name=f"Baseline{category}",
             cash_balance=initial_firm_cash,
-            inventory_units=0.0 if category in {"Housing", "Healthcare"} else 20_000.0,
+            inventory_units=baseline_inventory,
             good_category=category,
             quality_level=max(0.0, min(10.0, 3.0 + firm_rng.uniform(-0.05, 0.05))),
             wage_offer=CONFIG.firms.minimum_wage_floor * 1.50,  # Baseline = government pay: 150% of min wage
             price=baseline_prices.get(category, 8.0),
             expected_sales_units=num_households * 0.1,
-            production_capacity_units=100_000.0,  # Reduced from 200k
-            units_per_worker=80.0,  # Balanced: enough production with reasonable workforce
+            production_capacity_units=baseline_capacity,  # Services use employee slots; goods use unit capacity.
+            units_per_worker=baseline_units_per_worker,  # Balanced: enough production with reasonable workforce
             productivity_per_worker=12.0 + firm_rng.uniform(-0.2, 0.2),
             personality="conservative",
             is_baseline=True,
@@ -96,7 +100,7 @@ def create_large_economy(num_households: int = 10000, num_firms_per_category: in
         )
         baseline_firm.set_personality("conservative")
 
-        # happiness_boost_per_unit removed â€” services affect happiness via wellbeing path only
+        # happiness_boost_per_unit removed - services affect happiness via wellbeing path only
 
         gov.register_baseline_firm(category, baseline_firm.firm_id)
         baseline_firms.append(baseline_firm)
@@ -146,25 +150,29 @@ def create_large_economy(num_households: int = 10000, num_firms_per_category: in
             quality_level = max(1.0, min(10.0, quality_seed + firm_rng.uniform(-0.05, 0.05)))
             price_multiplier = max(0.5, min(3.0, 0.95 + i * 0.03 + firm_rng.uniform(-0.005, 0.005)))
             wage_offer = min(200.0, 25.0 + (i * 3.0) + firm_rng.uniform(-0.2, 0.2))
+            is_services = category == "Services"
+            private_inventory = 0.0 if category in {"Healthcare", "Services"} else 300.0
+            private_capacity = 5.0 if is_services else 60_000.0
+            private_units_per_worker = CONFIG.firms.services_units_per_worker_range[1] if is_services else 40.0
             competitive_firm = FirmAgent(
                 firm_id=next_firm_id,
                 good_name=f"{category}Co{i+1}",
                 cash_balance=initial_firm_cash,
-                inventory_units=0.0 if category == "Healthcare" else 300.0,
+                inventory_units=private_inventory,
                 good_category=category,
                 quality_level=quality_level,
                 wage_offer=wage_offer,
                 price=baseline_prices.get(category, 5.0) * price_multiplier,
                 expected_sales_units=num_households * 0.03,
-                production_capacity_units=60_000.0,  # Better capacity
-                units_per_worker=40.0,
+                production_capacity_units=private_capacity,  # Services use employee slots; goods use unit capacity.
+                units_per_worker=private_units_per_worker,
                 productivity_per_worker=15.0 + (i * 0.8) + firm_rng.uniform(-0.2, 0.2),
                 personality=personality,
                 is_baseline=False
             )
             competitive_firm.set_personality(personality)
 
-            # happiness_boost_per_unit removed â€” services affect happiness via wellbeing path only
+            # happiness_boost_per_unit removed - services affect happiness via wellbeing path only
 
             queued_firms.append(competitive_firm)
             next_firm_id += 1
@@ -235,7 +243,7 @@ def create_large_economy(num_households: int = 10000, num_firms_per_category: in
             firm.wage_offer = max(firm.wage_offer, avg_doctor_wage * 0.95)
 
         print(
-            f"âœ“ Seeded initial doctors: {target_doctors} "
+            f"OK Seeded initial doctors: {target_doctors} "
             f"({(target_doctors / max(1, num_households)) * 100:.2f}% of households)"
         )
 
@@ -252,9 +260,9 @@ def create_large_economy(num_households: int = 10000, num_firms_per_category: in
         firm.owners = owner_ids
 
     total_firms = len(baseline_firms) + len(queued_firms)
-    print(f"âœ“ Ownership assigned (avg {sum(len(f.owners) for f in baseline_firms + queued_firms) / total_firms:.1f} owners/firm)")
+    print(f"OK Ownership assigned (avg {sum(len(f.owners) for f in baseline_firms + queued_firms) / total_firms:.1f} owners/firm)")
 
-    print(f"âœ“ Economy created successfully!")
+    print(f"OK Economy created successfully!")
     print(f"  Total agents: {len(households) + len(baseline_firms) + 1}")
     print(f"    - Households: {len(households)}")
     print(f"    - Firms: {len(baseline_firms)} (queued: {len(queued_firms)})")
@@ -1093,7 +1101,7 @@ def main(
 
     db_conn.close()
 
-    print(f"âœ“ Simulation complete!")
+    print(f"OK Simulation complete!")
     print(f"  Total time: {total_time:.2f} seconds ({total_time/60:.2f} minutes)")
     print(f"  Average tick time: {avg_tick_time:.3f} seconds")
     print(f"  Ticks per second: {1/avg_tick_time:.2f}")
@@ -1165,7 +1173,7 @@ def main(
     with open(summary_path, 'w') as f:
         json.dump(summary, f, indent=2)
 
-    print(f"âœ“ Summary saved to: {summary_path}")
+    print(f"OK Summary saved to: {summary_path}")
     print()
 
     # Get comprehensive economic metrics from the economy
@@ -1241,7 +1249,7 @@ def main(
     print()
 
     # Performance
-    print("âš¡ SIMULATION PERFORMANCE")
+    print("SIMULATION PERFORMANCE")
     print("-" * 80)
     print(f"  Total agents:                 {num_households + len(economy.firms) + 1:>15,}")
     print(f"  Total ticks:                  {num_ticks:>18,}")
@@ -1270,9 +1278,9 @@ def main(
         if hh_data:
             first = hh_data[0]
             last = hh_data[-1]
-            print(f"  HH {hh_id:4d}: ${first['cash']:7.2f} â†’ ${last['cash']:7.2f} cash | "
-                  f"Employed: {first['employed']} â†’ {last['employed']} | "
-                  f"Happiness: {first['happiness']:.2f} â†’ {last['happiness']:.2f}")
+            print(f"  HH {hh_id:4d}: ${first['cash']:7.2f} -> ${last['cash']:7.2f} cash | "
+                  f"Employed: {first['employed']} -> {last['employed']} | "
+                  f"Happiness: {first['happiness']:.2f} -> {last['happiness']:.2f}")
     print()
 
     # Print firm sample summary
@@ -1291,8 +1299,8 @@ def main(
                 first = firm_data[0]
                 last = firm_data[-1]
                 print(f"  Firm {firm_id:3d} ({last['name']:20s}): "
-                      f"${first['cash']:10,.0f} â†’ ${last['cash']:10,.0f} cash | "
-                      f"Employees: {first['employees']:3d} â†’ {last['employees']:3d}")
+                      f"${first['cash']:10,.0f} -> ${last['cash']:10,.0f} cash | "
+                      f"Employees: {first['employees']:3d} -> {last['employees']:3d}")
     else:
         print("  No firms tracked in sample")
     print()

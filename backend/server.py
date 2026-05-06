@@ -48,6 +48,7 @@ from pydantic import BaseModel, Field, field_validator
 import numpy as np
 
 from config import CONFIG
+from utils.category_utils import get_good_category_capitalized
 from tools.runners.run_large_simulation import (
     create_large_economy,
     compute_firm_snapshot_rows,
@@ -371,6 +372,7 @@ class SimulationManager:
         self.cached_mean_prices = None
         self.cached_supplies = None
         self.cached_total_net_worth = None
+        self.prev_gov_cash: float = 0.0  # Initialize to avoid hasattr check
         self.enable_warehouse = os.getenv("ECOSIM_ENABLE_WAREHOUSE", "0").strip().lower() in {"1", "true", "yes", "on"}
         self.warehouse_backend = os.getenv("ECOSIM_WAREHOUSE_BACKEND", "sqlite").strip().lower()
         self.warehouse_manager = None
@@ -413,14 +415,7 @@ class SimulationManager:
     @staticmethod
     def _infer_sector_from_good(good_name: str) -> str:
         """Infer sector category from good name."""
-        lower_good = good_name.lower()
-        if "housing" in lower_good:
-            return "Housing"
-        elif "service" in lower_good:
-            return "Services"
-        elif "health" in lower_good or "medical" in lower_good:
-            return "Healthcare"
-        return "Food"
+        return get_good_category_capitalized(good_name)
 
     def _calculate_healthcare_queue_depth(self) -> int:
         """Sum healthcare queue depth across all healthcare firms."""
@@ -1814,8 +1809,6 @@ class SimulationManager:
                 
                 # Calculate Fiscal Balance (Gov Profit)
                 current_gov_cash = self.economy.government.cash_balance
-                if not hasattr(self, 'prev_gov_cash'):
-                    self.prev_gov_cash = current_gov_cash
                 fiscal_balance = current_gov_cash - self.prev_gov_cash
                 self.prev_gov_cash = current_gov_cash
                 

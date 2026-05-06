@@ -1,4 +1,4 @@
-﻿
+
 """LLM government agent with optional LangGraph orchestration.
 
 This module keeps the government decision loop narrow and testable:
@@ -27,7 +27,6 @@ for _candidate in (BACKEND_ROOT, TOOLS_ROOT, TOOLS_ROOT / 'analysis', TOOLS_ROOT
     if _candidate_str not in sys.path:
         sys.path.insert(0, _candidate_str)
 
-import json
 import logging
 import random
 import time
@@ -53,7 +52,9 @@ class GovernmentState(TypedDict, total=False):
     """State exchanged between observation / reasoning / apply nodes."""
 
     raw_metrics: Dict[str, Any]
+    sector_diagnostics: Dict[str, Any]
     observed_metrics: Dict[str, Any]
+    rolling_summaries: Dict[str, Dict[str, float]]
     current_policy: Dict[str, Any]
     budget_state: Dict[str, Any]
     regime_state: Dict[str, Any]
@@ -97,8 +98,24 @@ ORDERED_LEVERS: Dict[str, List[Any]] = {
     "bailout_budget": [0, 5000, 10000, 25000, 50000],
 }
 
+PROMPT_POLICY_LEVERS: tuple = (
+    "wage_tax_rate",
+    "profit_tax_rate",
+    "investment_tax_rate",
+    "benefit_level",
+    "public_works",
+    "minimum_wage_policy",
+    "sector_subsidy_target",
+    "sector_subsidy_level",
+    "infrastructure_spending",
+    "technology_spending",
+    "bailout_policy",
+    "bailout_target",
+    "bailout_budget",
+)
+
 # indicator_name -> (lag_ticks, noise_std_pct, coverage_pct)
-INDICATOR_CONSTRAINTS: Dict[str, tuple[int, float, float]] = {
+INDICATOR_CONSTRAINTS: Dict[str, tuple] = {
     "government_cash": (0, 0.01, 1.0),
     "gov_revenue_this_tick": (1, 0.03, 1.0),
     "gov_spending_this_tick": (0, 0.01, 1.0),
@@ -143,111 +160,271 @@ RATE_LIKE_INDICATORS = {
     "wage_floor_binding_share",
 }
 
-PHILOSOPHY_PROMPTS = {
-    "capitalist": "You believe in free-market capitalism: private enterprise drives growth, government should keep taxes competitive, avoid heavy-handed intervention, and step in only when markets are clearly failing. You favor fiscal discipline, supply-side conditions for investment, and targeted intervention over broad permanent expansion.",
-    "keynesian": "You believe active fiscal policy is necessary to stabilize demand during downturns. You favor counter-cyclical spending, strong safety nets during recessions, and public investment when private demand is weak.",
-    "balanced": "You are pragmatic rather than ideological. You balance market efficiency, fiscal discipline, employment, and social stability, adjusting intervention based on current conditions.",
+ROLLING_WINDOWS: tuple = (4, 12)
+
+TIER_1_CORE: tuple = (
+    "unemployment_rate", "gdp_this_tick", "mean_health", "mean_happiness",
+    "gini_coefficient", "government_cash", "mean_wage", "wage_floor_binding_share",
+)
+
+TIER_2_DISTRESS: tuple = (
+    "distressed_food_firms", "distressed_housing_firms", "distressed_services_firms",
+    "distressed_healthcare_firms", "bankruptcy_count", "bank_defaults_this_tick",
+    "healthcare_queue_depth", "healthcare_denied_count",
+    "labor_seekers_wage_ineligible", "labor_cannot_work",
+)
+
+TIER_3_SLOW: tuple = (
+    "infrastructure_productivity", "technology_quality", "total_firms",
+    "effective_mean_quality", "public_works_jobs", "minimum_wage_floor",
+    "unemployment_benefit",
+)
+
+IDEOLOGY_LEVER_OVERRIDES: Dict[str, Dict[str, tuple]] = {
+    "capitalist": {},
+    "keynesian": {},
+    "balanced": {},
+    "socialist": {
+        "wage_tax_rate": (0.0, 0.65),
+        "profit_tax_rate": (0.0, 0.65),
+        "investment_tax_rate": (0.0, 0.40),
+    },
+    "communist": {
+        "wage_tax_rate": (0.0, 0.85),
+        "profit_tax_rate": (0.0, 0.90),
+        "investment_tax_rate": (0.0, 0.60),
+    },
 }
+
+PHILOSOPHY_PROMPTS = {
+    "capitalist": (
+        "You believe in free-market capitalism: private enterprise drives growth, government should keep taxes "
+        "competitive, avoid heavy-handed intervention, and step in only when markets are clearly failing. "
+        "You favor fiscal discipline, supply-side conditions for investment, and targeted intervention over "
+        "broad permanent expansion."
+    ),
+    "keynesian": (
+        "You believe active fiscal policy is necessary to stabilize demand during downturns. You favor "
+        "counter-cyclical spending, strong safety nets during recessions, and public investment when "
+        "private demand is weak."
+    ),
+    "balanced": (
+        "You are pragmatic rather than ideological. You balance market efficiency, fiscal discipline, "
+        "employment, and social stability, adjusting intervention based on current conditions."
+    ),
+    "socialist": (
+        "You believe the state should actively redistribute wealth and guarantee basic needs. You favor high "
+        "taxation on profits and wages, robust public services, strong labor protections, and direct government "
+        "investment to ensure equitable outcomes over growth alone."
+    ),
+    "communist": (
+        "You believe private ownership of the means of production must be minimized. You favor near-total "
+        "taxation of profits and wages, universal state provision of housing, healthcare, and employment, "
+        "and central coordination over market competition."
+    ),
+}
+
+
+def _resolve_continuous_levers(philosophy: str) -> Dict[str, tuple]:
+    """Return ideology-adjusted continuous lever ranges."""
+    base = dict(CONTINUOUS_LEVERS)
+    base.update(IDEOLOGY_LEVER_OVERRIDES.get(philosophy, {}))
+    return base
+
+
+def _compute_rolling_summary(economy: Any, indicator: str, windows: tuple = ROLLING_WINDOWS) -> Dict[str, float]:
+    """Compute unweighted rolling averages for one indicator from metrics_history."""
+    history = list(getattr(economy, "metrics_history", []) or [])
+    out: Dict[str, float] = {}
+    for window in windows:
+        slice_ = history[-window:] if len(history) >= window else history
+        values = [
+            row["metrics"].get(indicator)
+            for row in slice_
+            if isinstance(row.get("metrics", {}).get(indicator), (int, float))
+        ]
+        if values:
+            out[f"avg_{window}t"] = round(sum(values) / len(values), 4)
+    return out
+
+
+def _trend_arrow(current: Any, avg_short: Any, avg_long: Any) -> str:
+    """Return a trend arrow comparing current value against short and long rolling averages."""
+    if not all(isinstance(x, (int, float)) for x in (current, avg_short, avg_long)):
+        return ""
+    if current > avg_short > avg_long:
+        return " ↑"
+    if current < avg_short < avg_long:
+        return " ↓"
+    return " →"
+
+
+def _is_meaningful(indicator: str, value: Any) -> bool:
+    """Return False for Tier-2 distress indicators when value is zero — suppresses noise."""
+    if indicator not in TIER_2_DISTRESS:
+        return True
+    if isinstance(value, (int, float)):
+        return value > 0
+    return value not in (None, "", "none", 0)
 
 
 def _build_system_prompt(philosophy: str, num_households: int, num_firms: int) -> str:
     """Build the system prompt for the government agent."""
 
-    philosophy_text = PHILOSOPHY_PROMPTS.get(philosophy, PHILOSOPHY_PROMPTS["balanced"])
-    return f"""SIMULATION CONTEXT: You are the AI government of a computer-simulated economy. This is a closed simulation â€” not a real economy. Every piece of data you receive is a complete, authoritative snapshot of the simulation state. Do not ask for additional information. Do not ask clarifying questions. Do not say you need more data. You have everything you need to make a decision right now.
+    levers = _resolve_continuous_levers(philosophy)
+    wt_lo, wt_hi = levers["wage_tax_rate"]
+    pt_lo, pt_hi = levers["profit_tax_rate"]
+    it_lo, it_hi = levers["investment_tax_rate"]
 
-Your economic philosophy: {philosophy_text}
+    return f"""ROLE: You are the AI Central Government of a simulated economy.
+PHILOSOPHY: Balanced / Pragmatic
+OBJECTIVE: Maximize GDP and mean happiness while keeping unemployment low and maintaining a sustainable government cash balance.
 
-SIMULATION PARAMETERS: {num_households} households, {num_firms} firms. One simulation tick = one week.
+CRITICAL SIMULATION RULES:
+1. ONE-STEP LIMIT: You may only change a qualitative ordered lever by one step per decision cycle.
+2. BOUNDARIES: Do not output values outside the specified valid ranges.
+3. BAILOUTS: Bailout budgets must be realistic and target specific distress.
+4. ACTIONS: Only include levers you want to change. Hold policy by returning an empty changes object.
+5. OUTPUT: Return only valid JSON. Do not use markdown, comments, <think> tags, or text outside the JSON object.
 
-POLICY LEVERS â€” you control 13 levers:
+AVAILABLE LEVERS AND REAL CODE RANGES:
+- wage_tax_rate: Float [{wt_lo:.2f} to {wt_hi:.2f}]
+- profit_tax_rate: Float [{pt_lo:.2f} to {pt_hi:.2f}]
+- investment_tax_rate: Float [{it_lo:.2f} to {it_hi:.2f}]
+- benefit_level: Enum [low, neutral, high, crisis]
+- public_works: Enum [off, on]
+- minimum_wage_policy: Enum [low, neutral, high]
+- sector_subsidy_target: Enum [none, food, housing, services, healthcare]
+- sector_subsidy_level: Integer [0, 10, 25, 50]
+- infrastructure_spending: Enum [none, low, medium, high]
+- technology_spending: Enum [none, low, medium, high]
+- bailout_policy: Enum [off, sector, all]
+- bailout_target: Enum [none, food, housing, services, healthcare]
+- bailout_budget: Integer [0, 5000, 10000, 25000, 50000]
 
-Continuous (any float in range):
-  wage_tax_rate:       [0.00 â€“ 0.50]  Fraction of household wages taxed
-  profit_tax_rate:     [0.00 â€“ 0.50]  Fraction of firm profits taxed
-  investment_tax_rate: [0.00 â€“ 0.30]  Fraction of firm R&D/investment taxed
-
-Discrete (exact values only):
-  benefit_level:          low | neutral | high | crisis
-  public_works:           off | on
-  minimum_wage_policy:    low | neutral | high
-  sector_subsidy_target:  none | food | housing | services | healthcare
-  sector_subsidy_level:   0 | 10 | 25 | 50          (integer, percent govt pays)
-  infrastructure_spending: none | low | medium | high
-  technology_spending:    none | low | medium | high
-  bailout_policy:         off | sector | all
-  bailout_target:         none | food | housing | services | healthcare
-  bailout_budget:         0 | 5000 | 10000 | 25000 | 50000  (integer)
+REFERENCE ENUMS:
+- technology_spending: none | low | medium | high
+- bailout_policy: off | sector | all
+- bailout_budget: 0 | 5000 | 10000 | 25000 | 50000
 
 LEVER EFFECTS:
-  wage_tax_rate â†‘       â†’ govt revenue â†‘, household take-home â†“, consumption â†“
-  profit_tax_rate â†‘     â†’ govt revenue â†‘, firm cash â†“, investment â†“
-  investment_tax_rate â†‘ â†’ R&D spending â†“, quality growth â†“
-  benefit_level â†‘       â†’ unemployed income â†‘, reservation wages â†‘, fiscal cost â†‘
-  public_works on       â†’ unemployment â†“ fast, govt cash â†“ fast
-  minimum_wage â†‘        â†’ low-wage workers earn more, some firms shed jobs
-  sector_subsidy â†‘      â†’ demand in that sector â†‘, affordability â†‘, fiscal cost â†‘
-  infrastructure â†‘      â†’ economy-wide productivity â†‘ slowly (20+ ticks)
-  technology â†‘          â†’ product quality â†‘ slowly, shifts demand toward quality
-  bailout_budget â†‘      â†’ failing firms get rescue loans, prevents sector collapse
+- wage_tax_rate higher: government revenue up, household take-home and consumption down.
+- profit_tax_rate higher: government revenue up, firm cash and investment capacity down.
+- investment_tax_rate higher: Higher investment_tax_rate taxes firm R&D directly; quality growth and R&D spending down.
+- benefit_level higher: unemployed income up, reservation wages and fiscal cost up.
+- public_works on: unemployment can fall quickly, government cash falls quickly.
+- minimum_wage_policy higher: wage floor up; workers may earn more but fragile firms may hire less.
+- sector_subsidy: targeted affordability/demand support, fiscal cost up.
+- infrastructure_spending: productivity rises slowly over many ticks.
+- technology_spending: effective quality rises slowly, may improve demand.
+- bailout_budget: rescue loans to failing firms; use only for specific distress.
 
-HARD RULES:
-  - Only include levers you want to CHANGE from their current value.
-  - Discrete ordered levers (benefit_level, minimum_wage_policy, infrastructure_spending, technology_spending) can move by at most ONE step per decision cycle.
-  - sector_subsidy_level and bailout_budget must be integers.
-  - If you have no changes to make, return {{"decisions": {{}}, "reasoning": "holding current policy"}}.
-  - Do NOT ask questions. Do NOT request more data. Make a decision or hold.
+CONSISTENCY RULES:
+- sector_subsidy_target=none requires sector_subsidy_level=0.
+- A sector_subsidy_target other than none requires sector_subsidy_level > 0.
+- bailout_policy=off requires bailout_target=none and bailout_budget=0.
+- bailout_policy=sector requires a non-none bailout_target.
 
-OUTPUT FORMAT â€” respond with valid JSON and nothing else after your reasoning:
+RESPONSE FORMAT:
 {{
-  "decisions": {{
-    "lever_name": value
-  }},
-  "reasoning": "2-4 sentences: what you observed, what you changed, why"
+  "reasoning": "Brief, 1-2 sentence explanation connecting sector diagnostics to the lever changes.",
+  "changes": {{
+    "lever_name": "new_value"
+  }}
 }}"""
 
-
-def _format_observed_metrics(observed_metrics: Dict[str, Any]) -> str:
-    """Render constrained observations for the user prompt."""
+def _format_observed_metrics(
+    observed_metrics: Dict[str, Any],
+    rolling_summaries: Optional[Dict[str, Dict[str, float]]] = None,
+) -> str:
+    """Render constrained observations in a tiered format for the user prompt."""
 
     if not observed_metrics:
         return "No observations available."
 
+    rolling_summaries = rolling_summaries or {}
     lines: List[str] = []
-    for key in sorted(observed_metrics):
-        entry = observed_metrics[key]
+
+    def render_indicator(key: str, show_rolling: bool = False, skip_unavailable: bool = False) -> Optional[str]:
+        entry = observed_metrics.get(key)
+        if entry is None:
+            return None
         status = entry.get("status", "unknown")
         if status != "reported":
-            lines.append(
-                f"- {key}: unavailable (last_available_tick={entry.get('last_available_tick')})"
-            )
-            continue
-        lines.append(
-            "- "
-            f"{key}: value={entry.get('value')} "
-            f"(age={entry.get('data_age_ticks', 0)} ticks, "
-            f"accuracy={entry.get('estimated_accuracy', 'unknown')})"
-        )
-    return "\n".join(lines)
+            if skip_unavailable:
+                return None
+            return f"  {key}: unavailable"
+        value = entry.get("value")
+        if not _is_meaningful(key, value):
+            return None
+        age = entry.get("data_age_ticks", 0)
+        acc = entry.get("estimated_accuracy", "?")
+        age_str = f"age={age}t, " if age > 0 else ""
+        line = f"  {key}: {value} ({age_str}{acc})"
+        if show_rolling and key in rolling_summaries:
+            rs = rolling_summaries[key]
+            avg4 = rs.get("avg_4t")
+            avg12 = rs.get("avg_12t")
+            trend = _trend_arrow(value, avg4, avg12)
+            avg_parts = []
+            if avg4 is not None:
+                avg_parts.append(f"4t={avg4}")
+            if avg12 is not None:
+                avg_parts.append(f"12t={avg12}")
+            if avg_parts:
+                line += f" [avg: {', '.join(avg_parts)}{trend}]"
+        return line
+
+    # Tier 1: core indicators — always show (including unavailable), with rolling averages + trend
+    tier1_lines = [line for key in TIER_1_CORE if (line := render_indicator(key, show_rolling=True)) is not None]
+    if tier1_lines:
+        lines.append("CORE INDICATORS:")
+        lines.extend(tier1_lines)
+
+    # Tier 2: distress signals — only show when nonzero/meaningful
+    tier2_lines = [
+        line for key in TIER_2_DISTRESS
+        if (line := render_indicator(key, skip_unavailable=True)) is not None
+    ]
+    if tier2_lines:
+        lines.append("DISTRESS SIGNALS (nonzero only):")
+        lines.extend(tier2_lines)
+
+    # Tier 3: slow-moving factors — compact, no rolling averages
+    tier3_lines = [
+        line for key in TIER_3_SLOW
+        if (line := render_indicator(key, skip_unavailable=True)) is not None
+    ]
+    if tier3_lines:
+        lines.append("SLOW-MOVING FACTORS:")
+        lines.extend(tier3_lines)
+
+    return "\n".join(lines) if lines else "No observations available."
 
 
 def _format_recent_policy_memory(memory: List[Dict[str, Any]]) -> str:
-    """Render compact recent policy decisions and observed deltas."""
+    """Render compact recent policy decisions with normalized impact deltas."""
 
     if not memory:
         return "No recent policy actions recorded."
 
+    def fmt(val: Any, unit: str) -> str:
+        if val is None:
+            return "n/a"
+        sign = "+" if float(val) >= 0 else ""
+        return f"{sign}{val}{unit}"
+
     lines: List[str] = []
     for item in memory:
         impact = item.get("impact", {})
+        reasoning = str(item.get("reasoning", ""))[:100]
         lines.append(
-            "- "
-            f"tick {item.get('tick')}: {item.get('decisions')} | "
-            f"delta unemployment={impact.get('unemployment_rate_delta')} pp, "
-            f"delta GDP={impact.get('gdp_delta')}, "
-            f"delta health={impact.get('mean_health_delta')}, "
-            f"delta distress={impact.get('consumer_distress_delta')} | "
-            f"reasoning={item.get('reasoning')}"
+            f"- tick {item.get('tick')}: {item.get('decisions')} | "
+            f"Δunemployment={fmt(impact.get('unemployment_delta_pp'), 'pp')}, "
+            f"ΔGDP={fmt(impact.get('gdp_delta_pct'), '%')}, "
+            f"Δhealth={fmt(impact.get('mean_health_delta_pp'), 'pp')}, "
+            f"Δdistress={fmt(impact.get('consumer_distress_delta_pct'), '%')} | "
+            f"reason={reasoning}"
         )
     return "\n".join(lines)
 
@@ -264,43 +441,268 @@ def _format_regime_state(regime_state: Dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
+
+def _format_money(value: Any) -> str:
+    """Format a numeric value as compact dollars for the prompt."""
+    try:
+        return f"${float(value):,.0f}"
+    except (TypeError, ValueError):
+        return "$0"
+
+
+def _format_pct(value: Any) -> str:
+    """Format a rate or pressure value as a percentage."""
+    try:
+        return f"{float(value) * 100.0:.1f}%"
+    except (TypeError, ValueError):
+        return "0.0%"
+
+
+def _metric_trend(metrics_history: List[Dict[str, Any]], key: str, current: float) -> str:
+    """Return a compact trend label comparing current value against recent history."""
+    values = [
+        row.get("metrics", {}).get(key)
+        for row in metrics_history[-6:]
+        if isinstance(row.get("metrics", {}).get(key), (int, float))
+    ]
+    if len(values) < 2:
+        return "flat"
+    baseline = sum(float(v) for v in values[:-1]) / max(1, len(values) - 1)
+    if baseline == 0.0:
+        return "flat"
+    change = (float(current) - baseline) / abs(baseline)
+    if change > 0.05:
+        return "rising"
+    if change < -0.05:
+        return "falling"
+    return "flat"
+
+
+def _sector_status(distressed: int, shortage_active: bool, shortage_severity: float, avg_cash: float) -> str:
+    """Map sector diagnostics to a stable status label."""
+    if distressed > 0 or shortage_severity >= 60.0 or avg_cash <= 0.0:
+        return "critical"
+    if shortage_active or shortage_severity >= 25.0:
+        return "watch"
+    return "stable"
+
+
+def _dominant_sector_driver(
+    *,
+    distressed: int,
+    zero_cash: int,
+    survival: int,
+    burn: int,
+    weak_demand: int,
+    inventory_pressure: float,
+    vacancy_pressure: float,
+    shortage_driver: str,
+    shortage_active: bool,
+) -> str:
+    """Choose a human-readable primary sector driver for the prompt."""
+    if zero_cash > 0:
+        return "zero_cash"
+    if survival > 0:
+        return "survival_mode"
+    if burn > 0:
+        return "burn_mode"
+    if shortage_active and shortage_driver and shortage_driver != "stable":
+        return f"shortage_{shortage_driver}"
+    if weak_demand > 0:
+        return "weak_demand"
+    if inventory_pressure >= 0.35:
+        return "low_inventory"
+    if vacancy_pressure >= 0.10:
+        return "labor_vacancies"
+    if distressed > 0:
+        return "general_distress"
+    return "stable"
+
+
+def build_sector_diagnostics(economy: Any) -> Dict[str, Dict[str, Any]]:
+    """Build compact sector diagnostics for the LLM policy prompt."""
+    shortage_by_sector = {
+        str(row.get("sector", "")).lower(): row
+        for row in (getattr(economy, "last_sector_shortage_diagnostics", []) or [])
+    }
+    sectors = ("food", "housing", "services", "healthcare")
+    out: Dict[str, Dict[str, Any]] = {}
+
+    for sector in sectors:
+        firms = [f for f in economy.firms if (getattr(f, "good_category", "") or "").lower() == sector]
+        shortage = shortage_by_sector.get(sector, {})
+        distressed = 0
+        zero_cash = 0
+        survival = 0
+        burn = 0
+        weak_demand = 0
+        total_cash = 0.0
+        total_inventory = 0.0
+        total_sold = 0.0
+        total_employees = 0
+        total_vacancies = 0
+        total_price = 0.0
+
+        for firm in firms:
+            firm_cash = float(getattr(firm, "cash_balance", 0.0))
+            total_cash += firm_cash
+            total_inventory += max(0.0, float(getattr(firm, "inventory_units", 0.0)))
+            total_sold += max(0.0, float(getattr(economy, "last_tick_sales_units", {}).get(firm.firm_id, 0.0)))
+            total_employees += len(getattr(firm, "employees", []) or [])
+            total_vacancies += max(0, int(getattr(firm, "planned_hires_count", 0) or 0))
+            total_price += float(getattr(firm, "price", 0.0))
+            is_survival = bool(getattr(firm, "survival_mode", False))
+            is_burn = bool(getattr(firm, "burn_mode", False))
+            is_zero_cash = firm_cash <= 0.0
+            if is_survival:
+                survival += 1
+            if is_burn:
+                burn += 1
+            if is_zero_cash:
+                zero_cash += 1
+            if float(getattr(economy, "last_tick_sell_through_rate", {}).get(firm.firm_id, 0.5)) < 0.5:
+                weak_demand += 1
+            if is_survival or is_burn or is_zero_cash:
+                distressed += 1
+
+        firm_count = len(firms)
+        avg_cash = total_cash / firm_count if firm_count else 0.0
+        avg_price = total_price / firm_count if firm_count else 0.0
+        sell_through = float(shortage.get("mean_sell_through_rate", 0.0) or 0.0)
+        vacancy_pressure = float(shortage.get("vacancy_pressure", 0.0) or 0.0)
+        inventory_pressure = float(shortage.get("inventory_pressure", 0.0) or 0.0)
+        shortage_active = bool(shortage.get("shortage_active", False))
+        shortage_severity = float(shortage.get("shortage_severity", 0.0) or 0.0)
+        shortage_driver = str(shortage.get("primary_driver", "stable") or "stable")
+        driver = _dominant_sector_driver(
+            distressed=distressed,
+            zero_cash=zero_cash,
+            survival=survival,
+            burn=burn,
+            weak_demand=weak_demand,
+            inventory_pressure=inventory_pressure,
+            vacancy_pressure=vacancy_pressure,
+            shortage_driver=shortage_driver,
+            shortage_active=shortage_active,
+        )
+
+        out[sector] = {
+            "status": _sector_status(distressed, shortage_active, shortage_severity, avg_cash),
+            "driver": driver,
+            "firms": firm_count,
+            "distressed_firms": distressed,
+            "zero_cash_firms": zero_cash,
+            "survival_mode_firms": survival,
+            "burn_mode_firms": burn,
+            "weak_demand_firms": weak_demand,
+            "avg_cash": avg_cash,
+            "avg_price": avg_price,
+            "labor": {
+                "employees": total_employees,
+                "vacancies": total_vacancies,
+                "vacancy_pressure": vacancy_pressure,
+            },
+            "inventory": {
+                "units": total_inventory,
+                "sold_last_tick": total_sold,
+                "sell_through": sell_through,
+                "inventory_pressure": inventory_pressure,
+            },
+            "shortage": {
+                "active": shortage_active,
+                "severity": shortage_severity,
+                "driver": shortage_driver,
+            },
+        }
+    return out
+
+
+def _format_sector_diagnostics(sector_diagnostics: Dict[str, Dict[str, Any]]) -> str:
+    """Render sector diagnostics in the compact prompt format."""
+    lines: List[str] = []
+    for sector in ("food", "housing", "services", "healthcare"):
+        data = sector_diagnostics.get(sector, {})
+        labor = data.get("labor", {})
+        inv = data.get("inventory", {})
+        shortage = data.get("shortage", {})
+        lines.append(
+            f"- {sector.upper()}: Status: {data.get('status', 'unknown')} | "
+            f"Driver: {data.get('driver', 'unknown')} | "
+            f"Firms: {data.get('firms', 0)} active, {data.get('distressed_firms', 0)} distressed | "
+            f"Cash: {_format_money(data.get('avg_cash', 0.0))} avg | "
+            f"Labor: {labor.get('employees', 0)} workers, {labor.get('vacancies', 0)} vacancies, "
+            f"vacancy_pressure={_format_pct(labor.get('vacancy_pressure', 0.0))} | "
+            f"Inventory: {float(inv.get('units', 0.0)):.1f} units, sold={float(inv.get('sold_last_tick', 0.0)):.1f}, "
+            f"sell_through={_format_pct(inv.get('sell_through', 0.0))}, "
+            f"inventory_pressure={_format_pct(inv.get('inventory_pressure', 0.0))} | "
+            f"Shortage: active={bool(shortage.get('active', False))}, "
+            f"severity={float(shortage.get('severity', 0.0)):.1f}, driver={shortage.get('driver', 'stable')}"
+        )
+    return "\n".join(lines)
+
 def _build_user_prompt(
-    observed_metrics: Dict[str, Any],
-    current_policy: Dict[str, Any],
-    budget_state: Dict[str, Any],
-    regime_state: Dict[str, Any],
-    tick: int,
-    recent_policy_memory: List[Dict[str, Any]],
+    raw_metrics: Dict[str, Any],
+    sector_diagnostics: Dict[str, Dict[str, Any]],
+    current_policy: Optional[Dict[str, Any]] = None,
+    budget_state: Optional[Dict[str, Any]] = None,
+    regime_state: Optional[Dict[str, Any]] = None,
+    tick: int = 0,
+    recent_policy_memory: Optional[List[Dict[str, Any]]] = None,
 ) -> str:
     """Build the user prompt for the government agent."""
 
+    current_policy = current_policy or {}
+    budget_state = budget_state or {}
+    regime_state = regime_state or {}
+    recent_policy_memory = recent_policy_memory or []
+    active_firms = int(regime_state.get("active_firms_count", raw_metrics.get("total_firms", 0)) or 0)
+    households = int(raw_metrics.get("total_households", 0) or 0)
+    gdp = float(raw_metrics.get("gdp_this_tick", 0.0) or 0.0)
+    gov_cash = float(raw_metrics.get("government_cash", budget_state.get("cash_balance", 0.0)) or 0.0)
+    deficit = float(budget_state.get("last_tick_revenue", 0.0) or 0.0) - float(budget_state.get("last_tick_spending", 0.0) or 0.0)
+    unemployment_pct = float(raw_metrics.get("unemployment_rate", 0.0) or 0.0) * 100.0
+    mean_health = float(raw_metrics.get("mean_health", 0.0) or 0.0)
+    mean_happiness = float(raw_metrics.get("mean_happiness", 0.0) or 0.0)
+    gini = float(raw_metrics.get("gini_coefficient", 0.0) or 0.0)
+    gdp_trend = _metric_trend(list(raw_metrics.get("_metrics_history", []) or []), "gdp_this_tick", gdp)
+
     current_policy_lines = "\n".join(
-        f"- {lever}: {current_policy[lever]}" for lever in sorted(current_policy)
-    )
-    budget_lines = "\n".join(
-        f"- {field}: {round(float(value), 4) if isinstance(value, (int, float)) else value}"
-        for field, value in sorted(budget_state.items())
+        f"- {lever}: {current_policy.get(lever)}"
+        for lever in PROMPT_POLICY_LEVERS
+        if lever in current_policy
     )
 
-    return f"""=== SIMULATION TICK {tick} ===
+    return f"""[CURRENT ECONOMIC STATE]
+REGIME: {regime_state.get('phase', 'unknown')}
+ACTIVE FIRMS: {active_firms} | HOUSEHOLDS: {households} | TICK: {tick}
+Regime state: warmup_active={regime_state.get('warmup_active', False)}, warmup_ticks_remaining={regime_state.get('warmup_ticks_remaining', 0)}, queued_firms_count={regime_state.get('queued_firms_count', 0)}
 
-CURRENT POLICY SETTINGS:
+MACRO INDICATORS:
+- GDP (Trend): {_format_money(gdp)} ({gdp_trend})
+- Unemployment: {unemployment_pct:.1f}%
+- Government Cash: {_format_money(gov_cash)} (Deficit/Surplus last tick: {_format_money(deficit)})
+- Mean Health: {mean_health:.3f}
+- Mean Happiness: {mean_happiness:.3f}
+- Gini Coefficient: {gini:.3f}
+- Fiscal Pressure: {float(budget_state.get('fiscal_pressure', 0.0) or 0.0):.3f}
+- Spending Efficiency: {float(budget_state.get('spending_efficiency', 1.0) or 1.0):.3f}
+
+[SECTOR DIAGNOSTICS]
+{_format_sector_diagnostics(sector_diagnostics)}
+
+[CURRENT POLICY SETTINGS]
 {current_policy_lines}
 
-GOVERNMENT BUDGET:
-{budget_lines}
-
-SIMULATION REGIME:
-{_format_regime_state(regime_state)}
-
-ECONOMIC INDICATORS (noisy, may be lagged â€” see age/accuracy):
-{_format_observed_metrics(observed_metrics)}
-
-RECENT POLICY HISTORY (action â†’ observed outcome):
+[RECENT MEMORY & IMPACT]
+Recent policy memory:
 {_format_recent_policy_memory(recent_policy_memory)}
 
-This is all the data available. Reason through the state of the simulation, then output your JSON decision. Do not ask for more information â€” the simulation cannot respond to questions. Output valid JSON now."""
-
+[RESPONSE FORMAT]
+Respond with only valid JSON:
+{{
+  "reasoning": "Brief, 1-2 sentence explanation connecting sector diagnostics to your lever changes.",
+  "changes": {{}}
+}}"""
 
 def _deterministic_rng(seed: int, tick: int, indicator: str) -> random.Random:
     """Return a deterministic RNG for one indicator observation."""
@@ -349,12 +751,26 @@ def _build_recent_policy_memory(
         baseline = row_at_or_before(baseline_tick)
         evaluation = row_at_or_before(evaluation_tick)
 
-        def delta(field: str) -> Optional[float]:
+        def delta_pp(field: str) -> Optional[float]:
+            """Delta for rate-like indicators expressed in percentage points."""
             if baseline is None or evaluation is None:
                 return None
-            if baseline.get(field) is None or evaluation.get(field) is None:
+            b, e = baseline.get(field), evaluation.get(field)
+            if b is None or e is None:
                 return None
-            return round(float(evaluation[field]) - float(baseline[field]), 4)
+            return round((float(e) - float(b)) * 100, 2)
+
+        def delta_pct(field: str) -> Optional[float]:
+            """Delta for level indicators expressed as percent change."""
+            if baseline is None or evaluation is None:
+                return None
+            b, e = baseline.get(field), evaluation.get(field)
+            if b is None or e is None:
+                return None
+            b_float = float(b)
+            if b_float == 0.0:
+                return None
+            return round((float(e) - b_float) / abs(b_float) * 100, 1)
 
         result.append(
             {
@@ -364,10 +780,10 @@ def _build_recent_policy_memory(
                 "impact": {
                     "baseline_tick": baseline_tick,
                     "evaluation_tick": evaluation_tick,
-                    "unemployment_rate_delta": delta("unemployment_rate"),
-                    "gdp_delta": delta("gdp_this_tick"),
-                    "mean_health_delta": delta("mean_health"),
-                    "consumer_distress_delta": delta("labor_seekers_wage_ineligible"),
+                    "unemployment_delta_pp": delta_pp("unemployment_rate"),
+                    "gdp_delta_pct": delta_pct("gdp_this_tick"),
+                    "mean_health_delta_pp": delta_pp("mean_health"),
+                    "consumer_distress_delta_pct": delta_pct("labor_seekers_wage_ineligible"),
                 },
             }
         )
@@ -378,6 +794,7 @@ def observe_node(state: GovernmentState, economy: Any) -> Dict[str, Any]:
     """Pull raw metrics and current policy surface from the economy."""
 
     metrics = economy.get_economic_metrics()
+    metrics["_metrics_history"] = list(getattr(economy, "metrics_history", []) or [])
     gov = economy.government
     current_policy = {
         "wage_tax_rate": gov.wage_tax_rate,
@@ -422,6 +839,7 @@ def observe_node(state: GovernmentState, economy: Any) -> Dict[str, Any]:
     }
     return {
         "raw_metrics": metrics,
+        "sector_diagnostics": build_sector_diagnostics(economy),
         "current_policy": current_policy,
         "budget_state": budget_state,
         "regime_state": regime_state,
@@ -435,7 +853,7 @@ def apply_info_constraints_node(
     config: Any,
     decision_history: List[Dict[str, Any]],
 ) -> Dict[str, Any]:
-    """Apply lag, noise, and coverage gaps to raw economic observations."""
+    """Apply lag, noise, and coverage gaps to raw economic observations; compute rolling summaries."""
 
     raw_metrics = state["raw_metrics"]
     tick = int(state["tick"])
@@ -475,6 +893,13 @@ def apply_info_constraints_node(
         }
         data_quality_summary["reported"] += 1
 
+    # Compute rolling summaries for Tier-1 core indicators
+    rolling_summaries: Dict[str, Dict[str, float]] = {}
+    for indicator in TIER_1_CORE:
+        rs = _compute_rolling_summary(economy, indicator)
+        if rs:
+            rolling_summaries[indicator] = rs
+
     recent_policy_memory = _build_recent_policy_memory(
         decision_history=decision_history,
         economy=economy,
@@ -484,22 +909,65 @@ def apply_info_constraints_node(
     )
     return {
         "observed_metrics": observed,
+        "rolling_summaries": rolling_summaries,
         "recent_policy_memory": recent_policy_memory,
         "data_quality_summary": data_quality_summary,
     }
 
 
+def _enforce_cross_lever_consistency(
+    validated: Dict[str, Any],
+    current_policy: Dict[str, Any],
+) -> Dict[str, Any]:
+    """Remove incoherent subsidy/bailout combinations from the validated decision dict."""
+
+    merged = {**current_policy, **validated}
+
+    # Subsidy coherence: target=none with level>0, or sector target with level=0
+    target = merged.get("sector_subsidy_target")
+    level = merged.get("sector_subsidy_level")
+    if target == "none" and isinstance(level, int) and level > 0:
+        logger.warning("Cross-lever: sector_subsidy_target=none with level=%s — dropping subsidy changes.", level)
+        validated.pop("sector_subsidy_target", None)
+        validated.pop("sector_subsidy_level", None)
+    elif target in {"food", "housing", "services", "healthcare"} and isinstance(level, int) and level == 0:
+        logger.warning("Cross-lever: sector_subsidy_target=%s with level=0 — dropping subsidy changes.", target)
+        validated.pop("sector_subsidy_target", None)
+        validated.pop("sector_subsidy_level", None)
+
+    # Bailout coherence: policy=off with non-none target, or policy=sector with none target
+    policy = merged.get("bailout_policy")
+    bailout_target = merged.get("bailout_target")
+    budget = merged.get("bailout_budget")
+    if policy == "off":
+        if bailout_target != "none" or (isinstance(budget, int) and budget > 0):
+            logger.warning("Cross-lever: bailout_policy=off with active target/budget — dropping bailout changes.")
+            validated.pop("bailout_policy", None)
+            validated.pop("bailout_target", None)
+            validated.pop("bailout_budget", None)
+    elif policy == "sector" and bailout_target == "none":
+        logger.warning("Cross-lever: bailout_policy=sector with target=none — dropping bailout changes.")
+        validated.pop("bailout_policy", None)
+        validated.pop("bailout_target", None)
+        validated.pop("bailout_budget", None)
+
+    return validated
+
+
 def _validate_decisions(
     raw_decisions: Dict[str, Any],
     current_policy: Dict[str, Any],
+    philosophy: str = "balanced",
 ) -> Dict[str, Any]:
-    """Validate proposed decisions against the action space and step limits."""
+    """Validate proposed decisions against the action space, step limits, and ideology ranges."""
 
     validated: Dict[str, Any] = {}
+    resolved_levers = _resolve_continuous_levers(philosophy)
+
     for lever, value in raw_decisions.items():
-        # Handle continuous levers (tax rates)
-        if lever in CONTINUOUS_LEVERS:
-            lo, hi = CONTINUOUS_LEVERS[lever]
+        # Handle continuous levers (tax rates) with ideology-adjusted ranges
+        if lever in resolved_levers:
+            lo, hi = resolved_levers[lever]
             try:
                 numeric_value = round(float(value), 4)
             except (TypeError, ValueError):
@@ -547,6 +1015,8 @@ def _validate_decisions(
                 continue
 
         validated[lever] = value
+
+    validated = _enforce_cross_lever_consistency(validated, current_policy)
     return validated
 
 
@@ -554,13 +1024,15 @@ async def decide_node(state: GovernmentState, provider: LLMProvider, config: Any
     """Run the LLM decision step and validate the returned JSON."""
 
     started_at = time.perf_counter()
+    philosophy = getattr(config, "government_philosophy", "balanced")
     system_prompt = _build_system_prompt(
-        getattr(config, "government_philosophy", "balanced"),
+        philosophy,
         num_households=int(state["raw_metrics"].get("total_households", 0)),
         num_firms=int(state["raw_metrics"].get("total_firms", 0)),
     )
     user_prompt = _build_user_prompt(
-        observed_metrics=state["observed_metrics"],
+        raw_metrics=state["raw_metrics"],
+        sector_diagnostics=state.get("sector_diagnostics", {}),
         current_policy=state["current_policy"],
         budget_state=state["budget_state"],
         regime_state=state.get("regime_state", {}),
@@ -600,11 +1072,11 @@ async def decide_node(state: GovernmentState, provider: LLMProvider, config: Any
             "elapsed_ms": elapsed_ms,
         }
 
-    raw_decisions = parsed.get("decisions", {})
+    raw_decisions = parsed.get("changes", parsed.get("decisions", {}))
     if not isinstance(raw_decisions, dict):
         raw_decisions = {}
-    reasoning = str(parsed.get("reasoning", "No reasoning provided"))
-    validated = _validate_decisions(raw_decisions, state["current_policy"])
+    reasoning = str(parsed.get("reasoning", "No reasoning provided"))[:500]
+    validated = _validate_decisions(raw_decisions, state["current_policy"], philosophy)
     return {
         "llm_response": response,
         "decisions": validated,
@@ -734,6 +1206,7 @@ class LLMGovernmentAdvisor:
             "parse_ok": bool(state.get("parse_ok", False)),
             "provider": getattr(self.provider, "name", "unknown"),
             "observed_metrics": state.get("observed_metrics", {}),
+            "rolling_summaries": state.get("rolling_summaries", {}),
             "data_quality_summary": state.get("data_quality_summary", {}),
             "current_policy_before": dict(state.get("current_policy", {})),
             "recent_policy_memory": list(state.get("recent_policy_memory", [])),
@@ -752,5 +1225,3 @@ class LLMGovernmentAdvisor:
         """Return the most recent decision cycle."""
 
         return self._decision_history[-1] if self._decision_history else None
-
-

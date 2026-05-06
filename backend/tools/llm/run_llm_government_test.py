@@ -19,6 +19,8 @@ Usage:
     python run_llm_government_test.py --model qwen3:8b         # different model
     python run_llm_government_test.py --households 500         # bigger economy
     python run_llm_government_test.py --interval 8             # decide every 8 ticks
+    python run_llm_government_test.py --provider lmstudio --base-url http://127.0.0.1:8080
+    python run_llm_government_test.py --ticks 200 --first-decision-tick 15
     python run_llm_government_test.py --warmup-ticks 12        # shorter bootstrap period
     python run_llm_government_test.py --no-probe               # skip warmup probe
 """
@@ -33,7 +35,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from config import CONFIG
 from run_large_simulation import create_large_economy
-from llm_provider import OllamaProvider, LMStudioProvider
+from llm_provider import OllamaProvider, LMStudioProvider, OpenRouterProvider
 from llm_government import LLMGovernmentAdvisor
 
 
@@ -42,15 +44,19 @@ def parse_args():
     parser.add_argument("--ticks", type=int, default=24, help="Number of ticks to run (default: 24)")
     parser.add_argument("--households", type=int, default=200, help="Number of households (default: 200)")
     parser.add_argument("--interval", type=int, default=4, help="Ticks between LLM decisions (default: 4)")
+    parser.add_argument("--first-decision-tick", type=int, default=15,
+                        help="First tick where the LLM may change policy (default: 15)")
     parser.add_argument("--philosophy", type=str, default="capitalist",
                         choices=["capitalist", "keynesian", "balanced"],
                         help="Government philosophy (default: capitalist)")
     parser.add_argument("--model", type=str, default="phi4-mini-reasoning", help="Model name (default: phi4-mini-reasoning)")
-    parser.add_argument("--provider", type=str, default="ollama", choices=["ollama", "lmstudio"],
-                        help="LLM provider (default: ollama)")
+    parser.add_argument("--provider", type=str, default="lmstudio", choices=["ollama", "lmstudio", "openrouter"],
+                        help="LLM provider (default: lmstudio)")
+    parser.add_argument("--base-url", type=str, default=None,
+                        help="Provider base URL for local servers, e.g. http://127.0.0.1:8080 for llama.cpp")
     parser.add_argument("--temperature", type=float, default=0.4, help="LLM temperature (default: 0.4)")
-    parser.add_argument("--warmup-ticks", type=int, default=12,
-                        help="Warmup ticks before queued firms activate (default: 12 for LLM tests)")
+    parser.add_argument("--warmup-ticks", type=int, default=10,
+                        help="Warmup ticks before queued firms activate (default: 10)")
     parser.add_argument("--no-probe", action="store_true", help="Skip the warmup LLM probe")
     parser.add_argument("--timeout", type=float, default=300.0, help="LLM call timeout in seconds (default: 300)")
     parser.add_argument("--max-tokens", type=int, default=8192, help="Max tokens per LLM call (default: 8192)")
@@ -65,6 +71,13 @@ async def main():
     CONFIG.llm.enable_llm_government = True
     CONFIG.llm.government_decision_interval = args.interval
     CONFIG.llm.government_model = args.model
+    CONFIG.llm.provider = args.provider
+    if args.provider == "lmstudio" and args.base_url:
+        CONFIG.llm.lmstudio_base_url = args.base_url
+    if args.provider == "ollama" and args.base_url:
+        CONFIG.llm.ollama_base_url = args.base_url
+    if args.provider == "openrouter":
+        CONFIG.llm.openrouter_model = args.model
     CONFIG.llm.government_philosophy = args.philosophy
     CONFIG.llm.government_temperature = args.temperature
     CONFIG.llm.no_think = args.no_think
@@ -74,7 +87,7 @@ async def main():
     print(f"  EcoSim LLM Government Runner")
     print(f"  Households: {args.households} | Ticks: {args.ticks} | Decisions every {args.interval} ticks")
     print(f"  Model: {args.model} | Provider: {args.provider} | Philosophy: {args.philosophy} | Temperature: {args.temperature}")
-    print(f"  Warmup ticks: {CONFIG.time.warmup_ticks}")
+    print(f"  Warmup ticks: {CONFIG.time.warmup_ticks} | First LLM decision tick: {args.first_decision_tick}")
     print("=" * 100)
 
     # Create economy
@@ -88,14 +101,23 @@ async def main():
     # Connect to provider
     print(f"Connecting to {args.provider}...", end=" ", flush=True)
     if args.provider == "lmstudio":
-        provider = LMStudioProvider(model=args.model, timeout=args.timeout, max_tokens=args.max_tokens)
+        provider = LMStudioProvider(
+            base_url=CONFIG.llm.lmstudio_base_url,
+            model=args.model,
+            timeout=args.timeout,
+            max_tokens=args.max_tokens,
+        )
+    elif args.provider == "openrouter":
+        provider = OpenRouterProvider(model=args.model, timeout=args.timeout)
     else:
-        provider = OllamaProvider(model=args.model, timeout=args.timeout)
+        provider = OllamaProvider(base_url=CONFIG.llm.ollama_base_url, model=args.model, timeout=args.timeout)
 
     if not await provider.health_check():
         if args.provider == "lmstudio":
-            print(f"FATAL: LM Studio not reachable on localhost:1234")
-            print("Make sure LM Studio is running with the local server enabled (port 1234)")
+            print(f"FATAL: OpenAI-compatible local server not reachable on {CONFIG.llm.lmstudio_base_url}")
+            print("Make sure LM Studio or llama.cpp server is running and exposes /v1/models")
+        elif args.provider == "openrouter":
+            print("FATAL: OpenRouter not reachable or OPENROUTER_API_KEY is not set")
         else:
             print(f"FATAL: Ollama not reachable or model '{args.model}' not found")
             print(f"  ollama pull {args.model}")
@@ -117,12 +139,19 @@ async def main():
             )
             print(f"  Model ready ({(time.perf_counter() - t0):.1f}s)")
         except Exception as e:
-            print(f"  Probe failed ({e}) â€” continuing, first decision may be slow")
+            print(f"  Probe failed ({e}) - continuing, first decision may be slow")
 
     # Simulation loop
-    num_decisions = args.ticks // args.interval
+    first_decision_tick = max(CONFIG.time.warmup_ticks + 1, args.first_decision_tick)
+    decision_ticks = [
+        tick_n
+        for tick_n in range(first_decision_tick, args.ticks + 1)
+        if (tick_n - first_decision_tick) % args.interval == 0
+    ]
+    num_decisions = len(decision_ticks)
     est_time = num_decisions * 90  # rough estimate: ~90s per decision with thinking model
-    print(f"\nStarting simulation â€” ~{num_decisions} LLM decisions expected")
+    print(f"\nStarting simulation - ~{num_decisions} LLM decisions expected")
+    print(f"Decision ticks: first={first_decision_tick}, interval={args.interval}")
     print(f"Estimated time: ~{est_time // 60}m {est_time % 60}s (depends on model speed)\n")
 
     print("-" * 100)
@@ -142,7 +171,7 @@ async def main():
 
         # LLM decision
         llm_label = ""
-        if economy.current_tick > 0 and economy.current_tick % args.interval == 0:
+        if economy.current_tick in decision_ticks:
             print(f"\n  ... LLM thinking (tick {economy.current_tick}) ...", flush=True)
             t0 = time.perf_counter()
             result = await advisor.decide(economy)
@@ -151,18 +180,18 @@ async def main():
             llm_label = f"{elapsed_s:.0f}s"
 
             if result["decisions"]:
-                print(f"  â”Œâ”€â”€ LLM DECISION (tick {economy.current_tick}, {elapsed_s:.1f}s) â”€â”€")
+                print(f"  +-- LLM DECISION (tick {economy.current_tick}, {elapsed_s:.1f}s) --")
                 for lever, value in result["decisions"].items():
                     before = result['current_policy_before'].get(lever, '?')
-                    print(f"  â”‚  {lever}: {before} â†’ {value}")
-                print(f"  â”‚")
-                print(f"  â”‚  \"{result['reasoning']}\"")
+                    print(f"  |  {lever}: {before} -> {value}")
+                print("  |")
+                print(f"  |  \"{result['reasoning']}\"")
                 dq = result.get("data_quality_summary", {})
-                print(f"  â”‚  [data: {dq.get('reported', 0)} reported, {dq.get('unavailable', 0)} unavailable]")
-                print(f"  â””{'â”€' * 70}")
+                print(f"  |  [data: {dq.get('reported', 0)} reported, {dq.get('unavailable', 0)} unavailable]")
+                print(f"  +{'-' * 70}")
             else:
                 reason = result['reasoning'][:120]
-                print(f"  â”€â”€ NO CHANGES ({elapsed_s:.1f}s): {reason}")
+                print(f"  -- NO CHANGES ({elapsed_s:.1f}s): {reason}")
             print()
 
         # Metrics row
@@ -205,7 +234,7 @@ async def main():
 
     # Final state
     gov = economy.government
-    print(f"\n{'â”€' * 50}")
+    print(f"\n{'-' * 50}")
     print("FINAL POLICY STATE:")
     print(f"  wage_tax_rate:            {gov.wage_tax_rate:.2%}")
     print(f"  profit_tax_rate:         {gov.profit_tax_rate:.2%}")
@@ -222,7 +251,8 @@ async def main():
     print(f"  bailout_budget:          ${gov.bailout_budget:,.0f}")
 
     print(f"\nTotal time: {total_time:.0f}s ({total_time / 60:.1f}m)")
-    print(f"Simulation ticks: {args.ticks} ({args.ticks * (total_time / args.ticks):.0f}ms avg)")
+    avg_tick_ms = (total_time / max(1, args.ticks)) * 1000.0
+    print(f"Simulation ticks: {args.ticks} ({avg_tick_ms:.0f}ms avg)")
     print(f"LLM decisions: {len(advisor.decision_history)}")
 
     await provider.close()
@@ -230,4 +260,3 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
-

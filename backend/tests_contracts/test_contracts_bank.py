@@ -13,6 +13,7 @@ Tests verify:
 import math
 
 import numpy as np
+import pytest
 
 from agents import BankAgent, FirmAgent, GovernmentAgent, HouseholdAgent
 from config import CONFIG
@@ -364,3 +365,107 @@ def test_contract_bank_default_penalty_is_020():
         bank.update_firm_credit_score(99, +0.01)
     recovered = bank.get_firm_credit_score(99)
     assert abs(recovered - 0.60) < 1e-9
+
+
+# ---------------------------------------------------------------------------
+# Deposit Rate Policy (floating spread model)
+# ---------------------------------------------------------------------------
+
+def test_contract_deposit_rate_floating_spread():
+    """deposit_rate = base_interest_rate * savings_rate_share after update_deposit_rate."""
+    bank = BankAgent(
+        cash_reserves=100_000.0,
+        total_deposits=50_000.0,
+        total_loans_outstanding=10_000.0,  # loan_to_deposit = 0.2 → no thin-book cut
+        base_interest_rate=0.04,
+        savings_rate_share_of_lending_rate=0.063,
+    )
+    bank.update_deposit_rate()
+
+    expected = 0.04 * 0.063
+    assert bank.deposit_rate == pytest.approx(expected, rel=1e-6)
+
+
+def test_contract_deposit_rate_no_hardcoded_bootstrap():
+    """Zero deposits → floating formula still applies, NOT hardcoded 0.02."""
+    bank = BankAgent(
+        cash_reserves=500_000.0,
+        total_deposits=0.0,
+        total_loans_outstanding=0.0,
+        base_interest_rate=0.03,
+        savings_rate_share_of_lending_rate=0.063,
+    )
+    bank.update_deposit_rate()
+
+    # Must NOT be the old hardcoded 0.02 bootstrap value
+    assert bank.deposit_rate != pytest.approx(0.02, rel=1e-3)
+    # Loan-to-deposit is undefined (total_deposits == 0) → no thin-book cut
+    expected = 0.03 * 0.063
+    assert bank.deposit_rate == pytest.approx(expected, rel=1e-6)
+
+
+def test_contract_deposit_rate_spread_cap():
+    """deposit_rate cap is base * share * 1.25, not the loose base * 0.5."""
+    bank = BankAgent(
+        cash_reserves=100_000.0,
+        total_deposits=50_000.0,
+        total_loans_outstanding=10_000.0,  # loan_to_deposit = 0.2 → no thin-book cut
+        base_interest_rate=0.04,
+        savings_rate_share_of_lending_rate=0.063,
+    )
+    bank.update_deposit_rate()
+
+    tight_cap = 0.04 * 0.063 * 1.25   # = 0.00315
+    old_loose_cap = 0.04 * 0.5         # = 0.02 — must NOT reach this
+    assert bank.deposit_rate <= tight_cap
+    assert bank.deposit_rate < old_loose_cap
+
+
+def test_contract_deposit_rate_thin_loan_book():
+    """loan_to_deposit < 0.05 → rate is multiplied by 0.25."""
+    bank = BankAgent(
+        cash_reserves=100_000.0,
+        total_deposits=50_000.0,
+        total_loans_outstanding=100.0,   # ratio = 0.002, well below 0.05
+        base_interest_rate=0.04,
+        savings_rate_share_of_lending_rate=0.063,
+        last_tick_interest_income=0.0,   # disable safety valve
+    )
+    bank.update_deposit_rate()
+
+    base_spread = 0.04 * 0.063
+    expected = base_spread * 0.25
+    assert bank.deposit_rate == pytest.approx(expected, rel=1e-6)
+
+
+def test_contract_deposit_rate_safety_valve_preserved():
+    """deposit_rate is capped by lending-income sustainability."""
+    bank = BankAgent(
+        cash_reserves=100_000.0,
+        total_deposits=1_000_000.0,     # large deposits
+        total_loans_outstanding=100_000.0,
+        base_interest_rate=0.10,
+        savings_rate_share_of_lending_rate=0.063,
+        last_tick_interest_income=5.0,  # tiny income → very low sustainable rate
+    )
+    bank.update_deposit_rate()
+
+    max_sustainable = (5.0 * 52.0) / 1_000_000.0   # = 0.00026
+    assert bank.deposit_rate <= max_sustainable + 1e-9
+
+
+def test_contract_pay_deposit_interest_no_total_deposits_inflation():
+    """pay_deposit_interest must NOT add interest to total_deposits."""
+    bank = BankAgent(
+        cash_reserves=100_000.0,
+        total_deposits=10_000.0,
+        deposit_rate=0.052,
+    )
+    deposits_before = bank.total_deposits
+
+    interest = bank.pay_deposit_interest(10_000.0)
+
+    assert interest > 0.0
+    assert bank.total_deposits == pytest.approx(deposits_before, rel=1e-9), (
+        "pay_deposit_interest must not add interest to total_deposits"
+    )

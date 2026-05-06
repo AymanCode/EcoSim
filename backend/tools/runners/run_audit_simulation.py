@@ -92,6 +92,26 @@ class AuditAnalyticsTracker:
         return float(max(lower, min(upper, value)))
 
     @staticmethod
+    def _percentile_fields(prefix: str, values: List[float]) -> Dict[str, float]:
+        """Return audit-friendly p10/p25/p50/p75/p90 fields for one series."""
+        if not values:
+            return {
+                f"{prefix}_p10": 0.0,
+                f"{prefix}_p25": 0.0,
+                f"{prefix}_p50": 0.0,
+                f"{prefix}_p75": 0.0,
+                f"{prefix}_p90": 0.0,
+            }
+        p10, p25, p50, p75, p90 = np.percentile(values, [10, 25, 50, 75, 90])
+        return {
+            f"{prefix}_p10": float(p10),
+            f"{prefix}_p25": float(p25),
+            f"{prefix}_p50": float(p50),
+            f"{prefix}_p75": float(p75),
+            f"{prefix}_p90": float(p90),
+        }
+
+    @staticmethod
     def _dominant_driver(components: Dict[str, float], stable_label: str = "stable") -> str:
         if not components:
             return stable_label
@@ -162,6 +182,20 @@ class AuditAnalyticsTracker:
         avg_health_pct = float(household_stats.get("mean_health", 0.0) or 0.0) * 100.0
         top10_share_pct = float(household_stats.get("top10_wealth_share", 0.0) or 0.0) * 100.0
         bottom50_share_pct = float(household_stats.get("bottom50_wealth_share", 0.0) or 0.0) * 100.0
+        household_cash = [float(h.cash_balance) for h in economy.households]
+        household_deposits = [float(getattr(h, "bank_deposit", 0.0)) for h in economy.households]
+        household_accessible_liquidity = [
+            cash + deposit
+            for cash, deposit in zip(household_cash, household_deposits)
+        ]
+        cash_constrained_with_deposits_count = int(
+            sum(
+                1
+                for household, deposit in zip(economy.households, household_deposits)
+                if float(household.cash_balance) < float(getattr(household, "subsistence_min_cash", 50.0))
+                and deposit > 0.0
+            )
+        )
 
         basket_components = [
             float(price_by_sector.get("Food", 0.0)),
@@ -373,7 +407,34 @@ class AuditAnalyticsTracker:
             "housing_insecure_share": float(household_stats.get("housing_insecure_share", 0.0) or 0.0),
             "homeless_household_count": int(household_stats.get("homeless_household_count", 0) or 0),
             "pending_healthcare_visits_total": pending_healthcare_visits_total,
+            "cash_constrained_with_deposits_count": cash_constrained_with_deposits_count,
+            "total_pre_purchase_deposit_withdrawals": float(
+                getattr(economy, "last_tick_pre_purchase_deposit_withdrawals", 0.0)
+            ),
+            "total_end_tick_deposit_sweeps": float(
+                getattr(economy, "last_tick_end_tick_deposit_sweeps", 0.0)
+            ),
         }
+        household_distribution.update(self._percentile_fields("household_cash", household_cash))
+        household_distribution.update(self._percentile_fields("household_bank_deposit", household_deposits))
+        household_distribution.update(
+            self._percentile_fields("household_accessible_liquidity", household_accessible_liquidity)
+        )
+        extended_metrics.update(
+            {
+                key: value
+                for key, value in household_distribution.items()
+                if key.startswith("household_cash_")
+                or key.startswith("household_bank_deposit_")
+                or key.startswith("household_accessible_liquidity_")
+                or key
+                in {
+                    "cash_constrained_with_deposits_count",
+                    "total_pre_purchase_deposit_withdrawals",
+                    "total_end_tick_deposit_sweeps",
+                }
+            }
+        )
 
         return {
             "extended_metrics": extended_metrics,
@@ -1491,6 +1552,12 @@ def serialize_bank_actions(economy: Economy) -> Optional[Dict[str, Any]]:
         "loan_repayments_collected": _r(bank.last_tick_repayments),
         "loan_defaults": _r(bank.last_tick_defaults),
         "deposit_interest_paid": _r(bank.last_tick_deposit_interest_paid),
+        "total_pre_purchase_deposit_withdrawals": _r(
+            getattr(economy, "last_tick_pre_purchase_deposit_withdrawals", 0.0)
+        ),
+        "total_end_tick_deposit_sweeps": _r(
+            getattr(economy, "last_tick_end_tick_deposit_sweeps", 0.0)
+        ),
         "interest_income_earned": _r(bank.last_tick_interest_income),
         "current_deposit_rate": _r(bank.deposit_rate),
         "active_loan_count": len(bank.active_loans),
@@ -1766,4 +1833,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

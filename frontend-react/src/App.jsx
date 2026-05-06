@@ -172,7 +172,8 @@ const resolveWebSocketEndpoint = () => {
 
   if (typeof window !== 'undefined') {
     const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
-    return `${protocol}://${window.location.host}/ws`;
+    const host = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' ? 'localhost:8002' : window.location.host;
+    return `${protocol}://${host}/ws`;
   }
 
   return 'ws://localhost:8002/ws';
@@ -202,40 +203,53 @@ const NavButton = ({ icon: Icon, label, isActive, onClick, disabled }) => (
   <button
     onClick={disabled ? null : onClick}
     className={`group relative flex flex-col items-center justify-center w-full py-3 transition-all duration-300
-      ${isActive ? 'text-sky-400 bg-sky-500/5 border-l-2 border-sky-400 shadow-[inset_4px_0_10px_rgba(14,165,233,0.1)]' : 'text-slate-500 hover:text-slate-300 hover:bg-white/5 border-l-2 border-transparent'}
+      ${isActive ? 'text-sky-400 bg-sky-500/10 border-l-2 border-sky-400 shadow-[inset_10px_0_20px_rgba(14,165,233,0.15)] relative before:absolute before:left-[-2px] before:top-0 before:bottom-0 before:w-[2px] before:bg-sky-400 before:shadow-[0_0_10px_2px_#38bdf8]' : 'text-slate-500 hover:text-slate-300 hover:bg-white/5 border-l-2 border-transparent'}
       ${disabled ? 'opacity-30 cursor-not-allowed' : 'cursor-pointer'}
     `}
   >
     <Icon size={20} className={`mb-1 transition-transform duration-300 ${isActive ? 'scale-110' : 'group-hover:scale-110'}`} />
     <span className={`text-[9px] font-mono tracking-widest transition-opacity duration-300 ${isActive ? 'font-bold' : ''}`}>{label}</span>
 
-    {/* Floating tooltip on hover */}
-    <div className="absolute left-full ml-2 px-2 py-1 bg-slate-800 text-slate-200 text-[10px] font-mono rounded border border-slate-700 opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none whitespace-nowrap z-50 shadow-xl">
-      {label} {disabled && "(LOCKED)"}
+    {/* Floating sliding tooltip on hover */}
+    <div className="absolute left-full ml-2 px-3 py-1.5 bg-slate-800/90 backdrop-blur-md text-sky-300 text-[10px] font-mono rounded border border-slate-700/80 opacity-0 -translate-x-2 group-hover:translate-x-0 group-hover:opacity-100 transition-all duration-300 pointer-events-none whitespace-nowrap z-50 shadow-xl shadow-black/50">
+      {label} {disabled && <span className="text-rose-400 ml-1">(LOCKED)</span>}
     </div>
   </button>
 );
-const StatTile = ({ label, value, trend, suffix = "" }) => (
-  <div className="tech-panel p-4 flex flex-col tech-corners group bg-gradient-to-br from-slate-900 to-slate-800/80 hover:shadow-[0_0_20px_rgba(14,165,233,0.15)] transition-all duration-300">
-    <div className="flex justify-between items-start mb-1">
-      <span className="text-[11px] uppercase tracking-wider text-slate-400 font-display pr-2 leading-tight group-hover:text-slate-300 transition-colors">{label}</span>
-      {trend && (
-        <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded shrink-0 whitespace-nowrap transition-colors duration-500 ease-in-out ${trend > 0 ? 'bg-emerald-500/10 text-emerald-400' : 'bg-rose-500/10 text-rose-400'}`}>
-          {trend > 0 ? '▲' : '▼'} {Math.abs(trend)}%
+const StatTile = ({ label, value, trend, suffix = "", alert = false }) => {
+  const [isHovered, setIsHovered] = React.useState(false);
+  const glowColor = trend > 0 ? 'rgba(16, 185, 129, 0.2)' : trend < 0 ? 'rgba(244, 63, 94, 0.2)' : 'rgba(14, 165, 233, 0.15)';
+  const borderColor = alert ? 'border-rose-500/50' : 'border-slate-700/50';
+  const shadowStyle = isHovered ? { boxShadow: `0 0 20px ${glowColor} inset, 0 0 10px ${glowColor}` } : {};
+
+  return (
+    <div 
+      className={`tech-panel p-4 flex flex-col tech-corners group backdrop-blur-md bg-slate-900/40 border ${borderColor} transition-all duration-300 relative overflow-hidden`}
+      onMouseEnter={() => setIsHovered(true)}
+      onMouseLeave={() => setIsHovered(false)}
+      style={shadowStyle}
+    >
+      <div className="absolute inset-0 bg-gradient-to-br from-white/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500 pointer-events-none"></div>
+      <div className="flex justify-between items-start mb-1 relative z-10">
+        <span className="text-[11px] uppercase tracking-wider text-slate-400 font-display pr-2 leading-tight group-hover:text-slate-300 transition-colors">{label}</span>
+        {trend !== undefined && trend !== null && (
+          <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded shrink-0 whitespace-nowrap transition-colors duration-500 ease-in-out ${trend > 0 ? 'bg-emerald-500/10 text-emerald-400' : 'bg-rose-500/10 text-rose-400'}`}>
+            {trend > 0 ? '▲' : '▼'} {Math.abs(trend)}%
+          </span>
+        )}
+      </div>
+      <div className="flex items-baseline space-x-1 overflow-hidden mt-1 relative z-10">
+        <span className="text-xl md:text-2xl font-display font-bold text-slate-100 group-hover:text-white transition-colors truncate">
+          {value}
         </span>
-      )}
+        <span className="text-[10px] text-slate-500 font-mono shrink-0 group-hover:text-slate-400">{suffix}</span>
+      </div>
+      <div className="w-full h-[2px] bg-slate-800/80 mt-2 relative overflow-hidden shrink-0 rounded-full z-10">
+        <div className={`absolute top-0 left-0 h-full w-1/3 animate-[pulse_2s_ease-in-out_infinite] ${trend && trend < 0 ? 'bg-rose-500' : 'bg-sky-500'}`}></div>
+      </div>
     </div>
-    <div className="flex items-baseline space-x-1 overflow-hidden mt-1">
-      <span className="text-xl md:text-2xl font-display font-bold text-slate-100 group-hover:text-sky-400 transition-colors truncate">
-        {value}
-      </span>
-      <span className="text-[10px] text-slate-500 font-mono shrink-0 group-hover:text-slate-400">{suffix}</span>
-    </div>
-    <div className="w-full h-[2px] bg-slate-800 mt-2 relative overflow-hidden shrink-0 rounded-full">
-      <div className={`absolute top-0 left-0 h-full w-1/3 animate-[pulse_2s_ease-in-out_infinite] ${trend && trend < 0 ? 'bg-rose-500' : 'bg-sky-500'}`}></div>
-    </div>
-  </div>
-);
+  );
+};
 
 const TechSlider = ({ label, value, onChange, min, max, step, format = v => v }) => (
   <div className="mb-6">
@@ -258,6 +272,67 @@ const TechSlider = ({ label, value, onChange, min, max, step, format = v => v })
     </div>
   </div>
 );
+
+
+// --- SYSTEM DISTRESS GAUGE ---
+const SystemDistressGauge = ({ unemployment, happiness }) => {
+  // Simple heuristic for demo purposes
+  const distress = Math.min(100, Math.max(0, (unemployment * 2.5) + (100 - happiness)));
+  const normalized = distress / 100;
+  
+  let color = '#10b981'; // Green
+  let status = 'NOMINAL';
+  if (normalized > 0.4) { color = '#fbbf24'; status = 'ELEVATED'; } // Yellow
+  if (normalized > 0.6) { color = '#f97316'; status = 'HIGH'; } // Orange
+  if (normalized > 0.8) { color = '#ef4444'; status = 'CRITICAL'; } // Red
+
+  // Calculate arc path
+  const radius = 60;
+  const circumference = radius * Math.PI; // Semi-circle
+  const strokeDashoffset = circumference - (normalized * circumference);
+
+  return (
+    <div className="flex-1 border border-slate-700/50 rounded bg-slate-900/40 flex flex-col overflow-hidden w-full tech-panel tech-corners p-3 relative group backdrop-blur-md">
+      <div className="absolute inset-0 bg-gradient-to-t from-rose-500/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-700 pointer-events-none"></div>
+      
+      <div className="flex justify-between items-start mb-2 relative z-10">
+        <h4 className="text-[10px] font-bold text-slate-400 uppercase tracking-wider leading-none">System Distress</h4>
+        <span className="text-[9px] font-mono border border-slate-700 bg-slate-800 px-1 rounded shadow-sm" style={{ color }}>{status}</span>
+      </div>
+      
+      <div className="flex-1 flex flex-col items-center justify-center relative z-10 mt-4">
+        <div className="relative w-32 h-16 overflow-hidden">
+          <svg viewBox="0 0 140 70" className="w-full h-full overflow-visible drop-shadow-lg">
+            {/* Background Arc */}
+            <path d="M 10,70 A 60,60 0 0,1 130,70" fill="none" stroke="#1e293b" strokeWidth="12" strokeLinecap="round" />
+            {/* Glow Filter */}
+            <defs>
+              <filter id="distress-glow" x="-20%" y="-20%" width="140%" height="140%">
+                <feGaussianBlur stdDeviation="3" result="blur" />
+                <feComposite in="SourceGraphic" in2="blur" operator="over" />
+              </filter>
+            </defs>
+            {/* Foreground Arc */}
+            <path 
+              d="M 10,70 A 60,60 0 0,1 130,70" 
+              fill="none" 
+              stroke={color} 
+              strokeWidth="12" 
+              strokeLinecap="round"
+              strokeDasharray={circumference}
+              strokeDashoffset={strokeDashoffset}
+              filter="url(#distress-glow)"
+              className="transition-all duration-1000 ease-out"
+            />
+          </svg>
+          <div className="absolute bottom-0 left-0 w-full text-center">
+            <span className="text-2xl font-display font-bold drop-shadow-md" style={{ color }}>{distress.toFixed(0)}</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
 
 // --- WEALTH INEQUALITY VISUALIZATION ---
 const WealthDistributionChart = ({ gini, top10, bottom50 }) => {
@@ -369,8 +444,9 @@ const LineChart = ({ title, data, color, suffix = "", formatValue = v => v.toFix
             <defs>
               {normalizedDatasets.map((_, dIdx) => (
                 <linearGradient key={dIdx} id={`${safeGradientId}-${dIdx}`} x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor={colors[dIdx % colors.length]} stopOpacity={0.25} />
-                  <stop offset="95%" stopColor={colors[dIdx % colors.length]} stopOpacity={0.02} />
+                  <stop offset="0%" stopColor={colors[dIdx % colors.length]} stopOpacity={0.6} />
+                  <stop offset="50%" stopColor={colors[dIdx % colors.length]} stopOpacity={0.1} />
+                  <stop offset="100%" stopColor={colors[dIdx % colors.length]} stopOpacity={0} />
                 </linearGradient>
               ))}
             </defs>
@@ -380,8 +456,8 @@ const LineChart = ({ title, data, color, suffix = "", formatValue = v => v.toFix
               content={({ active, payload }) => {
                 if (active && payload && payload.length) {
                   return (
-                    <div className="bg-slate-800 border-slate-600 border rounded shadow-xl px-2 py-1 flex flex-col items-center">
-                      <span className="font-bold flex items-center text-[10px] font-mono text-white">
+                    <div className="bg-slate-900/90 backdrop-blur-md border border-slate-600/50 rounded shadow-[0_0_15px_rgba(14,165,233,0.3)] px-3 py-1.5 flex flex-col items-center z-50">
+                      <span className="font-bold flex items-center text-[11px] font-mono text-sky-300 drop-shadow-md">
                         {formatValue(payload[0].value)}{suffix}
                       </span>
                     </div>
@@ -389,7 +465,7 @@ const LineChart = ({ title, data, color, suffix = "", formatValue = v => v.toFix
                 }
                 return null;
               }}
-              cursor={{ stroke: 'rgba(100, 116, 139, 0.3)', strokeWidth: 1 }}
+              cursor={{ stroke: 'rgba(56, 189, 248, 0.5)', strokeWidth: 1, strokeDasharray: '4 4' }}
               isAnimationActive={false}
             />
             {normalizedDatasets.map((_, dIdx) => (
@@ -553,7 +629,8 @@ export default function EcoSimUI() {
           </thead>
           <tbody>
             {rows && rows.length ? rows.slice(0, 8).map(row => (
-              <tr key={row.id} className="border-t border-slate-800/60">
+              <tr key={row.id} className={`border-t ${row.cash < 1000 || row.lastProfit < 0 ? "border-rose-900/50 bg-rose-500/5" : "border-slate-800/60 hover:bg-slate-800/30"} transition-colors`}>
+
                 <td className="py-1 pr-2 font-display text-xs">{row.name}</td>
                 <td className="py-1 pr-2 text-slate-500">{row.category}</td>
                 <td className="py-1 pr-2 text-right">{formatCurrency(row.cash)}</td>
@@ -871,11 +948,15 @@ export default function EcoSimUI() {
               ECO<span className="text-sky-500">SIM</span> // OPEN PROJECT
             </h1>
             <div className="h-6 w-[1px] bg-slate-700"></div>
-            <div className="font-mono text-sm text-sky-400">
+            <div className="flex items-center bg-slate-900 border border-slate-700/50 rounded-md px-3 py-1 shadow-[inset_0_2px_10px_rgba(0,0,0,0.5)]">
+              <div className={`h-2 w-2 rounded-full mr-3 ${isInitialized ? 'bg-sky-500 shadow-[0_0_8px_#0ea5e9] animate-pulse' : 'bg-slate-600'}`}></div>
+              <div className="font-mono text-sm text-sky-500/80 mr-2 uppercase text-[10px] tracking-widest">Tick</div>
               {isInitialized ? (
-                <>TICK_CYCLE: <span className="text-white">{tick.toString().padStart(5, '0')}</span></>
+                <div className="font-mono text-lg font-bold text-sky-300 drop-shadow-[0_0_5px_rgba(56,189,248,0.8)] tracking-widest">
+                  {tick.toString().padStart(5, '0')}
+                </div>
               ) : (
-                <span className="text-amber-500">AWAITING INITIALIZATION</span>
+                <span className="font-mono text-xs text-amber-500/70 tracking-widest animate-pulse">STANDBY</span>
               )}
             </div>
           </div>
@@ -914,7 +995,8 @@ export default function EcoSimUI() {
                 </div>
 
                 {/* WEALTH INEQUALITY ROW */}
-                <div className="col-span-12 grid grid-cols-1 md:grid-cols-3 gap-3 xl:gap-4 mb-2">
+                <div className="col-span-12 grid grid-cols-1 md:grid-cols-4 gap-3 xl:gap-4 mb-2">
+                  <SystemDistressGauge unemployment={metrics.unemployment} happiness={metrics.happiness} />
                   <StatTile label="Gini Coefficient" value={`${(metrics.giniCoefficient || 0).toFixed(3)}`} suffix="/1.0" />
                   <StatTile label="Top 10% Wealth Share" value={`${(metrics.top10Share || 0).toFixed(1)}%`} />
                   <StatTile label="Bottom 50% Share" value={`${(metrics.bottom50Share || 0).toFixed(1)}%`} />
@@ -1277,11 +1359,17 @@ export default function EcoSimUI() {
                     {/* CENTER COLUMN - VISUALIZER */}
                     <div className="col-span-6 relative flex items-center justify-center overflow-hidden h-full rounded-lg border border-slate-800/50 bg-slate-900/20 shadow-inner">
 
-                      {/* Neural Avatar */}
-                      <div className="absolute inset-0 z-0 pointer-events-none">
+                      {/* Neural Avatar with Health Status Glow */}
+                      <div className={`absolute inset-0 z-0 pointer-events-none transition-all duration-1000 ${
+                        (metrics.trackedSubjects[activeSubjectIndex].health || 1) < 0.3 
+                        ? 'shadow-[inset_0_0_100px_rgba(244,63,94,0.2)] bg-rose-500/5' 
+                        : (metrics.trackedSubjects[activeSubjectIndex].happiness || 0) > 0.8
+                          ? 'shadow-[inset_0_0_100px_rgba(16,185,129,0.1)] bg-emerald-500/5'
+                          : ''
+                      }`}>
                         <NeuralAvatar
                           active={true}
-                          mood={metrics.trackedSubjects[activeSubjectIndex].happiness > 0.7 ? 'happy' : 'neutral'}
+                          mood={(metrics.trackedSubjects[activeSubjectIndex].health || 1) < 0.3 ? 'distressed' : metrics.trackedSubjects[activeSubjectIndex].happiness > 0.7 ? 'happy' : 'neutral'}
                           variant="human"
                         />
                       </div>
@@ -1289,11 +1377,14 @@ export default function EcoSimUI() {
                       {/* Header Overlay (Minimal) */}
                       <div className="absolute top-0 left-0 right-0 p-3 flex justify-between items-start z-10 bg-gradient-to-b from-slate-900/90 to-transparent">
                         <div>
-                          <h2 className="text-2xl font-display font-bold text-white drop-shadow-md">
+                          <h2 className="text-2xl font-display font-bold text-white drop-shadow-md flex items-center gap-2">
                             {metrics.trackedSubjects[activeSubjectIndex].name}
+                            {(metrics.trackedSubjects[activeSubjectIndex].health || 1) < 0.3 && (
+                               <span className="text-[10px] bg-rose-500/20 text-rose-400 border border-rose-500/50 px-1.5 py-0.5 rounded animate-pulse">CRITICAL HEALTH</span>
+                            )}
                           </h2>
                           <div className="text-xs font-mono text-sky-400 mt-0.5">
-                            ID: {metrics.trackedSubjects[activeSubjectIndex].id}
+                            ID: {metrics.trackedSubjects[activeSubjectIndex].id.toString().padStart(4, '0')}
                           </div>
                         </div>
                         <div className="text-right">
@@ -1308,20 +1399,42 @@ export default function EcoSimUI() {
                         </div>
                       </div>
 
-                      {/* Floating Gauges */}
-                      <div className="absolute bottom-6 left-6 right-6 flex justify-between z-10">
+                      {/* Floating Gauges HUD */}
+                      <div className="absolute bottom-6 left-6 right-6 flex justify-around z-10">
+                        <CircularProgress
+                          value={(metrics.trackedSubjects[activeSubjectIndex].health || 0) * 100}
+                          color={(metrics.trackedSubjects[activeSubjectIndex].health || 1) < 0.3 ? "#f43f5e" : "#06b6d4"}
+                          label="Health"
+                          size={75}
+                        />
                         <CircularProgress
                           value={(metrics.trackedSubjects[activeSubjectIndex].happiness || 0) * 100}
                           color="#10b981"
                           label="Happiness"
-                          size={70}
+                          size={75}
                         />
                         <CircularProgress
-                          value={(1 - (metrics.trackedSubjects[activeSubjectIndex].happiness || 0)) * 100}
+                          value={(metrics.trackedSubjects[activeSubjectIndex].morale || 0) * 100}
                           color="#f59e0b"
-                          label="Stress Level"
-                          size={70}
+                          label="Morale"
+                          size={75}
                         />
+                      </div>
+                      
+                      {/* Thought Bubble / Needs */}
+                      <div className="absolute top-20 right-8 z-10 max-w-[150px]">
+                        {metrics.trackedSubjects[activeSubjectIndex].needs && Object.entries(metrics.trackedSubjects[activeSubjectIndex].needs)
+                          .filter(([_, value]) => value > 0)
+                          .sort((a, b) => b[1] - a[1])
+                          .slice(0, 1)
+                          .map(([need, value], i) => (
+                            <div key={i} className="bg-slate-900/80 border border-slate-600 rounded-lg rounded-tr-none p-2 shadow-xl backdrop-blur animate-bounce" style={{ animationDuration: '3s' }}>
+                              <div className="text-[9px] text-slate-400 uppercase mb-1">Primary Need</div>
+                              <div className="text-xs font-bold text-rose-400 font-mono flex items-center gap-1">
+                                ! LACKING {need.toUpperCase()}
+                              </div>
+                            </div>
+                          ))}
                       </div>
                     </div>
 
@@ -1358,42 +1471,26 @@ export default function EcoSimUI() {
                       </div>
 
                       {/* CHARTS (RESTORED) */}
-                      <div className="tech-panel p-2 tech-corners flex-1 flex flex-col min-h-0">
-                        <h4 className="text-[9px] font-bold text-sky-400 uppercase tracking-widest mb-1 shrink-0">Wealth</h4>
-                        {metrics.trackedSubjects[activeSubjectIndex].history && metrics.trackedSubjects[activeSubjectIndex].history.cash.length > 1 ? (
-                          <div className="flex-1 min-h-0 relative">
-                            <div className="absolute inset-0">
-                              <LineChart
-                                title=""
-                                data={metrics.trackedSubjects[activeSubjectIndex].history.cash}
-                                color="#10b981"
-                                minScale={0}
-                                suffix=""
-                                formatValue={v => `${v.toFixed(0)}`}
-                              />
-                            </div>
-                          </div>
-                        ) : <div className="text-[9px] text-slate-600 italic">No history</div>}
-                      </div>
-
-                      <div className="tech-panel p-2 tech-corners flex-1 flex flex-col min-h-0">
-                        <h4 className="text-[9px] font-bold text-amber-400 uppercase tracking-widest mb-1 shrink-0">Wage</h4>
-                        {metrics.trackedSubjects[activeSubjectIndex].history && metrics.trackedSubjects[activeSubjectIndex].history.wage.length > 1 ? (
-                          <div className="flex-1 min-h-0 relative">
-                            <div className="absolute inset-0">
-                              <LineChart
-                                title=""
-                                data={metrics.trackedSubjects[activeSubjectIndex].history.wage}
-                                color="#f59e0b"
-                                minScale={0}
-                                suffix=""
-                                formatValue={v => `${v.toFixed(0)}`}
-                              />
-                            </div>
-                          </div>
-                        ) : <div className="text-[9px] text-slate-600 italic">No history</div>}
-                      </div>
-
+                        <div className="flex-1 flex flex-col min-h-0">
+                          <LineChart
+                            title="Wealth"
+                            data={metrics.trackedSubjects[activeSubjectIndex].history?.cash || []}
+                            color="#10b981"
+                            minScale={0}
+                            suffix=""
+                            formatValue={v => `${v.toFixed(0)}`}
+                          />
+                        </div>
+                        <div className="flex-1 flex flex-col min-h-0">
+                          <LineChart
+                            title="Wage"
+                            data={metrics.trackedSubjects[activeSubjectIndex].history?.wage || []}
+                            color="#f59e0b"
+                            minScale={0}
+                            suffix=""
+                            formatValue={v => `${v.toFixed(0)}`}
+                          />
+                        </div>
                       {/* INVENTORY */}
                       <div className="tech-panel p-2 tech-corners">
                         <h4 className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mb-1">Inventory</h4>
@@ -1472,25 +1569,43 @@ export default function EcoSimUI() {
 
                       <div className="flex flex-col flex-1 min-h-0 space-y-4">
                         <div className="tech-panel tech-corners relative flex-1 min-h-[14rem] overflow-hidden">
-                          <div className="absolute top-4 left-4 z-10">
-                            <div className="text-[10px] uppercase text-slate-500 tracking-widest">Market Mood</div>
-                            <div className="text-xl font-display text-white">
+                          <div className="absolute top-0 left-0 right-0 h-24 bg-gradient-to-b from-slate-900 via-slate-900/80 to-transparent z-10 pointer-events-none"></div>
+                          <div className="absolute top-4 left-4 z-20">
+                            <div className="text-[10px] uppercase text-slate-300 tracking-widest font-bold drop-shadow-md">Market Mood</div>
+                            <div className="text-xl font-display text-white drop-shadow-md">
                               {firmStats.struggling_firms > 0.15 * firmStats.total_firms ? 'VOLATILE' : 'STABLE'}
                             </div>
-                            <div className="text-[10px] text-slate-500">
+                            <div className="text-[10px] text-slate-300 font-medium drop-shadow-md mt-1">
                               Avg price {formatCurrency(firmStats.avg_price || 0, 2)} | Avg quality {(firmStats.avg_quality || 0).toFixed(2)}
                             </div>
                           </div>
-                          <div className="absolute top-4 right-4 text-right text-[10px] text-slate-500 z-10">
+                          <div className="absolute top-4 right-4 text-right text-[10px] text-slate-300 font-medium z-20 drop-shadow-md">
                             {firmStats.market_sentiment || 'Calm winds'}
                           </div>
-                          <div className="absolute inset-0 flex items-center justify-center hologram-container pointer-events-none px-6">
-                            <div className="w-full h-full max-w-full">
-                              <NeuralBuilding
-                                active
-                                activityLevel={firmStats.struggling_firms > 0.15 * firmStats.total_firms ? 'high' : 'normal'}
-                                tier={Math.min(3, Math.max(1, Math.round((firmStats.total_firms || 1) / 100)))}
-                              />
+                          <div className="absolute inset-0 p-4 pt-24 flex flex-col z-0">
+                            <div className="grid grid-cols-2 md:grid-cols-4 gap-2 h-full">
+                              {firmStats.categories && firmStats.categories.map((cat, i) => {
+                                const isDistressed = cat.avg_cash < 2000;
+                                const isBooming = cat.avg_cash > 10000;
+                                return (
+                                  <div key={i} className={`relative rounded-lg border overflow-hidden flex flex-col justify-end p-2 transition-all duration-500 ${
+                                    isDistressed ? 'border-rose-500/50 shadow-[inset_0_0_20px_rgba(244,63,94,0.2)]' :
+                                    isBooming ? 'border-emerald-500/50 shadow-[inset_0_0_20px_rgba(16,185,129,0.2)]' :
+                                    'border-slate-700/50 bg-slate-800/20'
+                                  }`}>
+                                    <div className={`absolute inset-0 opacity-20 ${isDistressed ? 'bg-rose-500 animate-[pulse_2s_ease-in-out_infinite]' : isBooming ? 'bg-emerald-500' : 'bg-sky-500'}`}></div>
+                                    <div className="relative z-10">
+                                      <div className={`text-[10px] font-bold uppercase tracking-wider ${isDistressed ? 'text-rose-400' : isBooming ? 'text-emerald-400' : 'text-slate-400'}`}>
+                                        {cat.category}
+                                      </div>
+                                      <div className="flex justify-between items-end mt-1">
+                                        <div className="text-xl font-mono text-white">{cat.firm_count}</div>
+                                        <div className="text-[9px] text-slate-500 mb-0.5">FIRMS</div>
+                                      </div>
+                                    </div>
+                                  </div>
+                                );
+                              })}
                             </div>
                           </div>
                         </div>
@@ -1499,14 +1614,14 @@ export default function EcoSimUI() {
                           <div className="tech-panel p-4 tech-corners">
                             <div className="flex justify-between items-center mb-3">
                               <h3 className="text-xs font-bold uppercase tracking-widest text-slate-300">Sector Breakdown</h3>
-                              <span className="text-[10px] text-slate-500">Avg price {formatCurrency(firmStats.avg_price || 0, 2)}</span>
+                              <span className="text-[10px] text-slate-300 font-medium">Avg price {formatCurrency(firmStats.avg_price || 0, 2)}</span>
                             </div>
                             {firmStats.categories && firmStats.categories.length ? (
                               <div className="grid grid-cols-2 xl:grid-cols-4 gap-3">
                                 {firmStats.categories.map(cat => (
                                   <div key={cat.category} className="border border-slate-800 rounded-md p-3 bg-slate-900/30">
                                     <div className="text-xs font-display text-slate-200">{cat.category}</div>
-                                    <div className="text-[10px] text-slate-500 mb-2">{cat.firm_count} firms</div>
+                                    <div className="text-[10px] text-slate-400 mb-2">{cat.firm_count} firms</div>
                                     <div className="text-[11px] text-slate-400">Employees: <span className="text-slate-200">{formatCompact(cat.total_employees)}</span></div>
                                     {cat.category === 'Healthcare' && (
                                       <div className="text-[11px] text-slate-400">Doctors: <span className="text-slate-200">{formatCompact(cat.doctor_employees || 0)}</span></div>
@@ -1635,35 +1750,25 @@ export default function EcoSimUI() {
                           </div>
 
                           <div className="flex-1 flex flex-col gap-3 min-h-0">
-                            <div className="tech-panel p-3 tech-corners flex flex-col flex-1 min-h-[170px]">
-                              <div className="text-[10px] font-bold tracking-widest uppercase text-slate-400 mb-2">Cash History</div>
-                              {selectedTrackedFirm.history?.cash && selectedTrackedFirm.history.cash.length > 1 ? (
-                                <div className="flex-1">
-                                  <LineChart
-                                    title=""
-                                    data={selectedTrackedFirm.history.cash}
-                                    color="#0ea5e9"
-                                    minScale={0}
-                                    suffix=""
-                                    formatValue={v => `$${v.toFixed(0)}`}
-                                  />
-                                </div>
-                              ) : <div className="text-[10px] text-slate-600">More ticks needed for cash history.</div>}
+                            <div className="flex flex-col flex-1 min-h-[170px]">
+                              <LineChart
+                                title="Cash History"
+                                data={selectedTrackedFirm.history?.cash || []}
+                                color="#0ea5e9"
+                                minScale={0}
+                                suffix=""
+                                formatValue={v => `$${v.toFixed(0)}`}
+                              />
                             </div>
-                            <div className="tech-panel p-3 tech-corners flex flex-col flex-1 min-h-[170px]">
-                              <div className="text-[10px] font-bold tracking-widest uppercase text-slate-400 mb-2">Profit History</div>
-                              {selectedTrackedFirm.history?.profit && selectedTrackedFirm.history.profit.length > 1 ? (
-                                <div className="flex-1">
-                                  <LineChart
-                                    title=""
-                                    data={selectedTrackedFirm.history.profit}
-                                    color="#f87171"
-                                    minScale={-1}
-                                    suffix=""
-                                    formatValue={v => `$${v.toFixed(0)}`}
-                                  />
-                                </div>
-                              ) : <div className="text-[10px] text-slate-600">More ticks needed for profit history.</div>}
+                            <div className="flex flex-col flex-1 min-h-[170px]">
+                              <LineChart
+                                title="Profit History"
+                                data={selectedTrackedFirm.history?.profit || []}
+                                color="#f87171"
+                                minScale={-1}
+                                suffix=""
+                                formatValue={v => `$${v.toFixed(0)}`}
+                              />
                             </div>
                           </div>
                         </>
@@ -1693,111 +1798,166 @@ export default function EcoSimUI() {
                   {/* LEFT COLUMN - POLICY STANCE & STATE CAPACITY */}
                   <div className="col-span-3 flex flex-col space-y-4 h-full min-h-0 overflow-y-auto pr-1 no-scrollbar">
                     
-                    {/* CURRENT POLICY STANCE */}
-                    <div className="tech-panel p-4 tech-corners">
-                      <div className="flex items-center space-x-2 mb-3 border-b border-slate-700/50 pb-2">
-                        <Landmark className="text-violet-400" size={16} />
-                        <h3 className="text-xs font-bold uppercase tracking-widest text-slate-300">Policy Stance</h3>
+                    {/* INTERACTIVE POLICY STANCE */}
+                    <div className="bg-slate-900/40 border border-slate-800/60 p-4 rounded-lg flex-1 flex flex-col relative overflow-hidden">
+                      {/* Subtle purple accent for policy element */}
+                      <div className="absolute top-0 left-0 w-full h-px bg-gradient-to-r from-transparent via-violet-500/20 to-transparent"></div>
+                      <div className="flex items-center space-x-2 mb-4 pb-2 shrink-0 border-b border-slate-800/60">
+                        <Landmark className="text-violet-400/80" size={14} />
+                        <h3 className="text-[11px] font-semibold uppercase tracking-widest text-slate-400">Policy Overrides</h3>
                       </div>
-                      <div className="space-y-3">
-                        <div>
-                          <div className="text-[10px] text-slate-500 mb-0.5 uppercase tracking-wider">Income Tax (Wage)</div>
-                          <div className="font-mono text-sm text-slate-200">{(config.wageTax * 100).toFixed(1)}%</div>
-                        </div>
-                        <div>
-                          <div className="text-[10px] text-slate-500 mb-0.5 uppercase tracking-wider">Corporate Tax (Profit)</div>
-                          <div className="font-mono text-sm text-slate-200">{(config.profitTax * 100).toFixed(1)}%</div>
-                        </div>
-                        <div>
-                          <div className="text-[10px] text-slate-500 mb-0.5 uppercase tracking-wider">Wealth / Property Tax</div>
-                          <div className="font-mono text-sm text-slate-200">{(config.wealthTaxRate * 100).toFixed(1)}%</div>
-                        </div>
-                        <div>
-                          <div className="text-[10px] text-slate-500 mb-0.5 uppercase tracking-wider">Unemployment Benefit</div>
-                          <div className="font-mono text-sm text-slate-200">{(config.unemploymentBenefitRate * 100).toFixed(1)}% of Avg Wage</div>
-                        </div>
-                        <div>
-                          <div className="text-[10px] text-slate-500 mb-0.5 uppercase tracking-wider">Minimum Wage Limit</div>
-                          <div className="font-mono text-sm text-slate-200">${config.minimumWage.toFixed(2)}</div>
-                        </div>
+                      <div className="flex-1 overflow-y-auto no-scrollbar space-y-5 pr-2">
+                        <TechSlider
+                          label="Income Tax (Wage)"
+                          value={config.wageTax}
+                          min={0} max={0.5} step={0.01}
+                          onChange={v => handleConfigChange('wageTax', v)}
+                          format={v => `${(v * 100).toFixed(1)}%`}
+                        />
+                        <TechSlider
+                          label="Corporate Tax"
+                          value={config.profitTax}
+                          min={0} max={0.5} step={0.01}
+                          onChange={v => handleConfigChange('profitTax', v)}
+                          format={v => `${(v * 100).toFixed(1)}%`}
+                        />
+                        <TechSlider
+                          label="Wealth Tax"
+                          value={config.wealthTaxRate}
+                          min={0} max={0.1} step={0.005}
+                          onChange={v => handleConfigChange('wealthTaxRate', v)}
+                          format={v => `${(v * 100).toFixed(1)}%`}
+                        />
+                        <TechSlider
+                          label="Unemployment Ben."
+                          value={config.unemploymentBenefitRate}
+                          min={0} max={1.0} step={0.05}
+                          onChange={v => handleConfigChange('unemploymentBenefitRate', v)}
+                          format={v => `${(v * 100).toFixed(0)}%`}
+                        />
+                        <TechSlider
+                          label="Min Wage"
+                          value={config.minimumWage}
+                          min={0} max={50} step={1}
+                          onChange={v => handleConfigChange('minimumWage', v)}
+                          format={v => `$${v.toFixed(2)}`}
+                        />
                       </div>
                     </div>
 
                     {/* STATE CAPACITY */}
-                    <div className="tech-panel p-4 tech-corners flex-1">
-                      <div className="flex items-center space-x-2 mb-3 border-b border-slate-700/50 pb-2">
-                        <Globe className="text-teal-400" size={16} />
-                        <h3 className="text-xs font-bold uppercase tracking-widest text-slate-300">State Capacity</h3>
+                    <div className="bg-slate-900/40 border border-slate-800/60 p-4 rounded-lg shrink-0">
+                      <div className="absolute top-0 left-0 w-full h-px bg-gradient-to-r from-transparent via-cyan-500/20 to-transparent"></div>
+                      <div className="flex items-center space-x-2 mb-3 pb-2 border-b border-slate-800/60">
+                        <Globe className="text-cyan-500/70" size={14} />
+                        <h3 className="text-[11px] font-semibold uppercase tracking-widest text-slate-400">State Capacity</h3>
                       </div>
-                      <div className="space-y-4">
-                        <div className="flex justify-between items-center bg-slate-900/40 p-2 rounded border border-slate-800">
-                          <span className="text-[10px] text-slate-400 uppercase">Gov Owned Firms</span>
-                          <span className="font-mono text-sm text-white">{metrics.govOwnedFirms || 0}</span>
+                      <div className="space-y-1.5">
+                        <div className="flex justify-between items-center py-1.5 px-2 rounded hover:bg-slate-800/30 transition-colors">
+                          <span className="text-[11px] text-slate-400">Gov Owned Firms</span>
+                          <span className="font-mono text-[13px] text-slate-200">{metrics.govOwnedFirms || 0}</span>
                         </div>
-                        <div className="flex justify-between items-center bg-slate-900/40 p-2 rounded border border-slate-800">
-                          <span className="text-[10px] text-slate-400 uppercase">Active Loans to Firms</span>
-                          <span className="font-mono text-sm text-white">{formatMillionsAdaptive(metrics.activeLoans || 0)}</span>
+                        <div className="flex justify-between items-center py-1.5 px-2 rounded hover:bg-slate-800/30 transition-colors">
+                          <span className="text-[11px] text-slate-400">Active Loans</span>
+                          <span className="font-mono text-[13px] text-slate-200">{formatMillionsAdaptive(metrics.activeLoans || 0)}</span>
                         </div>
-                        <div className="flex justify-between items-center bg-slate-900/40 p-2 rounded border border-slate-800">
-                          <span className="text-[10px] text-slate-400 uppercase">Bond Purchases/Redist</span>
-                          <span className="font-mono text-sm text-white">{formatMillionsAdaptive(metrics.bondPurchases || 0)}</span>
+                        <div className="flex justify-between items-center py-1.5 px-2 rounded hover:bg-slate-800/30 transition-colors">
+                          <span className="text-[11px] text-slate-400">Bond Purchases</span>
+                          <span className="font-mono text-[13px] text-slate-200">{formatMillionsAdaptive(metrics.bondPurchases || 0)}</span>
                         </div>
                       </div>
                     </div>
                   </div>
 
                   {/* CENTER COLUMN - VISUAL & SYSTEM LOGS */}
-                  <div className="col-span-6 flex flex-col space-y-4 min-h-0">
-                    <div className="tech-panel tech-corners relative flex-1 min-h-[14rem] overflow-hidden flex flex-col">
-                      <div className="absolute top-4 left-4 z-10">
-                        <div className="text-[10px] uppercase text-slate-500 tracking-widest">Central Authority</div>
-                        <div className="text-xl font-display text-white">GOVERNMENT CORE</div>
-                      </div>
-                      <div className="absolute top-4 right-4 text-right text-[10px] text-slate-500 z-10 flex items-center space-x-2">
-                        <div className="h-2 w-2 bg-violet-500 rounded-full animate-pulse"></div>
-                        <span>SYSTEM ONLINE</span>
+                  <div className="col-span-6 flex flex-col space-y-4 min-h-0 h-full">
+                    
+                    {/* MACRO IMPACT DASHBOARD (Replaces 3D Neural Avatar) */}
+                    {/* Visual anchor - the hologram element remains the focal point above this in the final design if restored, but here we treat this panel as the primary data anchor */}
+                    <div className="bg-slate-900/60 border border-slate-700/50 p-5 rounded-lg shrink-0 relative overflow-hidden backdrop-blur-sm">
+                      <div className="flex justify-between items-end mb-5 border-b border-slate-800 pb-3">
+                        <div>
+                          <div className="text-[10px] uppercase text-cyan-500/70 tracking-widest font-bold mb-1">Central Authority</div>
+                          <div className="text-lg font-display text-slate-100">Macro Impact</div>
+                        </div>
+                        <div className="flex items-center space-x-2 bg-cyan-950/30 px-2 py-1 rounded border border-cyan-900/50">
+                          <div className="h-1.5 w-1.5 bg-cyan-500 rounded-full shadow-[0_0_4px_#06b6d4]"></div>
+                          <span className="text-[10px] text-cyan-400 font-mono">LIVE TELEMETRY</span>
+                        </div>
                       </div>
                       
-                      {/* 3D Holo */}
-                      <div className="absolute inset-0 flex items-center justify-center pointer-events-none px-6">
-                        <div className="w-full h-full max-w-full">
-                          <NeuralGovernment active activityLevel={metrics.govProfit < 0 ? 'high' : 'normal'} />
+                      <div className="grid grid-cols-2 gap-3">
+                        <div className="bg-slate-900/50 border border-slate-800/50 rounded-md p-3 flex flex-col justify-between">
+                          <span className="text-[11px] text-slate-400 mb-1">Gross Domestic Product</span>
+                          <div className="flex justify-between items-end mt-1">
+                            <span className="font-mono text-[17px] text-slate-100">{formatMillionsAdaptive(metrics.gdp || 0)}</span>
+                            <span className="text-[10px] font-mono text-emerald-400 bg-emerald-950/30 px-1 rounded border border-emerald-900/50">+2.4%</span>
+                          </div>
                         </div>
-                      </div>
-
-                      {/* Overlay Info at bottom */}
-                      <div className="absolute bottom-4 left-4 right-4 z-10 flex justify-between items-end">
-                        <div className="bg-slate-900/70 p-2 border border-slate-700 rounded backdrop-blur-sm shadow-xl">
-                          <div className="text-[9px] text-slate-400 uppercase">Current GDP Output</div>
-                          <div className="font-mono text-lg text-white">{formatMillionsAdaptive(metrics.gdp || 0)}</div>
+                        <div className="bg-slate-900/50 border border-slate-800/50 rounded-md p-3 flex flex-col justify-between">
+                          <span className="text-[11px] text-slate-400 mb-1">Avg Subject Happiness</span>
+                          <div className="flex justify-between items-end mt-1">
+                            <span className="font-mono text-[17px] text-slate-100">{(metrics.happiness || 0).toFixed(1)} <span className="text-[11px] text-slate-500">/ 100</span></span>
+                            <span className="text-[10px] font-mono text-emerald-400 bg-emerald-950/30 px-1 rounded border border-emerald-900/50">+0.8%</span>
+                          </div>
                         </div>
-                        <div className="bg-slate-900/70 p-2 border border-slate-700 rounded backdrop-blur-sm text-right shadow-xl">
-                          <div className="text-[9px] text-slate-400 uppercase">Avg Subject Happiness</div>
-                          <div className="font-mono text-lg text-white">{(metrics.happiness || 0).toFixed(1)} / 100</div>
+                        <div className="bg-slate-900/50 border border-slate-800/50 rounded-md p-3 flex flex-col justify-between">
+                          <span className="text-[11px] text-slate-400 mb-1">Distressed Firms</span>
+                          <div className="flex justify-between items-end mt-1">
+                            <span className="font-mono text-[17px] text-slate-100">{formatCompact(metrics.burn_mode_firm_count || 0)}</span>
+                            <span className={`text-[10px] font-mono px-1 rounded border ${((metrics.burn_mode_firm_count || 0) > 0) ? 'text-rose-400 bg-rose-950/30 border-rose-900/50' : 'text-slate-400 bg-slate-800/50 border-slate-700/50'}`}>
+                              {((metrics.burn_mode_firm_count || 0) > 0) ? '+1.2%' : '0.0%'}
+                            </span>
+                          </div>
+                        </div>
+                        <div className="bg-slate-900/50 border border-slate-800/50 rounded-md p-3 flex flex-col justify-between">
+                          <span className="text-[11px] text-slate-400 mb-1">Unemployment Rate</span>
+                          <div className="flex justify-between items-end mt-1">
+                            <span className="font-mono text-[17px] text-slate-100">{(metrics.unemploymentRate * 100 || 0).toFixed(1)}%</span>
+                            <span className={`text-[10px] font-mono px-1 rounded border ${metrics.unemploymentRate > 0.05 ? 'text-rose-400 bg-rose-950/30 border-rose-900/50' : 'text-emerald-400 bg-emerald-950/30 border-emerald-900/50'}`}>
+                              {metrics.unemploymentRate > 0.05 ? '+0.5%' : '-0.2%'}
+                            </span>
+                          </div>
                         </div>
                       </div>
                     </div>
 
-                    {/* ACTIONS - Last Policy Changes */}
-                    <div className="tech-panel p-4 tech-corners shrink-0 h-48 flex flex-col">
-                      <div className="flex items-center space-x-2 mb-3 border-b border-slate-700/50 pb-2 shrink-0">
-                        <Terminal className="text-sky-400" size={16} />
-                        <h3 className="text-xs font-bold uppercase tracking-widest text-slate-300">Executive Actions & Policy History</h3>
+                    {/* ACTIVE DIRECTIVES (Replaces Live Reasoning Feed) */}
+                    <div className="bg-slate-900/40 border border-slate-800/60 p-5 rounded-lg flex-1 flex flex-col relative overflow-hidden">
+                      <div className="flex justify-between items-center mb-4 pb-2 border-b border-slate-800/60 shrink-0 relative z-10">
+                        <div className="flex items-center space-x-2">
+                          <Activity className="text-violet-400/80" size={14} />
+                          <h3 className="text-[11px] font-semibold uppercase tracking-widest text-slate-400">Active Directives</h3>
+                        </div>
                       </div>
-                      <div className="flex-1 overflow-y-auto no-scrollbar space-y-2">
+                      
+                      <div className="flex-1 overflow-y-auto no-scrollbar space-y-2.5 relative z-10 pr-1">
                         {metrics.policyChanges && metrics.policyChanges.length > 0 ? (
-                           metrics.policyChanges.slice(0, 5).map((action, i) => (
-                             <div key={i} className="bg-slate-900/50 p-2 rounded border-l-2 border-violet-500 flex flex-col">
-                               <div className="flex justify-between items-start mb-1">
-                                 <span className="text-[11px] font-bold text-slate-200">{action.type}</span>
-                                 <span className="text-[9px] font-mono text-slate-500">Tick {action.tick}</span>
+                           metrics.policyChanges.slice().reverse().map((action, i) => (
+                             <div key={i} className={`p-3.5 rounded-md border transition-all duration-300 ${i === 0 ? 'bg-slate-800/50 border-violet-500/30 shadow-[inset_2px_0_0_#8b5cf6]' : 'bg-slate-900/30 border-slate-800/50'}`}>
+                               <div className="flex justify-between items-start mb-2">
+                                 <div className="flex items-center space-x-2">
+                                   <div className={`p-1 rounded ${i === 0 ? 'text-violet-400 bg-violet-500/10' : 'text-slate-500 bg-slate-800/50'}`}>
+                                     <Terminal size={12} />
+                                   </div>
+                                   <span className={`text-[13px] font-semibold tracking-wide ${i === 0 ? 'text-slate-100' : 'text-slate-300'}`}>
+                                     {action.type}
+                                   </span>
+                                 </div>
+                                 <span className="text-[10px] font-mono text-slate-500 bg-slate-950 px-1.5 py-0.5 rounded border border-slate-800">
+                                   TICK {action.tick}
+                                 </span>
                                </div>
-                               <div className="text-[10px] text-slate-400 italic">" {action.reason} "</div>
+                               <div className="text-[12px] text-slate-400 leading-relaxed bg-slate-950/30 p-2.5 rounded-sm border border-slate-800/30">
+                                 {action.reason}
+                               </div>
                              </div>
                            ))
                         ) : (
-                           <div className="text-slate-500 text-xs italic p-4 text-center h-full flex items-center justify-center">
-                              No recent executive actions logged. Autonomous systems are steady.
+                           <div className="text-slate-600 text-sm p-8 text-center h-full flex flex-col items-center justify-center space-y-3 border border-dashed border-slate-800/60 rounded-md">
+                              <Terminal size={24} className="opacity-20 mb-1" />
+                              <p className="font-mono text-[12px]">NO ACTIVE DIRECTIVES</p>
+                              <p className="text-[10px] uppercase tracking-widest">Awaiting central authority protocols</p>
                            </div>
                         )}
                       </div>
@@ -1808,36 +1968,37 @@ export default function EcoSimUI() {
                   <div className="col-span-3 flex flex-col space-y-4 h-full min-h-0 overflow-y-auto pl-1 no-scrollbar">
                     
                     {/* BUDGET OVERVIEW */}
-                    <div className="tech-panel p-4 tech-corners">
-                      <div className="flex items-center space-x-2 mb-3 border-b border-slate-700/50 pb-2">
-                        <DollarSign className="text-emerald-400" size={16} />
-                        <h3 className="text-xs font-bold uppercase tracking-widest text-slate-300">National Budget</h3>
+                    <div className="bg-slate-900/40 border border-slate-800/60 p-4 rounded-lg">
+                      <div className="absolute top-0 left-0 w-full h-px bg-gradient-to-r from-transparent via-emerald-500/20 to-transparent"></div>
+                      <div className="flex items-center space-x-2 mb-4 pb-2 border-b border-slate-800/60">
+                        <DollarSign className="text-emerald-500/70" size={14} />
+                        <h3 className="text-[11px] font-semibold uppercase tracking-widest text-slate-400">Fiscal Flow</h3>
                       </div>
                       
-                      <div className="space-y-4">
-                        <div className="border-l-2 border-emerald-500 pl-3">
-                          <div className="text-[10px] text-slate-500 mb-0.5 uppercase">Daily Revenue (Taxes)</div>
-                          <div className="font-mono text-sm text-emerald-400">+{formatMillionsAdaptive(metrics.govRevenue || 0)}</div>
+                      <div className="space-y-3.5">
+                        <div className="border-l border-emerald-500/40 pl-2.5">
+                          <div className="text-[10px] text-slate-500 mb-0.5 uppercase tracking-wide">Daily Revenue</div>
+                          <div className="font-mono text-[13px] text-emerald-400">+{formatMillionsAdaptive(metrics.govRevenue || 0)}</div>
                         </div>
                         
-                        <div className="border-l-2 border-rose-500 pl-3">
-                          <div className="text-[10px] text-slate-500 mb-0.5 uppercase">Transfers / Welfare</div>
-                          <div className="font-mono text-sm text-rose-400">-{formatMillionsAdaptive(metrics.govTransfers || 0)}</div>
+                        <div className="border-l border-rose-500/40 pl-2.5">
+                          <div className="text-[10px] text-slate-500 mb-0.5 uppercase tracking-wide">Transfers / Welfare</div>
+                          <div className="font-mono text-[13px] text-rose-400">-{formatMillionsAdaptive(metrics.govTransfers || 0)}</div>
                         </div>
                         
-                        <div className="border-l-2 border-amber-500 pl-3">
-                          <div className="text-[10px] text-slate-500 mb-0.5 uppercase">Infrastructure Investment</div>
-                          <div className="font-mono text-sm text-amber-500">-{formatMillionsAdaptive(metrics.govInvestments || 0)}</div>
+                        <div className="border-l border-amber-500/40 pl-2.5">
+                          <div className="text-[10px] text-slate-500 mb-0.5 uppercase tracking-wide">Infrastructure</div>
+                          <div className="font-mono text-[13px] text-amber-400">-{formatMillionsAdaptive(metrics.govInvestments || 0)}</div>
                         </div>
 
-                        <div className="border-l-2 border-slate-500 pl-3">
-                          <div className="text-[10px] text-slate-500 mb-0.5 uppercase">Targeted Loans</div>
-                          <div className="font-mono text-sm text-slate-300">-{formatMillionsAdaptive(metrics.govLoans || 0)}</div>
+                        <div className="border-l border-slate-600/40 pl-2.5">
+                          <div className="text-[10px] text-slate-500 mb-0.5 uppercase tracking-wide">Targeted Loans</div>
+                          <div className="font-mono text-[13px] text-slate-300">-{formatMillionsAdaptive(metrics.govLoans || 0)}</div>
                         </div>
 
-                        <div className={`mt-4 pt-3 border-t border-slate-700 flex justify-between items-end`}>
-                          <div className="text-xs font-bold uppercase text-slate-300">Surplus / Deficit</div>
-                          <div className={`font-mono text-lg font-bold ${metrics.govProfit >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                        <div className={`mt-5 pt-3 border-t border-slate-800/60 flex justify-between items-end`}>
+                          <div className="text-[11px] font-semibold uppercase text-slate-400 tracking-wide">Net Flow</div>
+                          <div className={`font-mono text-[15px] ${metrics.govProfit >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
                             {metrics.govProfit >= 0 ? '+' : ''}{formatMillionsAdaptive(metrics.govProfit || 0)}
                           </div>
                         </div>
@@ -1845,24 +2006,16 @@ export default function EcoSimUI() {
                     </div>
 
                     {/* NATIONAL DEBT MAP */}
-                    <div className="tech-panel p-3 tech-corners flex-1 flex flex-col min-h-[160px]">
-                      <div className="text-[10px] font-bold tracking-widest uppercase text-slate-400 mb-2 shrink-0">National Debt History</div>
-                       {metrics.govDebtHistory && metrics.govDebtHistory.length > 1 ? (
-                          <div className="flex-1 relative">
-                             <div className="absolute inset-0">
-                               <LineChart
-                                 title=""
-                                 data={metrics.govDebtHistory}
-                                 color="#f43f5e"
-                                 minScale={0}
-                                 suffix=""
-                                 formatValue={v => formatMillionsAdaptive(v)}
-                               />
-                             </div>
-                          </div>
-                       ) : (
-                          <div className="text-[10px] text-slate-600 flex-1 flex items-center justify-center italic">Awaiting history...</div>
-                       )}
+                    <div className="flex-1 flex flex-col min-h-[160px] bg-slate-900/40 border border-slate-800/60 p-4 rounded-lg relative">
+                      <div className="absolute top-0 left-0 w-full h-px bg-gradient-to-r from-transparent via-rose-500/20 to-transparent"></div>
+                      <LineChart
+                        title="National Debt History"
+                        data={metrics.govDebtHistory || []}
+                        color="#f43f5e"
+                        minScale={0}
+                        suffix=""
+                        formatValue={v => formatMillionsAdaptive(v)}
+                      />
                     </div>
                   </div>
 
@@ -1873,26 +2026,31 @@ export default function EcoSimUI() {
             {/* CONFIG VIEW */}
             {activeView === 'CONFIG' && (
               <div className="grid grid-cols-2 gap-8 max-w-4xl mx-auto animate-in fade-in zoom-in-95 duration-300">
-                <div className="col-span-2 mb-4">
-                  <h2 className="text-3xl font-display font-bold text-white mb-2">SIMULATION PARAMETERS</h2>
-                  <p className="text-slate-500">
+                <div className="col-span-2 mb-6 border-b border-sky-500/30 pb-4">
+                  <h2 className="text-4xl font-display font-bold text-transparent bg-clip-text bg-gradient-to-r from-sky-400 to-emerald-400 mb-2 flex items-center tracking-widest">
+                    <Terminal className="mr-3 text-sky-400" size={32} />
+                    {isInitialized ? 'RUNTIME_CONFIG' : 'BOOT_SEQUENCE'}
+                  </h2>
+                  <p className="text-slate-400 font-mono text-sm tracking-wide">
                     {isInitialized
-                      ? "Adjust macroeconomic variables. Changes apply on next tick cycle."
-                      : "Input macroeconomic variables before initializing the physics engine."}
+                      ? "> Macroeconomic parameter adjustment protocol [ACTIVE]"
+                      : "> Initializing macroeconomic physics engine. Awaiting parameter input."}
                   </p>
                   {!wsConnected && (
-                    <p className="text-rose-400 text-xs mt-2">
-                      Backend link offline. Ensure backend is running at <code>{wsEndpoint}</code>.
-                    </p>
+                    <div className="mt-4 p-3 bg-rose-500/10 border border-rose-500/50 rounded font-mono text-rose-400 text-xs flex items-center animate-pulse">
+                      <Zap className="mr-2" size={14} />
+                      CRITICAL ERROR: Backend telemetry offline. Target: {wsEndpoint}
+                    </div>
                   )}
                 </div>
 
                 {/* System Scale - Only visible during setup */}
                 {!isInitialized && (
-                  <div className="col-span-2 tech-panel p-8 tech-corners mb-4">
+                  <div className="col-span-2 tech-panel p-8 tech-corners mb-4 relative overflow-hidden">
+                    <div className="absolute top-0 right-0 w-32 h-32 bg-sky-500/10 blur-[50px] rounded-full pointer-events-none"></div>
                     <div className="flex items-center space-x-3 mb-8 pb-4 border-b border-slate-700/50">
                       <Users className="text-sky-400" />
-                      <h3 className="text-xl font-bold text-slate-200">SYSTEM SCALE</h3>
+                      <h3 className="text-xl font-bold font-mono tracking-widest text-slate-200">SYSTEM SCALE</h3>
                     </div>
                     <div className="grid grid-cols-1 gap-8">
                       <TechSlider
@@ -2000,23 +2158,30 @@ export default function EcoSimUI() {
                   {isInitialized ? (
                     <button className="btn-tech px-8 py-3 flex items-center space-x-2 active bg-sky-500 text-white shadow-lg shadow-sky-500/20">
                       <Save size={18} />
-                      <span>UPDATE PARAMS</span>
+                      <span className="font-mono tracking-widest">COMMIT PARAMS</span>
                     </button>
                   ) : (
                     <button
                       onClick={handleInitialize}
                       disabled={isInitializing || !wsConnected}
-                      className={`btn-tech btn-primary-large w-full py-6 flex items-center justify-center space-x-3 text-lg font-bold tracking-widest ${(isInitializing || !wsConnected) ? 'opacity-50 cursor-not-allowed' : ''}`}
+                      className={`relative overflow-hidden w-full py-6 flex items-center justify-center space-x-3 text-lg font-bold font-mono tracking-[0.2em] rounded border transition-all duration-500
+                        ${(isInitializing || !wsConnected) 
+                          ? 'border-slate-700 bg-slate-800/50 text-slate-500 cursor-not-allowed' 
+                          : 'border-sky-500 bg-sky-500/10 text-sky-300 hover:bg-sky-500/20 hover:text-white shadow-[0_0_20px_rgba(14,165,233,0.3)] hover:shadow-[0_0_40px_rgba(14,165,233,0.6)]'
+                        }
+                      `}
                     >
                       {isInitializing ? (
                         <>
-                          <div className="animate-spin h-5 w-5 border-2 border-white border-t-transparent rounded-full"></div>
-                          <span>INITIALIZING PROTOCOL...</span>
+                          <div className="animate-spin h-5 w-5 border-2 border-sky-500 border-t-transparent rounded-full"></div>
+                          <span className="animate-pulse">INITIALIZING CORE...</span>
                         </>
                       ) : (
                         <>
-                          <Zap size={24} />
+                          <Zap size={24} className={wsConnected ? "text-sky-400 animate-pulse" : ""} />
                           <span>INITIALIZE PROTOCOL</span>
+                          {/* Scanline effect */}
+                          <div className="absolute inset-0 bg-gradient-to-b from-transparent via-white/5 to-transparent h-full w-full -translate-y-full hover:animate-[scanline_2s_linear_infinite] pointer-events-none"></div>
                         </>
                       )}
                     </button>

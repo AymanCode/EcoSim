@@ -217,3 +217,21 @@ def test_contract_server_llm_decision_interval_is_enforced(tiny_economy_factory,
     result_not_due = asyncio.run(manager._run_llm_government_if_due())
     assert result_not_due is None
     assert calls["count"] == 1
+
+
+def test_contract_llm_enabled_disables_legacy_government_policy_chooser(tiny_economy_factory, monkeypatch):
+    economy = tiny_economy_factory(num_households=18, num_firms_per_category=1, disable_shocks=True, seed=909)
+    economy.configure_stabilizers(government=True)
+    monkeypatch.setattr(CONFIG.llm, "enable_llm_government", True)
+
+    calls = {"count": 0}
+
+    def fail_if_called():
+        calls["count"] += 1
+        raise AssertionError("Legacy automatic government policy chooser should not run with LLM enabled")
+
+    monkeypatch.setattr(economy, "_adjust_government_policy", fail_if_called)
+
+    economy.step()
+
+    assert calls["count"] == 0

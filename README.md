@@ -37,6 +37,7 @@ macOS/Linux:
 ```bash
 git clone https://github.com/AymanCode/EcoSim.git
 cd EcoSim
+# IMPORTANT: Run from project root, not from within backend/
 ./start.sh
 ```
 
@@ -45,6 +46,7 @@ Windows PowerShell:
 ```powershell
 git clone https://github.com/AymanCode/EcoSim.git
 cd EcoSim
+# IMPORTANT: Run from project root, not from within backend/
 .\start.ps1
 ```
 
@@ -71,8 +73,10 @@ backend/agents.py        households, firms, bank, and government behavior
     +
 backend/config.py        simulation parameter system
     +
-backend/data/            warehouse models, schema, migrations, persistence
+backend/tools/           diagnostics, runners, and analysis utilities
 ```
+
+Optional data warehouse persistence (SQLite or PostgreSQL/TimescaleDB) is configured via environment variables `ECOSIM_ENABLE_WAREHOUSE` and `ECOSIM_WAREHOUSE_BACKEND`.
 
 ## Engineering Highlights
 
@@ -107,7 +111,7 @@ Stable CI checks:
 
 ```bash
 pip install -r requirements-dev.txt
-python -m pytest backend/data/tests backend/tests_server/test_server_api.py -q
+python -m pytest backend/tests_contracts/ backend/tests_server/ -q
 python -m pytest backend/tests_contracts -q -m "not llm and not research"
 cd frontend-react
 npm ci

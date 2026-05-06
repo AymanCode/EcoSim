@@ -107,11 +107,24 @@ def percentiles(values: List[float]) -> Dict[str, float]:
 
 def load_audit(path: str) -> Tuple[Dict, List[Dict]]:
     """Load JSONL audit file. Returns (config, list_of_tick_records)."""
-    # Resolve path: try as-is, then relative to this script's directory
-    if not Path(path).exists():
-        alt = Path(__file__).parent / path
-        if alt.exists():
-            path = str(alt)
+    _script_dir = Path(__file__).resolve().parent
+    _backend_root = _script_dir.parents[1]
+    _project_root = _backend_root.parent
+    _search_dirs = [Path("."), _script_dir, _backend_root, _project_root]
+    resolved = Path(path)
+    if not resolved.is_absolute() and not resolved.exists():
+        for candidate_dir in _search_dirs:
+            alt = candidate_dir / path
+            if alt.exists():
+                resolved = alt
+                break
+        else:
+            tried = chr(10) + "  "
+            tried = tried.join(str(d / path) for d in _search_dirs)
+            raise FileNotFoundError(
+                "Audit file not found: {!r}" + chr(10) + "Searched:" + chr(10) + "  " + tried
+            )
+    path = str(resolved)
     config = {}
     ticks = []
     with open(path, "r", encoding="utf-8") as f:
@@ -644,6 +657,137 @@ def build_anomaly_flags(ticks: List[Dict]) -> str:
 
 # â”€â”€ Main Pipeline â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
+
+def build_json_digest(config, ticks):
+    initial_money = float(ticks[0].get("money_audit", {}).get("total_money", 0) or 0) if ticks else 0
+    final_money = float(ticks[-1].get("money_audit", {}).get("total_money", 0) or 0) if ticks else 0
+
+    macro_rows = []
+    for t in ticks:
+        m = t.get("metrics", {})
+        ma = t.get("money_audit", {})
+        macro_rows.append({
+            "tick": t.get("tick", 0),
+            "unemployment_rate": float(m.get("unemployment_rate", 0) or 0),
+            "gdp": float(m.get("gdp_this_tick", 0) or 0),
+            "total_firms": m.get("total_firms", 0),
+            "total_employees": m.get("total_employees", 0),
+            "mean_wage": float(m.get("mean_wage", 0) or 0),
+            "mean_health": float(m.get("mean_health", 0) or 0),
+            "mean_happiness": float(m.get("mean_happiness", 0) or 0),
+            "government_cash": float(ma.get("government_cash", 0) or 0),
+            "household_cash": float(ma.get("household_cash", 0) or 0),
+            "firm_cash": float(ma.get("firm_cash", 0) or 0),
+            "bank_reserves": float(ma.get("bank_reserves", 0) or 0),
+            "total_money": float(ma.get("total_money", 0) or 0),
+            "money_drift": float(ma.get("total_money", 0) or 0) - initial_money,
+        })
+
+    firm_history = defaultdict(list)
+    firm_meta = {}
+    for t in ticks:
+        tick_n = t.get("tick", 0)
+        for f in t.get("firms", []):
+            fid = f.get("firm_id")
+            firm_history[fid].append({"tick": tick_n, **f})
+            if fid not in firm_meta:
+                firm_meta[fid] = {
+                    "good_category": f.get("good_category"),
+                    "good_name": f.get("good_name"),
+                    "is_baseline": f.get("is_baseline", False),
+                    "personality": f.get("personality"),
+                }
+
+    firms_summary = []
+    for fid in sorted(firm_meta.keys()):
+        history = firm_history[fid]
+        if not history:
+            continue
+        price_vals = [float(h.get("price", 0) or 0) for h in history]
+        wage_vals = [float(h.get("wage_offer", 0) or 0) for h in history]
+        cash_vals = [float(h.get("cash_balance", 0) or 0) for h in history]
+        emp_vals = [int(h.get("employee_count", 0) or 0) for h in history]
+        firms_summary.append({
+            "firm_id": fid,
+            **firm_meta[fid],
+            "first_tick": history[0]["tick"],
+            "last_tick": history[-1]["tick"],
+            "total_revenue": sum(float(h.get("last_revenue", 0) or 0) for h in history),
+            "total_profit": sum(float(h.get("last_profit", 0) or 0) for h in history),
+            "burn_ticks": sum(1 for h in history if h.get("burn_mode")),
+            "survival_ticks": sum(1 for h in history if h.get("survival_mode")),
+            "final_cash": cash_vals[-1] if cash_vals else 0,
+            "final_capital": float(history[-1].get("capital_stock", 0) or 0),
+            "price_min": min(price_vals) if price_vals else 0,
+            "price_max": max(price_vals) if price_vals else 0,
+            "wage_min": min(wage_vals) if wage_vals else 0,
+            "wage_max": max(wage_vals) if wage_vals else 0,
+            "emp_min": min(emp_vals) if emp_vals else 0,
+            "emp_max": max(emp_vals) if emp_vals else 0,
+            "tick_series": [
+                {
+                    "tick": h["tick"],
+                    "employee_count": int(h.get("employee_count", 0) or 0),
+                    "price": float(h.get("price", 0) or 0),
+                    "wage_offer": float(h.get("wage_offer", 0) or 0),
+                    "cash_balance": float(h.get("cash_balance", 0) or 0),
+                    "inventory_units": float(h.get("inventory_units", 0) or 0),
+                    "last_units_sold": float(h.get("last_units_sold", 0) or 0),
+                    "last_revenue": float(h.get("last_revenue", 0) or 0),
+                    "last_profit": float(h.get("last_profit", 0) or 0),
+                    "burn_mode": bool(h.get("burn_mode")),
+                    "survival_mode": bool(h.get("survival_mode")),
+                    "unit_cost": float(h.get("unit_cost", 0) or 0),
+                    "pricing_operating_unit_cost": float(h.get("pricing_operating_unit_cost", 0) or 0),
+                    "capital_stock": float(h.get("capital_stock", 0) or 0),
+                }
+                for h in history
+            ],
+        })
+
+    anomalies = []
+    for t in ticks:
+        tick_n = t.get("tick", 0)
+        m = t.get("metrics", {})
+        actions = t.get("actions", {})
+        flags = []
+        unemp = float(m.get("unemployment_rate", 0) or 0)
+        if unemp > 0.3:
+            flags.append({"flag": "HIGH_UNEMPLOYMENT", "value": unemp})
+        bankruptcies = actions.get("bankruptcies_this_tick", 0)
+        if bankruptcies:
+            flags.append({"flag": "BANKRUPTCIES", "value": bankruptcies})
+        firm_actions = actions.get("firm_actions", [])
+        total_fires = sum(len(fa.get("fired_ids", []) or []) for fa in firm_actions)
+        if total_fires > 5:
+            flags.append({"flag": "MASS_LAYOFFS", "value": total_fires})
+        firms = t.get("firms", [])
+        zero_rev = sum(1 for f in firms if not f.get("is_baseline") and float(f.get("last_revenue", 0) or 0) < 1)
+        if zero_rev:
+            flags.append({"flag": "ZERO_REV_FIRMS", "value": zero_rev})
+        neg_cash = sum(1 for f in firms if not f.get("is_baseline") and float(f.get("cash_balance", 0) or 0) < 0)
+        if neg_cash:
+            flags.append({"flag": "NEGATIVE_CASH_FIRMS", "value": neg_cash})
+        households = t.get("households", [])
+        sick = sum(1 for h in households if float(h.get("health", 1) or 1) < 0.3)
+        if sick:
+            flags.append({"flag": "CRITICALLY_SICK_HH", "value": sick})
+        if flags:
+            anomalies.append({"tick": tick_n, "flags": flags})
+
+    return {
+        "config": config,
+        "money_conservation": {
+            "initial": initial_money,
+            "final": final_money,
+            "drift": final_money - initial_money,
+            "drift_pct": (final_money - initial_money) / initial_money * 100 if abs(initial_money) > 1e-9 else 0,
+        },
+        "macro_timeseries": macro_rows,
+        "firms": firms_summary,
+        "anomalies": anomalies,
+    }
+
 def build_digest(config: Dict, ticks: List[Dict]) -> str:
     """Build the complete compact digest."""
     sections = []
@@ -690,7 +834,7 @@ def estimate_tokens(text: str) -> int:
 def parse_args():
     p = argparse.ArgumentParser(description="EcoSim Audit Digest Pipeline")
     p.add_argument("input", help="Path to JSONL audit file")
-    p.add_argument("--output", "-o", help="Output path (default: stdout)")
+    p.add_argument("--output", "-o", help="Output path for .md (default: <stem>_digest.md next to input)")
     p.add_argument("--max-tokens", type=int, default=0,
                    help="Target max tokens (0=no limit). Will trim household detail if needed.")
     return p.parse_args()
@@ -711,11 +855,31 @@ def main():
         print(f"Warning: digest exceeds target ({tokens} > {args.max_tokens} tokens)", file=sys.stderr)
         print(f"Consider running with fewer ticks or households", file=sys.stderr)
 
+    _script_dir = Path(__file__).resolve().parent
+    _backend_root = _script_dir.parents[1]
+    _project_root = _backend_root.parent
+    input_path = None
+    for _cand in [Path(args.input), Path(".") / args.input,
+                  _project_root / args.input, _backend_root / args.input]:
+        if _cand.exists():
+            input_path = _cand.resolve()
+            break
+
     if args.output:
-        Path(args.output).write_text(digest, encoding="utf-8")
-        print(f"Written to {args.output}", file=sys.stderr)
+        md_path = Path(args.output)
     else:
-        print(digest)
+        base = input_path.parent if input_path else Path(".")
+        stem = input_path.stem if input_path else Path(args.input).stem
+        md_path = base / (stem + "_digest.md")
+
+    md_path.write_text(digest, encoding="utf-8")
+    print(f"Written to {md_path}", file=sys.stderr)
+
+    json_digest = build_json_digest(config, ticks)
+    json_path = md_path.with_suffix(".json")
+    import json as _json
+    json_path.write_text(_json.dumps(json_digest, indent=2, ensure_ascii=False), encoding="utf-8")
+    print(f"Written to {json_path}", file=sys.stderr)
 
 
 if __name__ == "__main__":

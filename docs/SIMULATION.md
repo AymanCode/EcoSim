@@ -12,7 +12,7 @@ EcoSim is a tick-based agent-based model (ABM) with three actor types:
 - **Firms** — producers and employers (Food, Housing, Services, Healthcare)
 - **Government** — tax collector, transfer provider, investor
 
-Each tick represents roughly one week (52 ticks = 1 year). The simulation runs deterministically given the same seed and configuration.
+Each tick represents roughly one week (52 ticks = 1 year). The simulation uses seeded random number generators for reproducibility given the same seed and configuration.
 
 ### Runtime Stack
 
