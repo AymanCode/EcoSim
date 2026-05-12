@@ -172,8 +172,8 @@ def test_contract_completed_visits_respect_capacity_and_no_inventory(fixed_seed)
     assert economy.healthcare_attempted_slots_this_tick == pytest.approx(expected_capacity, abs=1e-8)
 
 
-def test_contract_affordability_defers_visit_without_subsidy(fixed_seed):
-    """Healthcare contract: when a household cannot pay and subsidy is zero, visit is deferred in queue."""
+def test_contract_affordability_rejects_visit_without_subsidy(fixed_seed):
+    """Healthcare contract: unaffordable visits are denied and removed from the queue."""
     patient = _new_household(household_id=1, cash_balance=2.0, health=0.25)
     patient.pending_healthcare_visits = 2
     patient.next_healthcare_request_tick = 0
@@ -209,9 +209,11 @@ def test_contract_affordability_defers_visit_without_subsidy(fixed_seed):
     assert firm.healthcare_completed_visits_last_tick == pytest.approx(0.0, abs=1e-8)
     assert economy.healthcare_affordability_rejects_this_tick == pytest.approx(1.0, abs=1e-8)
     assert patient.health == pytest.approx(initial_health, abs=1e-8)
-    assert patient.queued_healthcare_firm_id == firm.firm_id
-    assert firm.healthcare_queue == [patient.household_id]
+    assert patient.queued_healthcare_firm_id is None
+    assert patient.healthcare_queue_enter_tick == -1
+    assert firm.healthcare_queue == []
     assert patient.pending_visit_heal_delta > 0.0
+    assert economy.last_healthcare_events[-1]["event_type"] == "visit_denied_affordability"
 
 
 def test_contract_healthcare_price_targets_doctor_labor_cost_plus_margin(fixed_seed):
@@ -224,7 +226,8 @@ def test_contract_healthcare_price_targets_doctor_labor_cost_plus_margin(fixed_s
 
     price_plan = firm.plan_pricing(sell_through_rate=0.0, unemployment_rate=0.5)
 
-    break_even = (80.0 + 100.0) / 4.0
+    effective_wage = max(firm.wage_offer, CONFIG.firms.minimum_wage_floor)
+    break_even = (effective_wage * len(firm.employees)) / 4.0
     expected_price = break_even * (1.0 + CONFIG.firms.healthcare_target_profit_margin)
     assert price_plan["price_next"] == pytest.approx(expected_price)
     assert price_plan["pricing_reason"] == "healthcare_labor_margin_target"

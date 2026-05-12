@@ -44,9 +44,7 @@ def test_contract_deposit_budget_adds_accessible_fraction():
     hh_no_deposit = make_household(cash_balance=100.0, bank_deposit=0.0)
     hh_with_deposit = make_household(cash_balance=100.0, bank_deposit=500.0)
 
-    # Force deterministic plan_consumption by using same state
-    hh_no_deposit.last_after_tax_income = 0.0
-    hh_with_deposit.last_after_tax_income = 0.0
+    # Force deterministic plan_consumption by using same income state.
     hh_no_deposit.wage = 0.0
     hh_with_deposit.wage = 0.0
 

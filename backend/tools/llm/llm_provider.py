@@ -13,6 +13,7 @@ LLM Provider Abstraction Layer
 Provides a unified interface for LLM inference across multiple backends:
 - OllamaProvider: Local model serving via Ollama (default)
 - OpenRouterProvider: Remote API via OpenRouter (fallback)
+- GroqProvider: Remote API via Groq Cloud
 
 Both expose the same async `complete()` interface so the rest of the
 codebase doesn't care which backend is active.
@@ -22,6 +23,7 @@ import json
 import logging
 import os
 import re
+import asyncio
 from abc import ABC, abstractmethod
 from typing import Any, Dict, Optional
 
@@ -42,6 +44,7 @@ class LLMProvider(ABC):
         system: str,
         user: str,
         temperature: float = 0.4,
+        top_p: Optional[float] = None,
         response_format: Optional[Dict[str, Any]] = None,
     ) -> str:
         """Send a chat completion request and return the response text.
@@ -111,6 +114,7 @@ class OllamaProvider(LLMProvider):
         system: str,
         user: str,
         temperature: float = 0.4,
+        top_p: Optional[float] = None,
         response_format: Optional[Dict[str, Any]] = None,
     ) -> str:
         payload: Dict[str, Any] = {
@@ -122,6 +126,8 @@ class OllamaProvider(LLMProvider):
             "temperature": temperature,
             "stream": False,
         }
+        if top_p is not None:
+            payload["top_p"] = top_p
         if response_format and response_format.get("type") == "json_object":
             payload["format"] = "json"
 
@@ -147,9 +153,22 @@ class OpenRouterProvider(LLMProvider):
         api_key: Optional[str] = None,
         model: str = "nvidia/nemotron-nano-9b-v2:free",
         timeout: float = 60.0,
+        max_tokens: int = 1200,
+        max_retries: Optional[int] = None,
+        max_retry_wait_seconds: Optional[float] = None,
     ):
         self.api_key = api_key or os.getenv("OPENROUTER_API_KEY", "")
-        self.model = model
+        self.model = model or os.getenv("OPENROUTER_MODEL", "nvidia/nemotron-nano-9b-v2:free")
+        self.max_tokens = max_tokens
+        self.max_retries = (
+            int(os.getenv("ECOSIM_OPENROUTER_MAX_RETRIES", "12")) if max_retries is None else max_retries
+        )
+        self.max_retry_wait_seconds = (
+            float(os.getenv("ECOSIM_OPENROUTER_MAX_RETRY_WAIT_SECONDS", "120"))
+            if max_retry_wait_seconds is None
+            else max_retry_wait_seconds
+        )
+        self.empty_response_retries = int(os.getenv("ECOSIM_OPENROUTER_EMPTY_RESPONSE_RETRIES", "1"))
         self._client = httpx.AsyncClient(timeout=timeout)
 
     @property
@@ -173,6 +192,7 @@ class OpenRouterProvider(LLMProvider):
         system: str,
         user: str,
         temperature: float = 0.4,
+        top_p: Optional[float] = None,
         response_format: Optional[Dict[str, Any]] = None,
     ) -> str:
         if not self.api_key:
@@ -187,21 +207,334 @@ class OpenRouterProvider(LLMProvider):
                 {"role": "user", "content": user},
             ],
             "temperature": temperature,
+            "max_tokens": self.max_tokens,
         }
+        if top_p is not None:
+            payload["top_p"] = top_p
         if response_format:
             payload["response_format"] = response_format
 
-        resp = await self._client.post(
-            self.BASE_URL,
-            headers={
-                "Authorization": f"Bearer {self.api_key}",
-                "Content-Type": "application/json",
-            },
-            json=payload,
-        )
+        headers = {
+            "Authorization": f"Bearer {self.api_key}",
+            "Content-Type": "application/json",
+        }
+        if os.getenv("OPENROUTER_SITE_URL"):
+            headers["HTTP-Referer"] = os.getenv("OPENROUTER_SITE_URL", "")
+        if os.getenv("OPENROUTER_APP_NAME"):
+            headers["X-Title"] = os.getenv("OPENROUTER_APP_NAME", "")
+
+        attempt = 0
+        empty_attempt = 0
+        while True:
+            resp = await self._client.post(
+                self.BASE_URL,
+                headers=headers,
+                json=payload,
+            )
+            if resp.status_code == 429 and attempt < self.max_retries:
+                wait_seconds = self._retry_after_seconds(resp, attempt)
+                logger.warning(
+                    "OpenRouter rate limit hit for %s; retrying in %.1fs (%s/%s)",
+                    self.model,
+                    wait_seconds,
+                    attempt + 1,
+                    self.max_retries,
+                )
+                print(
+                    f"  [OpenRouter] rate limit hit; waiting {wait_seconds:.1f}s "
+                    f"before retry {attempt + 1}/{self.max_retries}",
+                    flush=True,
+                )
+                await asyncio.sleep(wait_seconds)
+                attempt += 1
+                continue
+            if resp.status_code in {500, 502, 503, 504} and attempt < self.max_retries:
+                wait_seconds = self._retry_after_seconds(resp, attempt)
+                logger.warning(
+                    "OpenRouter transient error %s for %s; retrying in %.1fs (%s/%s)",
+                    resp.status_code,
+                    self.model,
+                    wait_seconds,
+                    attempt + 1,
+                    self.max_retries,
+                )
+                print(
+                    f"  [OpenRouter] transient error {resp.status_code}; waiting {wait_seconds:.1f}s "
+                    f"before retry {attempt + 1}/{self.max_retries}",
+                    flush=True,
+                )
+                await asyncio.sleep(wait_seconds)
+                attempt += 1
+                continue
+            if resp.status_code >= 400:
+                break
+
+            data = resp.json()
+            content = self._extract_message_content(data)
+            if content.strip() or empty_attempt >= self.empty_response_retries:
+                return content
+            empty_attempt += 1
+            wait_seconds = self._retry_after_seconds(resp, attempt)
+            logger.warning(
+                "OpenRouter returned empty content for %s; retrying in %.1fs (%s/%s)",
+                self.model,
+                wait_seconds,
+                empty_attempt,
+                self.empty_response_retries,
+            )
+            print(
+                f"  [OpenRouter] empty completion; waiting {wait_seconds:.1f}s "
+                f"before retry {empty_attempt}/{self.empty_response_retries}",
+                flush=True,
+            )
+            await asyncio.sleep(wait_seconds)
+
+        if resp.status_code >= 400:
+            self._log_error_response(resp)
         resp.raise_for_status()
         data = resp.json()
-        return data["choices"][0]["message"]["content"]
+        return self._extract_message_content(data)
+
+    def _extract_message_content(self, data: Dict[str, Any]) -> str:
+        choices = data.get("choices") or []
+        if not choices:
+            logger.warning("OpenRouter response for %s had no choices", self.model)
+            return ""
+
+        message = choices[0].get("message") or {}
+        content = message.get("content")
+        if isinstance(content, str) and content:
+            return content
+
+        # Some reasoning-heavy providers expose text in provider-specific fields.
+        for key in ("reasoning", "reasoning_content", "text"):
+            value = message.get(key) or choices[0].get(key)
+            if isinstance(value, str) and value:
+                return value
+
+        logger.warning(
+            "OpenRouter response for %s had empty content; message keys=%s choice keys=%s",
+            self.model,
+            sorted(message.keys()),
+            sorted(choices[0].keys()),
+        )
+        return ""
+
+    def _retry_after_seconds(self, response: httpx.Response, attempt: int) -> float:
+        retry_after = response.headers.get("retry-after")
+        if retry_after:
+            try:
+                return max(0.0, min(float(retry_after), self.max_retry_wait_seconds))
+            except ValueError:
+                pass
+
+        text = response.text or ""
+        match = re.search(r"try again in\s+([0-9.]+)\s*([smh]?)", text, re.IGNORECASE)
+        if match:
+            value = float(match.group(1))
+            unit = match.group(2).lower()
+            if unit == "m":
+                value *= 60.0
+            elif unit == "h":
+                value *= 3600.0
+            return max(0.0, min(value, self.max_retry_wait_seconds))
+
+        backoff = min(2.0 * (2**attempt), self.max_retry_wait_seconds)
+        return max(1.0, backoff)
+
+    def _log_error_response(self, response: httpx.Response) -> None:
+        text = (response.text or "").replace(self.api_key, "[REDACTED]")
+        if len(text) > 500:
+            text = text[:500] + "..."
+        logger.warning("OpenRouter error response %s for %s: %s", response.status_code, self.model, text)
+
+    async def close(self):
+        await self._client.aclose()
+
+
+class GroqProvider(LLMProvider):
+    """Remote LLM inference via Groq's OpenAI-compatible Chat Completions API."""
+
+    BASE_URL = "https://api.groq.com/openai/v1"
+
+    def __init__(
+        self,
+        api_key: Optional[str] = None,
+        model: str = "llama-3.3-70b-versatile",
+        timeout: float = 60.0,
+        max_tokens: int = 1200,
+        max_retries: Optional[int] = None,
+        max_retry_wait_seconds: Optional[float] = None,
+    ):
+        self.api_key = api_key or os.getenv("GROQ_API_KEY", "")
+        self.model = model
+        self.max_tokens = max_tokens
+        self.max_retries = (
+            int(os.getenv("ECOSIM_GROQ_MAX_RETRIES", "12")) if max_retries is None else max_retries
+        )
+        self.max_retry_wait_seconds = (
+            float(os.getenv("ECOSIM_GROQ_MAX_RETRY_WAIT_SECONDS", "120"))
+            if max_retry_wait_seconds is None
+            else max_retry_wait_seconds
+        )
+        self._client = httpx.AsyncClient(timeout=timeout)
+
+    @property
+    def name(self) -> str:
+        return f"groq/{self.model}"
+
+    async def health_check(self) -> bool:
+        if not self.api_key:
+            return False
+        try:
+            resp = await self._client.get(
+                f"{self.BASE_URL}/models",
+                headers={"Authorization": f"Bearer {self.api_key}"},
+            )
+            return resp.status_code == 200
+        except (httpx.ConnectError, httpx.TimeoutException):
+            return False
+
+    async def complete(
+        self,
+        system: str,
+        user: str,
+        temperature: float = 0.4,
+        top_p: Optional[float] = None,
+        response_format: Optional[Dict[str, Any]] = None,
+    ) -> str:
+        if not self.api_key:
+            raise RuntimeError("GROQ_API_KEY not set. Add it to .env or environment.")
+
+        max_tokens = self.max_tokens
+        if self.model.startswith("openai/gpt-oss"):
+            max_tokens = min(max_tokens, int(os.getenv("ECOSIM_GROQ_GPT_OSS_MAX_TOKENS", "700")))
+
+        payload: Dict[str, Any] = {
+            "model": self.model,
+            "messages": [
+                {"role": "system", "content": system},
+                {"role": "user", "content": user},
+            ],
+            "temperature": temperature,
+            "max_tokens": max_tokens,
+        }
+        if self.model.startswith("openai/gpt-oss"):
+            # GPT-OSS chat responses may include separate reasoning fields by default.
+            # Keep this provider aligned with the rest of EcoSim's text-only parser.
+            payload["include_reasoning"] = False
+            payload["reasoning_effort"] = os.getenv("ECOSIM_GROQ_GPT_OSS_REASONING_EFFORT", "low")
+        if top_p is not None:
+            payload["top_p"] = top_p
+        if response_format and not self.model.startswith("openai/gpt-oss"):
+            payload["response_format"] = response_format
+
+        attempted_format_fallback = False
+        token_budget_reductions = 0
+        last_response: Optional[httpx.Response] = None
+        attempt = 0
+        while attempt <= self.max_retries:
+            resp = await self._client.post(
+                f"{self.BASE_URL}/chat/completions",
+                headers={
+                    "Authorization": f"Bearer {self.api_key}",
+                    "Content-Type": "application/json",
+                },
+                json=payload,
+            )
+            if (
+                resp.status_code == 400
+                and response_format is not None
+                and "response_format" in payload
+                and self.model.startswith("openai/gpt-oss")
+                and not attempted_format_fallback
+            ):
+                attempted_format_fallback = True
+                payload.pop("response_format", None)
+                logger.warning(
+                    "Groq GPT-OSS rejected response_format for %s; retrying without response_format",
+                    self.model,
+                )
+                print(
+                    "  [Groq] GPT-OSS rejected response_format; retrying with prompt-only JSON",
+                    flush=True,
+                )
+                continue
+            if (
+                resp.status_code == 413
+                and self.model.startswith("openai/gpt-oss")
+                and int(payload.get("max_tokens", 0) or 0) > 500
+                and token_budget_reductions < 3
+            ):
+                token_budget_reductions += 1
+                old_max_tokens = int(payload["max_tokens"])
+                payload["max_tokens"] = max(500, int(old_max_tokens * 0.75))
+                logger.warning(
+                    "Groq GPT-OSS request too large for %s; reducing max_tokens from %s to %s",
+                    self.model,
+                    old_max_tokens,
+                    payload["max_tokens"],
+                )
+                print(
+                    f"  [Groq] GPT-OSS request too large; reducing max_tokens "
+                    f"{old_max_tokens}->{payload['max_tokens']} and retrying",
+                    flush=True,
+                )
+                continue
+            if resp.status_code != 429:
+                break
+            last_response = resp
+            if attempt >= self.max_retries:
+                break
+            wait_seconds = self._retry_after_seconds(resp, attempt)
+            logger.warning(
+                "Groq rate limit hit for %s; retrying in %.1fs (%s/%s)",
+                self.model,
+                wait_seconds,
+                attempt + 1,
+                self.max_retries,
+            )
+            print(
+                f"  [Groq] rate limit hit; waiting {wait_seconds:.1f}s "
+                f"before retry {attempt + 1}/{self.max_retries}",
+                flush=True,
+            )
+            await asyncio.sleep(wait_seconds)
+            attempt += 1
+
+        if resp.status_code >= 400:
+            self._log_error_response(resp)
+        resp.raise_for_status()
+        data = resp.json()
+        return data["choices"][0]["message"].get("content") or ""
+
+    def _retry_after_seconds(self, response: httpx.Response, attempt: int) -> float:
+        retry_after = response.headers.get("retry-after")
+        if retry_after:
+            try:
+                return max(0.0, min(float(retry_after), self.max_retry_wait_seconds))
+            except ValueError:
+                pass
+
+        text = response.text or ""
+        match = re.search(r"try again in\s+([0-9.]+)\s*([smh]?)", text, re.IGNORECASE)
+        if match:
+            value = float(match.group(1))
+            unit = match.group(2).lower()
+            if unit == "m":
+                value *= 60.0
+            elif unit == "h":
+                value *= 3600.0
+            return max(0.0, min(value, self.max_retry_wait_seconds))
+
+        backoff = min(2.0 * (2**attempt), self.max_retry_wait_seconds)
+        return max(1.0, backoff)
+
+    def _log_error_response(self, response: httpx.Response) -> None:
+        text = (response.text or "").replace(self.api_key, "[REDACTED]")
+        if len(text) > 500:
+            text = text[:500] + "..."
+        logger.warning("Groq error response %s for %s: %s", response.status_code, self.model, text)
 
     async def close(self):
         await self._client.aclose()
@@ -238,6 +571,7 @@ class LMStudioProvider(LLMProvider):
         system: str,
         user: str,
         temperature: float = 0.4,
+        top_p: Optional[float] = None,
         response_format: Optional[Dict[str, Any]] = None,
     ) -> str:
         import time
@@ -251,8 +585,11 @@ class LMStudioProvider(LLMProvider):
             "max_tokens": self.max_tokens,
             "stream": False,
         }
-        # LM Studio only supports response_format for models that explicitly handle it.
-        # Skip it and rely on prompt-level JSON instructions + extract_json_from_response.
+        if top_p is not None:
+            payload["top_p"] = top_p
+        # LM Studio/llama.cpp compatibility varies. Opt in when the local server supports it.
+        if response_format is not None and os.getenv("ECOSIM_LLM_RESPONSE_FORMAT", "0") == "1":
+            payload["response_format"] = response_format
 
         if os.getenv("LLM_DEBUG"):
             print(f"\n  [DEBUG] Sending to LM Studio:")
@@ -323,15 +660,26 @@ async def create_provider(config) -> LLMProvider:
         logger.warning("Ollama not available, falling back to OpenRouter")
         await ollama.close()
 
+    if config.provider == "groq":
+        groq = GroqProvider(
+            model=getattr(config, "groq_model", config.government_model),
+            max_tokens=getattr(config, "government_max_tokens", 1200),
+        )
+        if await groq.health_check():
+            logger.info("Using Groq provider: %s", groq.name)
+            return groq
+        logger.warning("Groq not available or GROQ_API_KEY is not set")
+        await groq.close()
+
     openrouter = OpenRouterProvider(model=config.openrouter_model)
     if await openrouter.health_check():
         logger.info("Using OpenRouter provider: %s", openrouter.name)
         return openrouter
 
-    logger.error("No LLM provider available (Ollama down, no OpenRouter key)")
+    logger.error("No LLM provider available (Ollama down, no Groq/OpenRouter key)")
     await openrouter.close()
     raise RuntimeError(
-        "No LLM provider available. Start Ollama or set OPENROUTER_API_KEY."
+        "No LLM provider available. Start Ollama or set GROQ_API_KEY/OPENROUTER_API_KEY."
     )
 
 
@@ -348,7 +696,7 @@ def extract_json_from_response(text: str) -> Optional[Dict[str, Any]]:
         Parsed dict, or None if no valid JSON found.
     """
     # Strip thinking tags if present
-    text = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL).strip()
+    text = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL | re.IGNORECASE).strip()
 
     # Try raw parse first
     try:
@@ -364,15 +712,28 @@ def extract_json_from_response(text: str) -> Optional[Dict[str, Any]]:
         except (json.JSONDecodeError, ValueError):
             pass
 
-    # Try finding first { ... } pair
+    # Try extracting a balanced JSON object while respecting strings.
     brace_start = text.find("{")
     if brace_start != -1:
-        # Find matching closing brace
         depth = 0
+        in_string = False
+        escape = False
         for i in range(brace_start, len(text)):
-            if text[i] == "{":
+            ch = text[i]
+            if escape:
+                escape = False
+                continue
+            if ch == "\\":
+                escape = True
+                continue
+            if ch == '"':
+                in_string = not in_string
+                continue
+            if in_string:
+                continue
+            if ch == "{":
                 depth += 1
-            elif text[i] == "}":
+            elif ch == "}":
                 depth -= 1
                 if depth == 0:
                     try:
@@ -381,4 +742,3 @@ def extract_json_from_response(text: str) -> Optional[Dict[str, Any]]:
                         break
 
     return None
-

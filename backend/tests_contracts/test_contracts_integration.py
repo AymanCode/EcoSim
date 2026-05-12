@@ -3,10 +3,173 @@ import math
 import numpy as np
 import pytest
 
-from agents import BankAgent, FirmAgent, GovernmentAgent, HouseholdAgent
+from agents import BankAgent, FirmAgent, FirmHealthSnapshot, GovernmentAgent, HouseholdAgent
 from config import CONFIG
 from economy import Economy
 from tools.runners.run_large_simulation import create_large_economy
+
+
+def _make_private_food_firm(**overrides) -> FirmAgent:
+    defaults = {
+        "firm_id": 9100,
+        "good_name": "FoodStress9100",
+        "cash_balance": 1_000_000.0,
+        "inventory_units": 0.0,
+        "good_category": "Food",
+        "quality_level": 5.0,
+        "wage_offer": 36.0,
+        "price": 8.0,
+        "expected_sales_units": 50.0,
+        "production_capacity_units": 100_000.0,
+        "productivity_per_worker": 20.0,
+        "units_per_worker": 20.0,
+        "personality": "moderate",
+        "is_baseline": False,
+    }
+    defaults.update(overrides)
+    firm = FirmAgent(**defaults)
+    firm.employees = list(range(1, 11))
+    firm.actual_wages = {employee_id: firm.wage_offer for employee_id in firm.employees}
+    firm.max_hires_per_tick = 4
+    firm.last_sell_through_rate = 1.0
+    return firm
+
+
+def test_contract_lost_sales_expectation_does_not_explode():
+    firm = _make_private_food_firm(
+        expected_sales_units=60_000.0,
+        production_capacity_units=100_000.0,
+    )
+
+    firm.plan_production_and_labor(
+        last_tick_sales_units=608.7,
+        last_tick_unmet_units=608.7,
+        total_households=200,
+        in_warmup=False,
+    )
+
+    market_cap = (
+        200
+        * CONFIG.firms.food_expected_units_per_household_cap
+        * CONFIG.firms.expected_sales_market_cap_buffer
+    )
+    assert firm.expected_sales_units <= market_cap
+    assert firm.expected_sales_units < 10_000.0
+    assert firm.last_tick_observed_demand_units > 0.0
+    assert firm.last_tick_lost_sales_used_units <= firm.last_tick_raw_lost_sales_units
+
+
+def test_contract_lost_sales_still_raises_expectations_when_demand_is_real():
+    firm = _make_private_food_firm(expected_sales_units=50.0)
+
+    firm.plan_production_and_labor(
+        last_tick_sales_units=100.0,
+        last_tick_unmet_units=400.0,
+        total_households=200,
+        in_warmup=False,
+    )
+
+    assert firm.expected_sales_units > 50.0
+    assert firm.expected_sales_units < 500.0
+
+
+def test_contract_stockout_ratchet_cannot_compound_on_itself():
+    firm = _make_private_food_firm(expected_sales_units=100.0)
+
+    for _ in range(30):
+        firm.plan_production_and_labor(
+            last_tick_sales_units=600.0,
+            last_tick_unmet_units=600.0,
+            total_households=200,
+            in_warmup=False,
+        )
+
+    assert firm.expected_sales_units <= firm.last_tick_expected_sales_market_cap
+    assert (
+        firm.expected_sales_units
+        <= firm.last_tick_observed_demand_units * CONFIG.firms.expected_sales_observed_ratio_cap
+    )
+
+
+def test_contract_validated_lost_sales_raises_hire_limit():
+    firm = _make_private_food_firm(
+        expected_sales_units=800.0,
+        price=8.0,
+    )
+    firm.employees = list(range(1, 55))
+    firm.actual_wages = {employee_id: firm.wage_offer for employee_id in firm.employees}
+    firm.max_hires_per_tick = 3
+    firm.lost_sales_streak = 3
+
+    snapshot = FirmHealthSnapshot(
+        cash_runway_ticks=12.0,
+        smoothed_profit_margin=0.10,
+        sell_through_rate=1.0,
+        inventory_weeks=0.05,
+        unfilled_positions_streak=0,
+        worker_turnover_this_tick=0,
+        survival_mode=False,
+        burn_mode=False,
+        category_wage_anchor_p75=36.0,
+    )
+
+    plan = firm.plan_production_and_labor(
+        last_tick_sales_units=600.0,
+        last_tick_unmet_units=600.0,
+        total_households=200,
+        in_warmup=False,
+        health_snapshot=snapshot,
+    )
+
+    assert plan["planned_hires_count"] > 4
+    assert plan["planned_hires_count"] <= CONFIG.firms.adaptive_hire_abs_cap
+
+
+def test_contract_firm_raises_wages_when_reservation_blocks_vacancies():
+    firm = _make_private_food_firm(wage_offer=36.0, price=8.0)
+    firm.last_tick_planned_hires = 4
+    firm.last_tick_actual_hires = 0
+    firm.last_tick_failed_match_reason = "reservation_above_wage_offer"
+    firm.last_tick_reservation_reject_count = 10
+    firm.last_tick_median_rejected_reservation_wage = 52.6
+    firm.last_tick_lost_sales_used_units = 200.0
+
+    wage_plan = firm.plan_wage(
+        unemployment_rate=0.50,
+        unemployment_benefit=15.0,
+        unemployment_short_ma=0.50,
+        in_warmup=False,
+    )
+
+    assert wage_plan["wage_offer_next"] > 36.0
+    assert wage_plan["wage_offer_next"] <= 36.0 * CONFIG.firms.reservation_gap_max_wage_increase_per_tick
+
+
+def test_contract_long_term_unemployed_reservation_anchors_to_market():
+    household = HouseholdAgent(
+        household_id=9101,
+        skills_level=0.5,
+        age=30,
+        cash_balance=1_000.0,
+    )
+    household.reservation_wage = 52.6
+    household.expected_wage = 52.6
+    household.unemployment_duration = 12
+
+    plan = household.plan_labor_supply(
+        unemployment_benefit=15.0,
+        mean_posted_wage=36.0,
+    )
+    assert plan["reservation_wage"] <= 37.0
+
+    high_benefit_plan = household.plan_labor_supply(
+        unemployment_benefit=45.0,
+        mean_posted_wage=36.0,
+    )
+    assert (
+        high_benefit_plan["reservation_wage"]
+        >= 45.0 * CONFIG.households.min_job_premium_over_unemployment
+    )
 
 
 def test_contract_no_spiral_collapse_under_baseline(tiny_economy_factory):
@@ -476,7 +639,7 @@ def test_contract_services_skip_inventory_burn_mode_and_governor():
     assert "production_governor_active" not in firm.decision_diagnostics
 
 
-def test_contract_services_pricing_uses_labor_capacity_floor():
+def test_contract_services_pricing_interpolates_toward_labor_cost():
     firm = _make_service_flow_firm(production_capacity_units=42.0)
     firm.wage_offer = 60.0
     firm.actual_wages = {employee_id: 60.0 for employee_id in firm.employees}
@@ -485,12 +648,14 @@ def test_contract_services_pricing_uses_labor_capacity_floor():
 
     price_plan = firm.plan_pricing(sell_through_rate=0.3, unemployment_rate=0.1, in_warmup=False)
 
-    break_even = (len(firm.employees) * 60.0) / 30.0
-    assert price_plan["price_next"] >= break_even
-    assert firm.decision_diagnostics["pricing_reason"] == "services_labor_capacity"
+    variable_cost = (len(firm.employees) * 60.0) / 30.0
+    assert firm.decision_diagnostics["service_variable_cost_per_unit"] == pytest.approx(variable_cost)
+    assert firm.decision_diagnostics["service_total_cost_per_unit"] == pytest.approx(variable_cost)
+    assert price_plan["price_next"] == pytest.approx((10.0 * 0.8) + (variable_cost * 0.2))
+    assert firm.decision_diagnostics["pricing_reason"] == "marginal_cost_interpolation"
 
 
-def test_contract_services_pricing_low_capacity_floor_cases():
+def test_contract_services_pricing_uses_ema_smoothing_for_low_capacity_cases():
     low_capacity_firm = _make_service_flow_firm(price=1.0, production_capacity_units=2.0)
     low_capacity_firm.employees = [1, 2]
     low_capacity_firm.wage_offer = 40.0
@@ -504,7 +669,9 @@ def test_contract_services_pricing_low_capacity_floor_cases():
         in_warmup=False,
     )
 
-    assert low_capacity_plan["price_next"] >= 40.0
+    low_capacity_total_cost = 40.0
+    low_capacity_target = low_capacity_total_cost * 1.075
+    assert low_capacity_plan["price_next"] == pytest.approx((1.0 * 0.8) + (low_capacity_target * 0.2))
 
     high_capacity_firm = _make_service_flow_firm(price=1.0, production_capacity_units=7.0)
     high_capacity_firm.employees = [1]
@@ -519,7 +686,14 @@ def test_contract_services_pricing_low_capacity_floor_cases():
         in_warmup=False,
     )
 
-    assert high_capacity_plan["price_next"] >= 6.0
+    high_capacity_total_cost = high_capacity_firm.decision_diagnostics["service_total_cost_per_unit"]
+    high_capacity_utilization = high_capacity_firm.decision_diagnostics["service_utilization"]
+    high_capacity_surge = (high_capacity_utilization - 0.85) * 0.5
+    high_capacity_target = high_capacity_total_cost * (1.0 + high_capacity_surge)
+    smoothed_high_capacity_price = (1.0 * 0.8) + (high_capacity_target * 0.2)
+    assert high_capacity_plan["price_next"] == pytest.approx(
+        max(high_capacity_firm.min_price, smoothed_high_capacity_price)
+    )
 
 
 def test_contract_services_market_clearing_uses_labor_floor_price():
@@ -627,7 +801,7 @@ def test_contract_services_infrastructure_loan_adds_employee_slots_only():
     assert economy.misc_firm_revenue > before_misc_revenue
 
 
-def test_contract_services_debt_service_is_included_in_price_floor():
+def test_contract_services_debt_service_is_included_in_pricing_and_market_floor():
     firm = _make_service_flow_firm(price=1.0, production_capacity_units=5.0)
     firm.employees = [1, 2]
     firm.wage_offer = 40.0
@@ -638,8 +812,10 @@ def test_contract_services_debt_service_is_included_in_price_floor():
 
     price_plan = firm.plan_pricing(sell_through_rate=1.0, unemployment_rate=0.1, in_warmup=False)
 
-    assert price_plan["price_next"] >= 10.0
+    assert price_plan["price_next"] > 1.0
+    assert price_plan["pricing_reason"] == "marginal_cost_interpolation"
     assert firm.decision_diagnostics["service_debt_service_for_pricing"] == pytest.approx(20.0)
+    assert firm.decision_diagnostics["service_total_cost_per_unit"] == pytest.approx(10.0)
 
     household = HouseholdAgent(household_id=1, skills_level=0.5, age=30, cash_balance=1_000.0)
     government = GovernmentAgent(cash_balance=10_000.0, transfer_budget=0.0, unemployment_benefit_level=0.0)
@@ -948,7 +1124,11 @@ def test_contract_profitable_stockout_private_firm_scales_hiring_faster():
     firm.last_profit = 450.0
 
     snapshot = firm.refresh_health_snapshot(sell_through_rate=1.0, category_wage_anchor_p75=50.0)
-    default_hire_cap = max(firm.max_hires_per_tick, math.ceil(len(firm.employees) * 0.25))
+    # Stockout expansion is now gated by a 3-tick streak so transient stockouts
+    # cannot trigger an exponential expected-sales blowup. Pre-seed the streak
+    # so the legitimate sustained-stockout scenario this test models still
+    # exercises the expansion path.
+    firm.stockout_streak = 3
     plan = firm.plan_production_and_labor(
         last_tick_sales_units=120.0,
         in_warmup=False,
@@ -956,8 +1136,12 @@ def test_contract_profitable_stockout_private_firm_scales_hiring_faster():
         health_snapshot=snapshot,
     )
 
-    assert plan["updated_expected_sales"] >= 180.0
-    assert plan["planned_hires_count"] > default_hire_cap
+    # Capped stockout learning: a sustained stockout moves expected sales toward
+    # validated observed demand without multiplying already-inflated expectations.
+    assert plan["updated_expected_sales"] >= 120.0
+    assert plan["updated_expected_sales"] <= firm.last_tick_expected_sales_market_cap
+    # Production should ramp up to refill inventory toward target.
+    assert plan["planned_production_units"] > 0.0
 
 
 def test_contract_private_wage_ratchet_stops_raising_when_above_category_p75_and_still_unfilled():
@@ -1398,12 +1582,34 @@ def test_contract_fiscal_pressure_clamps_surplus_floor_and_can_trigger_penalty(t
         economy._update_budget_pressure(revenue=2_000.0, spending=0.0)
 
     assert economy.government.fiscal_pressure == pytest.approx(-0.15)
+    assert economy.last_fiscal_pressure_denominator_gdp == pytest.approx(1_000.0)
 
     for _ in range(5):
         economy._update_budget_pressure(revenue=0.0, spending=1_000.0)
 
+    assert economy.last_fiscal_pressure_instant_ratio == pytest.approx(1.0)
     assert economy.government.fiscal_pressure > 0.05
     assert economy.government.spending_efficiency < 1.0
+
+
+def test_contract_fiscal_pressure_denominator_falls_back_to_history_gdp(tiny_economy_factory):
+    economy = tiny_economy_factory(
+        num_households=20,
+        num_firms_per_category=1,
+        include_healthcare=False,
+        baseline_firms=True,
+        disable_shocks=True,
+        seed=996,
+        government_cash=80_000.0,
+    )
+
+    economy.last_tick_revenue = {}
+    economy.append_metrics_snapshot({"gdp_this_tick": 2_500.0}, tick=0)
+    economy._update_budget_pressure(revenue=0.0, spending=250.0)
+
+    assert economy.last_fiscal_pressure_denominator_gdp == pytest.approx(2_500.0)
+    assert economy.last_fiscal_pressure_instant_ratio == pytest.approx(0.1)
+    assert 0.0 < economy.government.fiscal_pressure < 0.01
 
 
 def test_contract_public_works_capitalization_counts_as_treasury_spending(tiny_economy_factory):
@@ -1426,6 +1632,125 @@ def test_contract_public_works_capitalization_counts_as_treasury_spending(tiny_e
         economy.last_tick_gov_public_works_capitalization
     )
     assert economy.government.last_tick_spending >= economy.last_tick_gov_public_works_capitalization
+
+
+def test_contract_public_works_budget_guard_blocks_unfunded_startup(tiny_economy_factory):
+    economy = tiny_economy_factory(
+        num_households=20,
+        num_firms_per_category=1,
+        include_healthcare=False,
+        baseline_firms=True,
+        disable_shocks=True,
+        seed=993,
+        government_cash=163_487.0,
+    )
+
+    economy.government.set_lever("public_works", "on")
+    spent = economy._ensure_public_works_capacity(unemployment_rate=0.40)
+
+    public_firms = [f for f in economy.firms if (f.good_category or "") == "PublicWorks"]
+    assert spent == pytest.approx(0.0)
+    assert not public_firms
+    assert economy.last_tick_gov_public_works_denied_by_budget > 0.0
+
+
+def test_contract_public_works_off_deauthorizes_existing_publicworks_firm(tiny_economy_factory):
+    economy = tiny_economy_factory(
+        num_households=20,
+        num_firms_per_category=1,
+        include_healthcare=False,
+        baseline_firms=True,
+        disable_shocks=True,
+        seed=994,
+        government_cash=300_000.0,
+    )
+
+    economy.government.set_lever("public_works", "on")
+    economy._ensure_public_works_capacity(unemployment_rate=0.40)
+    public_firms = [f for f in economy.firms if (f.good_category or "") == "PublicWorks"]
+    assert public_firms
+
+    economy.government.set_lever("public_works", "off")
+    economy._deauthorize_public_works_capacity()
+
+    for firm in public_firms:
+        assert firm.baseline_production_quota == pytest.approx(0.0)
+        assert firm.expected_sales_units == pytest.approx(0.0)
+        assert firm.planned_hires_count == 0
+        assert firm.decision_diagnostics["public_works_authorized"] is False
+
+
+def test_contract_shared_subsidy_cap_tracks_paid_and_denied(tiny_economy_factory):
+    economy = tiny_economy_factory(
+        num_households=5,
+        num_firms_per_category=1,
+        include_healthcare=False,
+        baseline_firms=True,
+        disable_shocks=True,
+        seed=995,
+        government_cash=10_000.0,
+    )
+    economy.sector_subsidy_cap_this_tick = 50.0
+    economy.sector_subsidy_remaining_this_tick = 50.0
+
+    paid1, denied1 = economy.apply_sector_subsidy_payment(40.0)
+    paid2, denied2 = economy.apply_sector_subsidy_payment(40.0)
+
+    assert paid1 == pytest.approx(40.0)
+    assert denied1 == pytest.approx(0.0)
+    assert paid2 == pytest.approx(10.0)
+    assert denied2 == pytest.approx(30.0)
+    assert economy.last_tick_gov_subsidies == pytest.approx(50.0)
+    assert economy.last_tick_gov_subsidy_denied_by_cap == pytest.approx(30.0)
+
+
+def test_contract_subsidized_goods_settlement_does_not_force_negative_cash(tiny_economy_factory):
+    economy = tiny_economy_factory(
+        num_households=5,
+        num_firms_per_category=1,
+        include_healthcare=False,
+        baseline_firms=True,
+        disable_shocks=True,
+        seed=996,
+        government_cash=10_000.0,
+    )
+    household = economy.households[0]
+    household.cash_balance = 30.0
+    economy.sector_subsidy_cap_this_tick = 10.0
+    economy.sector_subsidy_remaining_this_tick = 10.0
+
+    household_cost, government_cost, scale = economy.settle_capped_subsidized_goods_purchase(
+        household,
+        total_cost=100.0,
+        subsidy_rate=0.50,
+    )
+
+    assert household_cost <= household.cash_balance + 1e-9
+    assert 0.0 < scale < 1.0
+    assert government_cost < 10.0
+
+
+def test_contract_post_warmup_stimulus_records_budget_line(tiny_economy_factory):
+    economy = tiny_economy_factory(
+        num_households=5,
+        num_firms_per_category=1,
+        include_healthcare=False,
+        baseline_firms=True,
+        disable_shocks=True,
+        seed=997,
+        government_cash=50_000.0,
+    )
+    economy.post_warmup_stimulus_ticks = 1
+    economy.post_warmup_stimulus_duration = 6
+
+    economy.step()
+    metrics = economy.get_economic_metrics()
+
+    assert economy.last_tick_gov_post_warmup_stimulus > 0.0
+    assert metrics["gov_post_warmup_stimulus_this_tick"] == pytest.approx(
+        economy.last_tick_gov_post_warmup_stimulus
+    )
+    assert economy.government.last_tick_spending >= economy.last_tick_gov_post_warmup_stimulus
 
 
 def test_contract_bond_purchases_count_as_government_spending(tiny_economy_factory):

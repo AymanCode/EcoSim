@@ -55,9 +55,24 @@ class HouseholdBehaviorConfig:
     # Job acceptance (H1 - no job worse than benefits)
     min_job_premium_over_unemployment: float = 1.05  # Jobs must pay 5% more than unemployment benefits
 
-    # Marginal propensity to consume (H2 - spend from income vs cash)
-    mpc_from_wages_employed: float = 0.6  # Employed: save 40% of wages
-    mpc_from_transfers_unemployed: float = 0.8  # Unemployed: spend 80% of transfers
+    # Marginal propensity to consume by income source. Real-economy data:
+    # bottom-quintile MPC ~0.95, top-quintile ~0.40. Wage and benefit income
+    # flow disproportionately to high-MPC households; dividend income flows
+    # to low-MPC households. Splitting prevents the simulation's aggregate
+    # saving rate from drifting toward panic-mode (~33% leakage observed).
+    mpc_wage: float = 0.85          # earned income — high MPC
+    mpc_benefit: float = 0.95       # safety-net income — near-100% MPC (income-targeted welfare)
+    mpc_dividend: float = 0.40      # capital income — low MPC (saved/reinvested)
+
+    # Counter-cyclical anti-paradox-of-thrift nudge. When unemployment crosses
+    # the crisis threshold, MPC for every income source is bumped up so the
+    # simulation does not amplify a downturn via panic-saving.
+    crisis_unemployment_threshold: float = 0.25
+    crisis_mpc_boost: float = 0.10
+
+    # Legacy aliases retained for reference; not currently consumed.
+    mpc_from_wages_employed: float = 0.6  # superseded by mpc_wage
+    mpc_from_transfers_unemployed: float = 0.8  # superseded by mpc_benefit
 
     # Saving behavior (H3 - employed vs unemployed)
     max_saving_rate_absolute: float = 0.2  # Hard cap on saving rate
@@ -123,6 +138,9 @@ class HouseholdBehaviorConfig:
     min_decay_factor: float = 0.5
     wage_floor: float = 10.0
     unemployed_market_anchor_weight: float = 0.4
+    unemployed_market_anchor_ticks: int = 8
+    unemployed_market_anchor_offer_fraction: float = 0.98
+    unemployed_market_anchor_percentile: float = 50.0
     reservation_adjustment_rate: float = 0.1
 
     # Skill Development
@@ -345,6 +363,7 @@ class FirmBehaviorConfig:
     max_new_firms_per_tick: int = 10
     large_market_household_threshold: int = 2000
     housing_private_saturation_multiplier: float = 3.0
+    min_private_firms_per_competing_sector: int = 2  # floor for food + services; prevents monopoly in small sims
 
     # Pricing & Costs
     default_unit_cost: float = 5.0
@@ -375,6 +394,77 @@ class FirmBehaviorConfig:
     price_adjustment_rate: float = 0.05
     wage_adjustment_rate: float = 0.1
     target_inventory_multiplier: float = 1.5
+
+    # Lost-sales expectation controls. Lost sales are a real demand signal,
+    # but noisy and capacity-constrained.
+    lost_sales_expectation_weight: float = 0.65
+    lost_sales_sustained_weight: float = 0.80
+    lost_sales_sustained_ticks: int = 3
+    lost_sales_completed_sales_cap: float = 1.50
+    lost_sales_near_term_capacity_cap: float = 1.25
+
+    # Expected-sales growth/decay controls. Prevent stockout feedback from
+    # compounding expectations indefinitely.
+    expected_sales_rising_alpha: float = 0.55
+    expected_sales_growth_cap_per_tick: float = 1.25
+    expected_sales_stockout_growth_cap_per_tick: float = 1.60
+    expected_sales_sustained_stockout_growth_cap_per_tick: float = 2.00
+    expected_sales_decay_floor_per_tick: float = 0.70
+
+    # Market-size sanity caps. These scale with population, so they bound
+    # impossible interpretations without injecting fake demand.
+    expected_sales_observed_ratio_cap: float = 5.0
+    expected_sales_market_cap_buffer: float = 1.50
+    food_expected_units_per_household_cap: float = 8.0
+    services_expected_units_per_household_cap: float = 4.0
+    generic_expected_units_per_household_cap: float = 8.0
+
+    # Adaptive hiring throughput, used only when demand is validated.
+    adaptive_hiring_enabled: bool = True
+    adaptive_hire_growth_fraction: float = 0.12
+    adaptive_stockout_hire_growth_fraction: float = 0.20
+    adaptive_hire_abs_cap: int = 12
+    adaptive_stockout_min_hires: int = 4
+    adaptive_hiring_min_cash_runway_ticks: float = 3.0
+
+    # Wage-clearing response when planned vacancies fail because reservations
+    # exceed offers.
+    reservation_gap_raise_pass_through: float = 0.50
+    reservation_gap_min_reject_count: int = 2
+    reservation_gap_demand_sellthrough_floor: float = 0.80
+    reservation_gap_inventory_weeks_ceiling: float = 2.0
+    reservation_gap_max_wage_increase_per_tick: float = 1.25
+
+    # Working-capital diagnostics and bridge credit.
+    working_capital_enabled: bool = True
+    working_capital_unemployment_trigger: float = 0.20
+    working_capital_base_budget_per_tick: float = 15_000.0
+    working_capital_budget_per_unemployment_rate: float = 70_000.0
+    working_capital_max_budget_per_tick: float = 50_000.0
+    working_capital_max_loan_per_firm: float = 12_000.0
+    working_capital_min_lost_sales_units: float = 5.0
+    working_capital_min_expected_gap_units: float = 10.0
+    working_capital_min_sell_through: float = 0.65
+    working_capital_max_inventory_weeks: float = 3.0
+    working_capital_min_profit_margin: float = -0.10
+    working_capital_min_mrpl_margin: float = 0.08
+    working_capital_min_net_gain_per_tick: float = 25.0
+    working_capital_debt_service_coverage: float = 1.25
+    working_capital_term_ticks: int = 52
+    working_capital_govt_rate: float = 0.02
+    working_capital_spread: float = 0.03
+    working_capital_support_ticks: int = 8
+    working_capital_hire_fraction: float = 0.15
+    working_capital_hire_abs_cap: int = 8
+    working_capital_requires_existing_funding_capacity: bool = True
+
+    # Survival-mode turnaround hiring. Disabled unless later credit-backed.
+    survival_turnaround_enabled: bool = True
+    survival_turnaround_min_lost_sales_units: float = 5.0
+    survival_turnaround_min_sell_through: float = 0.70
+    survival_turnaround_max_inventory_weeks: float = 2.5
+    survival_turnaround_min_profit_margin: float = -0.05
+    survival_turnaround_hire_abs_cap: int = 4
 
     # Hiring/Firing Constraints
     default_max_hires_per_tick: int = 2
@@ -439,6 +529,24 @@ class FirmBehaviorConfig:
     capital_cost_per_unit: float = 500.0      # $ per unit of capital
     alpha_k: float = 0.25                     # Capital share exponent
     alpha_n: float = 0.65                     # Labor share exponent
+
+    # Long-term capital expansion loans (services + housing only).
+    # Real-economy framing: SBA-style equipment / real-estate financing. Long
+    # term so per-tick payment is small (does not crush operating cash flow),
+    # low interest because bank is putting excess reserves to work. Services
+    # use the loan to lift production_capacity_units (more workers fit, more
+    # output). Housing use the loan to add max_rental_units (construction)
+    # which then requires proportionally more property managers.
+    long_term_capital_loans_enabled: bool = True
+    long_term_capital_term_ticks: int = 520           # ~10 years
+    long_term_capital_annual_rate: float = 0.025      # 2.5% baseline
+    long_term_capital_min_amount: float = 5_000.0
+    long_term_capital_max_amount: float = 25_000.0
+    long_term_capital_unemployment_trigger: float = 0.10
+    long_term_capital_cooldown_ticks: int = 26        # 6-month cooldown per firm
+    services_capacity_cost_per_unit: float = 500.0    # services: $500 per capacity unit
+    housing_rental_unit_construction_cost: float = 2_000.0  # housing: $2k per unit
+    housing_units_per_property_manager: int = 20       # 1 PM per 20 rental units
 
     # Feature 4: Pro-Cyclical R&D Strategy
     rd_base_rate: float = 0.05  # Base R&D spending as fraction of revenue
@@ -583,6 +691,27 @@ class GovernmentPolicyConfig:
     boom_transfer_min: float = 5000.0
     boom_transfer_decrease: float = 0.98
 
+    # Working-capital backstop diagnostics. This is not deficit financing.
+    auto_working_capital_backstop: bool = True
+    working_capital_backstop_reserve_floor: float = 5_000.0
+
+    # Recession guardrails; warning is observation-only, floor can be enforced later.
+    recession_policy_floor_unemployment_threshold: float = 0.30
+    recession_policy_warning_unemployment_threshold: float = 0.20
+
+    # Labor-force accounting.
+    count_cannot_work_as_unemployed: bool = False
+
+    # Off until diagnostics show health is the blocker.
+    health_recovery_stabilizer_enabled: bool = False
+
+    # Soft price stabilization. These cap upward movement only; they are not
+    # hard price ceilings and never force below current cost/minimum floors.
+    price_stabilization_soft_max_increase: float = 1.03
+    price_stabilization_strict_max_increase: float = 1.01
+    rent_stabilization_soft_max_increase: float = 1.02
+    rent_stabilization_strict_max_increase: float = 1.005
+
 
 @dataclass
 class LaborMarketConfig:
@@ -675,7 +804,7 @@ class LLMConfig:
     """LLM integration settings for AI-driven agents."""
 
     # Provider selection
-    provider: str = "lmstudio"  # "ollama" | "lmstudio" | "openrouter"
+    provider: str = "lmstudio"  # "ollama" | "lmstudio" | "openrouter" | "groq"
     ollama_base_url: str = "http://localhost:11434"
     # Any OpenAI-compatible local chat server, including LM Studio or llama.cpp.
     lmstudio_base_url: str = "http://127.0.0.1:8080"
@@ -685,14 +814,20 @@ class LLMConfig:
     rag_model: str = "microsoft/phi-4-mini-reasoning"
     agent_model: str = "microsoft/phi-4-mini-reasoning"
     openrouter_model: str = "nvidia/nemotron-nano-9b-v2:free"
+    groq_model: str = "llama-3.3-70b-versatile"
 
     # Government LLM agent
     enable_llm_government: bool = False  # opt-in, simulation works without
-    government_decision_interval: int = 4  # ticks between decisions (monthly)
-    government_temperature: float = 0.4
+    government_start_tick: int = 15
+    government_start_after_warmup_ticks: int = 5
+    government_decision_interval: int = 26
+    government_temperature: float = 0.1
+    government_top_p: float = 0.8
+    government_max_tokens: int = 1200
     government_philosophy: str = "capitalist"  # system prompt flavor
     government_history_window: int = 6  # recent decision cycles shown to the model
-    government_impact_horizon: int = 8  # ticks used to evaluate post-policy changes
+    government_impact_horizon: int = 26  # ticks used to evaluate post-policy changes
+    government_rolling_windows_ticks: Tuple[int, ...] = (13, 26, 52)
 
     # Future: LLM-controlled household/firm agents
     enable_llm_agents: bool = False

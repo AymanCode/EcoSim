@@ -71,14 +71,15 @@ def _plain_food_firm(*, wage_offer: float = 20.0, price: float = 100.0) -> FirmA
 # Module 1: Demand-Weighted Firm Spawning
 # ---------------------------------------------------------------------------
 
-def test_contract_saturated_market_aborts_spawn():
-    """Zero total unmet demand → no new firm created."""
+def test_contract_zero_unmet_demand_still_spawns_under_served_competitor():
+    """Zero unmet demand still allows competitor entry while below target firm count."""
     eco = _spawnable_economy(food_unmet=0.0, services_unmet=0.0)
     before = len(eco.firms)
 
     eco._maybe_create_new_firms()
 
-    assert len(eco.firms) == before  # no spawn
+    assert len(eco.firms) == before + 1
+    assert eco.firms[-1].good_category == "Services"
 
 
 def test_contract_food_demand_spawns_food_firm():
@@ -125,7 +126,7 @@ def test_contract_goods_market_records_food_shortfall():
 def test_contract_goods_market_records_services_shortfall():
     """_clear_goods_market increments services_unmet_demand for Services firms."""
     firm = make_firm(firm_id=5, category="Services", is_baseline=False)
-    firm.inventory_units = 2.0
+    firm.last_units_produced = 2.0
 
     hhs = make_households(1)
     eco = make_economy(households=hhs, firms=[firm], baseline_firms=False)

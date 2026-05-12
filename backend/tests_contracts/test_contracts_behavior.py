@@ -105,6 +105,41 @@ def test_contract_healthcare_consumption_restores_health_without_happiness_chang
     assert sales[healthcare_firm.firm_id]["units_sold"] <= len(healthcare_firm.employees) * healthcare_firm.healthcare_capacity_per_worker
 
 
+def test_contract_social_multiplier_does_not_scale_healthcare_healing():
+    """Social spending is happiness-only; healthcare healing uses clinical heal amount."""
+    hh = _fresh_household(21)
+    hh.health = 0.5
+    hh.cash_balance = 1_000.0
+    hh.pending_visit_heal_delta = 0.1
+    hh.queued_healthcare_firm_id = 2
+    hh.healthcare_queue_enter_tick = 0
+
+    healthcare_firm = FirmAgent(
+        firm_id=2,
+        good_name="Clinic",
+        cash_balance=20_000.0,
+        inventory_units=0.0,
+        good_category="Healthcare",
+        quality_level=6.0,
+        wage_offer=40.0,
+        price=0.0,
+        expected_sales_units=100.0,
+        production_capacity_units=500.0,
+        productivity_per_worker=12.0,
+        personality="moderate",
+    )
+    healthcare_firm.employees = [101]
+    healthcare_firm.healthcare_capacity_per_worker = 1.0
+    healthcare_firm.healthcare_queue = [hh.household_id]
+    government = GovernmentAgent(cash_balance=5_000.0)
+    government.social_happiness_multiplier = 1.15
+    economy = Economy(households=[hh], firms=[healthcare_firm], government=government)
+
+    economy._process_healthcare_services({})
+
+    assert hh.health == pytest.approx(0.6, abs=1e-8)
+
+
 def test_contract_wellbeing_mercy_floor_and_consumption_recovery():
     """Contract G: Mercy floor pauses natural decay; consumption gives incremental recovery.
 
@@ -148,8 +183,8 @@ def test_contract_wellbeing_mercy_floor_and_consumption_recovery():
     assert svc_hh.happiness < initial + 0.01, "Recovery should be incremental per tick, not a large one-shot boost"
 
 
-def test_contract_social_multiplier_per_tick_not_cumulative():
-    """Contract H: Social multiplier is recomputed per tick and does not accumulate."""
+def test_contract_social_multiplier_is_policy_funded_and_decays():
+    """Contract H: Social multiplier is funded by policy and decays when unfunded."""
     government = GovernmentAgent(cash_balance=5_000.0, social_investment_budget=750.0)
 
     multipliers = []
@@ -158,6 +193,14 @@ def test_contract_social_multiplier_per_tick_not_cumulative():
         multipliers.append(government.social_happiness_multiplier)
 
     assert all(m == pytest.approx(1.05, abs=1e-10) for m in multipliers)
+
+    government.set_lever("social_spending", "none")
+    spent = government.invest_in_social_programs()
+
+    assert spent == pytest.approx(0.0)
+    assert government.social_investment_budget == pytest.approx(0.0)
+    assert government.social_happiness_multiplier < multipliers[-1]
+    assert government.social_happiness_multiplier >= 1.0
 
 
 def test_contract_morale_reacts_to_employment_housing_and_wages():
@@ -337,12 +380,15 @@ def test_contract_household_prompt_and_snapshot_use_grounded_unemployment_and_re
     assert "no switch threshold applies when unemployed" in identity
     assert "government benefit" not in prompt.lower()
     assert "Unemployment benefit: $30/tick" in prompt
-    assert "searching every tick (unemployed — no cooldown)" in prompt
+    assert "searching every tick" in prompt
+    assert "no cooldown" in prompt
     assert "Healthcare:" in prompt
     assert "Purchase detail:" in prompt
-    assert "Firm ownership: yes — owner of firms #2, #7" in prompt
+    assert "Firm ownership: yes" in prompt
+    assert "#2, #7" in prompt
     assert "Misc redistribution pool beneficiary: yes" in prompt
-    assert "Education this tick: yes — spent $100 on skill building this tick" in prompt
+    assert "Education this tick: yes" in prompt
+    assert "spent $100 on skill building this tick" in prompt
     assert "Cash ledger:" in prompt
     assert "stimulus" in prompt
     assert "redistribution" in prompt

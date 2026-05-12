@@ -1300,6 +1300,10 @@ class SimulationManager:
             "sector_subsidy_level": int(getattr(gov, "sector_subsidy_level", 0)),
             "infrastructure_spending": getattr(gov, "infrastructure_spending", "none"),
             "technology_spending": getattr(gov, "technology_spending", "none"),
+            "social_spending": getattr(gov, "social_spending", "medium"),
+            "price_stabilization_target": getattr(gov, "price_stabilization_target", "none"),
+            "price_stabilization_level": getattr(gov, "price_stabilization_level", "off"),
+            "rent_stabilization_level": getattr(gov, "rent_stabilization_level", "off"),
             "bailout_policy": getattr(gov, "bailout_policy", "off"),
             "bailout_target": getattr(gov, "bailout_target", "none"),
             "bailout_budget": int(getattr(gov, "bailout_budget", 0)),
@@ -1358,12 +1362,15 @@ class SimulationManager:
 
         decisions = result.get("decisions", {}) or {}
         if decisions:
-            reasoning = str(result.get("reasoning", ""))
+            rationale = str(result.get("rationale") or result.get("reasoning", ""))
+            evidence = list(result.get("evidence", []) or [])
+            evidence_audit = list(result.get("evidence_audit", []) or [])
+            decision_summary = str(result.get("decision_summary", ""))
             provider_name = str(result.get("provider", "unknown"))
             elapsed_ms = float(result.get("elapsed_ms", 0.0) or 0.0)
             for lever, after_value in decisions.items():
                 before_value = lever_before.get(lever)
-                reason = f"LLM government set {lever} from {before_value} to {after_value}. {reasoning}"
+                reason = f"LLM government set {lever} from {before_value} to {after_value}. {rationale}"
                 self._append_policy_change_ui_record(lever, after_value, reason)
                 self._buffer_policy_action(
                     actor="government_llm",
@@ -1376,8 +1383,13 @@ class SimulationManager:
                         "provider": provider_name,
                         "elapsed_ms": elapsed_ms,
                         "parse_ok": bool(result.get("parse_ok", False)),
+                        "rationale": rationale,
+                        "reasoning": rationale,
+                        "evidence": evidence,
+                        "evidence_audit": evidence_audit,
+                        "decision_summary": decision_summary,
                     },
-                    reason_summary=reasoning,
+                    reason_summary=rationale,
                 )
         return result
 
@@ -1813,9 +1825,10 @@ class SimulationManager:
                 self.prev_gov_cash = current_gov_cash
                 
                 # Fetch detailed government budget from economy
-                gov_revenue = self.economy.last_tick_gov_wage_taxes + self.economy.last_tick_gov_profit_taxes + self.economy.last_tick_gov_property_taxes
+                gov_revenue = self.economy.government.last_tick_revenue
                 gov_transfers = self.economy.last_tick_gov_transfers
                 gov_investments = self.economy.last_tick_gov_investments
+                gov_spending = self.economy.government.last_tick_spending
                 gov_owned_firms = sum(1 for f in self.economy.firms if f.is_baseline)
                 active_loans = sum(1 for f in self.economy.firms if getattr(f, "government_loan_remaining", 0) > 0)
 
@@ -1825,7 +1838,23 @@ class SimulationManager:
                         "current_tick": int(self.tick),
                         "government_cash": float(current_gov_cash),
                         "gov_revenue_this_tick": float(gov_revenue),
-                        "gov_spending_this_tick": float(gov_transfers + gov_investments),
+                        "gov_spending_this_tick": float(gov_spending),
+                        "gov_net_flow_this_tick": float(gov_revenue - gov_spending),
+                        "gov_transfer_spend_this_tick": float(gov_transfers),
+                        "gov_infrastructure_spend_this_tick": float(
+                            getattr(self.economy, "last_tick_gov_infrastructure_spending", 0.0)
+                        ),
+                        "gov_technology_spend_this_tick": float(
+                            getattr(self.economy, "last_tick_gov_technology_spending", 0.0)
+                        ),
+                        "gov_social_spend_this_tick": float(getattr(self.economy, "last_tick_gov_social_spending", 0.0)),
+                        "gov_subsidy_spend_this_tick": float(getattr(self.economy, "last_tick_gov_subsidies", 0.0)),
+                        "gov_bailout_spend_this_tick": float(getattr(self.economy, "last_tick_gov_bailouts", 0.0)),
+                        "gov_public_works_capitalization_this_tick": float(
+                            getattr(self.economy, "last_tick_gov_public_works_capitalization", 0.0)
+                        ),
+                        "gov_bond_purchases_this_tick": float(getattr(self.economy, "last_tick_gov_bond_purchases", 0.0)),
+                        "gov_post_warmup_stimulus_this_tick": float(getattr(self.economy, "last_tick_gov_post_warmup_stimulus", 0.0)),
                         "gdp_this_tick": float(gdp),
                     }
                 )

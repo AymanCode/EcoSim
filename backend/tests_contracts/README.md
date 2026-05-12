@@ -9,7 +9,7 @@ This folder uses a single naming style for readability:
 - `test_contracts_post_warmup.py`: post-warmup policy sanity checks on a warmed market economy
 - `test_contracts_factories.py`: scenario-factory helpers for handcrafted and generated economies
 
-Legacy files with `test_tier*` names are kept only as aliases and are skipped at collection time.
+Legacy `test_tier*` alias modules were removed; use the canonical `test_contracts_*` modules directly.
 
 Run stable contract tests:
 
