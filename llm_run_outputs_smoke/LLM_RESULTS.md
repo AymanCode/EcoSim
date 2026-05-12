@@ -1,10 +1,10 @@
 # Can an AI run an economy?
 
-That's the question I wanted to answer. I built a small economic simulation, gave a handful of LLMs the controls usually held by a government, and watched what they did with them.
+That's the question I wanted to answer. I built a small economic simulation, then handed six LLMs ranging from 8B parameters up to 1T the controls usually held by a government. Part of what I wanted to find out: does more parameters and more "thinking power" produce better governance, or is policy a different skill from raw reasoning capacity?
 
 **Short answer:** yes, kind of. The models made coherent policy decisions, the simulated economy responded, and different models produced visibly different governing styles.
 
-**Long answer:** it depends on what you mean by *run*. The sim is a sandbox, not a country. The models I tested are general-purpose, not policy specialists. One seed isn't a benchmark. The more useful reading isn't *which model won* — it's that different models governed differently, and those differences showed up in GDP, jobs, prices, and household wellbeing.
+**Long answer:** it depends on what you mean by *run*. The sim is a sandbox, not a country. The models I tested are general-purpose, not policy specialists. One seed isn't a benchmark. The more useful reading isn't *which model won*. It's that different models governed differently, and those differences showed up in GDP, jobs, prices, and household wellbeing.
 
 The rest of this doc walks through how the simulation works, what each model did, and where I think the result is interesting versus where it isn't.
 
@@ -26,7 +26,7 @@ Every run uses the same numbers: 80 households, seed 42, 10 warmup ticks, then 2
 
 ## What the government can actually do
 
-The LLM sees a compact economic report and chooses from a fixed schema of policy actions. Every proposed change is validated before it's applied — the model cannot set the wage tax to 800% or invent a new lever.
+The LLM sees a compact economic report and chooses from a fixed schema of policy actions. Every proposed change is validated before it's applied. The model cannot set the wage tax to 800% or invent a new lever.
 
 <details>
 <summary><b>Full policy lever reference</b></summary>
@@ -68,7 +68,7 @@ The LLM sees a compact economic report and chooses from a fixed schema of policy
 
 ## Results
 
-Higher is better for GDP, happiness, health, and government cash. Lower is better for unemployment. "Last 26" is the trailing average — what the economy looked like *at the end*, not the lifetime mean.
+Higher is better for GDP, happiness, health, and government cash. Lower is better for unemployment. "Last 26" is the trailing average. It shows what the economy looked like *at the end*, not the lifetime mean.
 
 | Metric | Baseline | Granite 8B | Gemma 26B | Llama 70B | GPT-OSS 120B |
 |---|---:|---:|---:|---:|---:|
@@ -97,7 +97,7 @@ A few things jump out before reading any further:
 - **The baseline** isn't best or worst on any single column. That's the point of having one.
 
 Two metrics about model behavior, not policy quality:
-- **Accepted decision rate** = share of LLM decision cycles where at least one proposed change passed validation and was applied. Granite at 25% means three out of four of its proposed plans were rejected by the schema — it kept trying things outside the lever set.
+- **Accepted decision rate** = share of LLM decision cycles where at least one proposed change passed validation and was applied. Granite at 25% means three out of four of its proposed plans were rejected by the schema. It kept trying things outside the lever set.
 - **Evidence match rate** = share of the model's cited evidence strings that matched real values in the prompt. A model can have a high evidence match rate and still pick bad policy. It's a citation-discipline metric, not a policy-quality metric.
 
 ---
@@ -106,15 +106,15 @@ Two metrics about model behavior, not policy quality:
 
 The runs read like personalities when you go tick by tick.
 
-**Granite 4.1 8B — narrow but lucky on this seed.** Picked food subsidies early, ratcheted them up, then mostly held the line. It worked: highest GDP, highest happiness. But the policy surface it explored is thin, and 25% accepted-decision rate is rough — most of what it wanted to do, the schema wouldn't let it do. I wouldn't bet on Granite repeating this on a different seed.
+**Granite 4.1 8B, narrow but lucky on this seed.** Picked food subsidies early, ratcheted them up, then mostly held the line. It worked: highest GDP, highest happiness. But the policy surface it explored is thin, and 25% accepted-decision rate is rough. Most of what it wanted to do, the schema wouldn't let it do. I wouldn't bet on Granite repeating this on a different seed.
 
-**Gemma 4 26B — sector firefighter.** Reached for bailouts and sector subsidies whenever a firm went distressed, mostly food and services. Less dramatic than Granite, but it pulled every dimension up versus the no-AI baseline. The most boring run in the best way.
+**Gemma 4 26B, sector firefighter.** Reached for bailouts and sector subsidies whenever a firm went distressed, mostly food and services. Less dramatic than Granite, but it pulled every dimension up versus the no-AI baseline. The most boring run in the best way.
 
-**Llama 3.3 70B — fiscal conservative.** Protected cash aggressively. Cut social spending. Supported services. The result: best cash buffer in the field, lowest unemployment, and the worst final happiness (0.356). A government that runs the books well and leaves households measurably worse off than doing nothing.
+**Llama 3.3 70B, fiscal conservative.** Protected cash aggressively. Cut social spending. Supported services. The result: best cash buffer in the field, lowest unemployment, and the worst final happiness (0.356). A government that runs the books well and leaves households measurably worse off than doing nothing.
 
-**GPT-OSS 120B — growth manager.** Cut taxes, spent on infrastructure and tech, used subsidies, used bailouts. Drove decent GDP and happiness. Also drove minimum treasury to $133 — closer to crisis than anything else here. Active policy isn't free.
+**GPT-OSS 120B, growth manager.** Cut taxes, spent on infrastructure and tech, used subsidies, used bailouts. Drove decent GDP and happiness. Also drove minimum treasury to $133. Closer to crisis than anything else here. Active policy isn't free.
 
-**Ring 2.6 1T (experimental).** The first run hit a parser miss: one decision came back with blank content instead of JSON, which I traced to a harness/provider issue rather than a bad economic call. I hardened the retry path (treat blank OpenRouter content as retryable, give Ring a JSON-repair retry on malformed first responses) and reran twice — once at temperature 0.1 for a clean strict-instruction baseline, once at 0.4 for an apples-to-apples comparison with the other models.
+**Ring 2.6 1T (experimental).** The first run hit a parser miss: one decision came back with blank content instead of JSON, which I traced to a harness/provider issue rather than a bad economic call. I hardened the retry path (treat blank OpenRouter content as retryable, give Ring a JSON-repair retry on malformed first responses) and reran twice. Once at temperature 0.1 for a clean strict-instruction baseline, once at 0.4 for an apples-to-apples comparison with the other models.
 
 | Metric | Ring, temp 0.4 (first) | Ring, temp 0.1 (clean) | Ring, temp 0.4 (fairness) |
 |---|---:|---:|---:|
@@ -132,7 +132,9 @@ The runs read like personalities when you go tick by tick.
 
 The two clean Ring runs governed differently. At temperature 0.1, Ring played crisis manager: cut social spending under cash stress, monitored food prices, raised wage taxes, subsidized services and food, used food bailouts, then restored social spending once happiness collapsed. At temperature 0.4, it was more aggressive: cut wage taxes first to fight unemployment, raised them back later for cash stability, rotated bailouts from food to services, lowered minimum wage pressure, ramped social spending late in the run, and ended with rent monitoring. Different temperatures, same model, recognizably different style.
 
-Ring's GDP numbers are roughly 2x the other models in absolute terms — a side effect of how aggressively it leans on active fiscal policy in this setup. Unemployment averages are also higher, partly because of churn from those policy shifts. Both are real and both came from the same lever set the smaller models had.
+Ring's GDP numbers are roughly 2x the other models in absolute terms, a side effect of how aggressively it leans on active fiscal policy in this setup. Unemployment averages are also higher, partly because of churn from those policy shifts. Both are real and both came from the same lever set the smaller models had.
+
+That raises a harder question: what counts as good governance in the first place? If "good" means low unemployment and high GDP, the 1T run is the obvious winner. 0% final unemployment, GDP roughly 2x the others. But happiness in the Ring runs sits around 0.35, the lowest in the entire field, while Granite hit the same 0% unemployment with happiness over 0.69. Same headline number, very different country. Being result-oriented gets you elite numbers on a few axes. A country still has to keep its people functional, not just its spreadsheet.
 
 ---
 
@@ -140,21 +142,21 @@ Ring's GDP numbers are roughly 2x the other models in absolute terms — a side 
 
 I set this experiment up partly to see how model size scales as a policymaker. It's not a clean comparison and I want to be honest about that.
 
-The models here differ on a lot more than parameter count. Granite 8B is rule-oriented and conservative by training disposition — it tends to pick one lever and stay with it. Ring 1T spends most of its decision budget thinking before it commits, then operates inside the constraints it just reasoned about. Gemma and Llama sit somewhere in between, with different priors about which sector to defend first when things go sideways. So when Granite outscores Llama 70B on average GDP, that isn't really evidence that "8B beats 70B at governing." It's evidence that *this 8B model's instincts* happened to line up with *this seed's incentives*.
+The models here differ on a lot more than parameter count. Granite 8B is rule-oriented and conservative by training disposition. It tends to pick one lever and stay with it. Ring 1T spends most of its decision budget thinking before it commits, then operates inside the constraints it just reasoned about. Gemma and Llama sit somewhere in between, with different priors about which sector to defend first when things go sideways. So when Granite outscores Llama 70B on average GDP, that isn't really evidence that "8B beats 70B at governing." It's evidence that *this 8B model's instincts* happened to line up with *this seed's incentives*.
 
-The thing I'd commit to from these runs: bigger models did more elaborate reasoning, and that didn't reliably translate into better economic outcomes. Scale bought me richer policy plans. It didn't buy me cleaner ones. On a different seed, or with a different action space, the ranking could easily flip — and the more interesting question becomes which *style* of governing holds up across conditions, not which model wins on one run.
+The thing I'd commit to from these runs: bigger models did more elaborate reasoning, and that didn't reliably translate into better economic outcomes. Scale bought me richer policy plans. It didn't buy me cleaner ones. On a different seed, or with a different action space, the ranking could easily flip. The more interesting question becomes which *style* of governing holds up across conditions, not which model wins on one run.
 
 ---
 
 ## So can an AI govern?
 
-**Yes signals.** The models read the economy report, picked policies, and the economy moved in response. Each one produced a recognizable governing style — fiscal hawk, growth manager, sector firefighter, crisis operator. That coherence isn't trivial. None of these models were fine-tuned for economic policy. They reasoned about it from general training and a structured prompt, and the results weren't random.
+**Yes signals.** The models read the economy report, picked policies, and the economy moved in response. Each one produced a recognizable governing style: fiscal hawk, growth manager, sector firefighter, crisis operator. That coherence isn't trivial. None of these models were fine-tuned for economic policy. They reasoned about it from general training and a structured prompt, and the results weren't random.
 
 **But the simulation is an abstraction.** Real economies have orders of magnitude more variables, longer horizons, political constraints, geopolitical exposure, financial intermediation, and expectational dynamics than EcoSim has. There's no central bank here, no trade, no expectations channel, no labor mobility across regions, no shocks the model didn't already see in warmup. Whatever the models did here, they did inside a small box.
 
-**And the models weren't built for this.** None were post-trained on macro data, historical policy responses, or counterfactual outcomes. A specialist model — fine-tuned on policy episodes paired with their results — would presumably make better technical decisions than a general 8B or 70B. That's the obvious next experiment.
+**And the models weren't built for this.** None were post-trained on macro data, historical policy responses, or counterfactual outcomes. A specialist model, fine-tuned on policy episodes paired with their results, would presumably make better technical decisions than a general 8B or 70B. That's the obvious next experiment.
 
-**But there's a counterargument to specialization.** A model trained narrowly on "what worked technically in past economies" inherits the biases of past economies. It also inherits the assumption that governing is a technical optimization problem. It isn't. Cutting social spending to balance the books, like Llama did, is technically fine and politically explosive. A model that only sees metrics will optimize metrics — and break things humans care about that aren't metrics. The general-purpose models in this experiment at least carry a coarse model of what people care about in their training. That might end up mattering more than a tighter loss on GDP.
+**But there's a counterargument to specialization.** A model trained narrowly on "what worked technically in past economies" inherits the biases of past economies. It also inherits the assumption that governing is a technical optimization problem. It isn't. Cutting social spending to balance the books, like Llama did, is technically fine and politically explosive. A model that only sees metrics will optimize metrics, and break things humans care about that aren't metrics. The general-purpose models in this experiment at least carry a coarse model of what people care about in their training. That might end up mattering more than a tighter loss on GDP.
 
 So: can an AI govern? On the technical layer of a constrained problem, yes, and the experiment above is evidence of it. *Should* it? That's not a model-quality question. That's about what governance is for, and that part doesn't compress into a metric.
 
@@ -167,7 +169,7 @@ So: can an AI govern? On the technical layer of a constrained problem, yes, and 
 - Fiscal only. No monetary policy, no central bank, no exchange rate, no debt issuance.
 - Evidence match rate tracks citation discipline, not policy quality. A model can cite everything correctly and still make a bad call.
 - The LLM is consulted every 26 ticks. Higher-frequency decisions might change strategy meaningfully.
-- The "AI government" doesn't see real households — it sees an aggregated report. That's a limitation, but it's also realistic: human governments don't see real households either.
+- The "AI government" doesn't see real households. It sees an aggregated report. That's a limitation, but it's also realistic: human governments don't see real households either.
 
 ---
 
@@ -176,7 +178,7 @@ So: can an AI govern? On the technical layer of a constrained problem, yes, and 
 - Run every model across 20+ seeds and report distributions instead of point estimates. Replace "Granite won" with "Granite wins X% of seeds."
 - Fine-tune a small model on EcoSim transcripts paired with outcome metrics, then put it head-to-head against the general-purpose models. See whether specialization actually wins, or whether it overfits to the simulator's quirks.
 - Add a monetary authority and test whether the same LLM can coordinate fiscal and monetary policy without conflicting itself.
-- Introduce shocks the warmup doesn't include — productivity drop, demand collapse, sector failure — and see which governing style survives.
+- Introduce shocks the warmup doesn't include (productivity drop, demand collapse, sector failure) and see which governing style survives.
 - Add a "human-in-the-loop" mode where the model proposes and a person ratifies. Compare to fully autonomous.
 
 ---
@@ -194,9 +196,9 @@ Per-run summaries (model, decisions, policy timeline, final metrics):
 | Gemma 4 26B | [llm_government_seed42_ticks200_20260511_000251.md](llm_government_seed42_ticks200_20260511_000251.md) |
 | Llama 3.3 70B | [llm_government_seed42_ticks200_20260511_004841.md](llm_government_seed42_ticks200_20260511_004841.md) |
 | GPT-OSS 120B | [llm_government_seed42_ticks200_20260511_203344.md](llm_government_seed42_ticks200_20260511_203344.md) |
-| Ring 2.6 1T — first run, temp 0.4 | [llm_government_seed42_ticks200_20260511_211800.md](../llm_run_outputs/llm_government_seed42_ticks200_20260511_211800.md) |
-| Ring 2.6 1T — clean, temp 0.1 | [llm_government_seed42_ticks200_20260511_212851.md](../llm_run_outputs/llm_government_seed42_ticks200_20260511_212851.md) |
-| Ring 2.6 1T — fairness, temp 0.4 | [llm_government_seed42_ticks200_20260511_213704.md](../llm_run_outputs/llm_government_seed42_ticks200_20260511_213704.md) |
+| Ring 2.6 1T (first run, temp 0.4) | [llm_government_seed42_ticks200_20260511_211800.md](../llm_run_outputs/llm_government_seed42_ticks200_20260511_211800.md) |
+| Ring 2.6 1T (clean, temp 0.1) | [llm_government_seed42_ticks200_20260511_212851.md](../llm_run_outputs/llm_government_seed42_ticks200_20260511_212851.md) |
+| Ring 2.6 1T (fairness, temp 0.4) | [llm_government_seed42_ticks200_20260511_213704.md](../llm_run_outputs/llm_government_seed42_ticks200_20260511_213704.md) |
 
 Each per-run report contains the model identifier, every decision the LLM made with timestamps and reasoning, and the final-state economic summary.
 

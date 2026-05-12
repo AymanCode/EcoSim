@@ -2,9 +2,9 @@
 
 A macroeconomic simulation built from the agent up. Households, firms, a bank, and a government interact across a labor market, a goods market, a housing market, a healthcare queue, and a credit system. There's a live React dashboard, a streaming API, and an optional warehouse for run history.
 
-You can run it as a policy sandbox — change taxes, subsidies, wage floors, or social spending and watch the economy react. Or you can plug an LLM into the government's seat and see what the model does with the same controls.
+You can run it as a policy sandbox. Change taxes, subsidies, wage floors, or social spending and watch the economy react. Or plug an LLM into the government's seat and see what the model does with the same controls.
 
-> **Featured experiment:** [Can an AI run an economy?](llm_run_outputs_smoke/LLM_RESULTS.md) — I gave six LLMs (8B → 1T) the government's policy controls and compared the runs against a rule-based baseline. Short answer: yes, kind of. Long answer is more interesting.
+> **Featured experiment:** [Can an AI run an economy?](llm_run_outputs_smoke/LLM_RESULTS.md). I handed six LLMs ranging from 8B parameters up to 1T the government's policy controls and compared them against a rule-based baseline. The underlying question wasn't only whether an AI could do it, but whether more parameters and more "thinking power" translated into better governance. Short answer: yes, kind of. Long answer is more interesting.
 
 ---
 
@@ -85,7 +85,7 @@ Each tick runs the same fixed sequence: labor matching → production → goods 
 
 ## The LLM-as-government experiment
 
-The government's action space lives in [`backend/policy_schema.py`](backend/policy_schema.py). Same schema drives the frontend policy sliders and the LLM government agent. When an LLM is driving policy, it gets a compact economy report every 26 ticks and proposes changes; the schema validates them before they apply. The model can't invent levers or push values out of range — the harness rejects malformed plans and tracks accepted decision rate and evidence match rate as separate signals from policy quality.
+The government's action space lives in [`backend/policy_schema.py`](backend/policy_schema.py). Same schema drives the frontend policy sliders and the LLM government agent. When an LLM is driving policy, it gets a compact economy report every 26 ticks and proposes changes; the schema validates them before they apply. The model can't invent levers or push values out of range. The harness rejects malformed plans and tracks accepted decision rate and evidence match rate as separate signals from policy quality.
 
 For the full six-model comparison (Granite 8B, Gemma 26B, Llama 70B, GPT-OSS 120B, Ring 2.6 1T) plus the rule-based baseline, with discussion of *why* bigger models didn't reliably win: **[llm_run_outputs_smoke/LLM_RESULTS.md](llm_run_outputs_smoke/LLM_RESULTS.md)**.
 
@@ -96,7 +96,7 @@ For the full six-model comparison (Granite 8B, Gemma 26B, Llama 70B, GPT-OSS 120
 A few choices I'd flag if you're reading the code:
 
 - **Plan / apply split.** Every agent decision is a pure plan dict followed by a state mutation. The plan layer is fully testable without touching state.
-- **Pricing branches by sector.** Generic firms use an inventory-weeks adjustment with a marginal-cost floor. Housing uses obligation-coverage spread across rental unit count, not just occupied tenants. Healthcare uses break-even plus a surge multiplier on queue overload. A single pricing rule across all four sectors produced visibly worse behavior in testing — the branching is load-bearing.
+- **Pricing branches by sector.** Generic firms use an inventory-weeks adjustment with a marginal-cost floor. Housing uses obligation-coverage spread across rental unit count, not just occupied tenants. Healthcare uses break-even plus a surge multiplier on queue overload. A single pricing rule across all four sectors produced visibly worse behavior in testing. The branching is load-bearing.
 - **Wage setting has three paths.** Baseline firms pin to the wage floor. Post-warmup non-baseline firms run a Phillips Curve with a revenue ceiling that caps `max_labor_share × revenue / workers` per worker (prevents wage spirals during tight labor). Healthcare and warmup use a target-labor-share rule dampened by unemployment.
 - **New firms spawn into under-served sectors.** Score is `unmet_demand × (1 + 1/private_count)` so a monopolist that suppresses demand still draws competitors.
 - **Schema-validated policy actions.** `policy_schema.py` is the contract between the rule-based UI, the LLM government, and the runtime. One source of truth.
@@ -141,7 +141,7 @@ cd frontend-react
 npm ci && npm run lint && npm run build
 ```
 
-Contract tests cover invariants (no negative cash, conservation across phases), behavior (price and wage responses to demand shifts), and short integration runs. LLM tests verify provider wiring and schema validation — not policy quality.
+Contract tests cover invariants (no negative cash, conservation across phases), behavior (price and wage responses to demand shifts), and short integration runs. LLM tests verify provider wiring and schema validation, not policy quality.
 
 ---
 
