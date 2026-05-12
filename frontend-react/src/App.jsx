@@ -1427,7 +1427,7 @@ export default function EcoSimUI() {
                           .filter(([_, value]) => value > 0)
                           .sort((a, b) => b[1] - a[1])
                           .slice(0, 1)
-                          .map(([need, value], i) => (
+                          .map(([need], i) => (
                             <div key={i} className="bg-slate-900/80 border border-slate-600 rounded-lg rounded-tr-none p-2 shadow-xl backdrop-blur animate-bounce" style={{ animationDuration: '3s' }}>
                               <div className="text-[9px] text-slate-400 uppercase mb-1">Primary Need</div>
                               <div className="text-xs font-bold text-rose-400 font-mono flex items-center gap-1">
