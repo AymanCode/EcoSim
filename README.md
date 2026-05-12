@@ -1,14 +1,39 @@
 # EcoSim
 
+[![CI](https://github.com/AymanCode/EcoSim/actions/workflows/ci.yml/badge.svg)](https://github.com/AymanCode/EcoSim/actions/workflows/ci.yml)
+[![Python 3.11+](https://img.shields.io/badge/Python-3.11%2B-3776AB?logo=python&logoColor=white)](pyproject.toml)
+[![Docker](https://img.shields.io/badge/Docker-ready-2496ED?logo=docker&logoColor=white)](docker-compose.yml)
+[![FastAPI](https://img.shields.io/badge/FastAPI-0.135%2B-009688?logo=fastapi&logoColor=white)](requirements.txt)
+[![React](https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=black)](frontend-react/package.json)
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+
 A macroeconomic simulation built from the agent up. Households, firms, a bank, and a government interact across a labor market, a goods market, a housing market, a healthcare queue, and a credit system. There's a live React dashboard, a streaming API, and an optional warehouse for run history.
 
 You can run it as a policy sandbox. Change taxes, subsidies, wage floors, or social spending and watch the economy react. Or plug an LLM into the government's seat and see what the model does with the same controls.
 
-> **Featured experiment:** [Can an AI run an economy?](llm_run_outputs_smoke/LLM_RESULTS.md). I handed six LLMs ranging from 8B parameters up to 1T the government's policy controls and compared them against a rule-based baseline. The underlying question wasn't only whether an AI could do it, but whether more parameters and more "thinking power" translated into better governance. Short answer: yes, kind of. Long answer is more interesting.
+> **Featured experiment:** [Can an AI run an economy?](llm_run_outputs_smoke/LLM_RESULTS.md). I compared five LLMs plus a rule-based baseline on the current **1,000-household** run, from an 8B local model to an experimental 1T model, under the same schema-validated government policy controls. The underlying question wasn't only whether an AI could do it, but whether more parameters and more "thinking power" translated into better governance. Short answer: yes, kind of. Long answer is more interesting.
 
 ---
 
-## What it is in plain language
+## Views
+
+Four panes share the same simulation state and update live as the model ticks.
+
+![Live macro dashboard during a rule-based run](docs/assets/dashboard-screenshot.png)
+*Dash. Macro metrics streamed over WebSocket. Shown mid-run on a rule-based baseline, system distress firing as the economy strains.*
+
+![Per-subject view with rotating wireframe avatar](docs/assets/subjects-hologram.gif)
+*Subjects. Per-household drill-down with wage drivers, traits, and inventory. The wireframe avatar rotates live and turns red when health drops.*
+
+![Firm view with sector breakdown and tracked firms](docs/assets/firms-screenshot.png)
+*Firms. Sector breakdown, market mood, and per-firm cash and profit history.*
+
+![Government policy panel with sliders and fiscal flow](docs/assets/gov-screenshot.png)
+*Gov. Where the policy levers live. The LLM government writes through the same schema that drives these sliders.*
+
+---
+
+## What is it?
 
 A tick-based agent-based model. Each tick is roughly one simulated week (52 ticks = 1 year). Every tick:
 
@@ -17,7 +42,16 @@ A tick-based agent-based model. Each tick is roughly one simulated week (52 tick
 - **A bank** holds deposits, pays interest, processes loan repayments.
 - **The government** collects taxes, runs unemployment benefits, and can pull 15+ policy levers (taxes, sector subsidies, wage floors, public works, social spending, bailouts, price/rent stabilization). It can be rule-based or LLM-driven.
 
-The frontend streams metrics over WebSocket; the backend can persist every tick to a SQLite/Postgres/Timescale warehouse for later analysis.
+The frontend streams metrics over WebSocket. The backend optionally persists tick metrics, policy actions, decision features, diagnostics, and agent snapshots to SQLite, Postgres, or TimescaleDB, sized for post-run analysis rather than in-the-loop logging.
+
+---
+
+## Highlights
+
+- **LLM orchestration layer** with schema-validated tool calls, JSON-repair retries for malformed model output, and decision telemetry captured per cycle.
+- **Reproducible multi-model evaluation** comparing five LLMs from 8B to 1T under a shared action schema, with per-decision logs and final-state metrics persisted for analysis.
+- **Tick-level data warehouse** for run metadata, tick metrics, policy actions, decision features, diagnostics, and firm/household snapshots across SQLite, Postgres, or TimescaleDB.
+- **Agent-based macroeconomic engine** across households, firms, banking, housing, healthcare, labor, and goods markets, served over a Dockerized FastAPI + WebSocket backend with a React dashboard, pytest contract suites, and CI.
 
 ---
 
@@ -56,7 +90,7 @@ Open `http://localhost:5173`.
 | API + streaming | FastAPI, WebSockets |
 | Frontend | React + Vite + Recharts |
 | Persistence | SQLite (default) / PostgreSQL / TimescaleDB |
-| LLM orchestration | LangGraph, OpenRouter / Groq / Ollama |
+| LLM orchestration | LangGraph, LM Studio / Groq / OpenRouter / Ollama |
 | Tests | pytest, contract-style regression suites |
 
 ---
@@ -70,9 +104,9 @@ frontend-react/        live dashboard (React + Recharts)
       ▼
 backend/server.py      FastAPI + simulation lifecycle
       ▼
-backend/economy.py     tick coordinator, ~14 phases per tick
+backend/economy.py     tick coordinator, market clearing, simulation loop
       ▼
-backend/agents.py      HouseholdAgent · FirmAgent · BankAgent · GovernmentAgent
+backend/agents.py      household, firm, bank, and government agent behavior
       +
 backend/config.py      400+ tunable parameters, single source of truth
       +
@@ -87,7 +121,19 @@ Each tick runs the same fixed sequence: labor matching → production → goods 
 
 The government's action space lives in [`backend/policy_schema.py`](backend/policy_schema.py). Same schema drives the frontend policy sliders and the LLM government agent. When an LLM is driving policy, it gets a compact economy report every 26 ticks and proposes changes; the schema validates them before they apply. The model can't invent levers or push values out of range. The harness rejects malformed plans and tracks accepted decision rate and evidence match rate as separate signals from policy quality.
 
-For the full six-model comparison (Granite 8B, Gemma 26B, Llama 70B, GPT-OSS 120B, Ring 2.6 1T) plus the rule-based baseline, with discussion of *why* bigger models didn't reliably win: **[llm_run_outputs_smoke/LLM_RESULTS.md](llm_run_outputs_smoke/LLM_RESULTS.md)**.
+For the full 1,000-household comparison across five LLMs (Granite 8B, Gemma 26B, Llama 70B, GPT-OSS 120B, Ring 2.6 1T) plus the rule-based baseline, with discussion of *why* bigger models didn't reliably win: **[llm_run_outputs_smoke/LLM_RESULTS.md](llm_run_outputs_smoke/LLM_RESULTS.md)**.
+
+---
+
+## LLM harness
+
+The government runner is the same orchestration shape you'd want for any production agent.
+
+- **Structured I/O.** Every model call returns JSON validated against `policy_schema.py`. Malformed plans are rejected before touching state.
+- **Retry and repair.** Blank or truncated provider responses trigger a JSON-repair retry, then fall back to the prior policy if the model can't recover.
+- **Provider-agnostic.** Same harness drives LM Studio, Groq, OpenRouter, and Ollama. Swapping models is a config change.
+- **Behavior metrics separate from outcomes.** Accepted decision rate and evidence match rate are logged independently from policy quality. A model can govern badly while citing perfectly, and vice versa.
+- **Per-decision logs.** Each cycle persists the prompt context, the model's plan, what passed validation, what was rejected, and the resulting state delta.
 
 ---
 
@@ -157,6 +203,7 @@ LLM government (any subset works depending on which models you want to run):
 ```
 OPENROUTER_API_KEY=...
 GROQ_API_KEY=...
+LMSTUDIO_BASE_URL=http://127.0.0.1:1234
 OLLAMA_BASE_URL=http://localhost:11434
 ```
 
@@ -168,9 +215,9 @@ OLLAMA_BASE_URL=http://localhost:11434
 
 ```
 backend/                simulation engine, API, persistence, tests
-  agents.py               all four agent types (~7K lines)
-  economy.py              tick coordinator (~7K lines)
-  server.py               FastAPI + WebSocket (~2.7K lines)
+  agents.py               household, firm, bank, and government agent behavior
+  economy.py              tick coordinator, market clearing, and simulation loop
+  server.py               FastAPI + WebSocket API
   config.py               frozen dataclasses, single source of truth
   policy_schema.py        LLM + UI government action space
   tools/                  runners, LLM harness, analysis utilities
@@ -180,7 +227,8 @@ backend/                simulation engine, API, persistence, tests
 frontend-react/         React dashboard
 docs/                   technical documentation
 llm_run_outputs/        LLM government run artifacts
-llm_run_outputs_smoke/  baseline + smaller runs (incl. LLM_RESULTS.md)
+llm_run_outputs_1000/   1,000-household per-run LLM artifacts
+llm_run_outputs_smoke/  public comparison writeup (incl. LLM_RESULTS.md)
 ops/                    optional infrastructure
 ```
 
