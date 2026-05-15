@@ -8,6 +8,7 @@ Technical documentation for the active EcoSim codebase.
 |----------|---------|
 | [SIMULATION.md](SIMULATION.md) | Core model behavior, tick lifecycle, markets, healthcare, and policy flow |
 | [TECHNICAL.md](TECHNICAL.md) | Stack, configuration, testing, performance, and implementation details |
+| [DESIGN_DECISIONS.md](DESIGN_DECISIONS.md) | Deliberate engineering choices: decision, alternative considered, why this one |
 | [FRONTEND.md](FRONTEND.md) | Dashboard behavior, views, and WebSocket protocol |
 | [DATA_STORAGE_ARCHITECTURE.md](DATA_STORAGE_ARCHITECTURE.md) | Warehouse design, schema direction, and persistence guarantees |
 
