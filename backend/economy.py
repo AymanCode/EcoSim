@@ -11,6 +11,26 @@ Performance optimizations:
 - Batch operations to minimize Python loop overhead
 """
 
+# Navigation Index
+# - Imports and module setup: approx. lines 32-57
+# - Economy coordinator state and constructor: approx. lines 58-268
+# - Stabilization, visibility, audit, and telemetry helpers: approx. lines 269-721
+# - Household consumption, subsidies, and batched updates: approx. lines 722-1361
+# - Main tick orchestration: approx. lines 1362-2114
+# - Firm distress, working capital, and shortage diagnostics: approx. lines 2115-2656
+# - Labor market matching and roster synchronization: approx. lines 2657-3668
+# - Goods market clearing and firm market views: approx. lines 3669-4049
+# - Wellbeing, tax snapshots, production, and firm lifecycle: approx. lines 4050-4773
+# - Loan programs and capital financing: approx. lines 4774-5373
+# - Bailouts, public works, stimulus, and shocks: approx. lines 5374-5685
+# - Housing rentals, repairs, and miscellaneous revenue: approx. lines 5686-6035
+# - Healthcare queue and service processing: approx. lines 6036-6359
+# - Fiscal pressure, banking, credit, and medical loans: approx. lines 6360-6717
+# - Policy adjustment, statistics, and economic metrics: approx. lines 6718-7249
+
+# -----------------------------------------------------------------------------
+# Section: Imports and module setup
+# -----------------------------------------------------------------------------
 import logging
 import os
 import random
@@ -34,6 +54,9 @@ from utils.category_utils import get_good_category, build_good_category_lookup
 logger = logging.getLogger(__name__)
 
 
+# -----------------------------------------------------------------------------
+# Section: Economy coordinator state and constructor
+# -----------------------------------------------------------------------------
 class Economy:
     """
     Main simulation coordinator for the economic model.
@@ -242,6 +265,9 @@ class Economy:
         self._refresh_household_visibility_context()
         self._propagate_stabilizer_flags()
 
+    # -------------------------------------------------------------------------
+    # Section: Stabilization, visibility, audit, and telemetry helpers
+    # -------------------------------------------------------------------------
     def _price_stabilization_multiplier(self, level: str, rent: bool = False) -> float:
         """Return upward price-growth cap for a stabilization level."""
         gov_cfg = CONFIG.government
@@ -692,6 +718,9 @@ class Economy:
             government=government_enabled
         )
 
+    # -------------------------------------------------------------------------
+    # Section: Household consumption, subsidies, and batched updates
+    # -------------------------------------------------------------------------
     # SOLID: SRP Violation - This method handles BOTH vectorized computation
     # AND legacy fallback logic. Should be split into:
     # - _compute_batch_consumption_budgets()
@@ -1329,6 +1358,9 @@ class Economy:
                           f"other=${household.last_other_income:.2f}, "
                           f"spending=${household.last_consumption_spending:.2f})")
 
+    # -------------------------------------------------------------------------
+    # Section: Main tick orchestration
+    # -------------------------------------------------------------------------
     # SOLID: SRP Violation - This method is 200+ lines and orchestrates
     # 16+ phases. Should be split into: _execute_tick_phases(),
     # _run_firm_planning(), _run_household_planning(), _run_market_clearing(),
@@ -2079,6 +2111,9 @@ class Economy:
         if self.post_warmup_cooldown > 0:
             self.post_warmup_cooldown -= 1
 
+    # -------------------------------------------------------------------------
+    # Section: Firm distress, working capital, and shortage diagnostics
+    # -------------------------------------------------------------------------
     def _record_firm_distress_transitions(self, firm_state_before: Dict[int, Dict[str, bool]]) -> None:
         """Emit enter/exit events when firms cross into or out of distress modes."""
         for firm in self.firms:
@@ -2618,6 +2653,9 @@ class Economy:
 
         self.last_sector_shortage_diagnostics = rows
 
+    # -------------------------------------------------------------------------
+    # Section: Labor market matching and roster synchronization
+    # -------------------------------------------------------------------------
     def _normalize_household_labor_plans(
         self,
         household_labor_plans: Dict[int, Dict],
@@ -3627,6 +3665,9 @@ class Economy:
                     synced_wages[household_id] = firm.actual_wages.get(household_id, firm.wage_offer)
             firm.actual_wages = synced_wages
 
+    # -------------------------------------------------------------------------
+    # Section: Goods market clearing and firm market views
+    # -------------------------------------------------------------------------
     def _estimated_firm_market_supply(self, firm: FirmAgent, current_tick_capacity: bool = False) -> float:
         """Return shoppable supply without treating Services capacity as inventory."""
         category = (firm.good_category or "").lower()
@@ -4005,6 +4046,9 @@ class Economy:
                     spread=0.00,     # No spread for startups
                 )
 
+    # -------------------------------------------------------------------------
+    # Section: Wellbeing, tax snapshots, production, and firm lifecycle
+    # -------------------------------------------------------------------------
     def _batch_update_wellbeing(self, happiness_multiplier: float) -> None:
         """Vectorized wellbeing update matching per-agent update_wellbeing() logic."""
         if not self.households:
@@ -4726,6 +4770,9 @@ class Economy:
 
         self.firm_lookup[new_firm_id] = new_firm
 
+    # -------------------------------------------------------------------------
+    # Section: Loan programs and capital financing
+    # -------------------------------------------------------------------------
     def _update_loan_commitments(self) -> None:
         """Tick down hiring commitments tied to emergency loans and reclaim aid if ignored."""
         config = CONFIG.government
@@ -5323,6 +5370,9 @@ class Economy:
             hh.needs_consumption_loan = False
             hh.consumption_loan_amount = 0.0
 
+    # -------------------------------------------------------------------------
+    # Section: Bailouts, public works, stimulus, and shocks
+    # -------------------------------------------------------------------------
     def _firm_matches_bailout_policy(self, firm: "FirmAgent") -> bool:
         """Return whether a firm matches the current bailout targeting rule."""
         policy = getattr(self.government, "bailout_policy", "off")
@@ -5632,6 +5682,9 @@ class Economy:
             for h in affected_households:
                 h.health = max(0.0, min(1.0, h.health + health_shock))
 
+    # -------------------------------------------------------------------------
+    # Section: Housing rentals, repairs, and miscellaneous revenue
+    # -------------------------------------------------------------------------
     def _ensure_cash_for_payment(self, household, amount: float) -> bool:
         """Ensure household.cash_balance >= amount by withdrawing from deposits.
 
@@ -5979,6 +6032,9 @@ class Economy:
         if net > 0:
             self.misc_firm_revenue += net
 
+    # -------------------------------------------------------------------------
+    # Section: Healthcare queue and service processing
+    # -------------------------------------------------------------------------
     def _reset_healthcare_tick_state(self) -> None:
         """Reset per-tick healthcare counters and clear legacy medical inventory remnants."""
         self.healthcare_requests_this_tick = 0.0
@@ -6300,6 +6356,9 @@ class Economy:
             if completed > 0:
                 firm.healthcare_idle_streak = 0
 
+    # -------------------------------------------------------------------------
+    # Section: Fiscal pressure, banking, credit, and medical loans
+    # -------------------------------------------------------------------------
     def _fiscal_pressure_denominator_gdp(self) -> float:
         """Return the GDP denominator used for fiscal-pressure ratios."""
         current_gdp = sum(
@@ -6655,6 +6714,9 @@ class Economy:
 
         return False
 
+    # -------------------------------------------------------------------------
+    # Section: Policy adjustment, statistics, and economic metrics
+    # -------------------------------------------------------------------------
     def _adjust_government_policy(self) -> None:
         """
         Calculate economic indicators and adjust government policy.
