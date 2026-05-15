@@ -159,7 +159,7 @@ The five-tick rolling unemployment path shows the clearest separation after warm
 - **Granite 8B got stuck.** It kept increasing food bailout capacity, stopped making new useful changes, ended cash-negative, and had the worst final unemployment.
 - **The baseline was decent.** It did not win, but it also did not collapse. That makes the comparison more useful.
 
-One important result: at 1,000 households, final happiness was low across the board. The models separated more clearly on unemployment, GDP, and fiscal stability than on household wellbeing. That is a real finding and probably a sign that the larger-scale sim is exposing late-run household stress.
+One important result: at 1,000 households, final happiness was low across the board. The models separated more clearly on unemployment, GDP, and fiscal stability than on household wellbeing. That is a real finding, but the mechanism needs more diagnosis before I read too much into the welfare numbers.
 
 ---
 
@@ -213,7 +213,7 @@ The strongest takeaway is practical: an LLM can be put behind a constrained acti
 - The action space is small compared with real fiscal policy.
 - The LLM sees aggregate metrics, not individual household stories.
 - Evidence match rate measures citation discipline, not wisdom.
-- Happiness is low across all 1,000-household runs, which needs more diagnosis before overinterpreting welfare results.
+- Happiness calibration at 1,000-household scale needs more diagnosis before reading too much into welfare numbers.
 
 ---
 
