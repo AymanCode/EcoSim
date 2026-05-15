@@ -377,7 +377,7 @@ EcoSim/
 ├── docker-compose.yml           # Docker setup (PERIPHERAL)
 ├── pyproject.toml              # Python config (PERIPHERAL)
 ├── requirements.txt             # Python deps (PERIPHERAL)
-└── PROJECT_MAP.md              # This file
+└── docs/internal/PROJECT_MAP.md # This file
 ```
 
 ---
