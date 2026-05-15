@@ -68,6 +68,31 @@ That separation matters. A model can cite the economy correctly and still pick b
 
 ---
 
+## What the model sees
+
+Each LLM decision has two parts. The system prompt sets the model's role, objective, output shape, one-step policy limits, and policy schema. The user prompt then gives the compact economic report: observed macro data, fiscal context, labor definitions, sector diagnostics, affordability diagnostics, current policy, recent policy memory, allowed next changes, and blocked changes.
+
+```text
+ROLE: You are the AI Central Government of a simulated economy.
+PHILOSOPHY: {philosophy_label}
+OBJECTIVE: Maximize GDP and mean happiness while keeping unemployment low and maintaining a sustainable government cash balance.
+
+CRITICAL SIMULATION RULES:
+1. ONE-STEP LIMIT: You may only change a qualitative ordered lever by one step per decision cycle.
+...
+7. OUTPUT: Return only valid JSON. Do not use markdown, comments, <think> tags, or text outside the JSON object.
+
+POLICY SCHEMA:
+{render_policy_schema_for_prompt()}
+...
+[ALLOWED NEXT POLICY CHANGES]
+Validator-accepted next raw changes. For grouped instruments, output a complete combination if changing that instrument.
+```
+
+Valid actions are communicated twice: first through the rendered policy schema from `backend/policy_schema.py`, then through a live allowed and blocked action mask in the user prompt. The provider call asks for a JSON object where supported, but the real safety line is local validation before any policy touches the simulation.
+
+---
+
 ## What the government can control
 
 The LLM sees a compact economic report and chooses from a fixed policy schema. Every proposed change is validated before it is applied. The action space covers 15 fiscal and market levers across taxation, social spending, sector subsidies, price and rent stabilization, and bailouts.
@@ -99,7 +124,7 @@ The LLM sees a compact economic report and chooses from a fixed policy schema. E
 
 ## Results
 
-Higher is better for GDP, happiness, health, and government cash. Lower is better for unemployment. "Last 26" is the trailing average at the end of the run, which shows the final operating state better than the lifetime mean.
+Higher is better for GDP, happiness, health, and government cash. Lower is better for unemployment. "Last 26" is the trailing average at the end of the run, which shows the final operating state better than the lifetime mean. Fiscal pressure is the rolling deficit-to-GDP signal, an EMA of per-tick spending minus revenue divided by current GDP.
 
 | Metric | Baseline | Granite 8B | Gemma 26B | Llama 70B | GPT-OSS 120B | Ring 1T |
 |---|---:|---:|---:|---:|---:|---:|
@@ -119,6 +144,10 @@ Higher is better for GDP, happiness, health, and government cash. Lower is bette
 | Accepted decision rate | N/A | 50.0% | 87.5% | 100.0% | 100.0% | 100.0% |
 | Evidence match rate | N/A | 65.6% | 56.2% | 86.7% | 94.4% | 82.5% |
 
+![Unemployment overlay for all six 1,000-household policy runs](../../docs/assets/llm_results_unemployment_overlay.png)
+
+The five-tick rolling unemployment path shows the clearest separation after warmup. Ring held the cleanest late labor market, Llama stayed steadier than its welfare score suggests, and GPT-OSS, Granite, and the baseline all showed late spikes.
+
 ---
 
 ## Read this table first
@@ -136,11 +165,11 @@ One important result: at 1,000 households, final happiness was low across the bo
 
 ## Model behavior
 
-**Ring 2.6 1T.** Ring had the best overall run. It turned public works on early, used food support, lowered minimum wage pressure when the labor market was strained, raised taxes later for stability, and kept social spending high late in the run. It ended with $58,844 in government cash, a minimum cash floor of $58,163, final unemployment of 11.09%, and the best final happiness score in the group at 0.144. That happiness number is still low in absolute terms, but Ring handled the trade-off better than the other models.
+**Ring 2.6 1T.** Ring had the best overall run. It turned public works on early, used food support, lowered minimum wage pressure when the labor market was strained, raised taxes later for stability, and kept social spending high late in the run. It ended with $58,844 in government cash, a minimum cash floor of $58,163, final unemployment of 11.09%, and the best final happiness score in the group at 0.144. That happiness number is still low in absolute terms, but Ring handled the trade-off better than the other models. Its final GDP dip was real but did not change the result. At tick 192, a bankruptcy coincided with unemployment rising from about 4.2% to 12.18% and GDP falling from about $52,171 to $47,521 while public works and high food subsidies stayed active.
 
 **Llama 3.3 70B.** Llama protected the treasury better than anyone. It cut social spending early, raised wage taxes, and later used targeted support for food and services. Final government cash was $75,197, the best in the table. The downside is clear: final happiness fell to 0.045, the worst result. This is the "balanced books, unhappy households" run.
 
-**GPT-OSS 120B.** GPT-OSS made clean, valid decisions and cited the prompt well. It had the highest evidence match rate at 94.4%. Its policy style was growth-oriented: lower profit taxes, infrastructure spending, wage tax changes, food monitoring, and later food subsidies. The problem is cash discipline. It went as low as -$44,878 before recovering to $14,306 by the end. The model looked technically disciplined while still taking the economy too close to the edge.
+**GPT-OSS 120B.** GPT-OSS made clean, valid decisions and cited the prompt well. It had the highest evidence match rate at 94.4%. Its policy style was growth-oriented: lower profit taxes, infrastructure spending, wage tax changes, food monitoring, and later food subsidies. The problem is cash discipline. It went as low as -$44,878 before recovering to $14,306 by the end. The model looked technically disciplined while still taking the economy too close to the edge. The late unemployment spike did not come from the final tick alone. After unemployment bottomed near 3% around tick 180, two bankruptcy blips and a labor search bottleneck pushed it above 20% by tick 189; GPT-OSS still had public works off, food price monitoring on, and food subsidies active, then cut profit tax to 0 and raised the food subsidy to 25% at tick 197.
 
 **Gemma 4 26B.** Gemma governed like a sector firefighter. It started with food bailouts, moved to all-sector bailouts, raised profit taxes when cash got tighter, monitored healthcare prices, and added food subsidies. It completed the run with positive cash at $23,876, but final unemployment stayed high at 29.71%. One decision at tick 171 came back as nested grouped actions (`group sector_subsidy`, `group bailout`) instead of valid policy keys. The schema rejected those changes and the run continued safely.
 
@@ -154,7 +183,7 @@ One important result: at 1,000 households, final happiness was low across the bo
 
 **Validation did real work.** Gemma's malformed grouped action at tick 171 did not break the run because policy changes have to pass the schema before touching state.
 
-**Provider reliability matters.** The same harness ran local LM Studio models, Groq models, and OpenRouter models. That makes model comparison practical, but it also means the runner has to handle different response quirks.
+**Provider reliability matters.** The same harness ran local LM Studio models, Groq models, and OpenRouter models. That makes model comparison practical, but it also means the runner has to handle different response quirks. In the canonical 1,000-household set, the concrete response quirk was Gemma's tick 171 grouped action. The other five runs parsed cleanly, which is useful evidence for this specific comparison, not a guarantee about provider behavior in general.
 
 **Decision quality is not policy quality.** GPT-OSS had the strongest evidence discipline and every decision passed validation. It still drove government cash negative. Clean agent behavior is useful, but it is not the same thing as good governance.
 
@@ -207,13 +236,13 @@ Per-run summaries:
 
 | Run | Report |
 |---|---|
-| Baseline (no LLM) | [no_llm_conservative_seed42_ticks200_20260512_040427.json](../llm_run_outputs_1000/no_llm_conservative_seed42_ticks200_20260512_040427.json) |
-| Granite 4.1 8B | [llm_government_seed42_ticks200_20260512_035649.md](../llm_run_outputs_1000/llm_government_seed42_ticks200_20260512_035649.md) |
-| Gemma 4 26B | [llm_government_seed42_ticks200_20260512_034421.md](../llm_run_outputs_1000/llm_government_seed42_ticks200_20260512_034421.md) |
-| Llama 3.3 70B | [llm_government_seed42_ticks200_20260512_035405.md](../llm_run_outputs_1000/llm_government_seed42_ticks200_20260512_035405.md) |
-| GPT-OSS 120B | [llm_government_seed42_ticks200_20260512_033645.md](../llm_run_outputs_1000/llm_government_seed42_ticks200_20260512_033645.md) |
-| Ring 2.6 1T | [llm_government_seed42_ticks200_20260512_032357.md](../llm_run_outputs_1000/llm_government_seed42_ticks200_20260512_032357.md) |
+| Baseline (no LLM) | [no_llm_conservative_seed42_ticks200_20260512_040427.json](per_model_runs/no_llm_conservative_seed42_ticks200_20260512_040427.json) |
+| Granite 4.1 8B | [llm_government_seed42_ticks200_20260512_035649.md](per_model_runs/llm_government_seed42_ticks200_20260512_035649.md) |
+| Gemma 4 26B | [llm_government_seed42_ticks200_20260512_034421.md](per_model_runs/llm_government_seed42_ticks200_20260512_034421.md) |
+| Llama 3.3 70B | [llm_government_seed42_ticks200_20260512_035405.md](per_model_runs/llm_government_seed42_ticks200_20260512_035405.md) |
+| GPT-OSS 120B | [llm_government_seed42_ticks200_20260512_033645.md](per_model_runs/llm_government_seed42_ticks200_20260512_033645.md) |
+| Ring 2.6 1T | [llm_government_seed42_ticks200_20260512_032357.md](per_model_runs/llm_government_seed42_ticks200_20260512_032357.md) |
 
 Each LLM report contains the model identifier, every policy decision, accepted and rejected changes, final policy, final metrics, and firm-level financial diagnostics.
 
-For the broader project, see the [project README](../README.md).
+For the broader project, see the [project README](../../README.md).
