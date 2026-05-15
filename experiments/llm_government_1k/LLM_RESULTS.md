@@ -126,6 +126,8 @@ The LLM sees a compact economic report and chooses from a fixed policy schema. E
 
 Higher is better for GDP, happiness, health, and government cash. Lower is better for unemployment. "Last 26" is the trailing average at the end of the run, which shows the final operating state better than the lifetime mean. Fiscal pressure is the rolling deficit-to-GDP signal, an EMA of per-tick spending minus revenue divided by current GDP.
 
+The table is the source of truth. The charts below reorganize the same run artifacts so the governing styles are easier to see.
+
 | Metric | Baseline | Granite 8B | Gemma 26B | Llama 70B | GPT-OSS 120B | Ring 1T |
 |---|---:|---:|---:|---:|---:|---:|
 | Final government cash | $19,265 | -$16,885 | $23,876 | $75,197 | $14,306 | $58,844 |
@@ -144,17 +146,25 @@ Higher is better for GDP, happiness, health, and government cash. Lower is bette
 | Accepted decision rate | N/A | 50.0% | 87.5% | 100.0% | 100.0% | 100.0% |
 | Evidence match rate | N/A | 65.6% | 56.2% | 86.7% | 94.4% | 82.5% |
 
+![Normalized governing profile for all six 1,000-household policy runs](../../docs/assets/llm_results_governing_profile.png)
+
+This is the direct answer to "what does good even mean?" I score each model from 0 to 100 within this six-run set. GDP and happiness use the last-26 average, employment inverts last-26 unemployment, fiscal slack inverts final fiscal pressure, and cash uses the run cash floor. That last choice matters: GPT-OSS recovered by the final tick, but its mid-run cash floor was the worst in the group.
+
 ![Unemployment overlay for all six 1,000-household policy runs](../../docs/assets/llm_results_unemployment_overlay.png)
 
 The five-tick rolling unemployment path shows the clearest separation after warmup. Ring held the cleanest late labor market, Llama stayed steadier than its welfare score suggests, and GPT-OSS, Granite, and the baseline all showed late spikes.
+
+![Happiness overlay for all six 1,000-household policy runs](../../docs/assets/llm_results_happiness_overlay.png)
+
+The happiness path makes Llama's trade-off visible. It kept the strongest treasury position and avoided the worst labor-market collapse, but happiness fell faster than the other runs and stayed pinned near the bottom.
 
 ---
 
 ## Read this table first
 
-- **Ring 1T was strongest overall.** It had the best average GDP, best average unemployment, best final unemployment, best final happiness, and a strong cash floor.
-- **Llama 70B was the fiscal hawk.** It ended with the most government cash, but it also produced the lowest final happiness.
-- **GPT-OSS 120B was technically clean but financially risky.** It had the best evidence match rate and 100% accepted decisions, but government cash dropped to -$44,878 mid-run.
+- **Ring 1T was strongest overall.** It had the best average GDP, best average unemployment, best final unemployment, best final happiness, and a strong cash floor. The profile chart is why I call it balanced rather than just "winner by one metric."
+- **Llama 70B was the fiscal hawk.** It ended with the most government cash, but it also produced the lowest final happiness. The happiness trajectory makes that trade-off visible.
+- **GPT-OSS 120B was technically clean but financially risky.** It had the best evidence match rate and 100% accepted decisions, but government cash dropped to -$44,878 mid-run. The cash-floor score captures the risk that final cash alone hides.
 - **Gemma 26B was steady but reactive.** It kept cash positive and made mostly valid decisions, but unemployment stayed high.
 - **Granite 8B got stuck.** It kept increasing food bailout capacity, stopped making new useful changes, ended cash-negative, and had the worst final unemployment.
 - **The baseline was decent.** It did not win, but it also did not collapse. That makes the comparison more useful.
