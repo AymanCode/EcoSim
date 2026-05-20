@@ -342,7 +342,7 @@ This pattern of dynamically adding attributes is fragile.
 Add to top of these files:
 ```markdown
 > **WARNING: This document is STALE and kept for historical reference only.**
-> It may contain outdated information. For current documentation, see [docs/README.md](docs/README.md).
+> It may contain outdated information. For current documentation, see [docs/README.md](../README.md).
 ```
 
 Target files:

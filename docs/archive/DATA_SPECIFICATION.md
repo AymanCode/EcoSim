@@ -34,7 +34,7 @@ The data infrastructure should support:
 
 ## Sample Data
 
-**Generate sample database locally**: `python backend/generate_sample_data.py`
+**Generate sample database locally**: `python backend/tools/analysis/generate_sample_data.py`
 
 - **50 households** with varying skills, ages, wealth
 - **7 firms** across 3 categories (Food, Housing, Services)
@@ -135,7 +135,7 @@ See [REDESIGN_FEATURES.md](REDESIGN_FEATURES.md) for complete details on all new
 | **`mean_health`** | **float** | **Average health** | **✅** |
 | **`mean_performance`** | **float** | **Average performance** | **✅** |
 
-See [generate_sample_data.py](../backend/generate_sample_data.py) for complete schema implementation.
+See [generate_sample_data.py](../../backend/tools/analysis/generate_sample_data.py) for complete schema implementation.
 
 ---
 
@@ -451,7 +451,7 @@ ORDER BY tick;
 
 Generate the sample DB first:
 ```bash
-python backend/generate_sample_data.py
+python backend/tools/analysis/generate_sample_data.py
 ```
 
 **Load in Python**:
@@ -492,7 +492,7 @@ For questions:
 ## Reference Documents
 
 - [REDESIGN_FEATURES.md](REDESIGN_FEATURES.md) - Complete feature documentation
-- [generate_sample_data.py](../backend/generate_sample_data.py) - Sample data generation script
+- [generate_sample_data.py](../../backend/tools/analysis/generate_sample_data.py) - Sample data generation script
 - [DYNAMIC_FEATURES.md](DYNAMIC_FEATURES.md) - Original dynamic features spec
 
 ---
@@ -502,7 +502,7 @@ For questions:
 For new data team members:
 
 - [ ] Read [REDESIGN_FEATURES.md](REDESIGN_FEATURES.md)
-- [ ] Run `python backend/generate_sample_data.py`
+- [ ] Run `python backend/tools/analysis/generate_sample_data.py`
 - [ ] Load sample data in Python/R
 - [ ] Create first visualization (unemployment over time)
 - [ ] Review assigned task from list above

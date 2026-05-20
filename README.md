@@ -7,33 +7,37 @@
 [![React](https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=black)](frontend-react/package.json)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
-EcoSim is an agent-based macroeconomic simulation with households, firms, a government, and an optional bank sharing one weekly tick clock. The model includes labor, goods, housing, healthcare, credit, government policy, live dashboards, LLM-driven policy experiments, policy stress-testing, forecasting, and an optional warehouse for run history.
+EcoSim is an agent-based macroeconomic sandbox for testing how households, firms, a bank, and government policy interact over weekly simulation ticks. It models labor, goods, housing, healthcare, credit, taxes, transfers, live dashboards, LLM-guided policy experiments, deterministic policy stress tests, forecasting workflows, and optional warehouse persistence.
 
-The project is built as a policy sandbox. You can run a rule-based economy, change policy levers live from the dashboard, or enable the AI Policy Engine and let an LLM propose bounded government actions through the same validated policy schema.
+You can run a rule-based economy, change policy levers live from the dashboard, or enable the AI Policy Engine so an LLM can propose bounded government actions through the same validated policy schema used by the UI and backend.
 
-Featured experiments: [Can an AI run an economy?](experiments/llm_government_1k/LLM_RESULTS.md) evaluates five LLMs plus a rule-based baseline on the same 1,000-household economy using schema-validated government controls. [Policy Forecasting V1](policy_forecasting/RESULTS.md) uses deterministic 10,000-household policy sweeps for matched-seed treatment analysis and leakage-safe 8-tick-ahead unemployment forecasting.
+| Track | What it shows | Start here |
+|---|---|---|
+| Live simulation | Households, firms, markets, fiscal policy, and banking evolving in real time | [Quickstart](#quickstart) |
+| AI policy experiments | Five LLM governments compared against a rule-based baseline in the same 1,000-household economy | [Can an AI run an economy?](experiments/llm_government_1k/LLM_RESULTS.md) |
+| Policy forecasting | Deterministic 10,000-household sweeps for matched-seed policy effects and leakage-safe unemployment forecasting | [Policy Forecasting V1](policy_forecasting/RESULTS.md) |
 
 ## Dashboard
 
-The React dashboard starts in the Config view and streams live state from the backend over WebSocket after launch.
+The React dashboard opens in the Config view and streams live simulation state from the backend over WebSocket.
 
 ![Live macro dashboard during a rule-based run](docs/assets/dashboard-screenshot.png)
-*Command view with macro metrics, stress signals, sector state, and live chart history.*
+*Command view: macro metrics, stress signals, sector state, and live chart history.*
 
 ![Per-subject view with rotating wireframe avatar](docs/assets/subjects-hologram.gif)
-*Population view with tracked household state, wage reasoning, health, morale, traits, and cash history.*
+*Population view: tracked household state, wage reasoning, health, morale, traits, and cash history.*
 
 ![Firm view with sector breakdown and tracked firms](docs/assets/firms-screenshot.png)
-*Markets view with sector rollups, tracked firms, prices, wage offers, inventory, revenue, and profit.*
+*Markets view: sector rollups, tracked firms, prices, wage offers, inventory, revenue, and profit.*
 
 ![Government policy panel with sliders and fiscal flow](docs/assets/gov-screenshot.png)
-*Government console with manual policy controls, LLM status, fiscal flow, and policy decision history.*
+*Government console: manual policy controls, LLM status, fiscal flow, and policy decision history.*
 
 ## Model
 
-Each tick is roughly one simulated week. During a tick:
+Each tick represents roughly one simulated week:
 
-- Households search for work, accept jobs, earn wages or transfers, pay taxes, purchase food, housing, services, and healthcare, and update health, happiness, morale, skills, expectations, cash, deposits, and debt.
+- Households search for work, accept jobs, earn wages or transfers, pay taxes, buy food, housing, services, and healthcare, and update health, happiness, morale, skills, expectations, cash, deposits, and debt.
 - Firms plan production, wages, prices, hiring, layoffs, capital investment, unit expansion, and quality/R&D. Private firms compete by sector; baseline firms provide a safety-net floor.
 - The bank, when present, handles deposits, interest, credit scores, loan origination, repayments, defaults, and reserve-limited lending.
 - The government collects wage/profit/property/investment taxes, pays transfers and subsidies, funds public works and investments, tracks fiscal pressure, and applies validated policy levers.
@@ -43,17 +47,21 @@ The main runtime sequence is implemented in [`backend/economy.py`](backend/econo
 
 ## Highlights
 
-- Agent-based simulation engine with households, firms, government, banking, housing, healthcare, labor matching, goods clearing, and sector-specific firm behavior.
-- Live React/Vite dashboard with Config, Command, Population, Markets, Finance, Government, and Logs views.
-- Schema-validated policy surface in [`backend/policy_schema.py`](backend/policy_schema.py) shared by the UI, runtime policy updates, and LLM government harness.
-- Optional live LLM government that runs provider calls in the background and applies accepted decisions only at safe tick boundaries.
-- Optional SQLite/PostgreSQL/Timescale warehouse for run metadata, aggregate metrics, sector metrics, firm snapshots, sampled household snapshots, tracked household history, events, policy actions, decision features, diagnostics, regime events, policy config, and full LLM government decisions.
-- External [`policy_forecasting`](policy_forecasting) package that imports the simulator read-only, runs deterministic matched-seed policy sweeps, builds t+8 forecasting datasets, validates against persistence baselines, and reports policy effects with paired statistical tests.
-- Contract-style Python regression suites and frontend lint/build checks.
+| Capability | Why it matters |
+|---|---|
+| Agent-based economy | Households, firms, government, banking, housing, healthcare, labor matching, goods clearing, and sector-specific firm behavior run in one tick lifecycle. |
+| Live dashboard | React/Vite views for configuration, command metrics, population details, markets, finance, government policy, and logs. |
+| Validated policy surface | [`backend/policy_schema.py`](backend/policy_schema.py) defines the government action space shared by the UI, runtime updates, and LLM government harness. |
+| Optional LLM government | Provider calls run in the background, and accepted decisions apply only at safe tick boundaries. |
+| Experiment warehouse | SQLite, PostgreSQL, or TimescaleDB can store run metadata, metrics, snapshots, events, policy actions, diagnostics, and full LLM decisions. |
+| Forecasting package | [`policy_forecasting`](policy_forecasting) imports the simulator read-only, runs matched-seed policy sweeps, builds t+8 datasets, and reports policy effects with paired statistical tests. |
+| Regression coverage | Contract-style backend tests plus frontend lint and build checks guard the main simulation and UI paths. |
 
 ## Performance
 
 EcoSim's primary benchmark is a saturated weekly market simulation with 10,000 autonomous consumer agents and roughly 300 firm agents. Each tick advances labor matching, production, consumer choice, market clearing, banking, housing, healthcare, taxes, transfers, firm lifecycle, and wellbeing updates.
+
+These are local workstation benchmarks, not hosted production-capacity claims.
 
 | Area | 10k-agent workload | Throughput / latency | Event volume |
 |---|---|---:|---:|
@@ -61,7 +69,7 @@ EcoSim's primary benchmark is a saturated weekly market simulation with 10,000 a
 | SQLite analytics warehouse | 3 runs, 600 ticks persisted | `49.94k` rows/sec, `0.36%` mean write overhead, `0.43 ms` p95 summary query | `421,328` analytical rows, `187.5 MB` SQLite DB |
 | React dashboard browser | 10k-agent Chrome session, 100 live tick messages | `0.30 ms` p95 JSON parse, `57.7 ms` p95 next-frame latency, `1.64s` LCP | `4.05 MB` streamed, `47.9 KB` p95 payload |
 
-Claim-ready summaries:
+Benchmark takeaways:
 
 - Built a Python/FastAPI agent-based macroeconomic simulator that advances 10,000 autonomous consumers and hundreds of firms through labor, goods, banking, housing, healthcare, and policy markets at `3.65s` p50 tick latency.
 - Designed a SQLite analytics warehouse for simulation experiments, persisting `421k+` analytical rows at `49.94k rows/sec` with `0.36%` mean tick-loop write overhead.
@@ -71,25 +79,25 @@ Full methodology and artifacts are in [`benchmarks/results/2026-05-17-optimized-
 
 ## Policy Forecasting
 
-Policy Forecasting V1 turns the simulator into a controlled data science workload. One frozen 10,000-household sweep dataset feeds two linked analyses: matched-seed policy-effect estimates and an 8-tick-ahead unemployment forecasting benchmark. The forecasting package lives outside the simulator core and imports `backend/` read-only, so the experiment measures EcoSim behavior without editing the base model. It also includes a thin Streamlit demo surface for loading saved policy predictions and comparing t+8 unemployment/distress deltas against baseline.
+Policy Forecasting V1 turns the simulator into a controlled data science workload. One frozen 10,000-household sweep dataset feeds two linked analyses: matched-seed policy-effect estimates and an 8-tick-ahead unemployment forecasting benchmark. The forecasting package lives outside the simulator core and imports `backend/` read-only, so the experiment measures EcoSim behavior without editing the base model. It also includes a small Streamlit demo for loading saved policy predictions and comparing t+8 unemployment and distress deltas against baseline.
 
 This is simulator system identification, not a real-world macroeconomic forecast. The validity claim rests on deterministic replay, matched seeds, leakage-safe labels, held-out seeds, held-out policy lever vectors, and baseline comparisons.
 
-| Check | Result |
+| Area | Result |
 |---|---:|
-| Confirm sweep | `6` frozen policy arms x `24` matched seeds x `80` ticks |
+| Confirmatory sweep | `6` frozen policy arms x `24` matched seeds x `80` ticks |
 | Raw sweep rows | `11,520` per-tick rows |
 | Supervised forecasting rows | `10,368` rows (`6,480` train / `1,728` held-out final) |
 | Determinism gate | `hash_equal=True`, `max_abs_delta=0.0` across fresh-process 10k baseline replicates |
-| Best forecast | Gradient boosting on `unemployment@t+8` |
+| Best model | Gradient boosting on `unemployment@t+8` |
 | Forecast quality | `R2=0.924`, `MAE=0.028` |
 | Baseline lift | `+0.080` MAE vs policy-aware persistence, 95% CI `[0.056, 0.107]` |
-| Honest null | `consumer_distress@t+8` did not beat persistence |
-| SHAP finding | `gdp_ma4` was the dominant unemployment signal, about `10x` the next feature |
+| Negative result | `consumer_distress@t+8` did not beat persistence |
+| Model interpretation | `gdp_ma4` was the dominant unemployment signal, about `10x` the next feature |
 
 Matched-seed policy effects are paired against baseline with Wilcoxon signed-rank tests and Holm correction. Within the simulator, high minimum wage reduced `unemployment@t+8` by `0.021` and distress by `0.026`; high benefits increased `unemployment@t+8` by `0.073`; high wage tax increased distress by `0.040`; food subsidy reduced distress by `0.012`; high profit tax showed no detectable household effect in this sweep.
 
-Claim-ready summary:
+Forecasting takeaway:
 
 - Built a leakage-safe policy forecasting and matched-seed experiment pipeline on a deterministic 10,000-household economic simulator, forecasting 8-tick-ahead unemployment at `R2=0.924` and beating a policy-aware persistence baseline by `0.080` MAE on held-out seeds and unseen policy lever vectors.
 
@@ -97,7 +105,7 @@ Full methodology, results, and reproduction commands are in [`policy_forecasting
 
 ## Quickstart
 
-Run the full stack with Docker.
+Run the full stack with Docker. This builds the backend, frontend, and default SQLite-backed runtime.
 
 macOS / Linux:
 
@@ -225,6 +233,8 @@ flowchart TD
   policy["backend/policy_schema.py<br/>validated policy action space"]
   warehouse["backend/data<br/>SQLite/PostgreSQL/Timescale warehouse"]
   tools["backend/tools<br/>LLM runners, benchmarks, analysis, diagnostics"]
+  forecasting["policy_forecasting<br/>matched-seed sweeps and t+8 forecasting"]
+  artifacts["experiments + benchmarks<br/>reports and reproducible artifacts"]
 
   frontend --> websocket --> server --> economy --> agents
   frontend --> rest --> server
@@ -232,6 +242,9 @@ flowchart TD
   server --> policy
   tools --> economy
   tools --> policy
+  tools --> artifacts
+  forecasting --> economy
+  forecasting --> artifacts
 ```
 
 ## Repository Layout
@@ -250,6 +263,7 @@ backend/                  simulation engine, API, persistence, tools, tests
 
 frontend-react/           React dashboard
 docs/                     active project documentation
+policy_forecasting/       matched-seed policy sweeps and forecasting pipeline
 experiments/              LLM government run artifacts and reports
 benchmarks/               benchmark result artifacts
 ops/                      optional infrastructure

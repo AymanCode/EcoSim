@@ -1,10 +1,10 @@
-# Can an AI run an economy?
+# Can an AI Run an Economy?
 
-I built EcoSim as a general policy sandbox. One question I wanted to test: if you give an LLM the policy controls of a simulated government, can it make coherent decisions and keep an economy running?
+EcoSim is a general policy sandbox. This experiment asks a narrow question: if an LLM gets the policy controls of a simulated government, can it make coherent decisions and keep the economy running?
 
 For this run, I scaled the experiment to **1,000 households** and compared five LLMs, from an 8B local model to a 1T OpenRouter model, against a fixed rule-based baseline. Every run used the same seed, same simulation length, same government action schema, and same decision schedule. The only thing that changed was the policymaker.
 
-**Short version:** yes, the models can run the economy in the limited sense that they read the state, choose valid policies, and produce different measurable outcomes. But "good governance" is not one number. Ring 1T had the strongest overall run. Llama 70B protected the treasury. GPT-OSS 120B reasoned cleanly but nearly bankrupted the government. Granite 8B got stuck in a narrow bailout loop.
+**Short version:** inside this sandbox, yes. The models read the state, chose valid policies, and produced different measurable outcomes. But "good governance" is not one number. Ring 1T had the strongest overall run. Llama 70B protected the treasury. GPT-OSS 120B reasoned cleanly but nearly bankrupted the government. Granite 8B got stuck in a narrow bailout loop.
 
 The interesting part is not just who won, but that the LLMs had recognizable governing styles, and those styles showed up in GDP, unemployment, government cash, and household wellbeing.
 
@@ -160,14 +160,14 @@ The happiness path makes Llama's trade-off visible. It kept the strongest treasu
 
 ---
 
-## Read this table first
+## Key Results
 
 - **Ring 1T was strongest overall.** It had the best average GDP, best average unemployment, best final unemployment, best final happiness, and a strong cash floor. The profile chart is why I call it balanced rather than just "winner by one metric."
 - **Llama 70B was the fiscal hawk.** It ended with the most government cash, but it also produced the lowest final happiness. The happiness trajectory makes that trade-off visible.
 - **GPT-OSS 120B was technically clean but financially risky.** It had the best evidence match rate and 100% accepted decisions, but government cash dropped to -$44,878 mid-run. The cash-floor score captures the risk that final cash alone hides.
 - **Gemma 26B was steady but reactive.** It kept cash positive and made mostly valid decisions, but unemployment stayed high.
 - **Granite 8B got stuck.** It kept increasing food bailout capacity, stopped making new useful changes, ended cash-negative, and had the worst final unemployment.
-- **The baseline was decent.** It did not win, but it also did not collapse. That makes the comparison more useful.
+- **The baseline was useful.** It did not win, but it also did not collapse. That makes the comparison more meaningful.
 
 One important result: at 1,000 households, final happiness was low across the board. The models separated more clearly on unemployment, GDP, and fiscal stability than on household wellbeing. That is a real finding, but the mechanism needs more diagnosis before I read too much into the welfare numbers.
 
@@ -185,7 +185,7 @@ One important result: at 1,000 households, final happiness was low across the bo
 
 **Granite 4.1 8B.** Granite was coherent but narrow. It kept focusing on food bailouts and raised bailout capacity from $5,000 to $10,000 to $25,000 to $50,000. After that, half of the decision cycles produced no new accepted change because the model was repeating policy that was already active. It ended with -$16,885 in government cash, 39.04% final unemployment, and final happiness of 0.074. The smaller model did not fail because it wrote nonsense. It failed because it got stuck on one play.
 
-**Baseline.** The rule-based government matters here. It ended cash-positive at $19,265 and landed near Gemma and GPT-OSS on final happiness, but unemployment finished at 32.99%. It is not a great government, but it gives a useful floor. The LLMs had to beat something that at least stays solvent.
+**Baseline.** The rule-based government matters here. It ended cash-positive at $19,265 and landed near Gemma and GPT-OSS on final happiness, but unemployment finished at 32.99%. It is not an optimized controller, but it gives a useful floor. The LLMs had to beat something that at least stays solvent.
 
 ---
 
@@ -227,7 +227,7 @@ The strongest takeaway is practical: an LLM can be put behind a constrained acti
 
 ---
 
-## What I would try next
+## Next Experiments
 
 - Run every model across 20+ seeds and report distributions instead of one table.
 - Add shocks: productivity drop, demand collapse, housing shortage, healthcare overload, or food-sector failure.
@@ -238,21 +238,10 @@ The strongest takeaway is practical: an LLM can be put behind a constrained acti
 
 ---
 
-## Reproducing this
+## Reproduce
 
 The simulation, policy schema, and LLM harness are all in this repo. Same seed gives the same baseline run. Pointing the runner at a different model swaps the policymaker without changing the simulation.
 
-Per-run summaries:
-
-| Run | Report |
-|---|---|
-| Baseline (no LLM) | [no_llm_conservative_seed42_ticks200_20260512_040427.json](per_model_runs/no_llm_conservative_seed42_ticks200_20260512_040427.json) |
-| Granite 4.1 8B | [llm_government_seed42_ticks200_20260512_035649.md](per_model_runs/llm_government_seed42_ticks200_20260512_035649.md) |
-| Gemma 4 26B | [llm_government_seed42_ticks200_20260512_034421.md](per_model_runs/llm_government_seed42_ticks200_20260512_034421.md) |
-| Llama 3.3 70B | [llm_government_seed42_ticks200_20260512_035405.md](per_model_runs/llm_government_seed42_ticks200_20260512_035405.md) |
-| GPT-OSS 120B | [llm_government_seed42_ticks200_20260512_033645.md](per_model_runs/llm_government_seed42_ticks200_20260512_033645.md) |
-| Ring 2.6 1T | [llm_government_seed42_ticks200_20260512_032357.md](per_model_runs/llm_government_seed42_ticks200_20260512_032357.md) |
-
-Each LLM report contains the model identifier, every policy decision, accepted and rejected changes, final policy, final metrics, and firm-level financial diagnostics.
+The local per-run artifacts include the model identifier, every policy decision, accepted and rejected changes, final policy, final metrics, and firm-level financial diagnostics. Those raw run outputs are generated artifacts; the table and charts above are the stable summary to read first.
 
 For the broader project, see the [project README](../../README.md).
