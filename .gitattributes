@@ -17,6 +17,10 @@
 *.ini text eol=lf
 *.cfg text eol=lf
 *.txt text eol=lf
+Dockerfile text eol=lf
+.gitattributes text eol=lf
+.gitignore text eol=lf
+.dockerignore text eol=lf
 
 # Binary files
 *.png binary

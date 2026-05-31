@@ -2,9 +2,11 @@
 .github
 .pytest_cache
 .mypy_cache
+.coverage
 .venv
 venv
 .tools
+*.egg-info
 .claude
 __pycache__
 *.py[cod]
@@ -18,6 +20,14 @@ ml_models_*/
 training_data_*.csv
 training_data_checkpoint_*.csv
 test_training_data.csv
+llm_run_outputs/
+llm_run_outputs_*/
+experiments/
+benchmarks/results/
+screenshots/
+testing_screenshots/
+frontend-react/test-results/
+*.pdf
 backend/logs/
 backend/*_llm_run_log.json
 backend/*_llm_run_log_*.json

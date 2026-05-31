@@ -6,10 +6,9 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
-COPY requirements.txt ./
-RUN pip install --upgrade pip && pip install -r requirements.txt
-
+COPY pyproject.toml ./
 COPY backend ./backend
+RUN pip install --upgrade pip && pip install -e ".[ml]"
 
 EXPOSE 8002
 
