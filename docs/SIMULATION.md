@@ -25,6 +25,12 @@ backend/server.py (simulation manager, metric streaming)
   → backend/config.py (400+ tunable parameters)
 ```
 
+### Why the Backend Core Is Centralized
+
+The backend core is intentionally centralized for now. `economy.py` owns the tick lifecycle so labor matching, production, markets, banking, healthcare, and government policy run in a predictable order. `agents.py` keeps household, firm, bank, and government behavior close to the simulation loop while the model is still changing quickly. Stable boundaries have already been pulled out where they make sense: policy schema validation, LLM provider logic, data storage, and utility helpers. The current priorities are correctness, reproducibility, and easy experimentation, not a large backend split just for appearances.
+
+When the core model stabilizes, the next safe refactor would be to extract pure helpers and stable subsystems first, then split agent classes and tick phases only after contract tests cover the behavior.
+
 ---
 
 ## Agents

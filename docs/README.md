@@ -8,6 +8,7 @@ Technical documentation for the active EcoSim codebase.
 |----------|---------|
 | [SIMULATION.md](SIMULATION.md) | Core model behavior, tick lifecycle, markets, healthcare, and policy flow |
 | [TECHNICAL.md](TECHNICAL.md) | Stack, configuration, testing, performance, and implementation details |
+| [DESIGN_DECISIONS.md](DESIGN_DECISIONS.md) | Deliberate engineering choices: decision, alternative considered, why this one |
 | [FRONTEND.md](FRONTEND.md) | Dashboard behavior, views, and WebSocket protocol |
 | [DATA_STORAGE_ARCHITECTURE.md](DATA_STORAGE_ARCHITECTURE.md) | Warehouse design, schema direction, and persistence guarantees |
 
@@ -18,6 +19,12 @@ Technical documentation for the active EcoSim codebase.
 | [FIRM_DYNAMICS.md](FIRM_DYNAMICS.md) | Firm health signals, wage behavior, pricing, and hiring gates |
 | [HOUSEHOLD_LABOR_DERISKING.md](HOUSEHOLD_LABOR_DERISKING.md) | Labor-search guardrails, toggles, diagnostics, and rollout notes |
 | [BANKING_SYSTEM.md](BANKING_SYSTEM.md) | Credit mechanics and banking behavior |
+
+## Experiments
+
+| Document | Purpose |
+|----------|---------|
+| [AI_GOVERNMENT_EXPERIMENT.md](experiments/AI_GOVERNMENT_EXPERIMENT.md) | Curated 1,000-household LLM government comparison |
 
 ## Archive
 

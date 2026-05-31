@@ -7,6 +7,26 @@ encapsulates its own decision-making logic for labor, consumption,
 production, pricing, credit, and fiscal policy.
 """
 
+# Navigation Index
+# - Imports and shared agent primitives: approx. lines 28-71
+# - HouseholdAgent state and tick accounting: approx. lines 72-364
+# - HouseholdAgent personality and market awareness: approx. lines 365-786
+# - HouseholdAgent category purchase planning: approx. lines 787-1065
+# - HouseholdAgent employment and consumption planning: approx. lines 1066-1592
+# - HouseholdAgent healthcare demand and medical finance: approx. lines 1593-1876
+# - HouseholdAgent outcomes, education, and wellbeing: approx. lines 1877-2293
+# - FirmAgent state and serialization: approx. lines 2294-2640
+# - FirmAgent configuration and production economics helpers: approx. lines 2641-3052
+# - FirmAgent health diagnostics and labor-plan helpers: approx. lines 3053-3448
+# - FirmAgent production and labor planning: approx. lines 3449-4270
+# - FirmAgent investment, pricing, and wage planning: approx. lines 4271-4992
+# - FirmAgent outcomes, expansion, and distributions: approx. lines 4993-5651
+# - BankAgent credit, deposits, and telemetry: approx. lines 5652-6099
+# - GovernmentAgent policy levers and fiscal planning: approx. lines 6100-7018
+
+# -----------------------------------------------------------------------------
+# Section: Imports and shared agent primitives
+# -----------------------------------------------------------------------------
 import math
 import random
 import zlib
@@ -48,6 +68,9 @@ class AgentMixin:
                 setattr(self, key, value)
 
 
+# -----------------------------------------------------------------------------
+# Section: HouseholdAgent state and tick accounting
+# -----------------------------------------------------------------------------
 @dataclass(slots=True)
 class HouseholdAgent(AgentMixin):
     """
@@ -338,6 +361,9 @@ class HouseholdAgent(AgentMixin):
         """
         self.last_tick_ledger["net"] = float(self.cash_balance - self.ledger_cash_start)
 
+    # -------------------------------------------------------------------------
+    # Section: HouseholdAgent personality and market awareness
+    # -------------------------------------------------------------------------
     def _initialize_personality_preferences(self) -> None:
         """Initialize household personality traits deterministically from config ranges.
 
@@ -757,6 +783,9 @@ class HouseholdAgent(AgentMixin):
         else:
             return current_primary
 
+    # -------------------------------------------------------------------------
+    # Section: HouseholdAgent category purchase planning
+    # -------------------------------------------------------------------------
     def _plan_category_purchases(
         self,
         budget: float,
@@ -1033,6 +1062,9 @@ class HouseholdAgent(AgentMixin):
 
         return planned
 
+    # -------------------------------------------------------------------------
+    # Section: HouseholdAgent employment and consumption planning
+    # -------------------------------------------------------------------------
     @property
     def is_employed(self) -> bool:
         """Check if household is currently employed."""
@@ -1557,6 +1589,9 @@ class HouseholdAgent(AgentMixin):
                 "planned_purchases": planned_purchases,
             }
 
+    # -------------------------------------------------------------------------
+    # Section: HouseholdAgent healthcare demand and medical finance
+    # -------------------------------------------------------------------------
     def _deterministic_unit_random(self, current_tick: int, salt: int = 0) -> float:
         """
         Fast deterministic pseudo-random draw in [0, 1) without object allocation.
@@ -1838,6 +1873,9 @@ class HouseholdAgent(AgentMixin):
 
         return payment_amount
 
+    # -------------------------------------------------------------------------
+    # Section: HouseholdAgent outcomes, education, and wellbeing
+    # -------------------------------------------------------------------------
     def apply_labor_outcome(
         self,
         outcome: Dict[str, object],
@@ -2252,6 +2290,9 @@ class HouseholdAgent(AgentMixin):
         return performance_multiplier
 
 
+# -----------------------------------------------------------------------------
+# Section: FirmAgent state and serialization
+# -----------------------------------------------------------------------------
 @dataclass(slots=True)
 class FirmHealthSnapshot:
     """Shared per-tick firm health inputs used by multiple planners."""
@@ -2596,6 +2637,9 @@ class FirmAgent(AgentMixin):
             "healthcare_capacity_carryover": self.healthcare_capacity_carryover,
         }
 
+    # -------------------------------------------------------------------------
+    # Section: FirmAgent configuration and production economics helpers
+    # -------------------------------------------------------------------------
     def set_personality(self, personality: str) -> None:
         """
         Set firm personality and adjust behavior parameters accordingly.
@@ -3005,6 +3049,9 @@ class FirmAgent(AgentMixin):
         streak_bonus = 0.40 * max(0, int(unfilled_positions_streak))
         return max(1.5, min(4.0, base + streak_bonus))
 
+    # -------------------------------------------------------------------------
+    # Section: FirmAgent health diagnostics and labor-plan helpers
+    # -------------------------------------------------------------------------
     def refresh_health_snapshot(
         self,
         sell_through_rate: float = 0.5,
@@ -3398,6 +3445,9 @@ class FirmAgent(AgentMixin):
             "updated_expected_sales": self.expected_sales_units,
         }
 
+    # -------------------------------------------------------------------------
+    # Section: FirmAgent production and labor planning
+    # -------------------------------------------------------------------------
     def plan_production_and_labor(
         self,
         last_tick_sales_units: float,
@@ -4217,6 +4267,9 @@ class FirmAgent(AgentMixin):
             "updated_expected_sales": self.expected_sales_units,  # include for later apply
         }
 
+    # -------------------------------------------------------------------------
+    # Section: FirmAgent investment, pricing, and wage planning
+    # -------------------------------------------------------------------------
     def plan_capital_investment(self, bank: Optional["BankAgent"] = None) -> None:
         """Decide whether to invest in capital this tick.
 
@@ -4936,6 +4989,9 @@ class FirmAgent(AgentMixin):
 
         return {"wage_offer_next": wage_offer_next}
 
+    # -------------------------------------------------------------------------
+    # Section: FirmAgent outcomes, expansion, and distributions
+    # -------------------------------------------------------------------------
     def apply_labor_outcome(self, outcome: Dict[str, object]) -> None:
         """
         Update workforce based on labor market outcome.
@@ -5592,6 +5648,9 @@ class FirmAgent(AgentMixin):
         return paid
 
 
+# -----------------------------------------------------------------------------
+# Section: BankAgent credit, deposits, and telemetry
+# -----------------------------------------------------------------------------
 @dataclass(slots=True)
 class BankAgent:
     """Central bank agent that provides the economy's credit channel.
@@ -6037,6 +6096,9 @@ class BankAgent:
         }
 
 
+# -----------------------------------------------------------------------------
+# Section: GovernmentAgent policy levers and fiscal planning
+# -----------------------------------------------------------------------------
 @dataclass(slots=True)
 class GovernmentAgent(AgentMixin):
     """Represents the government in the economic simulation.

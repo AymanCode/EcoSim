@@ -7,13 +7,7 @@ This frontend is the main dashboard for the EcoSim simulation.
 Run the stack from the repository root:
 
 ```bash
-./start.sh
-```
-
-Windows PowerShell:
-
-```powershell
-.\start.ps1
+docker compose up --build -d --wait
 ```
 
 That starts the backend and dashboard together through Docker. Open:

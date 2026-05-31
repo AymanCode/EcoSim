@@ -1,6 +1,6 @@
 [build-system]
 requires = ["setuptools>=65"]
-build-backend = "setuptools.backends._legacy:_Backend"
+build-backend = "setuptools.build_meta"
 
 [project]
 name = "ecosim"
@@ -15,6 +15,7 @@ dependencies = [
     "python-dotenv>=1.0.0",
     "numpy>=2.0.0",
     "pydantic>=2.0.0",
+    "psycopg[binary]>=3.2.0",
     "langgraph>=0.2.0",
     "langchain-core>=0.3.0",
 ]
@@ -28,10 +29,14 @@ dev = [
     "isort>=5.13.0",
     "flake8>=6.1.0",
     "mypy>=1.7.0",
+    "types-requests>=2.31.0",
 ]
 ml = [
     "pandas>=2.1.0",
 ]
+
+[tool.setuptools]
+py-modules = []
 
 [tool.black]
 line-length = 120
