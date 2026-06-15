@@ -20,7 +20,6 @@ from pathlib import Path
 from typing import Any
 
 import requests
-import websocket
 
 from .common import (
     BenchmarkPaths,
@@ -234,6 +233,12 @@ def _open_cdp_tab(port: int) -> dict[str, Any]:
 
 class CdpClient:
     def __init__(self, websocket_url: str, timeout_seconds: float) -> None:
+        # Lazy import: websocket-client is only needed to actually drive the
+        # browser benchmark, not to import the harness helpers (which the
+        # contract tests exercise). Keeps the import chain dependency-free in CI.
+        import websocket
+
+        self._ws_mod = websocket
         self._ws = websocket.create_connection(
             websocket_url,
             timeout=timeout_seconds,
@@ -258,7 +263,7 @@ class CdpClient:
         while time.perf_counter() < deadline:
             try:
                 raw = self._ws.recv()
-            except websocket.WebSocketTimeoutException:
+            except self._ws_mod.WebSocketTimeoutException:
                 continue
             message = json.loads(raw)
             if "method" in message:
