@@ -7,13 +7,7 @@ React/Vite dashboard for the EcoSim simulation.
 Run the full stack from the repository root:
 
 ```bash
-./start.sh
-```
-
-Windows PowerShell:
-
-```powershell
-.\start.ps1
+docker compose up --build -d --wait
 ```
 
 Open `http://localhost:5173`.

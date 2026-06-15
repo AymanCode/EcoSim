@@ -33,6 +33,12 @@ Active documentation for the current EcoSim codebase. Code and runtime configura
 | [../frontend-react/README.md](../frontend-react/README.md) | Frontend startup notes |
 | [../experiments/llm_government_1k/README.md](../experiments/llm_government_1k/README.md) | Public LLM government comparison artifacts |
 
+## Experiments
+
+| Document | Purpose |
+|----------|---------|
+| [AI_GOVERNMENT_EXPERIMENT.md](experiments/AI_GOVERNMENT_EXPERIMENT.md) | Curated 1,000-household LLM government comparison |
+
 ## Archive
 
 `archive/` contains superseded plans, historical changelogs, and old implementation notes. Treat it as provenance, not current project documentation.

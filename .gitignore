@@ -10,9 +10,11 @@ __pycache__/
 *.py[cod]
 .pytest_cache/
 .mypy_cache/
+.coverage
 .venv/
 venv/
 .tools/
+*.egg-info/
 
 # Node/build artifacts
 node_modules/
@@ -31,6 +33,14 @@ training_data_checkpoint_*.csv
 test_training_data.csv
 ml_models_*/
 *.pkl
+llm_run_outputs/
+llm_run_outputs_*/
+/experiments/
+benchmarks/results/
+screenshots/
+testing_screenshots/
+frontend-react/test-results/
+*.pdf
 
 # SQLite/data outputs
 *.db
@@ -38,9 +48,13 @@ ml_models_*/
 sample_data/*.json
 backend/sample_data/*.json
 
+# Internal-only scaffolding/audit docs (kept on disk, never published)
+docs/internal/
+
 # Audit / evaluation artifacts
 audit_full_dump*.jsonl
 audit_full_dump*.md
+audit_full_dump_latest_digest.*
 docs/archive/run_artifacts/audit_full_dump*
 test_audit*.jsonl
 test_audit*.md

@@ -3,7 +3,7 @@
 [![CI](https://github.com/AymanCode/EcoSim/actions/workflows/ci.yml/badge.svg)](https://github.com/AymanCode/EcoSim/actions/workflows/ci.yml)
 [![Python 3.11+](https://img.shields.io/badge/Python-3.11%2B-3776AB?logo=python&logoColor=white)](pyproject.toml)
 [![Docker](https://img.shields.io/badge/Docker-ready-2496ED?logo=docker&logoColor=white)](docker-compose.yml)
-[![FastAPI](https://img.shields.io/badge/FastAPI-0.135%2B-009688?logo=fastapi&logoColor=white)](requirements.txt)
+[![FastAPI](https://img.shields.io/badge/FastAPI-0.135%2B-009688?logo=fastapi&logoColor=white)](pyproject.toml)
 [![React](https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=black)](frontend-react/package.json)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
@@ -14,7 +14,7 @@ You can run a rule-based economy, change policy levers live from the dashboard, 
 | Track | What it shows | Start here |
 |---|---|---|
 | Live simulation | Households, firms, markets, fiscal policy, and banking evolving in real time | [Quickstart](#quickstart) |
-| AI policy experiments | Five LLM governments compared against a rule-based baseline in the same 1,000-household economy | [Can an AI run an economy?](experiments/llm_government_1k/LLM_RESULTS.md) |
+| AI policy experiments | Five LLM governments compared against a rule-based baseline in the same 1,000-household economy | [Can an AI run an economy?](docs/experiments/AI_GOVERNMENT_EXPERIMENT.md) |
 | Policy forecasting | Deterministic 10,000-household sweeps for matched-seed policy effects and leakage-safe unemployment forecasting | [Policy Forecasting V1](policy_forecasting/RESULTS.md) |
 
 ## Dashboard
@@ -107,25 +107,9 @@ Full methodology, results, and reproduction commands are in [`policy_forecasting
 
 Run the full stack with Docker. This builds the backend, frontend, and default SQLite-backed runtime.
 
-macOS / Linux:
-
 ```bash
 git clone https://github.com/AymanCode/EcoSim.git
 cd EcoSim
-./start.sh
-```
-
-Windows PowerShell:
-
-```powershell
-git clone https://github.com/AymanCode/EcoSim.git
-cd EcoSim
-.\start.ps1
-```
-
-Plain Docker:
-
-```bash
 docker compose up --build -d --wait
 ```
 
@@ -138,12 +122,10 @@ Backend:
 ```bash
 python --version
 python -m venv .venv
-.\.venv\Scripts\Activate.ps1
-pip install -r requirements.txt
+source .venv/bin/activate   # Windows: .venv\Scripts\Activate.ps1
+python -m pip install -e ".[dev,ml]"
 python -m uvicorn backend.server:app --reload --port 8002
 ```
-
-On macOS/Linux, activate the virtual environment with `source .venv/bin/activate`.
 
 Frontend:
 
@@ -160,7 +142,7 @@ Open `http://localhost:5173`. Vite proxies `ws://localhost:5173/ws` and `/health
 Stable backend gate:
 
 ```bash
-pip install -r requirements-dev.txt
+python -m pip install -e ".[dev,ml]"
 python -m pytest backend/tests_contracts backend/tests_server -q -m "not llm and not research"
 ```
 
