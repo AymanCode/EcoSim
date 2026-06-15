@@ -27,6 +27,7 @@ with a ``type`` field:
 """
 
 import asyncio
+import copy
 import json
 import logging
 import logging.handlers
@@ -48,6 +49,7 @@ from pydantic import BaseModel, Field, field_validator
 import numpy as np
 
 from config import CONFIG
+from policy_schema import ORDERED_LEVERS
 from utils.category_utils import get_good_category_capitalized
 from tools.runners.run_large_simulation import (
     create_large_economy,
@@ -68,6 +70,7 @@ try:
         HealthcareEvent,
         HouseholdSnapshot,
         LaborEvent,
+        LLMGovernmentDecision,
         PolicyAction,
         PolicyConfig,
         RegimeEvent,
@@ -87,6 +90,7 @@ except Exception as exc:  # pragma: no cover - best-effort optional dependency
     DecisionFeature = None
     FirmSnapshot = None
     LaborEvent = None
+    LLMGovernmentDecision = None
     HealthcareEvent = None
     HouseholdSnapshot = None
     PolicyAction = None
@@ -148,7 +152,7 @@ class SetupConfig(BaseModel):
     num_households: int = Field(default=1000, ge=3, le=100_000)
     num_firms: int = Field(default=5, ge=1, le=1_000)
     seed: Optional[int] = Field(default=None, ge=0, le=2_147_483_647)
-    enable_llm_government: Optional[bool] = None
+    enable_llm_government: Optional[bool] = False
     disable_stabilizers: bool = False
     disabled_agents: List[str] = Field(default_factory=list)
 
@@ -348,9 +352,11 @@ class SimulationManager:
     TRACKED_FIRMS_BASELINE = 2
     TRACKED_FIRMS_TOTAL = 7
 
-    def __init__(self):
+    def __init__(self, session_id: Optional[str] = None):
+        self.session_id = session_id or uuid.uuid4().hex
         self.economy = None
         self.is_running = False
+        self.run_task: Optional[asyncio.Task] = None
         self.tick = 0
         self.logs = []
         self.active_websocket = None
@@ -411,6 +417,35 @@ class SimulationManager:
         self.llm_provider = None
         self.llm_government = None
         self.latest_government_decision: Optional[Dict[str, Any]] = None
+        self.llm_decisions_batch: List[Any] = []
+        self.llm_task: Optional[asyncio.Task] = None
+        self.pending_llm_decision: Optional[Dict[str, Any]] = None
+        self.llm_status = "disabled"
+        self.llm_snapshot_tick: Optional[int] = None
+        self.llm_applied_tick: Optional[int] = None
+        self.llm_last_error: Optional[str] = None
+        self.llm_task_started_at: Optional[float] = None
+        self.llm_provider_name: Optional[str] = None
+        self.llm_model_name: Optional[str] = None
+
+    def start_background_loop(self) -> bool:
+        """Start or resume the tick loop without creating duplicate loop tasks.
+
+        Returns ``True`` when a new background task was created and ``False``
+        when an existing task is still active. The latter case is common when
+        a user pauses and quickly resumes while the previous tick is finishing.
+        """
+        self.is_running = True
+        if self.run_task is not None and not self.run_task.done():
+            return False
+        self.run_task = asyncio.create_task(self.run_loop())
+        return True
+
+    def stop_background_loop(self, *, cancel: bool = False) -> None:
+        """Request the tick loop to stop and optionally cancel an active task."""
+        self.is_running = False
+        if cancel and self.run_task is not None and not self.run_task.done():
+            self.run_task.cancel()
 
     @staticmethod
     def _infer_sector_from_good(good_name: str) -> str:
@@ -545,6 +580,7 @@ class SimulationManager:
             self.labor_events_batch = []
             self.healthcare_events_batch = []
             self.policy_actions_batch = []
+            self.llm_decisions_batch = []
             self.regime_events_batch = []
             self.last_fully_persisted_tick = 0
 
@@ -563,6 +599,7 @@ class SimulationManager:
             self.labor_events_batch,
             self.healthcare_events_batch,
             self.policy_actions_batch,
+            self.llm_decisions_batch,
             self.regime_events_batch,
         ):
             if collection:
@@ -587,6 +624,7 @@ class SimulationManager:
                 and not self.labor_events_batch
                 and not self.healthcare_events_batch
                 and not self.policy_actions_batch
+                and not self.llm_decisions_batch
                 and not self.regime_events_batch
             )
         ):
@@ -608,6 +646,7 @@ class SimulationManager:
                 labor_events=self.labor_events_batch,
                 healthcare_events=self.healthcare_events_batch,
                 policy_actions=self.policy_actions_batch,
+                llm_government_decisions=self.llm_decisions_batch,
                 regime_events=self.regime_events_batch,
             )
             self.tick_metrics_batch = []
@@ -621,6 +660,7 @@ class SimulationManager:
             self.labor_events_batch = []
             self.healthcare_events_batch = []
             self.policy_actions_batch = []
+            self.llm_decisions_batch = []
             self.regime_events_batch = []
             self.last_fully_persisted_tick = max(self.last_fully_persisted_tick, persisted_tick)
             return True
@@ -1321,14 +1361,45 @@ class SimulationManager:
         if len(self.policy_changes) > 5:
             self.policy_changes.pop()
 
+    def _llm_status_payload(self) -> Dict[str, Any]:
+        """Build the live LLM-government status block for the websocket payload."""
+        latest = self.latest_government_decision or {}
+        accepted = latest.get("decisions", latest.get("applied_changes", {})) or {}
+        rejected = latest.get("rejected_changes", []) or []
+        status = self.llm_status
+        if not CONFIG.llm.enable_llm_government and status != "provider_unavailable":
+            status = "disabled"
+        elif self.llm_task is not None and not self.llm_task.done():
+            status = "thinking"
+        elif self.pending_llm_decision is not None:
+            status = "ready"
+        return {
+            "enabled": bool(getattr(CONFIG.llm, "enable_llm_government", False)),
+            "status": status,
+            "provider": self.llm_provider_name,
+            "model": self.llm_model_name or getattr(CONFIG.llm, "government_model", ""),
+            "snapshotTick": self.llm_snapshot_tick,
+            "appliedTick": self.llm_applied_tick,
+            "latestDecision": latest,
+            "lastError": self.llm_last_error,
+            "acceptedChangeCount": len(accepted),
+            "rejectedChangeCount": len(rejected),
+        }
+
     async def _ensure_llm_government(self) -> bool:
         """Lazily initialize the provider and government agent."""
         if not CONFIG.llm.enable_llm_government:
+            self.llm_status = "disabled"
             return False
         if self.llm_government is not None:
+            if self.llm_status not in {"thinking", "ready", "applying"}:
+                self.llm_status = "ready"
             return True
         if create_provider is None or LLMGovernmentAdvisor is None:
-            logger.warning("LLM government unavailable: %s", _LLM_IMPORT_ERROR)
+            self.llm_status = "provider_unavailable"
+            self.llm_last_error = f"LLM government unavailable: {_LLM_IMPORT_ERROR}"
+            CONFIG.llm.enable_llm_government = False
+            logger.warning(self.llm_last_error)
             return False
 
         try:
@@ -1336,62 +1407,197 @@ class SimulationManager:
             self.llm_government = LLMGovernmentAdvisor(self.llm_provider, CONFIG.llm)
             if self.economy is not None:
                 self.economy.llm_government = self.llm_government
-            logger.info("Initialized LLM government (%s).", getattr(self.llm_provider, "name", "unknown"))
+            self.llm_provider_name = str(getattr(self.llm_provider, "name", "unknown"))
+            self.llm_model_name = str(getattr(CONFIG.llm, "government_model", ""))
+            self.llm_status = "ready"
+            self.llm_last_error = None
+            logger.info("Initialized LLM government (%s).", self.llm_provider_name)
             return True
         except Exception as exc:
             logger.error("Failed to initialize LLM government: %s", exc)
             self.llm_provider = None
             self.llm_government = None
+            self.llm_status = "provider_unavailable"
+            self.llm_last_error = str(exc)
+            CONFIG.llm.enable_llm_government = False
+            if self.economy is not None:
+                self.economy.llm_government = None
             return False
 
-    async def _run_llm_government_if_due(self) -> Optional[Dict[str, Any]]:
-        """Run one LLM government cycle when the configured interval is reached."""
-        if not self.economy or not self.economy.should_run_llm_government():
+    def _copy_economy_for_llm(self):
+        """Return a frozen economy snapshot for background LLM reasoning."""
+        if self.economy is None:
             return None
-        if not await self._ensure_llm_government():
-            return None
+        live_advisor = getattr(self.economy, "llm_government", None)
+        self.economy.llm_government = None
+        try:
+            snapshot = copy.deepcopy(self.economy)
+        finally:
+            self.economy.llm_government = live_advisor
+        snapshot.llm_government = None
+        return snapshot
 
-        lever_before = self._snapshot_government_levers()
-        result = await self.llm_government.decide(self.economy)
-        lever_after = self._snapshot_government_levers()
-        result["tick"] = int(self.tick)
+    async def _run_llm_government_snapshot(self, economy_snapshot: Any, snapshot_tick: int) -> Dict[str, Any]:
+        """Run one LLM policy decision against an isolated economy snapshot."""
+        if self.llm_government is None:
+            raise RuntimeError("LLM government is not initialized")
+        result = await self.llm_government.decide(economy_snapshot)
+        result["snapshotTick"] = int(snapshot_tick)
         result["model"] = getattr(CONFIG.llm, "government_model", "")
         result["philosophy"] = getattr(CONFIG.llm, "government_philosophy", "")
+        result["provider"] = result.get("provider") or getattr(self.llm_provider, "name", "unknown")
+        return result
+
+    async def _schedule_llm_government_if_due(self) -> None:
+        """Start a background LLM government call at due ticks without blocking the tick loop."""
+        if not self.economy or not self.economy.should_run_llm_government():
+            return
+        if self.llm_task is not None and not self.llm_task.done():
+            return
+        if self.pending_llm_decision is not None:
+            return
+        if not await self._ensure_llm_government():
+            return
+
+        snapshot_tick = int(self.economy.current_tick)
+        economy_snapshot = self._copy_economy_for_llm()
+        if economy_snapshot is None:
+            return
+
+        self.llm_snapshot_tick = snapshot_tick
+        self.llm_task_started_at = time.perf_counter()
+        self.llm_status = "thinking"
+        self.llm_task = asyncio.create_task(
+            self._run_llm_government_snapshot(economy_snapshot, snapshot_tick)
+        )
+
+    def _collect_llm_task_result(self) -> None:
+        """Move a completed background LLM result into the pending apply slot."""
+        if self.llm_task is None or not self.llm_task.done():
+            return
+        task = self.llm_task
+        self.llm_task = None
+        try:
+            self.pending_llm_decision = task.result()
+            self.llm_status = "ready"
+            self.llm_last_error = None
+        except asyncio.CancelledError:
+            self.llm_status = "disabled" if not CONFIG.llm.enable_llm_government else "ready"
+        except Exception as exc:
+            self.llm_status = "error"
+            self.llm_last_error = str(exc)
+            self.pending_llm_decision = {
+                "snapshotTick": self.llm_snapshot_tick,
+                "appliedTick": None,
+                "status": "error",
+                "provider": self.llm_provider_name or "unknown",
+                "model": self.llm_model_name or getattr(CONFIG.llm, "government_model", ""),
+                "decisions": {},
+                "accepted_llm_changes": {},
+                "rejected_changes": [],
+                "rationale": f"LLM government task failed: {exc}",
+                "reasoning": f"LLM government task failed: {exc}",
+                "decision_summary": f"LLM government task failed: {exc}",
+                "parse_ok": False,
+                "elapsed_ms": (
+                    (time.perf_counter() - self.llm_task_started_at) * 1000.0
+                    if self.llm_task_started_at is not None
+                    else 0.0
+                ),
+                "error": str(exc),
+            }
+
+    def _apply_llm_decision_at_boundary(self) -> None:
+        """Apply one completed LLM decision before the next economy step."""
+        if not self.economy or self.pending_llm_decision is None:
+            return
+
+        result = dict(self.pending_llm_decision)
+        self.pending_llm_decision = None
+        if not CONFIG.llm.enable_llm_government:
+            self.llm_status = "disabled"
+            return
+
+        self.llm_status = "applying"
+        lever_before = self._snapshot_government_levers()
+        requested_decisions = dict(result.get("decisions", {}) or {})
+        applied_decisions: Dict[str, Any] = {}
+        live_rejections = list(result.get("rejected_changes", []) or [])
+
+        for lever, value in requested_decisions.items():
+            try:
+                self.economy.government.set_lever(lever, value)
+                applied_decisions[lever] = value
+            except Exception as exc:
+                live_rejections.append(
+                    {
+                        "lever": lever,
+                        "value": value,
+                        "reason": f"live_apply_failed: {exc}",
+                    }
+                )
+
+        try:
+            self.economy.government.begin_decision_cycle()
+        except Exception as exc:
+            live_rejections.append({"lever": "decision_cycle", "value": None, "reason": str(exc)})
+
+        lever_after = self._snapshot_government_levers()
+        applied_tick = int(self.tick)
+        result["tick"] = applied_tick
+        result["appliedTick"] = applied_tick
+        result["status"] = "applied" if applied_decisions else ("error" if result.get("error") else "no_change")
+        result["decisions"] = applied_decisions
+        result["applied_changes"] = applied_decisions
+        result["rejected_changes"] = live_rejections
+        result["current_policy_after"] = lever_after
+        result["accepted_count"] = len(applied_decisions)
+        result["rejected_count"] = len(live_rejections)
+
         self.latest_government_decision = result
         self.economy.record_llm_government_decision(result)
+        self._buffer_llm_government_decision(result)
 
-        decisions = result.get("decisions", {}) or {}
-        if decisions:
-            rationale = str(result.get("rationale") or result.get("reasoning", ""))
-            evidence = list(result.get("evidence", []) or [])
-            evidence_audit = list(result.get("evidence_audit", []) or [])
-            decision_summary = str(result.get("decision_summary", ""))
-            provider_name = str(result.get("provider", "unknown"))
-            elapsed_ms = float(result.get("elapsed_ms", 0.0) or 0.0)
-            for lever, after_value in decisions.items():
-                before_value = lever_before.get(lever)
-                reason = f"LLM government set {lever} from {before_value} to {after_value}. {rationale}"
-                self._append_policy_change_ui_record(lever, after_value, reason)
-                self._buffer_policy_action(
-                    actor="government_llm",
-                    action_type=str(lever),
-                    payload={
-                        "value": after_value,
-                        "before": before_value,
-                        "after": lever_after.get(lever, after_value),
-                        "model": getattr(CONFIG.llm, "government_model", ""),
-                        "provider": provider_name,
-                        "elapsed_ms": elapsed_ms,
-                        "parse_ok": bool(result.get("parse_ok", False)),
-                        "rationale": rationale,
-                        "reasoning": rationale,
-                        "evidence": evidence,
-                        "evidence_audit": evidence_audit,
-                        "decision_summary": decision_summary,
-                    },
-                    reason_summary=rationale,
-                )
-        return result
+        rationale = str(result.get("rationale") or result.get("reasoning", ""))
+        evidence = list(result.get("evidence", []) or [])
+        evidence_audit = list(result.get("evidence_audit", []) or [])
+        decision_summary = str(result.get("decision_summary", ""))
+        provider_name = str(result.get("provider", "unknown"))
+        elapsed_ms = float(result.get("elapsed_ms", 0.0) or 0.0)
+        for lever, after_value in applied_decisions.items():
+            before_value = lever_before.get(lever)
+            reason = f"LLM government set {lever} from {before_value} to {after_value}. {rationale}"
+            self._append_policy_change_ui_record(lever, after_value, reason)
+            self._buffer_policy_action(
+                actor="government_llm",
+                action_type=str(lever),
+                payload={
+                    "value": after_value,
+                    "before": before_value,
+                    "after": lever_after.get(lever, after_value),
+                    "model": getattr(CONFIG.llm, "government_model", ""),
+                    "provider": provider_name,
+                    "elapsed_ms": elapsed_ms,
+                    "parse_ok": bool(result.get("parse_ok", False)),
+                    "snapshot_tick": result.get("snapshotTick"),
+                    "applied_tick": applied_tick,
+                    "rationale": rationale,
+                    "reasoning": rationale,
+                    "evidence": evidence,
+                    "evidence_audit": evidence_audit,
+                    "decision_summary": decision_summary,
+                },
+                reason_summary=rationale,
+            )
+        self.llm_applied_tick = applied_tick
+        self.llm_status = "ready"
+
+    async def _run_llm_government_if_due(self) -> Optional[Dict[str, Any]]:
+        """Compatibility wrapper that schedules, collects, and applies without blocking."""
+        await self._schedule_llm_government_if_due()
+        self._collect_llm_task_result()
+        self._apply_llm_decision_at_boundary()
+        return self.latest_government_decision
 
     def _buffer_policy_action(self, actor: str, action_type: str, payload: Dict[str, Any], reason_summary: str) -> None:
         """Append one policy action to the warehouse batch."""
@@ -1415,6 +1621,48 @@ class SimulationManager:
                     f"policy:{self.warehouse_run_id}:{int(self.tick)}:"
                     f"{len(self.policy_actions_batch)}:{actor}:{action_type}"
                 ),
+            )
+        )
+
+    def _buffer_llm_government_decision(self, decision: Dict[str, Any]) -> None:
+        """Append one full LLM government decision to the warehouse batch."""
+        if (
+            not self.enable_warehouse
+            or self.warehouse_manager is None
+            or self.warehouse_run_id is None
+            or LLMGovernmentDecision is None
+        ):
+            return
+
+        snapshot_tick = int(decision.get("snapshotTick", decision.get("tick", self.tick)) or self.tick)
+        applied_tick_raw = decision.get("appliedTick", decision.get("tick"))
+        applied_tick = int(applied_tick_raw) if applied_tick_raw is not None else None
+        raw_response = decision.get("llm_response")
+        raw_response_json = json.dumps({"response": raw_response}, sort_keys=True, default=str)
+        normalized_response_json = json.dumps(decision, sort_keys=True, default=str)
+        accepted = dict(decision.get("decisions", decision.get("applied_changes", {})) or {})
+        rejected = list(decision.get("rejected_changes", []) or [])
+        event_key = (
+            f"llm-gov:{self.warehouse_run_id}:{snapshot_tick}:"
+            f"{applied_tick if applied_tick is not None else 'pending'}:{len(self.llm_decisions_batch)}"
+        )
+        self.llm_decisions_batch.append(
+            LLMGovernmentDecision(
+                run_id=self.warehouse_run_id,
+                snapshot_tick=snapshot_tick,
+                applied_tick=applied_tick,
+                status=str(decision.get("status", "applied" if accepted else "no_change")),
+                provider=str(decision.get("provider", self.llm_provider_name or "unknown")),
+                model=str(decision.get("model", self.llm_model_name or getattr(CONFIG.llm, "government_model", ""))),
+                raw_response_json=raw_response_json,
+                normalized_response_json=normalized_response_json,
+                accepted_changes_json=json.dumps(accepted, sort_keys=True, default=str),
+                rejected_changes_json=json.dumps(rejected, sort_keys=True, default=str),
+                rationale=str(decision.get("rationale", decision.get("reasoning", ""))),
+                evidence_audit_json=json.dumps(decision.get("evidence_audit", []), sort_keys=True, default=str),
+                elapsed_ms=float(decision.get("elapsed_ms", 0.0) or 0.0),
+                error_message=str(decision.get("error", "")) or None,
+                event_key=event_key,
             )
         )
 
@@ -1575,6 +1823,8 @@ class SimulationManager:
         if config is None:
             config = {}
 
+        self.stop_background_loop(cancel=True)
+
         # Validate config through pydantic model
         validated = SetupConfig(**config)
         num_households = validated.num_households
@@ -1645,6 +1895,17 @@ class SimulationManager:
         self.cached_mean_prices = None
         self.cached_supplies = None
         self.cached_total_net_worth = None
+        if self.llm_task is not None and not self.llm_task.done():
+            self.llm_task.cancel()
+        self.llm_task = None
+        self.pending_llm_decision = None
+        self.llm_status = "ready" if bool(getattr(CONFIG.llm, "enable_llm_government", False)) else "disabled"
+        self.llm_snapshot_tick = None
+        self.llm_applied_tick = None
+        self.llm_last_error = None
+        self.llm_task_started_at = None
+        self.llm_provider_name = None
+        self.llm_model_name = None
         if self.llm_provider is not None and hasattr(self.llm_provider, "close"):
             try:
                 asyncio.get_running_loop().create_task(self.llm_provider.close())
@@ -1769,15 +2030,26 @@ class SimulationManager:
                 }
 
     async def run_loop(self):
+        """Run ticks, stream metrics, flush warehouse batches, and schedule LLM work.
+
+        Runtime config and completed LLM decisions are applied only at loop
+        boundaries before ``Economy.step()`` so the tick engine never sees
+        mid-phase mutation.
+        """
         if not self.economy:
             logger.warning("Attempted to run loop without economy. Waiting for SETUP.")
             return
 
         logger.info("Starting simulation loop")
         try:
+            if CONFIG.llm.enable_llm_government:
+                await self._ensure_llm_government()
             history_stride = 25
             while self.is_running and self.active_websocket:
                 start_time = asyncio.get_event_loop().time()
+
+                self._collect_llm_task_result()
+                self._apply_llm_decision_at_boundary()
 
                 # Apply any pending config updates from the client
                 if self.pending_config_updates:
@@ -2045,6 +2317,8 @@ class SimulationManager:
 
                         # Get recent events
                         recent_events = self.subject_histories.get(hid, {}).get("events", [])[-5:] if hid in self.subject_histories else []
+                        has_rental = h.renting_from_firm_id is not None
+                        housing_security = bool(h.owns_housing or has_rental or h.met_housing_need)
 
                         tracked_subjects.append({
                             "id": h.household_id,
@@ -2067,10 +2341,15 @@ class SimulationManager:
                             "medicalDebt": h.medical_loan_remaining,
                             "unemploymentDuration": int(h.unemployment_duration),
                             "canWork": bool(h.can_work),
+                            "ownsHousing": bool(h.owns_housing),
+                            "hasRental": bool(has_rental),
+                            "metHousingNeed": bool(h.met_housing_need),
+                            "housingSecurity": bool(housing_security),
+                            "monthlyRent": float(getattr(h, "monthly_rent", 0.0) or 0.0),
                             "needs": {
                                 # Check both cases due to potential case-sensitivity inconsistency in goods_inventory
                                 "food": h.goods_inventory.get("Food", 0) + h.goods_inventory.get("food", 0),
-                                "housing": 1 if h.owns_housing or h.renting_from_firm_id else 0,
+                                "housing": 1 if housing_security else 0,
                                 "healthcare": h.goods_inventory.get("Healthcare", 0) + h.goods_inventory.get("healthcare", 0),
                             },
                             "expectedWageReason": expected_wage_reason,
@@ -2231,6 +2510,7 @@ class SimulationManager:
                         or len(self.labor_events_batch) >= self.tick_metrics_batch_size
                         or len(self.healthcare_events_batch) >= self.tick_metrics_batch_size
                         or len(self.policy_actions_batch) >= self.tick_metrics_batch_size
+                        or len(self.llm_decisions_batch) >= self.tick_metrics_batch_size
                         or len(self.regime_events_batch) >= self.tick_metrics_batch_size
                     ):
                         self._flush_warehouse_batches()
@@ -2253,7 +2533,7 @@ class SimulationManager:
                     )
 
                 if llm_decision_due:
-                    await self._run_llm_government_if_due()
+                    await self._schedule_llm_government_if_due()
 
                 new_logs = [{
                     "tick": self.tick,
@@ -2277,6 +2557,8 @@ class SimulationManager:
                         "bondPurchases": gov_investments / 1000000.0,  # Proxy bond purchases as govt investments
                         "policyChanges": self.policy_changes,
                         "latestGovernmentDecision": self.latest_government_decision,
+                        "llmGovernment": self._llm_status_payload(),
+                        "governmentPolicy": self._snapshot_government_levers(),
                         "happiness": stats["mean_happiness"] * 100,
                         "avgWage": stats["mean_wage"],
                         "avgExpectedWage": stats.get("mean_expected_wage", 0.0),
@@ -2321,41 +2603,108 @@ class SimulationManager:
             self._close_warehouse_run("failed")
             if self.active_websocket:
                 await self.active_websocket.send_json({"error": str(e)})
+        finally:
+            if self.run_task is asyncio.current_task():
+                self.run_task = None
+
+    @staticmethod
+    def _benefit_rate_to_level(value: Any) -> str:
+        """Map the legacy benefit-rate slider into the schema benefit level."""
+        try:
+            rate = float(value)
+        except (TypeError, ValueError):
+            return "neutral"
+        if rate <= 0.25:
+            return "low"
+        if rate <= 0.55:
+            return "neutral"
+        if rate <= 0.85:
+            return "high"
+        return "crisis"
+
+    @staticmethod
+    def _minimum_wage_to_policy(value: Any) -> str:
+        """Map the legacy minimum-wage slider into the schema wage policy."""
+        try:
+            wage = float(value)
+        except (TypeError, ValueError):
+            return "neutral"
+        if wage <= 30.0:
+            return "low"
+        if wage >= 45.0:
+            return "high"
+        return "neutral"
+
+    @staticmethod
+    def _normalize_runtime_policy_updates(config_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Convert frontend camelCase controls into policy-schema lever names."""
+        direct_map = {
+            "wageTax": "wage_tax_rate",
+            "profitTax": "profit_tax_rate",
+            "investmentTax": "investment_tax_rate",
+            "benefitLevel": "benefit_level",
+            "publicWorks": "public_works",
+            "minimumWagePolicy": "minimum_wage_policy",
+            "sectorSubsidyTarget": "sector_subsidy_target",
+            "sectorSubsidyLevel": "sector_subsidy_level",
+            "infrastructureSpending": "infrastructure_spending",
+            "technologySpending": "technology_spending",
+            "socialSpending": "social_spending",
+            "priceStabilizationTarget": "price_stabilization_target",
+            "priceStabilizationLevel": "price_stabilization_level",
+            "rentStabilizationLevel": "rent_stabilization_level",
+            "bailoutPolicy": "bailout_policy",
+            "bailoutTarget": "bailout_target",
+            "bailoutBudget": "bailout_budget",
+        }
+        normalized: Dict[str, Any] = {}
+        for key, value in config_data.items():
+            if key in direct_map:
+                lever = direct_map[key]
+                normalized[lever] = value
+            elif key == "unemploymentBenefitRate":
+                normalized["benefit_level"] = SimulationManager._benefit_rate_to_level(value)
+            elif key == "minimumWage":
+                normalized["minimum_wage_policy"] = SimulationManager._minimum_wage_to_policy(value)
+
+        if "public_works" in normalized and isinstance(normalized["public_works"], bool):
+            normalized["public_works"] = "on" if normalized["public_works"] else "off"
+        for integer_lever in ("sector_subsidy_level", "bailout_budget"):
+            if integer_lever in normalized:
+                try:
+                    normalized[integer_lever] = int(float(normalized[integer_lever]))
+                except (TypeError, ValueError):
+                    pass
+        for ordered_integer_lever in ("sector_subsidy_level", "bailout_budget"):
+            if ordered_integer_lever in normalized and isinstance(normalized[ordered_integer_lever], int):
+                allowed = ORDERED_LEVERS.get(ordered_integer_lever, [])
+                if allowed:
+                    value = normalized[ordered_integer_lever]
+                    normalized[ordered_integer_lever] = min(allowed, key=lambda candidate: abs(candidate - value))
+        for numeric_lever in ("wage_tax_rate", "profit_tax_rate", "investment_tax_rate"):
+            if numeric_lever in normalized:
+                try:
+                    normalized[numeric_lever] = float(normalized[numeric_lever])
+                except (TypeError, ValueError):
+                    pass
+        return normalized
 
     async def _apply_config_updates(self, config_data: Dict[str, Any]):
+        """Apply runtime-safe frontend config updates before the next economy step."""
         if not self.economy or not config_data:
             return
 
-        if "wageTax" in config_data:
-            self.economy.government.wage_tax_rate = config_data["wageTax"]
-        if "profitTax" in config_data:
-            self.economy.government.profit_tax_rate = config_data["profitTax"]
-
-        if "minimumWage" in config_data:
-            min_wage = config_data["minimumWage"]
-            self.economy.config.labor_market.minimum_wage_floor = min_wage
-            # Update firms in batches to avoid blocking
-            for i, firm in enumerate(self.economy.firms):
-                if firm.wage_offer < min_wage:
-                    firm.wage_offer = min_wage
-                # Yield control every 100 firms to prevent blocking
-                if i % 100 == 0:
-                    await asyncio.sleep(0)
-
-        if "unemploymentBenefitRate" in config_data:
-            rate = config_data["unemploymentBenefitRate"]
-            # Calculate in batches to avoid blocking
-            total_wages = 0
-            employed_count = 0
-            for i, h in enumerate(self.economy.households):
-                if h.is_employed:
-                    total_wages += h.wage
-                    employed_count += 1
-                # Yield control every 200 households to prevent blocking
-                if i % 200 == 0:
-                    await asyncio.sleep(0)
-            avg_wage = total_wages / employed_count if employed_count > 0 else 30.0
-            self.economy.government.unemployment_benefit_level = avg_wage * rate
+        if "enableLlmGovernment" in config_data:
+            enabled = bool(config_data["enableLlmGovernment"])
+            CONFIG.llm.enable_llm_government = enabled
+            if not enabled:
+                if self.llm_task is not None and not self.llm_task.done():
+                    self.llm_task.cancel()
+                self.pending_llm_decision = None
+                self.llm_status = "disabled"
+                self.economy.llm_government = None
+            else:
+                self.llm_status = "ready"
 
         if "universalBasicIncome" in config_data:
             self.economy.government.ubi_amount = config_data["universalBasicIncome"]
@@ -2369,24 +2718,31 @@ class SimulationManager:
             self.economy.government.target_inflation_rate = config_data["inflationRate"]
         if "birthRate" in config_data:
             self.economy.government.birth_rate = config_data["birthRate"]
-            
+
+        lever_updates = self._normalize_runtime_policy_updates(config_data)
+        for lever, value in lever_updates.items():
+            try:
+                self.economy.government.set_lever(lever, value)
+            except Exception as exc:
+                logger.warning("Rejected runtime government lever %s=%r: %s", lever, value, exc)
+                continue
+            if lever == "minimum_wage_policy":
+                min_wage = float(self.economy.government.get_minimum_wage())
+                for i, firm in enumerate(self.economy.firms):
+                    if firm.wage_offer < min_wage:
+                        firm.wage_offer = min_wage
+                    if i % 100 == 0:
+                        await asyncio.sleep(0)
+
         # Log policy changes
-        tracked_policy_keys = {
-            "wageTax",
-            "profitTax",
-            "minimumWage",
-            "unemploymentBenefitRate",
+        legacy_policy_keys = {
             "universalBasicIncome",
             "wealthTaxRate",
             "wealthTaxThreshold",
             "inflationRate",
             "birthRate",
         }
-        policy_key_map = {
-            "wageTax": "wage_tax_rate",
-            "profitTax": "profit_tax_rate",
-            "minimumWage": "minimum_wage",
-            "unemploymentBenefitRate": "unemployment_benefit_rate",
+        legacy_policy_key_map = {
             "universalBasicIncome": "universal_basic_income",
             "wealthTaxRate": "wealth_tax_rate",
             "wealthTaxThreshold": "wealth_tax_threshold",
@@ -2394,8 +2750,8 @@ class SimulationManager:
             "birthRate": "birth_rate",
         }
         for key, value in config_data.items():
-            if key in tracked_policy_keys:
-                policy_name = policy_key_map.get(key, key)
+            if key in legacy_policy_keys:
+                policy_name = legacy_policy_key_map.get(key, key)
                 reason = f"User updated {policy_name} to {value}"
                 self._append_policy_change_ui_record(policy_name, value, reason)
                 self._buffer_policy_action(
@@ -2404,8 +2760,23 @@ class SimulationManager:
                     payload={"value": value},
                     reason_summary=reason,
                 )
+        for lever, value in lever_updates.items():
+            reason = f"User updated {lever} to {value}"
+            self._append_policy_change_ui_record(lever, value, reason)
+            self._buffer_policy_action(
+                actor="user",
+                action_type=lever,
+                payload={"value": value},
+                reason_summary=reason,
+            )
 
     async def update_config(self, config_data):
+        """Queue or apply websocket runtime configuration updates.
+
+        When the simulation is active, updates are buffered until the next
+        safe tick boundary. When paused, they are applied immediately through
+        the same policy-schema path.
+        """
         if not self.economy:
             return
 
@@ -2417,7 +2788,49 @@ class SimulationManager:
             else:
                 self.pending_config_updates.update(config_data)
 
-manager = SimulationManager()
+
+class SessionRegistry:
+    """Tracks isolated simulation managers for active websocket sessions."""
+
+    def __init__(self, max_sessions: Optional[int] = None):
+        self.max_sessions = max(1, int(max_sessions if max_sessions is not None else os.getenv("ECOSIM_MAX_SESSIONS", "8")))
+        self.sessions: Dict[str, SimulationManager] = {}
+
+    def _prune_closed_sessions(self) -> None:
+        closed = [
+            session_id
+            for session_id, session_manager in self.sessions.items()
+            if (
+                session_manager.active_websocket is None
+                and not session_manager.is_running
+                and (session_manager.run_task is None or session_manager.run_task.done())
+            )
+        ]
+        for session_id in closed:
+            self.sessions.pop(session_id, None)
+
+    def open_session(self) -> tuple[str, SimulationManager]:
+        if len(self.sessions) >= self.max_sessions:
+            raise RuntimeError(f"Maximum active simulation sessions reached ({self.max_sessions})")
+
+        session_id = uuid.uuid4().hex
+        session_manager = SimulationManager(session_id=session_id)
+        self.sessions[session_id] = session_manager
+        return session_id, session_manager
+
+    def get(self, session_id: str) -> Optional[SimulationManager]:
+        return self.sessions.get(session_id)
+
+    def close_session(self, session_id: str) -> None:
+        session_manager = self.sessions.pop(session_id, None)
+        if session_manager is None:
+            return
+        session_manager.stop_background_loop(cancel=True)
+        session_manager.active_websocket = None
+
+
+manager = SimulationManager(session_id="legacy-rest")
+session_registry = SessionRegistry()
 
 
 @app.get("/decision-context/live")
@@ -2481,6 +2894,22 @@ async def get_run_decision_features(
     try:
         features = warehouse.get_decision_features(run_id, tick_start=tick_start, tick_end=tick_end)
         return {"runId": run_id, "decisionFeatures": features, "count": len(features)}
+    finally:
+        if should_close:
+            warehouse.close()
+
+
+@app.get("/warehouse/runs/{run_id}/llm-government-decisions")
+async def get_run_llm_government_decisions(
+    run_id: str,
+    tick_start: int = Query(default=0, ge=0),
+    tick_end: int = Query(default=999999, ge=0),
+):
+    """Fetch ordered full LLM government decisions for one run."""
+    warehouse, should_close = _get_warehouse_reader()
+    try:
+        decisions = warehouse.get_llm_government_decisions(run_id, tick_start=tick_start, tick_end=tick_end)
+        return {"runId": run_id, "llmGovernmentDecisions": decisions, "count": len(decisions)}
     finally:
         if should_close:
             warehouse.close()
@@ -2696,9 +3125,18 @@ async def compare_runs(run_ids: List[str] = Query(...)):
 
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
+    """Handle the dashboard websocket protocol for setup, control, and config."""
     await websocket.accept()
-    manager.active_websocket = websocket
-    logger.info("WebSocket connected")
+    try:
+        session_id, session_manager = session_registry.open_session()
+    except RuntimeError as exc:
+        await websocket.send_json({"error": str(exc)})
+        await websocket.close(code=1013)
+        return
+
+    session_manager.active_websocket = websocket
+    logger.info("WebSocket connected session=%s", session_id)
+    await websocket.send_json({"type": "SESSION", "sessionId": session_id})
     
     VALID_COMMANDS = {"SETUP", "START", "STOP", "RESET", "CONFIG", "STABILIZERS"}
 
@@ -2723,56 +3161,54 @@ async def websocket_endpoint(websocket: WebSocket):
             if command == "SETUP":
                 config = data.get("config", {})
                 try:
-                    manager.initialize(config)
+                    session_manager.initialize(config)
                     await websocket.send_json({"type": "SETUP_COMPLETE"})
                 except Exception as e:
                     logger.exception("SETUP failed")
                     await websocket.send_json({"error": f"SETUP failed: {e}"})
             elif command == "START":
-                if not manager.economy:
+                if not session_manager.economy:
                      # Auto-initialize if not done yet (fallback)
                      try:
-                         manager.initialize()
+                         session_manager.initialize()
                      except Exception as e:
                          logger.exception("Auto-initialize on START failed")
                          await websocket.send_json({"error": f"START failed: {e}"})
                          continue
 
-                if not manager.is_running:
-                    manager.is_running = True
-                    asyncio.create_task(manager.run_loop())
-                    await websocket.send_json({"type": "STARTED"})
+                session_manager.start_background_loop()
+                await websocket.send_json({"type": "STARTED"})
             elif command == "STOP":
-                manager.is_running = False
-                manager._flush_warehouse_batches()
+                session_manager.stop_background_loop()
+                session_manager._flush_warehouse_batches()
                 await websocket.send_json({"type": "STOPPED"})
             elif command == "RESET":
-                manager.is_running = False
-                manager._close_warehouse_run("stopped")
-                manager.tick = 0
+                session_manager.stop_background_loop(cancel=True)
+                session_manager._close_warehouse_run("stopped")
+                session_manager.tick = 0
                 await websocket.send_json({"type": "RESET", "tick": 0})
             elif command == "CONFIG":
                 config_data = data.get("config", {})
-                await manager.update_config(config_data)
+                await session_manager.update_config(config_data)
             elif command == "STABILIZERS":
                 disable_flag = data.get("disable_stabilizers", False)
                 disabled_agents = data.get("disabled_agents", [])
-                manager.update_stabilizers(disable_flag, disabled_agents)
+                session_manager.update_stabilizers(disable_flag, disabled_agents)
                 await websocket.send_json({
                     "type": "STABILIZERS_UPDATED",
-                    "state": manager.stabilizer_state
+                    "state": session_manager.stabilizer_state
                 })
 
     except WebSocketDisconnect:
-        manager.is_running = False
-        manager._close_warehouse_run("stopped")
-        manager.active_websocket = None
-        logger.info("Client disconnected")
+        session_manager.stop_background_loop(cancel=True)
+        session_manager._close_warehouse_run("stopped")
+        session_registry.close_session(session_id)
+        logger.info("Client disconnected session=%s", session_id)
     except Exception as e:
-        manager.is_running = False
-        manager._close_warehouse_run("failed")
-        manager.active_websocket = None
-        logger.exception("WebSocket loop crashed")
+        session_manager.stop_background_loop(cancel=True)
+        session_manager._close_warehouse_run("failed")
+        session_registry.close_session(session_id)
+        logger.exception("WebSocket loop crashed session=%s", session_id)
         try:
             await websocket.send_json({"error": f"WebSocket error: {e}"})
         except Exception as send_error:

@@ -14,6 +14,7 @@ try:  # pragma: no cover - import fallback for standalone scripts
         HealthcareEvent,
         HouseholdSnapshot,
         LaborEvent,
+        LLMGovernmentDecision,
         PolicyAction,
         PolicyConfig,
         RegimeEvent,
@@ -31,6 +32,7 @@ except ImportError:  # pragma: no cover
         HealthcareEvent,
         HouseholdSnapshot,
         LaborEvent,
+        LLMGovernmentDecision,
         PolicyAction,
         PolicyConfig,
         RegimeEvent,
@@ -305,6 +307,46 @@ class DatabaseManager:
                     payload_json=action.payload_json,
                     reason_summary=action.reason_summary,
                     event_key=action.event_key or self._event_key_from_components("policy", signature, occurrence),
+                )
+            )
+        return normalized
+
+    def _normalized_llm_government_decisions(
+        self,
+        decisions: List[LLMGovernmentDecision],
+    ) -> List[LLMGovernmentDecision]:
+        """Return LLM decisions with deterministic idempotency keys."""
+        duplicates_seen: dict[tuple[object, ...], int] = defaultdict(int)
+        normalized: List[LLMGovernmentDecision] = []
+        for decision in decisions:
+            signature = (
+                decision.run_id,
+                decision.snapshot_tick,
+                decision.applied_tick,
+                decision.provider,
+                decision.model,
+                decision.normalized_response_json,
+            )
+            occurrence = duplicates_seen[signature]
+            duplicates_seen[signature] += 1
+            normalized.append(
+                LLMGovernmentDecision(
+                    run_id=decision.run_id,
+                    snapshot_tick=decision.snapshot_tick,
+                    applied_tick=decision.applied_tick,
+                    status=decision.status,
+                    provider=decision.provider,
+                    model=decision.model,
+                    raw_response_json=decision.raw_response_json,
+                    normalized_response_json=decision.normalized_response_json,
+                    accepted_changes_json=decision.accepted_changes_json,
+                    rejected_changes_json=decision.rejected_changes_json,
+                    rationale=decision.rationale,
+                    evidence_audit_json=decision.evidence_audit_json,
+                    elapsed_ms=decision.elapsed_ms,
+                    error_message=decision.error_message,
+                    event_key=decision.event_key
+                    or self._event_key_from_components("llm-government", signature, occurrence),
                 )
             )
         return normalized
@@ -1229,6 +1271,44 @@ class DatabaseManager:
             for action in normalized
         ])
 
+    def insert_llm_government_decisions(self, decisions: List[LLMGovernmentDecision]):
+        """Batch insert full LLM government decisions."""
+        if not decisions:
+            return
+        cursor = self.conn.cursor()
+        self._insert_llm_government_decision_rows(cursor, decisions)
+        self.conn.commit()
+
+    def _insert_llm_government_decision_rows(self, cursor, decisions: List[LLMGovernmentDecision]):
+        """Insert LLM government decisions using an existing cursor."""
+        normalized = self._normalized_llm_government_decisions(decisions)
+        cursor.executemany("""
+            INSERT OR IGNORE INTO llm_government_decisions (
+                run_id, event_key, snapshot_tick, applied_tick, status, provider, model,
+                raw_response_json, normalized_response_json, accepted_changes_json,
+                rejected_changes_json, rationale, evidence_audit_json, elapsed_ms, error_message
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, [
+            (
+                decision.run_id,
+                decision.event_key,
+                decision.snapshot_tick,
+                decision.applied_tick,
+                decision.status,
+                decision.provider,
+                decision.model,
+                decision.raw_response_json,
+                decision.normalized_response_json,
+                decision.accepted_changes_json,
+                decision.rejected_changes_json,
+                decision.rationale,
+                decision.evidence_audit_json,
+                decision.elapsed_ms,
+                decision.error_message,
+            )
+            for decision in normalized
+        ])
+
     def persist_flush_bundle(
         self,
         run_id: str,
@@ -1242,6 +1322,7 @@ class DatabaseManager:
         labor_events: Optional[List[LaborEvent]] = None,
         healthcare_events: Optional[List[HealthcareEvent]] = None,
         policy_actions: Optional[List[PolicyAction]] = None,
+        llm_government_decisions: Optional[List[LLMGovernmentDecision]] = None,
         tick_diagnostics: Optional[List[TickDiagnostic]] = None,
         sector_shortage_diagnostics: Optional[List[SectorShortageDiagnostic]] = None,
         regime_events: Optional[List[RegimeEvent]] = None,
@@ -1271,6 +1352,8 @@ class DatabaseManager:
                 self._insert_healthcare_event_rows(cursor, healthcare_events)
             if policy_actions:
                 self._insert_policy_action_rows(cursor, policy_actions)
+            if llm_government_decisions:
+                self._insert_llm_government_decision_rows(cursor, llm_government_decisions)
             if regime_events:
                 self._insert_regime_event_rows(cursor, regime_events)
             self._update_run_flush_metadata(cursor, run_id, last_fully_persisted_tick)
@@ -1395,6 +1478,25 @@ class DatabaseManager:
         rows = cursor.execute(query, tuple(params)).fetchall()
         return [dict(row) for row in rows]
 
+    def get_llm_government_decisions(
+        self,
+        run_id: str,
+        tick_start: int = 0,
+        tick_end: int = 999999,
+    ) -> List[Dict]:
+        """Get ordered full LLM government decisions for a run."""
+        cursor = self.conn.cursor()
+        rows = cursor.execute(
+            """
+            SELECT *
+            FROM llm_government_decisions
+            WHERE run_id = ? AND snapshot_tick >= ? AND snapshot_tick <= ?
+            ORDER BY snapshot_tick, decision_id
+            """,
+            (run_id, tick_start, tick_end),
+        ).fetchall()
+        return [dict(row) for row in rows]
+
     # =========================================================================
     # Utility Methods
     # =========================================================================
@@ -1481,6 +1583,10 @@ class DatabaseManager:
 
         stats['total_policy_actions'] = cursor.execute(
             "SELECT COUNT(*) FROM policy_actions"
+        ).fetchone()[0]
+
+        stats['total_llm_government_decisions'] = cursor.execute(
+            "SELECT COUNT(*) FROM llm_government_decisions"
         ).fetchone()[0]
 
         stats['total_regime_events'] = cursor.execute(

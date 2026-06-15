@@ -9,8 +9,8 @@ It answers five questions:
 2. Which database should be used?
 3. What data should be stored, and how often?
 4. What should stay in memory versus move into storage?
-5. How does this support the frontend, future policy logic, and a future local
-   LLM government?
+5. How does this support the frontend, policy logic, and the optional LLM
+   government?
 
 ## Executive Summary
 
@@ -27,8 +27,8 @@ This gives EcoSim:
 - fast in-memory simulation
 - live frontend responsiveness
 - historical run analysis
-- a clean source of truth for future policy agents
-- a strong systems-design story for interviews
+- a clean source of truth for policy agents and run comparison
+- durable audit records for policy and LLM decisions
 
 ## Design Principles
 
@@ -57,15 +57,15 @@ Without a database, EcoSim cannot easily answer:
 - Did healthcare queues worsen before household health collapsed?
 - Which policies worked best across runs with different seeds?
 
-This matters for three future directions:
+This matters for three active product directions:
 
 1. Policy evaluation
-2. Government agent / local LLM decision-making
+2. Government agent / LLM decision-making
 3. User-facing analytics and policy advisor features
 
 ## Storage Roles: What Lives Where
 
-EcoSim should have three distinct data layers.
+EcoSim has three distinct data layers.
 
 ### 1) In-memory simulation state
 
@@ -147,9 +147,9 @@ Use `PostgreSQL + TimescaleDB`.
    This project does not need paid cloud infrastructure to have a serious data
    backend.
 
-5. It is resume-credible.
-   "Designed a time-series warehouse for a multi-agent economic simulator using
-   PostgreSQL and TimescaleDB" is a strong technical story.
+5. It keeps the production architecture legible.
+   A relational time-series warehouse is easier to operate, validate, and
+   explain than ad hoc local files or frontend-only state.
 
 ### Why not SQLite as the main target
 
@@ -183,19 +183,33 @@ The project already has the beginning of a warehouse layer:
 - `backend/data/postgres_manager.py`
 - `backend/data/postgres_schema.sql`
 
-Currently modeled tables:
+Currently implemented table families:
 
 1. `simulation_runs`
 2. `tick_metrics`
-3. `policy_config`
+3. `sector_tick_metrics`
+4. `firm_snapshots`
+5. `household_snapshots`
+6. `tracked_household_history`
+7. `labor_events`
+8. `healthcare_events`
+9. `policy_actions`
+10. `decision_features`
+11. `tick_diagnostics`
+12. `sector_shortage_diagnostics`
+13. `regime_events`
+14. `llm_government_decisions`
+15. `policy_config`
 
-That is a good base, but it only captures run metadata and aggregate tick
-metrics. It does not yet capture enough detail for explanation, diagnostics, or
-future policy intelligence.
+That is enough for current run metadata, aggregate trends, sector trends,
+agent snapshots, policy history, compact decision context, explainability
+diagnostics, and full LLM government decision audit records. The warehouse is
+still intentionally not a full exact-replay engine or BI-grade observability
+platform.
 
 ## Target Logical Data Model
 
-EcoSim should evolve toward six logical data families.
+EcoSim currently uses seven logical data families.
 
 ### 1) Run metadata
 
@@ -256,18 +270,31 @@ Tables:
 - `labor_events`
 - `healthcare_events`
 - `policy_actions`
-- optional future `firm_events`
+- optional `firm_events` if firm-level transitions need more detail later
 
 ### 6) Derived policy decision context
 
 Purpose:
 
 - provide trend-aware compact features for automated decision-making
-- avoid forcing future policy agents to read raw tables every tick
+- avoid forcing policy agents to read raw tables every tick
 
 Tables:
 
 - `decision_features`
+
+### 7) LLM government decisions
+
+Purpose:
+
+- preserve the full model response and validation outcome
+- separate the full decision artifact from per-lever `policy_actions`
+- support policy quality analysis, accepted/rejected change review, and provider
+  reliability checks
+
+Tables:
+
+- `llm_government_decisions`
 
 ## Proposed Tables
 
@@ -304,7 +331,7 @@ Core fields:
 - UBI
 - inflation settings
 - agent stabilizer flags
-- future policy mode flags
+- policy mode flags
 
 ### `tick_metrics`
 
@@ -517,8 +544,7 @@ One row per run per tick.
 
 Purpose:
 
-- provide compact trend-aware context for policy logic or future local LLM
-  government
+- provide compact trend-aware context for policy logic and the LLM government
 
 Core fields:
 
@@ -537,6 +563,18 @@ Core fields:
 - `inequality_pressure_score`
 
 This table is for decision support, not raw storage fidelity.
+
+### `llm_government_decisions`
+
+One row per full LLM government decision.
+
+Purpose:
+
+- keep the raw/validated policy decision auditable
+- preserve accepted changes, rejected changes, rationale, evidence, provider,
+  model, snapshot tick, applied tick, and error state
+- avoid overloading `policy_actions`, which remains the per-applied-lever
+  timeline
 
 Current implementation notes:
 
@@ -573,6 +611,8 @@ Use narrow composite keys based on the natural grain of the table.
 - `household_snapshots`: `(run_id, tick, household_id)`
 - `tracked_household_history`: `(run_id, tick, household_id)`
 - `decision_features`: `(run_id, tick)`
+- `llm_government_decisions`: `(run_id, snapshot_tick, applied_tick)` plus
+  query indexes by run/tick
 
 For event tables, use a surrogate event id plus the natural filtering columns:
 
@@ -790,9 +830,9 @@ The database should not:
 The right storage model is "durable telemetry and history", not "database-first
 simulation execution".
 
-## Interaction With a Future Local LLM Government
+## Interaction With The LLM Government
 
-The future government agent should not be handed large raw tables directly.
+The LLM government should not be handed large raw tables directly.
 
 Instead, EcoSim should expose a compact decision context built from:
 
@@ -803,7 +843,7 @@ Instead, EcoSim should expose a compact decision context built from:
 - inequality and fiscal stress signals
 - the most recent policy actions
 
-Those features can be built in memory each tick and optionally persisted to
+Those features are built in memory each tick and optionally persisted to
 `decision_features` for analysis and auditability.
 
 This keeps the agent grounded without flooding it with raw data.
@@ -816,10 +856,12 @@ Current implementation status:
 - the live window is exposed through `SimulationManager.get_live_decision_context()`
   and `GET /decision-context/live`
 - recent policy changes are included alongside the live rolling context
+- full accepted/rejected LLM government decisions are persisted to
+  `llm_government_decisions` when the warehouse is enabled
 
-## Interaction With a Future Policy Advisor / RAG Layer
+## Interaction With A Policy Advisor / RAG Layer
 
-The future policy advisor should read from structured run history, not from
+Any policy advisor should read from structured run history, not from
 frontend-only state.
 
 Good sources for that system:
@@ -876,7 +918,7 @@ Changes:
 Why first:
 
 - highest analytical value per write cost
-- directly helps the frontend, debugging, and future policy features
+- directly helps the frontend, debugging, and policy features
 
 ### Migration 004: Add event tables
 
@@ -949,11 +991,36 @@ Implementation note:
 
 - backend scripts `011` (SQLite) and `012` (Postgres) implement this logical phase
 
-### Migration 008: Add analytical views and query helpers
+### Migration 008: Add diagnostics and regime events
 
 Goal:
 
-- support frontend history loading and future comparison tools cleanly
+- persist compact explanations for changes in unemployment, health, firm
+  distress, housing failure, and sector shortages
+
+Changes:
+
+- create `tick_diagnostics`
+- create `sector_shortage_diagnostics`
+- create `regime_events`
+
+### Migration 009: Add LLM government decision audit table
+
+Goal:
+
+- persist one full audit row per LLM government decision, separate from
+  per-lever policy actions
+
+Changes:
+
+- create `llm_government_decisions`
+- add read support through `GET /warehouse/runs/{run_id}/llm-government-decisions`
+
+### Migration 010: Add analytical views and query helpers
+
+Goal:
+
+- support frontend history loading and comparison tools cleanly
 
 Changes:
 
@@ -1007,6 +1074,7 @@ The current implemented storage baseline includes:
 4. `Migration 006` logically: household snapshots + tracked-household history
 5. `Migration 007` logically: compact decision features
 6. `Migration 008` logically: diagnostics + regime events
+7. LLM government decision persistence
 
 Note:
 
@@ -1020,13 +1088,15 @@ Note:
   (SQLite) and `012` (Postgres)
 - diagnostics/regime events follow the same pattern with backend scripts `015`
   (SQLite) and `016` (Postgres)
+- full LLM government decisions follow the backend-specific migration pattern
+  with scripts `017` (SQLite) and `018` (Postgres)
 
 That means the next actual code changes should focus on:
 
 1. validating write cost of the diagnostics layer alongside aggregates and events
-2. keeping diagnostic definitions stable enough for future policy comparisons
+2. keeping diagnostic definitions stable enough for policy comparisons
 3. exposing only the smallest read/query surface needed by real product/debug use cases
-4. keeping future tables narrower than the snapshot layers unless there is a clear need
+4. keeping any new tables narrower than the snapshot layers unless there is a clear need
 
 This preserves the incremental path: useful aggregates first, then
 explainability via events, then heavier snapshot layers only when justified.
@@ -1034,7 +1104,7 @@ explainability via events, then heavier snapshot layers only when justified.
 ## Current Reliability Baseline
 
 The warehouse now has a minimum hardening pass that is specifically aimed at
-simulation debugging and future policy / LLM work.
+simulation debugging, policy analysis, and LLM-government work.
 
 Implemented:
 
@@ -1098,7 +1168,7 @@ Design constraints preserved:
 - always-on and cheap
 - no giant tracing subsystem
 - no full per-agent reasoning logs
-- compact enough to support future policy/LLM context without drowning it in raw rows
+- compact enough to support policy/LLM context without drowning it in raw rows
 
 ## Implementation Phases
 
@@ -1151,7 +1221,7 @@ Add:
 
 - `decision_features`
 
-This is the bridge between raw telemetry and a future policy agent.
+This is the bridge between raw telemetry and policy-agent context.
 
 Status:
 
@@ -1165,7 +1235,7 @@ Add:
 - `sector_shortage_diagnostics`
 - `regime_events`
 
-This is the bridge between raw telemetry and future policy explanation.
+This is the bridge between raw telemetry and policy explanation.
 
 Status:
 
@@ -1194,9 +1264,10 @@ Status:
   - `GET /warehouse/runs/{run_id}/sector-metrics`
   - `GET /warehouse/runs/{run_id}/sector-shortages`
   - `GET /warehouse/runs/{run_id}/regime-events`
+  - `GET /warehouse/runs/{run_id}/llm-government-decisions`
 
-The `policy-context` surface is the compact read model intended for later
-government-agent and policy-RAG use. It keeps the interface small:
+The `policy-context` surface is the compact read model intended for
+government-agent and policy-analysis use. It keeps the interface small:
 
 - rolling windows for macro metrics, decision features, and diagnostics
 - current shortage state
@@ -1204,16 +1275,16 @@ government-agent and policy-RAG use. It keeps the interface small:
 - recent policy actions with compact observed post-action deltas
 - reconstructed current policy state from `policy_config + policy_actions`
 
-## Resume and Interview Value
+## Architecture Value
 
-This architecture supports strong talking points:
+This architecture keeps the system practical to operate:
 
-1. "I separated the hot simulation path from the persistence path."
-2. "I designed a local-first warehouse for a multi-agent economic simulator."
-3. "I modeled both state snapshots and event logs to support causal analysis."
-4. "I used PostgreSQL plus TimescaleDB for time-series simulation metrics."
-5. "I created a path for future automated policy agents using compact derived
-   decision features rather than raw table dumps."
+1. The hot simulation path is separated from the persistence path.
+2. Run history is durable and queryable without bloating websocket payloads.
+3. State snapshots and event logs support causal analysis from different grains.
+4. PostgreSQL plus TimescaleDB remains the target for time-series simulation metrics.
+5. Policy-agent context uses compact derived features and full decision audit
+   records rather than raw table dumps.
 
 ## Open Decisions
 

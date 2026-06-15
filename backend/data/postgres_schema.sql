@@ -382,6 +382,33 @@ CREATE UNIQUE INDEX IF NOT EXISTS ux_policy_actions_run_event_key ON policy_acti
 CREATE INDEX IF NOT EXISTS idx_policy_actions_run_type_tick ON policy_actions(run_id, action_type, tick);
 
 -- =============================================================================
+-- Table 8b: llm_government_decisions
+-- =============================================================================
+CREATE TABLE IF NOT EXISTS llm_government_decisions (
+    decision_id BIGSERIAL PRIMARY KEY,
+    run_id TEXT NOT NULL,
+    event_key TEXT NOT NULL,
+    snapshot_tick INTEGER NOT NULL CHECK (snapshot_tick >= 0),
+    applied_tick INTEGER,
+    status TEXT NOT NULL,
+    provider TEXT NOT NULL,
+    model TEXT NOT NULL,
+    raw_response_json JSONB NOT NULL,
+    normalized_response_json JSONB NOT NULL,
+    accepted_changes_json JSONB NOT NULL,
+    rejected_changes_json JSONB NOT NULL,
+    rationale TEXT,
+    evidence_audit_json JSONB,
+    elapsed_ms DOUBLE PRECISION,
+    error_message TEXT,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    FOREIGN KEY (run_id) REFERENCES simulation_runs(run_id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_llm_government_decisions_run_snapshot ON llm_government_decisions(run_id, snapshot_tick);
+CREATE UNIQUE INDEX IF NOT EXISTS ux_llm_government_decisions_run_event_key ON llm_government_decisions(run_id, event_key);
+
+-- =============================================================================
 -- Table 9: decision_features
 -- =============================================================================
 CREATE TABLE IF NOT EXISTS decision_features (

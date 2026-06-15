@@ -1235,6 +1235,7 @@ def test_contract_server_llm_decision_interval_is_enforced(tiny_economy_factory,
     class DummyAdvisor:
         async def decide(self, economy):
             calls["count"] += 1
+            await asyncio.sleep(0.05)
             economy.government.set_lever("public_works", "on")
             return {
                 "tick": economy.current_tick,
@@ -1270,9 +1271,35 @@ def test_contract_server_llm_decision_interval_is_enforced(tiny_economy_factory,
     monkeypatch.setattr(CONFIG.llm, "government_start_after_warmup_ticks", 5)
     monkeypatch.setattr(CONFIG.llm, "government_decision_interval", 26)
 
-    result_due = asyncio.run(manager._run_llm_government_if_due())
-    assert calls["count"] == 1
-    assert result_due is not None
+    async def scenario():
+        loop = asyncio.get_running_loop()
+        started = loop.time()
+        await manager._schedule_llm_government_if_due()
+        elapsed = loop.time() - started
+
+        assert elapsed < 0.02
+        assert manager.llm_task is not None
+        assert manager.llm_status == "thinking"
+        assert manager.economy.government.public_works_toggle != "on"
+
+        manager.economy.step()
+        manager.tick = manager.economy.current_tick
+        assert manager.economy.current_tick == 16
+        assert manager.economy.government.public_works_toggle != "on"
+
+        await manager.llm_task
+        manager._collect_llm_task_result()
+        assert calls["count"] == 1
+        assert manager.pending_llm_decision is not None
+        assert manager.economy.government.public_works_toggle != "on"
+
+        manager._apply_llm_decision_at_boundary()
+
+    asyncio.run(scenario())
+
+    assert manager.latest_government_decision is not None
+    assert manager.latest_government_decision["snapshotTick"] == 15
+    assert manager.latest_government_decision["appliedTick"] == 16
     assert manager.economy.government.public_works_toggle == "on"
     assert captured_actions
     assert captured_actions[0]["payload"]["rationale"] == "Labor market support"
@@ -1281,8 +1308,8 @@ def test_contract_server_llm_decision_interval_is_enforced(tiny_economy_factory,
 
     manager.tick = 16
     manager.economy.current_tick = 16
-    result_not_due = asyncio.run(manager._run_llm_government_if_due())
-    assert result_not_due is None
+    asyncio.run(manager._schedule_llm_government_if_due())
+    assert manager.llm_task is None
     assert calls["count"] == 1
 
 

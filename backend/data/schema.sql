@@ -310,6 +310,34 @@ CREATE UNIQUE INDEX IF NOT EXISTS ux_policy_actions_run_event_key ON policy_acti
 CREATE INDEX IF NOT EXISTS idx_policy_actions_run_type_tick ON policy_actions(run_id, action_type, tick);
 
 -- =============================================================================
+-- Table 8b: llm_government_decisions
+-- Stores full nonblocking LLM government decision cycles
+-- =============================================================================
+CREATE TABLE IF NOT EXISTS llm_government_decisions (
+    decision_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    run_id TEXT NOT NULL,
+    event_key TEXT NOT NULL,
+    snapshot_tick INTEGER NOT NULL,
+    applied_tick INTEGER,
+    status TEXT NOT NULL,
+    provider TEXT NOT NULL,
+    model TEXT NOT NULL,
+    raw_response_json TEXT NOT NULL,
+    normalized_response_json TEXT NOT NULL,
+    accepted_changes_json TEXT NOT NULL,
+    rejected_changes_json TEXT NOT NULL,
+    rationale TEXT,
+    evidence_audit_json TEXT,
+    elapsed_ms REAL,
+    error_message TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (run_id) REFERENCES simulation_runs(run_id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_llm_government_decisions_run_snapshot ON llm_government_decisions(run_id, snapshot_tick);
+CREATE UNIQUE INDEX IF NOT EXISTS ux_llm_government_decisions_run_event_key ON llm_government_decisions(run_id, event_key);
+
+-- =============================================================================
 -- Table 9: decision_features
 -- Stores compact per-tick decision context for policy / LLM use
 -- =============================================================================

@@ -48,7 +48,14 @@ from fiscal_guards import (
 )
 import numpy as np
 import math
-from agents import HouseholdAgent, FirmAgent, BankAgent, GovernmentAgent, LoanContract
+from agents import (
+    HouseholdAgent,
+    FirmAgent,
+    BankAgent,
+    GovernmentAgent,
+    LoanContract,
+    build_awareness_market_views,
+)
 from utils.category_utils import get_good_category, build_good_category_lookup
 
 logger = logging.getLogger(__name__)
@@ -774,7 +781,6 @@ class Economy:
         cash_balances = np.array([h.cash_balance for h in self.households], dtype=np.float64)
         spending_tendencies = np.array([h.spending_tendency for h in self.households], dtype=np.float64)
         frugalities = np.array([max(h.frugality, 0.1) for h in self.households], dtype=np.float64)
-        goods_values = np.array([sum(h.goods_inventory.values()) for h in self.households], dtype=np.float64)
         food_prefs = np.array([h.food_preference for h in self.households], dtype=np.float64)
         housing_prefs = np.array([h.housing_preference for h in self.households], dtype=np.float64)
         services_prefs = np.array([h.services_preference for h in self.households], dtype=np.float64)
@@ -784,7 +790,6 @@ class Economy:
         # flow to high-MPC households (poor); dividend income to low-MPC
         # (rich). This produces realistic aggregate saving rates and prevents
         # the panic-spiral the old confidence/panic_factor code created.
-        happiness_arr = np.array([h.happiness for h in self.households], dtype=np.float64)
         employment_status = np.array([h.is_employed for h in self.households], dtype=bool)
         wages = np.array([h.wage for h in self.households], dtype=np.float64)
         drawdown_rates = np.array([h.savings_drawdown_rate for h in self.households], dtype=np.float64)
@@ -840,15 +845,6 @@ class Economy:
         trait_multiplier = np.clip(spending_tendencies / frugalities, 0.85, 1.15)
         base_budget = base_budget * trait_multiplier
 
-        # Diagnostic spend_fraction for downstream code that may reference it.
-        disposable_income = wage_income + benefit_income + dividend_incomes
-        spend_fraction = np.where(
-            disposable_income > 0,
-            base_budget / np.maximum(disposable_income, 1e-9),
-            0.0,
-        )
-        spend_fraction = np.clip(spend_fraction, 0.0, 1.0)
-
         # Accessible liquidity: cash + 90% of bank deposits (can be withdrawn pre-purchase)
         bank_deposits = np.array([h.bank_deposit for h in self.households], dtype=np.float64)
         deposit_liquidity = 0.90 * np.maximum(bank_deposits, 0.0)
@@ -885,17 +881,24 @@ class Economy:
             median_price = prices[len(prices) // 2]
             price_cache[category] = (min_price, median_price, max_price)
             category_option_cache[category] = affordable_opts
-        category_array_cache: Dict[str, Dict[str, np.ndarray]] = {}
+        category_array_cache: Dict[str, Dict[str, object]] = {}
         for category, options in category_option_cache.items():
             firm_ids = np.array([opt["firm_id"] for opt in options], dtype=np.int32)
             prices = np.array([opt["price"] for opt in options], dtype=np.float64)
             qualities = np.array([opt["quality"] for opt in options], dtype=np.float64)
             if firm_ids.size == 0:
                 continue
+            index_lists_by_firm_id: Dict[int, List[int]] = {}
+            for position, firm_id in enumerate(firm_ids.tolist()):
+                index_lists_by_firm_id.setdefault(int(firm_id), []).append(position)
             category_array_cache[category] = {
                 "firm_ids": firm_ids,
                 "prices": prices,
                 "qualities": qualities,
+                "indices_by_firm_id": {
+                    firm_id: tuple(positions)
+                    for firm_id, positions in index_lists_by_firm_id.items()
+                },
             }
 
         standard_categories = ["food", "housing", "services"]
@@ -925,6 +928,7 @@ class Economy:
 
         # Build consumption plans (fallback to Python loop for now due to complex logic)
         household_consumption_plans = {}
+        awareness_market_views = None
 
         for idx, household in enumerate(self.households):
             budget = budgets[idx]
@@ -940,6 +944,26 @@ class Economy:
 
             # Use category weights if available
             if household.category_weights and sum(household.category_weights.values()) > 0 and category_market_snapshot:
+                awareness_needs_refresh = not household.awareness_pool
+                if not awareness_needs_refresh:
+                    refresh_interval = max(1, int(CONFIG.households.pool_refresh_interval))
+                    awareness_needs_refresh = (
+                        self.current_tick - household.last_pool_refresh_tick >= refresh_interval
+                    )
+                if not awareness_needs_refresh:
+                    for category, options in category_market_snapshot.items():
+                        if options and not household._get_awareness_pool_set(category):
+                            awareness_needs_refresh = True
+                            break
+                if awareness_needs_refresh:
+                    if awareness_market_views is None:
+                        awareness_market_views = build_awareness_market_views(category_market_snapshot)
+                    household.refresh_awareness_pool(
+                        category_market_snapshot,
+                        self.current_tick,
+                        awareness_market_views=awareness_market_views,
+                    )
+
                 planned_purchases = household._plan_category_purchases(
                     budget,
                     category_market_snapshot,
@@ -1185,9 +1209,14 @@ class Economy:
             household.last_other_income = -taxes_paid  # Taxes are negative income
 
             household.cash_balance += wage_income + ceo_salary + transfers - taxes_paid
-            household.add_ledger_flow("wage", wage_income + ceo_salary)
-            household.add_ledger_flow("transfers", transfers)
-            household.add_ledger_flow("taxes", -taxes_paid)
+            ledger = household.last_tick_ledger
+            wage_flow = wage_income + ceo_salary
+            if abs(wage_flow) > 1e-12:
+                ledger["wage"] = ledger.get("wage", 0.0) + float(wage_flow)
+            if abs(transfers) > 1e-12:
+                ledger["transfers"] = ledger.get("transfers", 0.0) + float(transfers)
+            if abs(taxes_paid) > 1e-12:
+                ledger["taxes"] = ledger.get("taxes", 0.0) - float(taxes_paid)
 
             # Process medical loan payments (10% of wage per tick)
             medical_payment = household.make_medical_loan_payment()
@@ -1223,7 +1252,9 @@ class Economy:
             household.last_purchase_breakdown = healthcare_receipt
             for good, (quantity, price_paid) in purchases.items():
                 total_cost = quantity * price_paid
-                category = cat_lookup.get(good, good.lower())
+                category = cat_lookup.get(good)
+                if category is None:
+                    category = good.lower()
                 # Sector subsidy: government pays subsidy_rate of cost
                 if subsidy_rate > 0.0 and subsidy_target != "none" and category == subsidy_target:
                     household_cost, _govt_share, affordability_scale = (
@@ -1240,7 +1271,8 @@ class Economy:
                     continue
                 total_spending += household_cost
                 household.cash_balance -= household_cost
-                household.add_ledger_flow("goods", -household_cost)
+                if abs(household_cost) > 1e-12:
+                    ledger["goods"] = ledger.get("goods", 0.0) - float(household_cost)
                 if category == "housing" and quantity > 0:
                     household.owns_housing = True
                     household.met_housing_need = True
@@ -1301,7 +1333,9 @@ class Economy:
             food_consumed = 0.0
             for good in list(household.goods_inventory.keys()):
                 if household.goods_inventory[good] > 0:
-                    category = cat_lookup.get(good, good.lower())
+                    category = cat_lookup.get(good)
+                    if category is None:
+                        category = good.lower()
                     current_qty = household.goods_inventory[good]
                     if category == "housing":
                         household.met_housing_need = household.met_housing_need or current_qty >= housing_usage
@@ -3781,20 +3815,35 @@ class Economy:
         firm_goods = [f.good_name for f in firms]
         firm_remaining = np.array(firm_available, dtype=np.float64)
 
-        for fid in firm_ids:
-            per_firm_sales[fid] = {"units_sold": 0.0, "revenue": 0.0}
+        # Array accumulators indexed by firm position. Avoids a nested-dict
+        # mutation per sale; materialized into per_firm_sales at the end with
+        # the same {firm_id: {"units_sold","revenue"}} shape downstream expects.
+        n_firms = len(firms)
+        firm_units_sold = np.zeros(n_firms, dtype=np.float64)
+        firm_revenue = np.zeros(n_firms, dtype=np.float64)
 
         _good_name_to_cat = {f.good_name: (f.good_category or "").lower() for f in firms}
+        # Per-idx category, so unmet-demand branching skips a dict.get per event.
+        firm_cat_by_idx = [_good_name_to_cat[g] for g in firm_goods]
         _unmet_food = 0.0
         _unmet_services = 0.0
 
-        # Group firm indices by good_name, sorted by price then id
-        goods_to_indices: Dict[str, np.ndarray] = {}
+        # Local binds: hoist attribute lookups out of the per-event hot loop.
+        services_unmet_by_firm = self.services_unmet_demand_by_firm
+        record_firm_unmet = self._record_firm_unmet_demand
+
+        # Group firm indices by good_name, sorted by price then id. Python int
+        # lists (not np arrays) — faster iteration, and a per-good cursor below
+        # skips the contiguous sold-out prefix instead of rescanning from 0.
+        goods_to_indices: Dict[str, list] = {}
         for idx, firm in enumerate(firms):
             goods_to_indices.setdefault(firm.good_name, []).append(idx)
         for good_name, idx_list in goods_to_indices.items():
             idx_list.sort(key=lambda i: (firm_prices[i], firm_ids[i]))
-            goods_to_indices[good_name] = np.array(idx_list, dtype=np.int32)
+        # cursor[good] = index into idx_list before which every firm is exhausted.
+        # Exhaustion is monotonic within a tick (firm_remaining only decreases),
+        # so advancing past a sold-out prefix never skips a firm with stock.
+        good_cursor: Dict[str, int] = {}
 
         # Process households in insertion order. Plans are constructed by household order,
         # so this avoids an O(H log H) sort each tick.
@@ -3813,37 +3862,36 @@ class Economy:
                         continue
                     available = firm_remaining[idx]
                     if available <= 0:
-                        _cat = _good_name_to_cat.get(firm_goods[idx], "")
+                        _cat = firm_cat_by_idx[idx]
                         if _cat == "food":
                             _unmet_food += desired_qty
                         elif _cat == "services":
                             _unmet_services += desired_qty
                             _fid = firm_ids[idx]
-                            self.services_unmet_demand_by_firm[_fid] = (
-                                self.services_unmet_demand_by_firm.get(_fid, 0.0) + desired_qty
+                            services_unmet_by_firm[_fid] = (
+                                services_unmet_by_firm.get(_fid, 0.0) + desired_qty
                             )
-                        self._record_firm_unmet_demand(firm_ids[idx], desired_qty)
+                        record_firm_unmet(firm_ids[idx], desired_qty)
                         continue
                     qty = min(desired_qty, available)
                     if qty <= 0:
                         continue
                     _unmet = desired_qty - qty
                     if _unmet > 0:
-                        _cat = _good_name_to_cat.get(firm_goods[idx], "")
+                        _cat = firm_cat_by_idx[idx]
                         if _cat == "food":
                             _unmet_food += _unmet
                         elif _cat == "services":
                             _unmet_services += _unmet
                             _fid = firm_ids[idx]
-                            self.services_unmet_demand_by_firm[_fid] = (
-                                self.services_unmet_demand_by_firm.get(_fid, 0.0) + _unmet
+                            services_unmet_by_firm[_fid] = (
+                                services_unmet_by_firm.get(_fid, 0.0) + _unmet
                             )
-                        self._record_firm_unmet_demand(firm_ids[idx], _unmet)
+                        record_firm_unmet(firm_ids[idx], _unmet)
                     firm_remaining[idx] -= qty
-                    fid = firm_ids[idx]
                     price = firm_prices[idx]
-                    per_firm_sales[fid]["units_sold"] += qty
-                    per_firm_sales[fid]["revenue"] += qty * price
+                    firm_units_sold[idx] += qty
+                    firm_revenue[idx] += qty * price
 
                     gname = firm_goods[idx]
                     prev_qty, prev_price = per_household_purchases[household_id].get(gname, (0.0, 0.0))
@@ -3859,22 +3907,30 @@ class Economy:
                 if idx_list is None or len(idx_list) == 0:
                     continue
 
+                # Advance the shared cursor past any leading sold-out firms so
+                # repeated generic purchases don't rescan the exhausted prefix.
+                cursor = good_cursor.get(good_name, 0)
+                n_idx = len(idx_list)
+                while cursor < n_idx and firm_remaining[idx_list[cursor]] <= 0:
+                    cursor += 1
+                good_cursor[good_name] = cursor
+
                 remaining = desired_qty
                 total_bought = 0.0
                 price_sum = 0.0
 
-                for idx in idx_list:
+                for scan in range(cursor, n_idx):
                     if remaining <= 0:
                         break
+                    idx = idx_list[scan]
                     available = firm_remaining[idx]
                     if available <= 0:
                         continue
                     qty = min(remaining, available)
                     firm_remaining[idx] -= qty
-                    fid = firm_ids[idx]
                     price = firm_prices[idx]
-                    per_firm_sales[fid]["units_sold"] += qty
-                    per_firm_sales[fid]["revenue"] += qty * price
+                    firm_units_sold[idx] += qty
+                    firm_revenue[idx] += qty * price
                     total_bought += qty
                     price_sum += qty * price
                     remaining -= qty
@@ -3894,6 +3950,13 @@ class Economy:
 
         self.food_unmet_demand += _unmet_food
         self.services_unmet_demand += _unmet_services
+
+        # Materialize array accumulators back into the public per-firm shape.
+        for idx, fid in enumerate(firm_ids):
+            per_firm_sales[fid] = {
+                "units_sold": float(firm_units_sold[idx]),
+                "revenue": float(firm_revenue[idx]),
+            }
 
         return per_household_purchases, per_firm_sales
 

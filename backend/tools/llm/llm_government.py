@@ -416,6 +416,7 @@ def _format_observed_metrics(
     lines: List[str] = []
 
     def render_indicator(key: str, show_rolling: bool = False, skip_unavailable: bool = False) -> Optional[str]:
+        """Render one observed metric line if it is available and meaningful."""
         entry = observed_metrics.get(key)
         if entry is None:
             return None
@@ -482,6 +483,7 @@ def _format_recent_policy_memory(memory: List[Dict[str, Any]]) -> str:
         return "No recent policy actions recorded."
 
     def fmt_delta(impact: Dict[str, Any], key: str, unit: str = "") -> str:
+        """Format one stored policy-impact delta for prompt memory."""
         if not impact or impact.get("status") == "pending":
             return "pending"
         val = impact.get(key)
@@ -654,11 +656,13 @@ PRIMARY_GOALS = {
 
 
 def _normalize_fiscal_mode(value: Any) -> str:
+    """Return a known fiscal mode, defaulting invalid model output to NORMAL."""
     mode = str(value or "NORMAL").strip().upper()
     return mode if mode in FISCAL_MODES else "NORMAL"
 
 
 def _normalize_primary_goal(value: Any) -> str:
+    """Return a known primary policy goal, defaulting invalid output to hold."""
     goal = str(value or "hold").strip().lower()
     return goal if goal in PRIMARY_GOALS else "hold"
 
@@ -669,6 +673,7 @@ def _decision_summary_reasoning(
     validated: Dict[str, Any],
     rejected: List[Dict[str, Any]],
 ) -> str:
+    """Build a short human-readable summary of accepted and rejected changes."""
     accepted_text = ", ".join(f"{key}={value}" for key, value in validated.items()) or "no accepted changes"
     if rejected:
         rejected_text = "; ".join(
@@ -1371,12 +1376,14 @@ def _build_recent_policy_memory(
     history = list(getattr(economy, "metrics_history", []) or [])
 
     def row_at_or_before(tick: int) -> Optional[Dict[str, Any]]:
+        """Return the newest metrics row at or before a requested tick."""
         for row in reversed(history):
             if int(row.get("tick", -1)) <= tick:
                 return row.get("metrics", {})
         return None
 
     def metric_net_flow(row: Optional[Dict[str, Any]]) -> Optional[float]:
+        """Read net fiscal flow from a stored metrics row when available."""
         if row is None:
             return None
         return _net_fiscal_flow(row)
@@ -1390,6 +1397,7 @@ def _build_recent_policy_memory(
         provisional: bool = False,
         available_at_tick: Optional[int] = None,
     ) -> Dict[str, Any]:
+        """Compare baseline and evaluation rows into a policy-impact summary."""
         impact = {
             "status": status,
             "baseline_tick": baseline_tick,
@@ -1403,12 +1411,14 @@ def _build_recent_policy_memory(
             return impact
 
         def delta_pp(field: str) -> Optional[float]:
+            """Return a percentage-point delta for rate-like fields."""
             b, e = baseline.get(field), evaluation.get(field)
             if b is None or e is None:
                 return None
             return round((float(e) - float(b)) * 100, 2)
 
         def delta_pct(field: str) -> Optional[float]:
+            """Return a percent change against the absolute baseline value."""
             b, e = baseline.get(field), evaluation.get(field)
             if b is None or e is None:
                 return None
@@ -1418,6 +1428,7 @@ def _build_recent_policy_memory(
             return round((float(e) - b_float) / abs(b_float) * 100, 1)
 
         def delta_abs(field: str) -> Optional[float]:
+            """Return an absolute numeric delta between evaluation and baseline."""
             b, e = baseline.get(field), evaluation.get(field)
             if b is None or e is None:
                 return None
@@ -1714,6 +1725,7 @@ def _validate_decisions(
     """Validate proposed decisions against the action space, step limits, and ideology ranges."""
 
     class _Gov:
+        """Minimal government stand-in for schema validation helpers."""
         cash_balance = 0.0
 
     gov = _Gov()
@@ -1803,6 +1815,7 @@ def _append_rejection(
     group: Optional[str] = None,
     raw_changes: Optional[Dict[str, Any]] = None,
 ) -> None:
+    """Record one rejected model change with enough context for audit logs."""
     item = {"lever": lever, "value": value, "reason": reason}
     if group is not None:
         item["group"] = group
@@ -1846,6 +1859,7 @@ def _group_raw_changes(raw_changes: Dict[str, Any]) -> List[tuple[str, Dict[str,
 
 
 def _values_differ(left: Any, right: Any) -> bool:
+    """Compare values numerically when possible, otherwise by exact equality."""
     try:
         return float(left) != float(right)
     except (TypeError, ValueError):
@@ -2171,6 +2185,7 @@ def build_allowed_government_actions(
                 blocked_simple.setdefault(lever, []).append({"value": value, "reason": reason})
 
     def group_candidates(group: str) -> List[Dict[str, Any]]:
+        """Generate nearby valid action candidates for one substantive lever group."""
         current_level = current_policy.get("price_stabilization_level", "off")
         if group == "price_stabilization":
             levels = POLICY_ORDERED_LEVERS["price_stabilization_level"]
@@ -2401,6 +2416,7 @@ async def decide_node(state: GovernmentState, provider: LLMProvider, config: Any
     government = getattr(economy, "government", None) if economy is not None else None
     if government is None:
         class _FallbackGovernment:
+            """Fallback object used when parsing decisions without a live economy."""
             cash_balance = 0.0
         government = _FallbackGovernment()
     detailed = sanitize_llm_government_changes_detailed(
@@ -2501,24 +2517,31 @@ def build_government_graph(
     graph = StateGraph(GovernmentState)
 
     def observe_step(state: GovernmentState) -> Dict[str, Any]:
+        """Capture raw economy observations for the graph state."""
         return observe_node(state, economy)
 
     def constrain_step(state: GovernmentState) -> Dict[str, Any]:
+        """Apply prompt-visible information constraints to graph state."""
         return apply_info_constraints_node(state, economy, config, decision_history)
 
     async def decide_step(state: GovernmentState) -> Dict[str, Any]:
+        """Ask the provider for a constrained government decision."""
         return await decide_node(state, provider, config, economy=economy)
 
     def apply_step(state: GovernmentState) -> Dict[str, Any]:
+        """Validate model output and derive accepted policy changes."""
         return apply_node(state, economy)
 
     def log_step(state: GovernmentState) -> Dict[str, Any]:
+        """Persist final graph metadata into the decision state."""
         return log_node(state)
 
     def fallback_step(state: GovernmentState) -> Dict[str, Any]:
+        """Produce a safe fallback decision when parsing or validation fails."""
         return fallback_node(state)
 
     def parse_success_check(state: GovernmentState) -> str:
+        """Route the graph based on whether the model response parsed cleanly."""
         return "success" if state.get("parse_ok", False) else "failure"
 
     graph.add_node("observe", observe_step)

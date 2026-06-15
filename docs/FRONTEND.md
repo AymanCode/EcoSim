@@ -1,453 +1,236 @@
-# EcoSim Frontend Dashboard
+# Frontend Dashboard
 
-What the React dashboard displays, how to use it, and how it communicates with the backend.
+The EcoSim frontend is a React/Vite dashboard for launching, controlling, and inspecting live simulation runs.
 
----
+## Stack
 
-## Neural Visualization Components
+- React 19
+- Vite
+- Recharts
+- Tailwind CSS
+- lucide-react icons
+- Custom canvas-based neural visualizations
+- WebSocket transport through `/ws`
 
-The frontend uses three WebGL-canvas-based neural visualization components that render animated 3D wireframe structures representing different agent types. All components use `React`, `useEffect`, and `useRef` to manage canvas rendering with `requestAnimationFrame` for smooth animation.
+The application entry point is [`frontend-react/src/App.jsx`](../frontend-react/src/App.jsx). Vite proxies `/ws` and `/health` to the backend on port `8002` during local development. The production Docker image serves the built app through Nginx and proxies the same paths to the backend service.
 
-### NeuralAvatar (`NeuralAvatar.jsx`)
+## Running Locally
 
-Renders a holographic humanoid figure representing a household agent.
-
-**Props:**
-- `active` (bool, default `true`) — Whether the animation is active
-- `mood` (string, default `'neutral'`) — Mood state: `'happy'` or `'neutral'`, affects color palette
-- `variant` (string, default `'human'`) — Reserved for future variant support
-
-**Structure:**
-- Head: 25 points in spherical distribution
-- Body: 45 points in cylindrical distribution
-- Arms: 2 × ~11 points along Y-axis with X/Z offset
-- Legs: 2 × ~10 points along Y-axis with X/Z offset
-
-**Visual:**
-- Teal/cyan color palette (`#0d9488`, `#2dd4bf`)
-- Connection lines between nearby points (radius: 16 units)
-- Rotation speed: 0.008 radians/frame
-- Mood affects node glow intensity
-
----
-
-### NeuralBuilding (`NeuralBuilding.jsx`)
-
-Renders a holographic multi-tier building representing a firm agent.
-
-**Props:**
-- `active` (bool, default `true`) — Whether the animation is active
-- `activityLevel` (string, default `'normal'`) — Activity level: `'normal'`, `'low'`, or `'high'`
-- `tier` (int, default `3`) — Building tier (1–3), affects height and complexity
-
-**Structure (based on tier):**
-- Tier 1: Single block, 55 units height
-- Tier 2: Two blocks, 90 units height with mid-section
-- Tier 3: Three blocks, 150 units height with spire
-
-**Visual:**
-- Emerald/green color palette for windows and structure
-- Window points on outer surfaces
-- Core energy line through center
-- Activity level affects animation speed and glow intensity
-
----
-
-### NeuralGovernment (`NeuralGovernment.jsx`)
-
-Renders a holographic obelisk/monument representing the government agent.
-
-**Props:**
-- `active` (bool, default `true`) — Whether the animation is active
-- `activityLevel` (string, default `'normal'`) — Activity level: `'normal'` or `'high'` (high when government is in deficit)
-
-**Structure:**
-- Base: Stepped platform with wide foundation
-- Pillar: Tapering obelisk from base to apex (240 units total height)
-- Apex: "Eye" point at the top
-- Core: Energy line running through center
-
-**Visual:**
-- Indigo/violet color palette (`rgb(139, 92, 246)`)
-- Gold/white accents for apex and core
-- Core pulses based on activity level
-- Monument represents stability and authority
-
----
-
-
-## Overview
-
-The frontend is a React + Vite application styled with Tailwind CSS and the "Oberon Command" dark tech theme. It connects to the backend via WebSocket and displays real-time simulation data across 6 views.
-
-### Running
+Start the backend first:
 
 ```bash
-# Backend (must be running first)
 python -m uvicorn backend.server:app --reload --port 8002
+```
 
-# Frontend
+Then start Vite:
+
+```bash
 cd frontend-react
 npm install
 npm run dev
 ```
 
-Open `http://localhost:5173` in your browser.
+Open `http://localhost:5173`.
 
----
+For the full Docker stack, run `./start.sh` or `.\start.ps1` from the repository root.
 
-## Navigation
+## Views
 
-The sidebar has 6 views:
+The sidebar currently exposes seven views:
 
-| View | Icon | Description | Available |
-|------|------|-------------|-----------|
-| **Config** | Settings | Set up simulation parameters and initialize | Always |
-| **Dashboard** | Activity | Main economic metrics and charts | After init |
-| **Subjects** | Users | Individual household inspection | After init |
-| **Firms** | Building | Firm analytics and tracked firm detail | After init |
-| **Gov** | Landmark | Government policy and fiscal overview | After init |
-| **Logs** | Terminal | Simulation event log | After init |
+| View | Route state | Purpose |
+|---|---|---|
+| Config | `CONFIG` | Launch profile, policy defaults, stabilizer toggles, backend status |
+| Command | `DASHBOARD` | Macro metrics, stress signals, sector status, live chart history |
+| Population | `SUBJECTS` | Tracked household drill-down, wage reasoning, health, morale, traits, history |
+| Markets | `FIRMS` | Sector rollups, tracked firm detail, prices, wages, inventory, revenue, profit |
+| Finance | `FINANCE` | Government debt/fiscal balance, bank and government-backed loan telemetry |
+| Government | `GOVERNMENT` | Manual policy controls, AI Policy Engine toggle, fiscal flow, decision history |
+| Logs | `LOGS` | Buffered event stream with filters and detail inspection |
 
-The Dashboard, Subjects, Firms, Government, and Logs views are locked until the simulation is initialized.
-
----
+Only Config is available before initialization. Other views unlock after a successful `SETUP`.
 
 ## Config View
 
-**Before initialization** — Set simulation scale and policy:
+Pre-launch controls:
 
-- **Population Scale**: 100–10,000 households (slider) — backend supports up to 100,000
-- **Wage Tax Rate**: 0–50% (slider)
-- **Corp Profit Tax**: 0–60% (slider)
-- **INITIALIZE PROTOCOL** button — sends SETUP command and auto-starts simulation
+- `Population Scale`: frontend slider range `100` to `10000`; backend accepts `3` to `100000`
+- `Policy Assistant`: maps to `enable_llm_government`
+- `Wage Tax`: setup `wage_tax`
+- `Corporate Profit Tax`: setup `profit_tax`
+- `Minimum Wage Floor`: runtime preview mapped to `minimum_wage_policy`
+- `Unemployment Benefits`: runtime preview mapped to `benefit_level`
+- `Infrastructure` and `Social Spending`
+- `Disable automatic stabilizers` with agent options for households, firms, government, or all agents
 
-**After initialization** — Adjust runtime policy:
+After initialization, policy controls queue `CONFIG` updates. Changes are debounced client-side and applied by the server at safe tick boundaries.
 
-- **Wage Tax Rate** — live adjustment (0–50%)
-- **Corp Profit Tax** — live adjustment (0–60%)
-- **Wealth Tax Rate** — live adjustment (0–10%)
-- **Minimum Wage Floor** — $0–$100 (live)
-- **Unemployment Benefits** — 0–100% of avg wage (live)
+## Command View
 
-**Stabilization Sandbox:**
-- Toggle to disable automatic stabilizers for selected agent types (Households, Firms, Government, or All)
-- Useful for observing raw policy effects without safety nets
+The Command view is the main run monitor. It shows:
 
-Config changes are debounced (400ms) before sending to backend.
+- GDP, net worth, fiscal flow, unemployment, employment, wage, happiness, health, and inequality metrics
+- population stress and system advisory cards
+- sector status and firm pressure
+- finance summary, including government-backed loan count
+- policy assistant summary
+- chart histories for GDP, wages, unemployment, health, happiness, prices, supply, fiscal balance, firm count, net worth, and wealth distribution where available
 
----
+The server caches some aggregate metrics on a stride for performance, so chart payloads are compact rather than full raw history.
 
-## Dashboard View
+## Population View
 
-The main economic monitoring view with 11 stat tiles and 9 charts.
+The Population view inspects the tracked household subset sent in each tick payload.
 
-### Top Stat Tiles (8 tiles)
+Displayed state includes:
 
-| Tile | Value | Format |
-|------|-------|--------|
-| GDP Output | Total GDP | Adaptive ($K/$M/$B/$T) |
-| Net Worth | Total household + firm net worth | Adaptive |
-| Gov Profit | Government fiscal profit | Adaptive |
-| Gov Debt | Government debt | Adaptive |
-| Unemployment | Unemployment rate | Percentage |
-| Employment | Employment rate | Percentage |
-| Avg Wage | Mean wage across employed | Dollar |
-| Happiness | Mean happiness score | 0-100 scale |
+- identity, age, health, state, medical status
+- employer, wage, expected wage, reservation wage, unemployment duration
+- expected-wage reasoning tags and pressure components
+- skills, morale, happiness, cash, net worth, medical debt
+- food, housing, and healthcare need/status
+- personality traits and per-household history charts
+- canvas avatar visualization via `NeuralAvatar`
 
-### Wealth Inequality Row (3 tiles below charts)
+The tracked subset is selected server-side. It is not the full population.
 
-| Tile | Description |
-|------|-------------|
-| Gini Coefficient | 0-1 scale, color-coded (green <0.30, red >0.70) |
-| Top 10% Wealth Share | Percentage of total wealth held by top 10% |
-| Bottom 50% Share | Percentage of total wealth held by bottom 50% |
+## Markets View
 
-### System Distress Gauge
+The Markets view displays sector-level and tracked-firm state:
 
-- Visual gauge showing unemployment vs happiness levels
-- Appears between top tiles and charts
+- total firms, employees, average wage offer, struggling firms
+- Food, Housing, Services, and Healthcare sector rollups
+- top cash positions and top employers
+- selected tracked-firm detail
+- price, wage offer, inventory, quality, employees, revenue, profit, and history charts
+- canvas firm visualization via `NeuralBuilding`
 
-### Charts (9 panels in the Economic Monitor)
+Tracked firms are selected by the server to highlight top private firms plus baseline firms where available.
 
-| # | Chart | Type | Data | Colors |
-|---|-------|------|------|--------|
-| 1 | GDP Growth | Line | GDP history over time | Sky blue |
-| 2 | Wage Trends | Line (dual) | Mean wage + Median wage | Emerald + Amber |
-| 3 | Unemployment Rate | Line | Unemployment % over time | Red |
-| 4 | Total Net Worth | Line | Combined net worth over time | Purple |
-| 5 | Health Index | Line | Mean health score (0-100) | Pink |
-| 6 | Market Prices | Line (4 lines) | Food/Housing/Services/Healthcare prices | Amber/Emerald/Cyan/Rose |
-| 7 | Total Supply | Line (4 lines) | Food/Housing/Services/Healthcare inventory | Amber/Emerald/Cyan/Rose |
-| 8 | Fiscal Balance | Line | Government profit over time | Violet |
-| 9 | Wealth Distribution | Bar | Bottom 50% / Mid 40% / Top 10% shares | Gray/Blue/Red |
+## Finance View
 
-Charts use Recharts `LineChart` (1-8) and `BarChart` (9) with gradient fills and auto-scaling Y-axis.
+The Finance view surfaces credit and fiscal telemetry:
 
-### System Advisory Footer
+- government-backed loan count
+- government debt and fiscal balance history
+- active loan exposure
+- bank/credit related metrics from the backend payload when available
+- liquidity visualization through `FinanceLiquidityHologram`
 
-- Displays system warning message ("Monitor inflation risk. Supply chain nominal.")
-- Shows total firm count
-- Appears at bottom of Dashboard view
-
----
-
-## Subjects View
-
-Inspect individual tracked households with a detailed profile.
-
-### Subject Tabs (top)
-- All tracked households shown as selectable tabs
-- Each tab shows: ID, name, state (WORKING → "ACTIVE", MED_SCHOOL → "TRAINING", UNEMPLOYED), and a status dot
-- Status dot colors: WORKING (green), MED_SCHOOL (violet), UNEMPLOYED (red)
-
-### Left Column — Bio & Employment
-- **Bio-Metric**: Age, health percentage, current status, medical status
-- **Employment**: Employer name, current wage, shift status (ACTIVE/OFF)
-- **Expected Wage**: Shows expected wage with reasoning (mode, reservation wage, gap to current)
-- **Unemployment Info**: Duration and pressure factors (duration, cash, health, decay)
-- **Skills & Morale**: Competency level bar (0-100%), morale index bar (0-100%)
-- **Traits**: Spending tendency, frugality, saving tendency, price sensitivity, quality lavishness, skill growth rate, health decay, healthcare seek rate, min food/services per tick
-
-### Center Column — Neural Avatar
-- Animated holographic avatar visualization (`NeuralAvatar` component)
-- Mood varies based on happiness level (happy/neutral)
-- Header overlay: Name, ID, state
-- Bottom gauges: Happiness (circular) and Stress Level (circular, inverse of happiness)
-
-### Right Column — Financials & History
-- **Finances**: Liquid cash, net worth, medical debt (if any)
-- **Wealth chart**: Cash balance over time (line chart)
-- **Wage chart**: Wage over time (line chart)
-- **Needs**: Food units, housing status (yes/no), healthcare units
-- **Traits Summary**: Compact view of household behavioral traits
-
----
-
-## Firms View
-
-Market analytics and individual firm inspection.
-
-### Top Stat Tiles (4 tiles)
-- Total Firms, Total Employees, Avg Wage Offer, Struggling Firms (with distress gauge)
-
-### Market Mood Panel
-- Shows VOLATILE or STABLE based on struggling firm ratio (>15% struggling = VOLATILE)
-- Average price and quality displayed
-- Market sentiment text (e.g., "Calm winds")
-- Animated `NeuralBuilding` holographic visualization
-- Activity level varies by market stress
-
-### Sector Breakdown
-- Grid showing each category (Food, Housing, Services, Healthcare)
-- Per category: firm count, total employees, avg cash, avg price
-- Healthcare category also shows: doctor employees, visit revenue
-
-### Firm Tables
-- **Top Cash Positions**: 8 firms sorted by cash balance
-- **Top Employers**: 8 firms sorted by employee count
-- Columns: Firm name, category, cash, employees, price, wage, profit
-
-### Tracked Firm Detail (right sidebar)
-- Select from up to 7 tracked firms
-- Detail card: Name, category, state (DISTRESS/SCALING/OPERATING)
-- Metrics: Cash, inventory, employees, quality, price, wage offer, revenue, profit
-- **Cash History** chart: Cash balance over time (line chart)
-- **Profit History** chart: Profit over time (line chart)
-
----
+The bank itself remains a backend simulation actor; the frontend displays selected aggregate signals rather than raw loan records.
 
 ## Government View
 
-Government policy controls and fiscal monitoring with neural monument visualization.
+The Government view is the live policy console.
 
-### Left Column — Policy Overrides & State Capacity
+Controls include:
 
-**Policy Overrides:**
-- **Income Tax (Wage)** — live adjustment (0–50%)
-- **Corporate Tax** — live adjustment (0–60%)
-- **Wealth Tax** — live adjustment (0–10%)
-- **Unemployment Benefits** — 0–100% of avg wage (live)
-- **Minimum Wage** — $0–$100 (live)
+- AI Policy Engine toggle
+- wage tax and profit tax
+- benefit level
+- minimum wage policy
+- public works
+- sector subsidy target and level
+- infrastructure, technology, and social spending
+- price stabilization target and level
+- rent stabilization level
+- bailout policy, target, and budget
 
-**State Capacity:**
-- **Gov Owned Firms** count
-- **Active Loans** amount
-- **Bond Purchases** amount
+The view also shows:
 
-### Center Column — Neural Government
+- current GDP, unemployment, happiness, and net fiscal flow
+- fiscal revenue, transfers, investments, active loans, government cash, and debt
+- current LLM status, provider/model where available, snapshot tick, applied tick, accepted/rejected changes
+- recent manual and LLM policy actions
+- canvas government visualization via `NeuralGovernment`
 
-- Animated holographic obelisk/monument visualization (`NeuralGovernment` component)
-- Activity level varies based on government fiscal status (normal when profitable, high when in deficit)
-- Header overlay: "GOVERNMENT CORE" with AI Advisor status indicator
-- Monument structure with base steps, tapering pillar, and apex "eye"
-- Core energy line runs through the center of the monument
-
-### Right Column — Fiscal Monitoring
-
-- **Gov Cash**, **Gov Debt**, **Gov Profit** stat tiles
-- **National Debt History** chart (line chart)
-- AI Advisor status indicator (always online)
-
----
+Manual controls remain available when the AI Policy Engine is inactive or provider setup is missing.
 
 ## Logs View
 
-Terminal-style event log showing simulation events.
+The Logs view presents the rolling log buffer from server tick payloads plus frontend lifecycle events.
 
-- Path displayed as `/var/logs/ecosim_events.log`
-- Auto-scroll enabled
-- Each log entry: tick number, type tag, message text
-- Type colors: WARN (amber), ECO (emerald), GOV (purple), SYS (white)
-- Keeps last ~20 events from backend plus boot sequence messages
+Features:
 
----
+- auto-scroll toggle
+- severity/type filters
+- event count and error count
+- selected event detail
+- buffered list capped client-side
 
-## WebSocket Protocol
+## WebSocket Contract
 
-### Connection
+Endpoint:
 
-```
+```text
 ws://localhost:8002/ws
 ```
 
-Auto-reconnects on disconnect (1.2s delay).
+Commands sent by the frontend:
 
-### Commands (Frontend → Backend)
+| Command | Payload shape |
+|---|---|
+| `SETUP` | `{ command: "SETUP", config: { num_households, num_firms, wage_tax, profit_tax, enable_llm_government, disable_stabilizers, disabled_agents } }` |
+| `START` | `{ command: "START" }` |
+| `STOP` | `{ command: "STOP" }` |
+| `RESET` | `{ command: "RESET" }` |
+| `CONFIG` | `{ command: "CONFIG", config: { ...runtimeControls } }` |
+| `STABILIZERS` | `{ command: "STABILIZERS", disable_stabilizers, disabled_agents }` |
 
-| Command | Payload | Description |
-|---------|---------|-------------|
-| `SETUP` | `{ command: "SETUP", config: { num_households, num_firms, wage_tax, profit_tax, disable_stabilizers, disabled_agents } }` | Initialize simulation |
-| `START` | `{ command: "START" }` | Begin/resume tick execution |
-| `STOP` | `{ command: "STOP" }` | Pause simulation |
-| `RESET` | `{ command: "RESET" }` | Reset to pre-initialization state |
-| `CONFIG` | `{ command: "CONFIG", config: { wageTax, profitTax, minimumWage, unemploymentBenefitRate } }` | Update runtime policy |
-| `STABILIZERS` | `{ command: "STABILIZERS", disable_stabilizers: bool, disabled_agents: [...] }` | Toggle agent stabilizers |
+Important server messages:
 
-### Messages (Backend → Frontend)
+| Message | Meaning |
+|---|---|
+| `SETUP_COMPLETE` | Economy initialized |
+| `STARTED` | Tick loop running |
+| `STOPPED` | Tick loop paused |
+| `RESET` | Run reset to pre-initialization state |
+| `STABILIZERS_UPDATED` | Stabilizer state acknowledged |
+| Tick payload | Object with `tick`, `metrics`, `firm_stats`, and `logs` |
 
-| Type | Description |
-|------|-------------|
-| `SETUP_COMPLETE` | Simulation initialized, switch to dashboard |
-| `STARTED` | Simulation resumed |
-| `STOPPED` | Simulation paused |
-| `RESET` | Simulation reset, return to config view |
-| `STABILIZERS_UPDATED` | Stabilizer settings confirmed |
-| Tick data | `{ tick, metrics: {...}, firm_stats: {...}, logs: [...] }` |
+## Runtime Config Mapping
 
-### Tick Metrics Payload
+The frontend sends camelCase runtime fields. The server maps them to policy-schema fields before applying:
 
-The main data message sent each tick includes:
+| Frontend field | Backend policy field |
+|---|---|
+| `wageTax` | `wage_tax_rate` |
+| `profitTax` | `profit_tax_rate` |
+| `investmentTax` | `investment_tax_rate` |
+| `benefitLevel` | `benefit_level` |
+| `publicWorks` | `public_works` |
+| `minimumWagePolicy` | `minimum_wage_policy` |
+| `minimumWage` | mapped to `minimum_wage_policy` |
+| `unemploymentBenefitRate` | mapped to `benefit_level` |
+| `sectorSubsidyTarget` | `sector_subsidy_target` |
+| `sectorSubsidyLevel` | `sector_subsidy_level` |
+| `infrastructureSpending` | `infrastructure_spending` |
+| `technologySpending` | `technology_spending` |
+| `socialSpending` | `social_spending` |
+| `priceStabilizationTarget` | `price_stabilization_target` |
+| `priceStabilizationLevel` | `price_stabilization_level` |
+| `rentStabilizationLevel` | `rent_stabilization_level` |
+| `bailoutPolicy` | `bailout_policy` |
+| `bailoutTarget` | `bailout_target` |
+| `bailoutBudget` | `bailout_budget` |
 
-```json
-{
-  "tick": 150,
-  "metrics": {
-    "unemployment": 5.2,
-    "gdp": 8.45,
-    "govDebt": 0,
-    "govProfit": 1200,
-    "happiness": 72.5,
-    "avgWage": 45.30,
-    "netWorth": 12.5,
-    "giniCoefficient": 0.35,
-    "top10Share": 45.2,
-    "bottom50Share": 12.8,
-    "gdpHistory": [{"value": 8.1}, {"value": 8.3}, ...],
-    "unemploymentHistory": [{"value": 6.0}, ...],
-    "wageHistory": [{"value": 42.0}, ...],
-    "medianWageHistory": [{"value": 40.0}, ...],
-    "happinessHistory": [{"value": 70.0}, ...],
-    "healthHistory": [{"value": 85.0}, ...],
-    "govProfitHistory": [{"value": 1000}, ...],
-    "netWorthHistory": [{"value": 12.0}, ...],
-    "firmCountHistory": [{"value": 33}, ...],
-    "giniHistory": [{"value": 0.34}, ...],
-    "priceHistory": {
-      "food": [{"value": 12.5}, ...],
-      "housing": [{"value": 25.0}, ...],
-      "services": [{"value": 8.0}, ...],
-      "healthcare": [{"value": 15.0}, ...]
-    },
-    "supplyHistory": {
-      "food": [{"value": 5000}, ...],
-      "housing": [{"value": 2000}, ...],
-      "services": [{"value": 3000}, ...],
-      "healthcare": [{"value": 1000}, ...]
-    },
-    "trackedSubjects": [
-      {
-        "id": 42,
-        "name": "Household_42",
-        "state": "WORKING",
-        "age": 35,
-        "health": 0.92,
-        "happiness": 0.75,
-        "morale": 0.80,
-        "skills": 0.65,
-        "cash": 1250,
-        "netWorth": 1500,
-        "medicalDebt": 0,
-        "wage": 55.00,
-        "employer": "FoodCo_7",
-        "needs": { "food": 10.5, "housing": true, "healthcare": 2.0 },
-        "history": {
-          "cash": [{"value": 1000}, {"value": 1100}, ...],
-          "wage": [{"value": 50}, {"value": 52}, ...]
-        }
-      }
-    ],
-    "trackedFirms": [
-      {
-        "id": 7,
-        "name": "FoodCo_7",
-        "category": "Food",
-        "state": "OPERATING",
-        "cash": 5000,
-        "inventory": 150.5,
-        "employees": 12,
-        "quality": 6.5,
-        "price": 12.50,
-        "wageOffer": 55.00,
-        "lastRevenue": 1500,
-        "lastProfit": 200,
-        "history": {
-          "cash": [{"value": 4800}, {"value": 5000}, ...],
-          "profit": [{"value": 180}, {"value": 200}, ...]
-        }
-      }
-    ]
-  },
-  "firm_stats": {
-    "total_firms": 33,
-    "total_employees": 850,
-    "avg_wage_offer": 45.30,
-    "avg_price": 15.20,
-    "avg_quality": 5.5,
-    "struggling_firms": 2,
-    "market_sentiment": "Calm winds",
-    "categories": [
-      { "category": "Food", "firm_count": 11, "total_employees": 300, "avg_cash": 4500, "avg_price": 12.50 },
-      { "category": "Housing", "firm_count": 8, "total_employees": 200, "avg_cash": 5200, "avg_price": 25.00 },
-      { "category": "Services", "firm_count": 10, "total_employees": 250, "avg_cash": 3800, "avg_price": 8.00 },
-      { "category": "Healthcare", "firm_count": 4, "total_employees": 100, "avg_cash": 6000, "avg_price": 15.00 }
-    ],
-    "top_cash": [...],
-    "top_employers": [...]
-  },
-  "logs": [
-    { "tick": 150, "type": "ECO", "txt": "Private firm created in Services" }
-  ]
-}
+Legacy-style UI fields for UBI, wealth tax, target inflation, and birth rate are still accepted by the server as direct government fields and recorded as policy actions when changed.
+
+## Visual Components
+
+| Component | File | Represents |
+|---|---|---|
+| `NeuralAvatar` | [`src/NeuralAvatar.jsx`](../frontend-react/src/NeuralAvatar.jsx) | Household agent state |
+| `NeuralBuilding` | [`src/NeuralBuilding.jsx`](../frontend-react/src/NeuralBuilding.jsx) | Firm and market state |
+| `NeuralGovernment` | [`src/NeuralGovernment.jsx`](../frontend-react/src/NeuralGovernment.jsx) | Government and policy engine state |
+
+These are canvas animations managed with React effects and refs. They are presentation components only; simulation state comes from the WebSocket payload.
+
+## Build Checks
+
+```bash
+cd frontend-react
+npm ci
+npm run lint
+npm run build
 ```
-
-### Currency Formatting
-
-GDP, net worth, and government values use adaptive formatting:
-- Below $1K: `$500`
-- $1K–$1M: `$45.2K`
-- $1M–$1B: `$8.45M`
-- $1B–$1T: `$2.30B`
-- Above $1T: `$1.50T`
-
-Values are sent from the backend in millions and converted client-side.

@@ -52,6 +52,37 @@ class LoanContract:
     origination_tick_rate: float  # per-tick rate = annual_rate / 52
 
 
+@dataclass(frozen=True, slots=True)
+class AwarenessMarketView:
+    """Precomputed category data shared across household awareness refreshes."""
+
+    firm_ids: tuple[int, ...]
+    valid_firm_ids: frozenset[int]
+    firm_lookup: Dict[int, Dict[str, float]]
+
+
+def build_awareness_market_views(
+    category_market_info: Dict[str, List[Dict[str, float]]]
+) -> Dict[str, AwarenessMarketView]:
+    views: Dict[str, AwarenessMarketView] = {}
+    for category, all_firms in category_market_info.items():
+        if not all_firms:
+            continue
+        firm_ids = tuple(int(f["firm_id"]) for f in all_firms if f.get("price", 0.0) > 0)
+        if not firm_ids:
+            continue
+        view = AwarenessMarketView(
+            firm_ids=firm_ids,
+            valid_firm_ids=frozenset(firm_ids),
+            firm_lookup={int(f["firm_id"]): f for f in all_firms},
+        )
+        views[category] = view
+        category_key = category.lower()
+        if category_key not in views:
+            views[category_key] = view
+    return views
+
+
 class AgentMixin:
     """Shared behaviour for all agent types."""
 
@@ -239,6 +270,12 @@ class HouseholdAgent(AgentMixin):
     awareness_pool: Dict[str, List[int]] = field(default_factory=dict)  # category -> list of firm_ids
     current_primary_firm: Dict[str, Optional[int]] = field(default_factory=dict)  # category -> firm_id
     last_pool_refresh_tick: int = 0  # Last tick when awareness pool was refreshed
+    _awareness_pool_set_cache: Dict[str, tuple[tuple[int, ...], set[int]]] = field(
+        default_factory=dict, init=False, repr=False
+    )
+    _purchase_tie_break_noise_cache: Dict[str, tuple[int, np.ndarray, int, np.ndarray]] = field(
+        default_factory=dict, init=False, repr=False
+    )
 
     def __post_init__(self) -> None:
         """Validate invariants after initialization and set derived state.
@@ -647,7 +684,8 @@ class HouseholdAgent(AgentMixin):
     def refresh_awareness_pool(
         self,
         category_market_info: Dict[str, List[Dict[str, float]]],
-        current_tick: int
+        current_tick: int,
+        awareness_market_views: Optional[Dict[str, AwarenessMarketView]] = None,
     ) -> None:
         """
         Feature 3: Refresh the bounded awareness pool for firm selection.
@@ -661,42 +699,78 @@ class HouseholdAgent(AgentMixin):
         Args:
             category_market_info: category -> list of firm dicts with firm_id, price, quality
             current_tick: Current simulation tick
+            awareness_market_views: Optional shared category data precomputed for this tick
         """
         config = CONFIG.households
-        max_pool = config.awareness_pool_max_size
+        max_pool = int(config.awareness_pool_max_size)
+        initial_pool = min(
+            max_pool,
+            max(1, int(getattr(config, "awareness_pool_initial_size", max_pool))),
+        )
+        refresh_interval = max(1, int(config.pool_refresh_interval))
+        refresh_count = max(1, int(config.pool_refresh_drop_count))
+        refresh_due = current_tick - self.last_pool_refresh_tick >= refresh_interval
+        refresh_attempted = False
 
         for category, all_firms in category_market_info.items():
             if not all_firms:
                 continue
-            all_firm_ids = [f["firm_id"] for f in all_firms if f.get("price", 0.0) > 0]
+            category_key = category.lower()
+            market_view = None
+            if awareness_market_views is not None:
+                market_view = awareness_market_views.get(category)
+                if market_view is None:
+                    market_view = awareness_market_views.get(category_key)
+            if market_view is not None:
+                all_firm_ids = market_view.firm_ids
+                valid_firm_set = market_view.valid_firm_ids
+            else:
+                all_firm_ids = [int(f["firm_id"]) for f in all_firms if f.get("price", 0.0) > 0]
+                valid_firm_set = set(all_firm_ids)
             if not all_firm_ids:
                 continue
 
-            current_pool = self.awareness_pool.get(category, [])
+            current_pool = self.awareness_pool.get(category_key)
+            if current_pool is None and category != category_key:
+                current_pool = self.awareness_pool.get(category, [])
+            current_pool = [int(fid) for fid in (current_pool or [])]
 
             # Remove stale firm IDs no longer in the market
-            valid_firm_set = set(all_firm_ids)
             current_pool = [fid for fid in current_pool if fid in valid_firm_set]
+            rng_seed = (
+                int(CONFIG.random_seed)
+                ^ ((self.household_id + 1) * 2_654_435_761)
+                ^ ((current_tick + 1) * 2_246_822_519)
+                ^ zlib.crc32(category_key.encode("utf-8"))
+            ) & 0xFFFFFFFF
+            rng = random.Random(rng_seed)
 
             if not current_pool:
                 # Initialize: sample up to max_pool firms from the market
-                sample_size = min(max_pool, len(all_firm_ids))
-                current_pool = random.sample(all_firm_ids, sample_size)
-            elif len(current_pool) < max_pool:
+                sample_size = min(initial_pool, len(all_firm_ids))
+                current_pool = rng.sample(all_firm_ids, sample_size)
+            elif refresh_due and len(current_pool) < max_pool:
                 # Pool is below capacity — fill up before doing drop/add rotation.
                 # This ensures the pool grows when new firms enter the market.
                 pool_set = set(current_pool)
                 candidates = [fid for fid in all_firm_ids if fid not in pool_set]
-                fill_count = min(max_pool - len(current_pool), len(candidates))
+                fill_count = min(refresh_count, max_pool - len(current_pool), len(candidates))
                 if fill_count > 0 and candidates:
-                    current_pool.extend(random.sample(candidates, fill_count))
-                self.last_pool_refresh_tick = current_tick
-            elif current_tick - self.last_pool_refresh_tick >= config.pool_refresh_interval:
+                    current_pool.extend(rng.sample(candidates, fill_count))
+                refresh_attempted = True
+            elif refresh_due:
                 # Periodic refresh: drop lowest-utility firms, add new random ones
-                firm_lookup = {f["firm_id"]: f for f in all_firms}
+                firm_lookup = (
+                    market_view.firm_lookup
+                    if market_view is not None
+                    else {int(f["firm_id"]): f for f in all_firms}
+                )
+                primary = self.current_primary_firm.get(category_key)
                 # Compute utility for each firm in pool
                 pool_utilities = []
                 for fid in current_pool:
+                    if fid == primary:
+                        continue
                     info = firm_lookup.get(fid)
                     if info:
                         utility = (self.quality_lavishness * info.get("quality", 0.0)
@@ -705,26 +779,32 @@ class HouseholdAgent(AgentMixin):
                     else:
                         pool_utilities.append((fid, -float("inf")))
 
-                # Sort by utility ascending, drop the worst
-                pool_utilities.sort(key=lambda x: x[1])
-                drop_count = min(config.pool_refresh_drop_count, len(pool_utilities))
-                dropped_ids = {pool_utilities[i][0] for i in range(drop_count)}
-                current_pool = [fid for fid in current_pool if fid not in dropped_ids]
+                if pool_utilities:
+                    pool_utilities.sort(key=lambda x: x[1])
+                    drop_window_size = max(1, len(pool_utilities) // 2)
+                    drop_pool = [fid for fid, _utility in pool_utilities[:drop_window_size]]
+                    drop_count = min(refresh_count, len(drop_pool))
+                    dropped_ids = set(rng.sample(drop_pool, drop_count))
+                    current_pool = [fid for fid in current_pool if fid not in dropped_ids]
 
-                # Sample new firms not already in pool
-                pool_set = set(current_pool)
-                candidates = [fid for fid in all_firm_ids if fid not in pool_set]
-                add_count = min(drop_count, len(candidates), max_pool - len(current_pool))
-                if add_count > 0 and candidates:
-                    current_pool.extend(random.sample(candidates, add_count))
+                    pool_set = set(current_pool)
+                    candidates = [fid for fid in all_firm_ids if fid not in pool_set]
+                    add_count = min(len(dropped_ids), len(candidates), max_pool - len(current_pool))
+                    if add_count > 0 and candidates:
+                        current_pool.extend(rng.sample(candidates, add_count))
+                refresh_attempted = True
 
             # Enforce max pool size
             if len(current_pool) > max_pool:
                 current_pool = current_pool[:max_pool]
 
-            self.awareness_pool[category] = current_pool
+            if category != category_key:
+                self.awareness_pool.pop(category, None)
+            self.awareness_pool[category_key] = current_pool
+            self._cache_awareness_pool_set(category_key, current_pool)
 
-        self.last_pool_refresh_tick = current_tick
+        if refresh_attempted:
+            self.last_pool_refresh_tick = current_tick
 
     def _get_switching_friction(self, category: str) -> float:
         """Return the switching friction threshold for a given category."""
@@ -747,12 +827,103 @@ class HouseholdAgent(AgentMixin):
 
         Falls back to full options list if no pool exists for the category.
         """
-        pool = self.awareness_pool.get(category)
-        if not pool:
+        pool_set = self._get_awareness_pool_set(category)
+        if not pool_set:
             return options
-        pool_set = set(pool)
         filtered = [opt for opt in options if opt.get("firm_id") in pool_set]
         return filtered if filtered else options  # Fallback if pool has no valid firms
+
+    def _cache_awareness_pool_set(self, category: str, pool: List[int]) -> set[int]:
+        category_key = category.lower()
+        pool_signature = tuple(int(fid) for fid in pool)
+        pool_set = set(pool_signature)
+        self._awareness_pool_set_cache[category_key] = (pool_signature, pool_set)
+        return pool_set
+
+    def _get_awareness_pool_set(self, category: str) -> Optional[set[int]]:
+        category_key = category.lower()
+        pool = self.awareness_pool.get(category_key)
+        if pool is None and category != category_key:
+            pool = self.awareness_pool.get(category)
+        if not pool:
+            return None
+        pool_signature = tuple(int(fid) for fid in pool)
+        cached = self._awareness_pool_set_cache.get(category_key)
+        if cached is not None and cached[0] == pool_signature:
+            return cached[1]
+        return self._cache_awareness_pool_set(category_key, pool)
+
+    def _get_purchase_tie_break_noise(self, category: str, length: int) -> np.ndarray:
+        length = int(length)
+        if length <= 0:
+            empty = np.empty(0, dtype=np.float64)
+            empty.setflags(write=False)
+            return empty
+        cached = self._purchase_tie_break_noise_cache.get(category)
+        if cached is not None:
+            cached_length, cached_noise, last_length, last_noise = cached
+            if last_length == length:
+                return last_noise
+            if cached_length >= length:
+                noise = cached_noise if cached_length == length else cached_noise[:length]
+                self._purchase_tie_break_noise_cache[category] = (
+                    cached_length,
+                    cached_noise,
+                    length,
+                    noise,
+                )
+                return noise
+        category_seed = zlib.crc32(category.encode("utf-8"))
+        tie_break_seed = ((self.household_id * 1_315_423_911) ^ category_seed) & 0xFFFFFFFF
+        cache_length = max(length, int(CONFIG.households.awareness_pool_max_size))
+        cached_noise = np.random.default_rng(seed=tie_break_seed).uniform(
+            -0.25,
+            0.25,
+            size=cache_length,
+        )
+        cached_noise.setflags(write=False)
+        noise = cached_noise if cache_length == length else cached_noise[:length]
+        self._purchase_tie_break_noise_cache[category] = (
+            cache_length,
+            cached_noise,
+            length,
+            noise,
+        )
+        return noise
+
+    def _filter_category_arrays_to_awareness_pool(
+        self,
+        category: str,
+        arrays: Dict[str, object],
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+        firm_ids = arrays["firm_ids"]
+        prices = arrays["prices"]
+        qualities = arrays["qualities"]
+        pool_set = self._get_awareness_pool_set(category)
+        if not pool_set:
+            return firm_ids, prices, qualities
+
+        indices_by_firm_id = arrays.get("indices_by_firm_id")
+        if indices_by_firm_id:
+            selected_indices = []
+            for fid in pool_set:
+                positions = indices_by_firm_id.get(int(fid))
+                if positions:
+                    selected_indices.extend(positions)
+            if selected_indices:
+                selected_indices.sort()
+                index_array = np.fromiter(
+                    selected_indices,
+                    dtype=np.intp,
+                    count=len(selected_indices),
+                )
+                return firm_ids[index_array], prices[index_array], qualities[index_array]
+            return firm_ids[:0], prices[:0], qualities[:0]
+
+        mask = np.array([int(fid) in pool_set for fid in firm_ids], dtype=bool)
+        if mask.any():
+            return firm_ids[mask], prices[mask], qualities[mask]
+        return firm_ids[:0], prices[:0], qualities[:0]
 
     def _apply_switching_friction(
         self,
@@ -794,7 +965,7 @@ class HouseholdAgent(AgentMixin):
         biased_weights_override: Optional[Dict[str, float]] = None,
         category_fraction_override: Optional[Dict[str, float]] = None,
         category_option_cache: Optional[Dict[str, List[Dict[str, float]]]] = None,
-        category_array_cache: Optional[Dict[str, Dict[str, np.ndarray]]] = None,
+        category_array_cache: Optional[Dict[str, Dict[str, object]]] = None,
         debug_category_fractions: Optional[Dict[str, float]] = None
     ) -> Dict[int, float]:
         """
@@ -877,59 +1048,52 @@ class HouseholdAgent(AgentMixin):
         if housing_budget_cap > 0 and remaining_budget > 0:
             h_arrays = category_array_cache.get("housing") if category_array_cache else None
             if h_arrays is not None:
-                h_firm_ids = h_arrays["firm_ids"]
-                h_prices = h_arrays["prices"]
-                h_qualities = h_arrays["qualities"]
-                # Awareness pool filter via index mask
-                pool = self.awareness_pool.get("housing")
-                if pool:
-                    pool_set = set(pool)
-                    mask = np.array([int(fid) in pool_set for fid in h_firm_ids], dtype=bool)
-                    if mask.any():
-                        h_firm_ids = h_firm_ids[mask]
-                        h_prices = h_prices[mask]
-                        h_qualities = h_qualities[mask]
-
-                precomputed = price_cache.get("housing") if price_cache else None
-                price_cap = self._get_category_price_cap(
-                    "housing", None,
-                    precomputed_prices=precomputed,
+                h_firm_ids, h_prices, h_qualities = self._filter_category_arrays_to_awareness_pool(
+                    "housing",
+                    h_arrays,
                 )
-                if price_cap > 0:
-                    value_ratios = h_qualities / np.maximum(h_prices, 1e-9)
-                    style = self.purchase_styles.get("housing", self.default_purchase_style)
-                    if style == "cheap":
-                        chosen_idx = int(h_prices.argmin())
-                    elif style == "quality":
-                        chosen_idx = int(h_qualities.argmax())
-                    else:  # "value" or default
-                        chosen_idx = int(value_ratios.argmax())
 
-                    chosen_price = float(h_prices[chosen_idx])
-                    if chosen_price > 0:
-                        # Switching friction using arrays
-                        inv_price_cap = 1.0 / max(price_cap, 1e-6)
-                        h_utils = lavishness * h_qualities - sensitivity * (h_prices * inv_price_cap)
-                        chosen_fid = int(h_firm_ids[chosen_idx])
-                        chosen_util = float(h_utils[chosen_idx])
-                        h_util_map = dict(zip(h_firm_ids.tolist(), h_utils.tolist()))
-                        target_id = self._apply_switching_friction(
-                            "housing", chosen_fid, chosen_util, h_util_map
-                        )
-                        target_idx_arr = np.where(h_firm_ids == target_id)[0]
-                        if target_idx_arr.size > 0:
-                            t_idx = int(target_idx_arr[0])
-                            price = float(h_prices[t_idx])
-                        else:
-                            price = chosen_price
-                            target_id = chosen_fid
-                        allowed_budget = min(remaining_budget, housing_budget_cap)
-                        qty = min(housing_qty_remaining, allowed_budget / price)
-                        if qty > 0:
-                            cost = qty * price
-                            remaining_budget = max(0.0, remaining_budget - cost)
-                            housing_qty_remaining -= qty
-                            planned[target_id] = planned.get(target_id, 0.0) + qty
+                if h_firm_ids.size > 0:
+                    precomputed = price_cache.get("housing") if price_cache else None
+                    price_cap = self._get_category_price_cap(
+                        "housing", None,
+                        precomputed_prices=precomputed,
+                    )
+                    if price_cap > 0:
+                        value_ratios = h_qualities / np.maximum(h_prices, 1e-9)
+                        style = self.purchase_styles.get("housing", self.default_purchase_style)
+                        if style == "cheap":
+                            chosen_idx = int(h_prices.argmin())
+                        elif style == "quality":
+                            chosen_idx = int(h_qualities.argmax())
+                        else:  # "value" or default
+                            chosen_idx = int(value_ratios.argmax())
+
+                        chosen_price = float(h_prices[chosen_idx])
+                        if chosen_price > 0:
+                            # Switching friction using arrays
+                            inv_price_cap = 1.0 / max(price_cap, 1e-6)
+                            h_utils = lavishness * h_qualities - sensitivity * (h_prices * inv_price_cap)
+                            chosen_fid = int(h_firm_ids[chosen_idx])
+                            chosen_util = float(h_utils[chosen_idx])
+                            h_util_map = dict(zip(h_firm_ids.tolist(), h_utils.tolist()))
+                            target_id = self._apply_switching_friction(
+                                "housing", chosen_fid, chosen_util, h_util_map
+                            )
+                            target_idx_arr = np.where(h_firm_ids == target_id)[0]
+                            if target_idx_arr.size > 0:
+                                t_idx = int(target_idx_arr[0])
+                                price = float(h_prices[t_idx])
+                            else:
+                                price = chosen_price
+                                target_id = chosen_fid
+                            allowed_budget = min(remaining_budget, housing_budget_cap)
+                            qty = min(housing_qty_remaining, allowed_budget / price)
+                            if qty > 0:
+                                cost = qty * price
+                                remaining_budget = max(0.0, remaining_budget - cost)
+                                housing_qty_remaining -= qty
+                                planned[target_id] = planned.get(target_id, 0.0) + qty
 
         total_other_share = sum(fractions.values())
         weights_remaining = total_other_share
@@ -952,27 +1116,10 @@ class HouseholdAgent(AgentMixin):
                 weights_remaining -= share
                 continue
 
-            g_firm_ids = arrays["firm_ids"]
-            g_prices = arrays["prices"]
-            g_qualities = arrays["qualities"]
-
-            # Awareness pool filter via index mask on precomputed arrays
-            pool = self.awareness_pool.get(category)
-            if pool:
-                pool_set = set(pool)
-                mask = np.array([int(fid) in pool_set for fid in g_firm_ids], dtype=bool)
-                if mask.any():
-                    firm_ids = g_firm_ids[mask]
-                    prices = g_prices[mask]
-                    qualities = g_qualities[mask]
-                else:
-                    firm_ids = g_firm_ids
-                    prices = g_prices
-                    qualities = g_qualities
-            else:
-                firm_ids = g_firm_ids
-                prices = g_prices
-                qualities = g_qualities
+            firm_ids, prices, qualities = self._filter_category_arrays_to_awareness_pool(
+                category,
+                arrays,
+            )
 
             if firm_ids.size == 0:
                 weights_remaining -= share
@@ -999,12 +1146,8 @@ class HouseholdAgent(AgentMixin):
             # Utilities and softmax weights (only on awareness pool)
             inv_price_cap = 1.0 / max(price_cap, 1e-6)
             utilities = lavishness * qualities - sensitivity * (prices * inv_price_cap)
-            # Add deterministic, non-negative seeded noise to break ties in purchasing decisions.
-            # Python's built-in hash() can be negative and process-randomized.
-            category_seed = zlib.crc32(category.encode("utf-8"))
-            tie_break_seed = ((self.household_id * 1_315_423_911) ^ category_seed) & 0xFFFFFFFF
-            rng = np.random.default_rng(seed=tie_break_seed)
-            utilities += rng.uniform(-0.25, 0.25, size=len(utilities))
+            # Add deterministic seeded noise to break ties in purchasing decisions.
+            utilities += self._get_purchase_tie_break_noise(category, len(utilities))
 
             # Switching friction - determine primary firm
             best_idx = int(utilities.argmax())

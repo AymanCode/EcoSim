@@ -1,7 +1,7 @@
 """Summarize saved LLM government run artifacts.
 
 Usage:
-    python backend/tools/analysis/analyze_llm_government_log.py llm_run_outputs/llm_government_latest.json
+    python backend/tools/analysis/analyze_llm_government_log.py experiments/llm_government_supporting_runs/llm_government_latest.json
 """
 
 from __future__ import annotations

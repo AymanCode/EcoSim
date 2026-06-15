@@ -97,6 +97,14 @@ The migration scripts are backend-specific and intentionally incremental.
 - upgrades an existing Postgres/Timescale warehouse with the same diagnostics/regime-event layer
 - converts the diagnostics tables to hypertables when Timescale is available
 
+17. `017_add_sqlite_llm_government_decisions.py`
+- upgrades an existing SQLite warehouse with full LLM government decision records
+- adds `llm_government_decisions`
+
+18. `018_add_postgres_llm_government_decisions.py`
+- upgrades an existing Postgres/Timescale warehouse with the same LLM decision table
+- uses JSON-capable payload columns for accepted/rejected changes and evidence
+
 ## Current Implemented Warehouse Scope
 
 The currently implemented warehouse covers:
@@ -114,7 +122,8 @@ The currently implemented warehouse covers:
 11. `tick_diagnostics`
 12. `sector_shortage_diagnostics`
 13. `regime_events`
-14. `policy_config`
+14. `llm_government_decisions`
+15. `policy_config`
 
 This is enough for:
 
@@ -130,6 +139,7 @@ This is enough for:
 - compact per-tick policy / LLM decision context
 - compact per-tick explainability diagnostics
 - explicit regime/state transition events
+- full LLM government decision audit records
 - run-level policy configuration
 - replay/debug manifest metadata
 - persisted run lifecycle and durability status
@@ -139,7 +149,7 @@ It is still not the full long-term warehouse model.
 ## Reliability Guarantees
 
 The warehouse now has a practical correctness baseline for simulation
-debugging and future policy/LLM work.
+debugging, policy analysis, and LLM-government work.
 
 Current guarantees:
 
@@ -196,7 +206,7 @@ Each run now stores a minimal manifest in `simulation_runs`:
 - `schema_version`
 - `decision_feature_version`
 
-This is enough for debugging, run comparison, and future policy evaluation
+This is enough for debugging, run comparison, and policy evaluation
 without overbuilding exact replay yet.
 
 ## Household Snapshot Cadence
@@ -244,7 +254,7 @@ The intended rollout order is:
 7. add query views and product-facing endpoints
 
 The aggregate, event, firm snapshot, household snapshot, decision-feature,
-and diagnostics layers are now implemented.
+diagnostics, and LLM-decision layers are now implemented.
 
 The next concrete implementation target is:
 
@@ -448,6 +458,18 @@ Existing PostgreSQL/Timescale diagnostics/regime-event upgrade:
 python backend/data/migrations/016_add_postgres_diagnostics_and_regime_events.py
 ```
 
+Existing SQLite LLM-government-decision upgrade:
+
+```bash
+python backend/data/migrations/017_add_sqlite_llm_government_decisions.py
+```
+
+Existing PostgreSQL/Timescale LLM-government-decision upgrade:
+
+```bash
+python backend/data/migrations/018_add_postgres_llm_government_decisions.py
+```
+
 Warehouse tests:
 
 ```bash
@@ -475,6 +497,7 @@ Current read endpoints:
 - `GET /warehouse/runs/{run_id}/summary`
 - `GET /warehouse/runs/{run_id}/tick-metrics`
 - `GET /warehouse/runs/{run_id}/decision-features`
+- `GET /warehouse/runs/{run_id}/llm-government-decisions`
 - `GET /warehouse/runs/{run_id}/tick-diagnostics`
 - `GET /warehouse/runs/{run_id}/sector-metrics`
 - `GET /warehouse/runs/{run_id}/sector-shortages`

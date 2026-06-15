@@ -34,12 +34,14 @@ ml_models_*/
 
 # SQLite/data outputs
 *.db
+*.sqlite3
 sample_data/*.json
 backend/sample_data/*.json
 
 # Audit / evaluation artifacts
-audit_full_dump.jsonl
-audit_full_dump.md
+audit_full_dump*.jsonl
+audit_full_dump*.md
+docs/archive/run_artifacts/audit_full_dump*
 test_audit*.jsonl
 test_audit*.md
 backend/audit_full_dump.jsonl
@@ -57,6 +59,9 @@ ecosim_chartjs/
 ecosim-visual/
 frontend/
 data/
+!backend/data/
+!backend/data/migrations/
+!backend/data/migrations/*.py
 
 # Local agent / IDE settings
 .claude/
@@ -64,6 +69,8 @@ data/
 plugins/
 
 # LLM test runs and scratch status dumps
+experiments/**/*.json
+benchmarks/results/**/*.json
 *_llm_run_log.json
 *_llm_run_log_*.json
 backend/firm_llm_run_log.json
@@ -75,3 +82,11 @@ TRAINING_STATUS_NEW.txt
 
 # Local runtime folders
 backend/logs/
+benchmarks/results/**/chrome-user-data/
+benchmarks/results/_logs/
+
+# Local agent / verification scratch files
+.roo/
+.codex_*.txt
+.codex_*.md
+.coverage

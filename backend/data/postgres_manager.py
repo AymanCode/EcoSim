@@ -20,6 +20,7 @@ try:  # pragma: no cover - import fallback for standalone scripts
         HealthcareEvent,
         HouseholdSnapshot,
         LaborEvent,
+        LLMGovernmentDecision,
         PolicyAction,
         PolicyConfig,
         RegimeEvent,
@@ -37,6 +38,7 @@ except ImportError:  # pragma: no cover
         HealthcareEvent,
         HouseholdSnapshot,
         LaborEvent,
+        LLMGovernmentDecision,
         PolicyAction,
         PolicyConfig,
         RegimeEvent,
@@ -338,6 +340,46 @@ class PostgresDatabaseManager:
                     payload_json=action.payload_json,
                     reason_summary=action.reason_summary,
                     event_key=action.event_key or self._event_key_from_components("policy", signature, occurrence),
+                )
+            )
+        return normalized
+
+    def _normalized_llm_government_decisions(
+        self,
+        decisions: List[LLMGovernmentDecision],
+    ) -> List[LLMGovernmentDecision]:
+        """Return LLM decisions with deterministic idempotency keys."""
+        duplicates_seen: dict[tuple[object, ...], int] = defaultdict(int)
+        normalized: List[LLMGovernmentDecision] = []
+        for decision in decisions:
+            signature = (
+                decision.run_id,
+                decision.snapshot_tick,
+                decision.applied_tick,
+                decision.provider,
+                decision.model,
+                decision.normalized_response_json,
+            )
+            occurrence = duplicates_seen[signature]
+            duplicates_seen[signature] += 1
+            normalized.append(
+                LLMGovernmentDecision(
+                    run_id=decision.run_id,
+                    snapshot_tick=decision.snapshot_tick,
+                    applied_tick=decision.applied_tick,
+                    status=decision.status,
+                    provider=decision.provider,
+                    model=decision.model,
+                    raw_response_json=decision.raw_response_json,
+                    normalized_response_json=decision.normalized_response_json,
+                    accepted_changes_json=decision.accepted_changes_json,
+                    rejected_changes_json=decision.rejected_changes_json,
+                    rationale=decision.rationale,
+                    evidence_audit_json=decision.evidence_audit_json,
+                    elapsed_ms=decision.elapsed_ms,
+                    error_message=decision.error_message,
+                    event_key=decision.event_key
+                    or self._event_key_from_components("llm-government", signature, occurrence),
                 )
             )
         return normalized
@@ -1377,6 +1419,26 @@ class PostgresDatabaseManager:
             rows = cur.fetchall()
         return [dict(row) for row in rows]
 
+    def get_llm_government_decisions(
+        self,
+        run_id: str,
+        tick_start: int = 0,
+        tick_end: int = 999999,
+    ) -> List[Dict]:
+        """Fetch ordered full LLM government decisions for a run."""
+        with self.conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT *
+                FROM llm_government_decisions
+                WHERE run_id = %s AND snapshot_tick >= %s AND snapshot_tick <= %s
+                ORDER BY snapshot_tick, decision_id
+                """,
+                (run_id, tick_start, tick_end),
+            )
+            rows = cur.fetchall()
+        return [dict(row) for row in rows]
+
     # =========================================================================
     # Event operations
     # =========================================================================
@@ -1491,6 +1553,48 @@ class PostgresDatabaseManager:
             rows,
         )
 
+    def insert_llm_government_decisions(self, decisions: List[LLMGovernmentDecision]):
+        """Batch insert full LLM government decisions."""
+        if not decisions:
+            return
+        with self.conn.cursor() as cur:
+            self._insert_llm_government_decision_rows(cur, decisions)
+        self.conn.commit()
+
+    def _insert_llm_government_decision_rows(self, cur, decisions: List[LLMGovernmentDecision]):
+        """Insert full LLM government decisions using an existing cursor."""
+        rows = [
+            (
+                decision.run_id,
+                decision.event_key,
+                decision.snapshot_tick,
+                decision.applied_tick,
+                decision.status,
+                decision.provider,
+                decision.model,
+                self.Jsonb(json.loads(decision.raw_response_json)),
+                self.Jsonb(json.loads(decision.normalized_response_json)),
+                self.Jsonb(json.loads(decision.accepted_changes_json)),
+                self.Jsonb(json.loads(decision.rejected_changes_json)),
+                decision.rationale,
+                self.Jsonb(json.loads(decision.evidence_audit_json or "[]")),
+                decision.elapsed_ms,
+                decision.error_message,
+            )
+            for decision in self._normalized_llm_government_decisions(decisions)
+        ]
+        cur.executemany(
+            """
+            INSERT INTO llm_government_decisions (
+                run_id, event_key, snapshot_tick, applied_tick, status, provider, model,
+                raw_response_json, normalized_response_json, accepted_changes_json,
+                rejected_changes_json, rationale, evidence_audit_json, elapsed_ms, error_message
+            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            ON CONFLICT (run_id, event_key) DO NOTHING
+            """,
+            rows,
+        )
+
     def persist_flush_bundle(
         self,
         run_id: str,
@@ -1504,6 +1608,7 @@ class PostgresDatabaseManager:
         labor_events: Optional[List[LaborEvent]] = None,
         healthcare_events: Optional[List[HealthcareEvent]] = None,
         policy_actions: Optional[List[PolicyAction]] = None,
+        llm_government_decisions: Optional[List[LLMGovernmentDecision]] = None,
         tick_diagnostics: Optional[List[TickDiagnostic]] = None,
         sector_shortage_diagnostics: Optional[List[SectorShortageDiagnostic]] = None,
         regime_events: Optional[List[RegimeEvent]] = None,
@@ -1533,6 +1638,8 @@ class PostgresDatabaseManager:
                     self._insert_healthcare_event_rows(cur, healthcare_events)
                 if policy_actions:
                     self._insert_policy_action_rows(cur, policy_actions)
+                if llm_government_decisions:
+                    self._insert_llm_government_decision_rows(cur, llm_government_decisions)
                 if regime_events:
                     self._insert_regime_event_rows(cur, regime_events)
                 self._update_run_flush_metadata(cur, run_id, last_fully_persisted_tick)
@@ -1674,6 +1781,9 @@ class PostgresDatabaseManager:
             cur.execute("SELECT COUNT(*) AS total_policy_actions FROM policy_actions")
             total_policy_actions = cur.fetchone()["total_policy_actions"]
 
+            cur.execute("SELECT COUNT(*) AS total_llm_government_decisions FROM llm_government_decisions")
+            total_llm_government_decisions = cur.fetchone()["total_llm_government_decisions"]
+
             cur.execute("SELECT pg_database_size(current_database()) AS db_size_bytes")
             db_size_bytes = cur.fetchone()["db_size_bytes"]
 
@@ -1689,5 +1799,6 @@ class PostgresDatabaseManager:
             "total_labor_events": total_labor_events,
             "total_healthcare_events": total_healthcare_events,
             "total_policy_actions": total_policy_actions,
+            "total_llm_government_decisions": total_llm_government_decisions,
             "db_size_mb": float(db_size_bytes) / (1024 * 1024),
         }

@@ -3,7 +3,9 @@ import React, { useEffect, useRef } from 'react';
 const NeuralBuilding = ({
   active = true,
   activityLevel = 'normal',
-  tier = 3
+  tier = 3,
+  sector = 'Services',
+  status = 'STABLE'
 }) => {
   const containerRef = useRef(null);
   const canvasRef = useRef(null);
@@ -37,11 +39,11 @@ const NeuralBuilding = ({
 
     const addPoint = (x, y, z, tag) => points.push({ x, y, z, tag });
 
-    const createBlock = (yBottom, yTop, widthSize, depthSize) => {
+    const createBlock = (yBottom, yTop, widthSize, depthSize, xOffset = 0, zOffset = 0) => {
       [-widthSize / 2, widthSize / 2].forEach(x => {
         [-depthSize / 2, depthSize / 2].forEach(z => {
           for (let y = yBottom; y <= yTop; y += 10) {
-            addPoint(x, y, z, 'structure');
+            addPoint(x + xOffset, y, z + zOffset, 'structure');
           }
         });
       });
@@ -49,12 +51,12 @@ const NeuralBuilding = ({
       for (let y = yBottom; y <= yTop; y += 15) {
         for (let x = -widthSize / 2; x <= widthSize / 2; x += widthSize / 2) {
           for (let z = -depthSize / 2; z <= depthSize / 2; z += 5) {
-            if (Math.abs(x) === widthSize / 2) addPoint(x, y, z, 'window');
+            if (Math.abs(x) === widthSize / 2) addPoint(x + xOffset, y, z + zOffset, 'window');
           }
         }
         for (let z = -depthSize / 2; z <= depthSize / 2; z += depthSize / 2) {
           for (let x = -widthSize / 2; x <= widthSize / 2; x += 5) {
-            if (Math.abs(z) === depthSize / 2) addPoint(x, y, z, 'window');
+            if (Math.abs(z) === depthSize / 2) addPoint(x + xOffset, y, z + zOffset, 'window');
           }
         }
       }
@@ -62,25 +64,39 @@ const NeuralBuilding = ({
 
     const baseW = tier === 3 ? 50 : tier === 2 ? 40 : 30;
     const startY = 80;
+    const sectorKey = String(sector || '').toLowerCase().includes('bank') ? 'finance' : String(sector || 'services').toLowerCase();
 
-    createBlock(startY - 40, startY, baseW, baseW);
-    if (tier >= 2) {
-      createBlock(startY - 90, startY - 40, baseW * 0.8, baseW * 0.8);
+    if (sectorKey.includes('food')) {
+      createBlock(startY - 36, startY, 42, 32, -22, -10);
+      createBlock(startY - 36, startY, 42, 32, 22, 10);
+      createBlock(startY - 76, startY - 36, 38, 30, 0, 0);
+      createBlock(startY - 112, startY - 76, 30, 24, 14, -6);
+      for (let a = 0; a < Math.PI * 2; a += Math.PI / 8) {
+        addPoint(Math.cos(a) * 64, startY + 8, Math.sin(a) * 38, 'core');
+      }
+      for (let y = startY - 112; y < startY; y += 8) {
+        addPoint(0, y, 0, 'core');
+      }
     } else {
-      createBlock(startY - 60, startY - 40, baseW, baseW);
-    }
-    if (tier >= 3) {
-      createBlock(startY - 150, startY - 90, baseW * 0.6, baseW * 0.6);
-    }
+      createBlock(startY - 40, startY, baseW, baseW);
+      if (tier >= 2) {
+        createBlock(startY - 90, startY - 40, baseW * 0.8, baseW * 0.8);
+      } else {
+        createBlock(startY - 60, startY - 40, baseW, baseW);
+      }
+      if (tier >= 3) {
+        createBlock(startY - 150, startY - 90, baseW * 0.6, baseW * 0.6);
+      }
 
-    for (let y = startY - tier * 55; y < startY; y += 4) {
-      addPoint(0, y, 0, 'core');
-    }
+      for (let y = startY - tier * 55; y < startY; y += 4) {
+        addPoint(0, y, 0, 'core');
+      }
 
-    if (tier >= 2) {
-      const topY = startY - (tier === 3 ? 150 : 90);
-      for (let y = topY - 30; y < topY; y += 5) {
-        addPoint(0, y, 0, 'spire');
+      if (tier >= 2) {
+        const topY = startY - (tier === 3 ? 150 : 90);
+        for (let y = topY - 30; y < topY; y += 5) {
+          addPoint(0, y, 0, 'spire');
+        }
       }
     }
 
@@ -167,10 +183,37 @@ const NeuralBuilding = ({
         };
       });
 
-      ctx.lineWidth = 1;
-      const baseAlpha = activityLevel === 'high' ? 0.4 : 0.2;
-      const pulseColor = activityLevel === 'high' ? '200, 250, 255' : '45, 212, 191';
-      ctx.strokeStyle = `rgba(20, 184, 166, ${baseAlpha})`;
+      ctx.lineWidth = 0.85;
+      const sectorPalette = {
+        food: { base: '203, 213, 225', pulse: '251, 191, 36', accent: '#FBBF24' },
+        services: { base: '203, 213, 225', pulse: '184, 199, 217', accent: '#B8C7D9' },
+        housing: { base: '203, 213, 225', pulse: '148, 184, 190', accent: '#94B8BE' },
+        healthcare: { base: '203, 213, 225', pulse: '196, 202, 214', accent: '#C4CAD6' },
+        finance: { base: '203, 213, 225', pulse: '251, 191, 36', accent: '#FBBF24' }
+      };
+      const key = String(sector || '').toLowerCase().includes('bank') ? 'finance' : String(sector || 'services').toLowerCase();
+      const palette = sectorPalette[key] || sectorPalette.services;
+      const isDistressed = String(status || '').toUpperCase().includes('DISTRESS') || String(status || '').toUpperCase().includes('BURN');
+      const baseAlpha = activityLevel === 'high' || isDistressed ? 0.30 : 0.20;
+      const pulseColor = activityLevel === 'high' || isDistressed ? '251, 191, 36' : palette.pulse;
+      ctx.strokeStyle = `rgba(${palette.base}, ${baseAlpha})`;
+
+      ctx.save();
+      const baseY = centerY + rect.height * 0.33;
+      const deskGlow = ctx.createRadialGradient(centerX, baseY, 8, centerX, baseY, Math.min(rect.width, rect.height) * 0.42);
+      deskGlow.addColorStop(0, 'rgba(203, 213, 225, 0.08)');
+      deskGlow.addColorStop(0.55, 'rgba(251, 191, 36, 0.035)');
+      deskGlow.addColorStop(1, 'rgba(203, 213, 225, 0)');
+      ctx.fillStyle = deskGlow;
+      ctx.beginPath();
+      ctx.ellipse(centerX, baseY, rect.width * 0.28, rect.height * 0.08, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(203, 213, 225, 0.14)';
+      ctx.lineWidth = 0.7;
+      ctx.beginPath();
+      ctx.ellipse(centerX, baseY, rect.width * 0.25, rect.height * 0.055, 0, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.restore();
 
       connections.forEach(([i, j]) => {
         const p1 = projected[i];
@@ -183,8 +226,8 @@ const NeuralBuilding = ({
 
           if (p1.tag === 'core') {
             ctx.save();
-            ctx.strokeStyle = `rgba(${pulseColor}, 0.8)`;
-            ctx.lineWidth = 2;
+            ctx.strokeStyle = `rgba(${pulseColor}, 0.45)`;
+            ctx.lineWidth = 1.15;
             ctx.stroke();
             ctx.restore();
           } else {
@@ -197,33 +240,35 @@ const NeuralBuilding = ({
         let size = Math.max(0.5, 2 * p.scale);
         ctx.beginPath();
 
-        let r = 20, g = 184, b = 166, a = 0.3;
+        let [r, g, b] = palette.base.split(',').map(v => Number(v.trim()));
+        let a = 0.26;
 
         if (p.tag === 'core') {
           const wave = Math.sin(p.origY / 10 - pulse);
           if (wave > 0.7) {
-            r = 255; g = 255; b = 255; a = 1;
-            size *= 1.2;
-            ctx.shadowBlur = 8;
-            ctx.shadowColor = 'white';
+            [r, g, b] = pulseColor.split(',').map(v => Number(v.trim()));
+            a = 0.74;
+            size *= 1.08;
+            ctx.shadowBlur = 5;
+            ctx.shadowColor = palette.accent;
           } else {
-            r = 45; g = 212; b = 191; a = 0.5;
+            [r, g, b] = palette.base.split(',').map(v => Number(v.trim())); a = 0.42;
             ctx.shadowBlur = 0;
           }
         } else if (p.tag === 'window') {
           if (Math.random() > 0.99) {
-            r = 200; g = 240; b = 255; a = 0.9;
-            ctx.shadowBlur = 4;
-            ctx.shadowColor = '#bae6fd';
+            [r, g, b] = palette.pulse.split(',').map(v => Number(v.trim())); a = 0.66;
+            ctx.shadowBlur = 3;
+            ctx.shadowColor = palette.accent;
           } else {
-            a = 0.1;
+            a = 0.12;
             ctx.shadowBlur = 0;
           }
           size *= 0.8;
         } else if (p.tag === 'spire') {
-          r = 239; g = 68; b = 68; a = Math.floor(pulse / 5) % 2 === 0 ? 0.2 : 0.8;
-          ctx.shadowBlur = 10;
-          ctx.shadowColor = 'red';
+          r = 184; g = 199; b = 217; a = Math.floor(pulse / 5) % 2 === 0 ? 0.16 : 0.55;
+          ctx.shadowBlur = 4;
+          ctx.shadowColor = '#B8C7D9';
         } else {
           ctx.shadowBlur = 0;
         }
@@ -243,7 +288,7 @@ const NeuralBuilding = ({
       cancelAnimationFrame(animationFrameId);
       resizeObserver.disconnect();
     };
-  }, [active, activityLevel, tier]);
+  }, [active, activityLevel, tier, sector, status]);
 
   return (
     <div ref={containerRef} className="w-full h-full absolute inset-0">

@@ -87,9 +87,11 @@ class OllamaProvider(LLMProvider):
 
     @property
     def name(self) -> str:
+        """Return a provider/model label for logs and decision records."""
         return f"ollama/{self.model}"
 
     async def health_check(self) -> bool:
+        """Check whether Ollama is reachable and the configured model exists."""
         try:
             resp = await self._client.get(f"{self.base_url}/api/tags")
             if resp.status_code != 200:
@@ -117,6 +119,7 @@ class OllamaProvider(LLMProvider):
         top_p: Optional[float] = None,
         response_format: Optional[Dict[str, Any]] = None,
     ) -> str:
+        """Send one non-streaming chat request to Ollama and return content."""
         payload: Dict[str, Any] = {
             "model": self.model,
             "messages": [
@@ -140,6 +143,7 @@ class OllamaProvider(LLMProvider):
         return data["message"]["content"]
 
     async def close(self):
+        """Close the underlying HTTP client."""
         await self._client.aclose()
 
 
@@ -173,9 +177,11 @@ class OpenRouterProvider(LLMProvider):
 
     @property
     def name(self) -> str:
+        """Return a provider/model label for logs and decision records."""
         return f"openrouter/{self.model}"
 
     async def health_check(self) -> bool:
+        """Check whether OpenRouter accepts the configured API key."""
         if not self.api_key:
             return False
         try:
@@ -195,6 +201,7 @@ class OpenRouterProvider(LLMProvider):
         top_p: Optional[float] = None,
         response_format: Optional[Dict[str, Any]] = None,
     ) -> str:
+        """Send one chat request to OpenRouter with retry and empty-response handling."""
         if not self.api_key:
             raise RuntimeError(
                 "OPENROUTER_API_KEY not set. Add it to .env or environment."
@@ -296,6 +303,7 @@ class OpenRouterProvider(LLMProvider):
         return self._extract_message_content(data)
 
     def _extract_message_content(self, data: Dict[str, Any]) -> str:
+        """Extract text content from standard or provider-specific response fields."""
         choices = data.get("choices") or []
         if not choices:
             logger.warning("OpenRouter response for %s had no choices", self.model)
@@ -321,6 +329,7 @@ class OpenRouterProvider(LLMProvider):
         return ""
 
     def _retry_after_seconds(self, response: httpx.Response, attempt: int) -> float:
+        """Compute bounded retry delay from headers, error text, or backoff."""
         retry_after = response.headers.get("retry-after")
         if retry_after:
             try:
@@ -343,12 +352,14 @@ class OpenRouterProvider(LLMProvider):
         return max(1.0, backoff)
 
     def _log_error_response(self, response: httpx.Response) -> None:
+        """Log a redacted OpenRouter error response for debugging."""
         text = (response.text or "").replace(self.api_key, "[REDACTED]")
         if len(text) > 500:
             text = text[:500] + "..."
         logger.warning("OpenRouter error response %s for %s: %s", response.status_code, self.model, text)
 
     async def close(self):
+        """Close the underlying HTTP client."""
         await self._client.aclose()
 
 
@@ -381,9 +392,11 @@ class GroqProvider(LLMProvider):
 
     @property
     def name(self) -> str:
+        """Return a provider/model label for logs and decision records."""
         return f"groq/{self.model}"
 
     async def health_check(self) -> bool:
+        """Check whether Groq accepts the configured API key."""
         if not self.api_key:
             return False
         try:
@@ -403,6 +416,7 @@ class GroqProvider(LLMProvider):
         top_p: Optional[float] = None,
         response_format: Optional[Dict[str, Any]] = None,
     ) -> str:
+        """Send one chat request to Groq with rate-limit and token-budget retries."""
         if not self.api_key:
             raise RuntimeError("GROQ_API_KEY not set. Add it to .env or environment.")
 
@@ -509,6 +523,7 @@ class GroqProvider(LLMProvider):
         return data["choices"][0]["message"].get("content") or ""
 
     def _retry_after_seconds(self, response: httpx.Response, attempt: int) -> float:
+        """Compute bounded retry delay from headers, error text, or backoff."""
         retry_after = response.headers.get("retry-after")
         if retry_after:
             try:
@@ -531,12 +546,14 @@ class GroqProvider(LLMProvider):
         return max(1.0, backoff)
 
     def _log_error_response(self, response: httpx.Response) -> None:
+        """Log a redacted Groq error response for debugging."""
         text = (response.text or "").replace(self.api_key, "[REDACTED]")
         if len(text) > 500:
             text = text[:500] + "..."
         logger.warning("Groq error response %s for %s: %s", response.status_code, self.model, text)
 
     async def close(self):
+        """Close the underlying HTTP client."""
         await self._client.aclose()
 
 
@@ -557,9 +574,11 @@ class LMStudioProvider(LLMProvider):
 
     @property
     def name(self) -> str:
+        """Return a provider/model label for logs and decision records."""
         return f"lmstudio/{self.model}"
 
     async def health_check(self) -> bool:
+        """Check whether the LM Studio local server is reachable."""
         try:
             resp = await self._client.get(f"{self.base_url}/v1/models")
             return resp.status_code == 200
@@ -574,6 +593,7 @@ class LMStudioProvider(LLMProvider):
         top_p: Optional[float] = None,
         response_format: Optional[Dict[str, Any]] = None,
     ) -> str:
+        """Send one non-streaming chat request to LM Studio and return content."""
         import time
         payload: Dict[str, Any] = {
             "model": self.model,
@@ -625,6 +645,7 @@ class LMStudioProvider(LLMProvider):
         return data["choices"][0]["message"]["content"]
 
     async def close(self):
+        """Close the underlying HTTP client."""
         await self._client.aclose()
 
 

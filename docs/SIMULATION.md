@@ -1,351 +1,254 @@
-# EcoSim Simulation Guide
+# Simulation Guide
 
-How the simulation works — agents, interactions, markets, and the tick lifecycle.
+This document describes the current runtime behavior of EcoSim as implemented in the Python code.
 
----
+## Overview
 
-## Architecture Overview
+EcoSim is a tick-based agent-based model. One tick is approximately one simulated week, and the default year length is 52 ticks.
 
-EcoSim is a tick-based agent-based model (ABM) with three actor types:
+Active actors:
 
-- **Households** — consumers and workers
-- **Firms** — producers and employers (Food, Housing, Services, Healthcare)
-- **Government** — tax collector, transfer provider, investor
+- Households: workers, consumers, patients, tenants, savers, borrowers, and firm owners.
+- Firms: producers and employers in Food, Housing, Services, Healthcare, and internal/public-work paths.
+- Government: tax collector, transfer provider, policy actor, baseline-firm owner, subsidy source, and fiscal-pressure tracker.
+- Bank: optional credit and deposit channel. The standard large-economy setup creates a bank; the engine can still run without one.
 
-Each tick represents roughly one week (52 ticks = 1 year). The simulation uses seeded random number generators for reproducibility given the same seed and configuration.
+The default dashboard setup creates households, four baseline safety-net firms, a queue of private firms, a government, and a bank. Baseline firms are active immediately. Private Food and Services firms are queued during warmup and activated afterward; Housing and Healthcare currently use a baseline-led provider model at startup.
 
-### Runtime Stack
+## Runtime Stack
 
-```
-frontend-react (React + Recharts dashboard)
-  → WebSocket (ws://localhost:8002/ws)
-backend/server.py (simulation manager, metric streaming)
-  → backend/economy.py (tick coordinator, market clearing)
-  → backend/agents.py (HouseholdAgent, FirmAgent, GovernmentAgent)
-  → backend/config.py (400+ tunable parameters)
-```
-
-### Why the Backend Core Is Centralized
-
-The backend core is intentionally centralized for now. `economy.py` owns the tick lifecycle so labor matching, production, markets, banking, healthcare, and government policy run in a predictable order. `agents.py` keeps household, firm, bank, and government behavior close to the simulation loop while the model is still changing quickly. Stable boundaries have already been pulled out where they make sense: policy schema validation, LLM provider logic, data storage, and utility helpers. The current priorities are correctness, reproducibility, and easy experimentation, not a large backend split just for appearances.
-
-When the core model stabilizes, the next safe refactor would be to extract pure helpers and stable subsystems first, then split agent classes and tick phases only after contract tests cover the behavior.
-
----
-
-## Agents
-
-### Household Agent
-
-Households are the core economic actors — they work, earn wages, buy goods, consume, and maintain wellbeing.
-
-**Key State:**
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `cash_balance` | float | Current liquid cash |
-| `skills_level` | float (0-1) | Worker skill affecting wages and productivity |
-| `is_employed` | bool | Employment status |
-| `employer_id` | int/null | Which firm they work at |
-| `wage` | float | Current wage earned per tick |
-| `health` | float (0-1) | Physical health, decays without food/healthcare |
-| `happiness` | float (0-1) | Driven by services consumption and employment |
-| `morale` | float (0-1) | Driven by wage satisfaction and job stability |
-| `goods_inventory` | dict | `{good_name: quantity}` — pantry of purchased goods |
-| `category_experience` | dict | `{category: ticks_worked}` — industry-specific experience |
-
-**Behaviors per tick:**
-
-1. **Labor supply** — Decides whether to seek work, sets reservation wage based on expected wage and skills. Employed households may also search for better-paying jobs via the on-the-job search mechanic (see Labor Market).
-2. **Consumption planning** — Allocates budget across food, housing, services, healthcare based on need and preferences. Food and healthcare have satiation caps to prevent hoarding.
-3. **Goods consumption** — Eats from pantry each tick (10% depletion rate). Food consumption credits `food_consumed_this_tick`; same for services and healthcare.
-4. **Wellbeing update** — Health, happiness, and morale update each tick. All three have natural decay rates. Happiness recovery is driven by consumption events (food, services, housing, fair wages).
-5. **Skill growth** — Passive skill improvement while employed (`0.001 * (1 - skills_level)` per tick). Experience accumulates per industry category.
-
-**Key Mechanics:**
-
-- **`can_work` threshold**: Health must be >= 0.10 to participate in labor market. Below this, the household is too sick to work.
-- **Performance multiplier**: `0.5 + (morale×0.5 + health×0.3 + happiness×0.2)` — ranges from 0.5x to 1.5x, directly affects production output.
-- **Mercy floor**: When happiness drops below 0.25, decay pauses to prevent irreversible death spirals.
-- **Wage premiums**: Actual wage = `wage_offer * (1 + skill_premium + experience_premium)`. Skill premium up to 50% at max skill; experience premium 5% per year, capped at 50%.
-
-**Consumption Model:**
-
-Spending is income-anchored, not wealth-liquidating. The budget is computed as:
-
-```
-disposable_income = wage            # if employed
-                  = benefit_level   # if unemployed
-base_budget = spend_fraction * disposable_income
-drawdown    = savings_drawdown_rate * cash_balance   # personality-derived, 1–5%/tick
-budget      = min(base_budget + drawdown, cash_balance)
+```text
+frontend-react
+  -> WebSocket /ws
+backend/server.py
+  -> SimulationManager
+backend/economy.py
+  -> Economy.step()
+backend/agents.py
+  -> HouseholdAgent, FirmAgent, BankAgent, GovernmentAgent
+backend/config.py
+  -> SimulationConfig defaults
+backend/policy_schema.py
+  -> runtime and LLM policy schema
 ```
 
-`spend_fraction` (0.3–0.9) is modulated by macro confidence (unemployment rate), happiness, and employment stability. `savings_drawdown_rate` is personality-derived in `_initialize_personality_preferences`: spenders draw down up to 5%/tick, savers as little as 1%/tick.
+## Initialization
 
-**Desperation mode**: When `base_budget < subsistence_min_cash`, the household switches to an emergency drawdown rate (`savings_drawdown_rate × 5`, capped at 20%) to cover survival spending. This represents a household raiding savings when income is insufficient for basics.
+The WebSocket `SETUP` command is validated by `SetupConfig` in [`backend/server.py`](../backend/server.py). Supported setup fields are:
 
-**Wellbeing Decay and Recovery:**
+- `num_households`: default `1000`, backend-valid range `3` to `100000`
+- `num_firms`: default `5`, backend-valid range `1` to `1000`
+- `seed`: optional integer seed
+- `enable_llm_government`: optional boolean
+- `disable_stabilizers`: boolean
+- `disabled_agents`: any of `households`, `firms`, `government`, `all`
 
-| Signal | Decay rate | Recovery (full consumption) |
-|--------|-----------|---------------------------|
-| Health | 0.5%/tick | Healthcare visits, food above threshold |
-| Happiness | 0.2%/tick | +0.08% food, +0.05% services, +0.07% housing, +0.05% fair wage |
-| Morale | 2%/tick | Employment, wage satisfaction |
+The large-economy factory lives in [`backend/tools/runners/run_large_simulation.py`](../backend/tools/runners/run_large_simulation.py). It creates:
 
-A fully-satisfied household (all needs met, employed, fair wage) recovers happiness at ~0.25%/tick ≈ decay rate → stable. Unmet needs cause net decay.
-
-**Bank Account:**
-
-Each household has a `cash_balance` (liquid) and optionally a `bank_deposit` (savings). These are separate. Spending always draws from `cash_balance` only — the bank deposit cannot be spent directly.
-
-Each tick, the bank sweep runs after consumption:
-1. **Interest**: deposit earns interest, credited to both `bank_deposit` and `cash_balance`.
-2. **Auto-deposit**: if `cash_balance > liquidity_floor` (3–10 weeks of expenses, personality-derived), a fraction (5–40%) of the excess is swept into the deposit.
-3. **Auto-withdraw**: if `cash_balance < 50% of liquidity_floor` and there are deposits, the shortfall is pulled back from savings into cash.
-
-This means the bank account is a passive savings buffer — the household doesn't decide to deposit or withdraw, the mechanic runs automatically based on their saving personality.
-
-### Firm Agent
-
-Firms produce goods, hire workers, set prices, and compete for market share.
-
-**Key State:**
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `good_category` | str | Food, Housing, Services, or Healthcare |
-| `cash_balance` | float | Firm's liquid cash |
-| `inventory_units` | float | Current stock on hand |
-| `employees` | list | List of employed household IDs |
-| `wage_offer` | float | Posted wage for hiring |
-| `price` | float | Product price |
-| `quality_level` | float (0-10) | Product quality |
-| `personality` | str | aggressive, moderate, or conservative |
-| `is_baseline` | bool | True for government safety-net firms |
-
-**Behaviors per tick:**
-
-1. **Production and labor planning** — Private firms use a shared firm-health snapshot so staffing, distress response, pricing, and wage logic react to the same conditions. The labor planner still handles demand, inventory pressure, survival mode, burn mode, and staged cuts.
-2. **Hiring and contraction** — Distressed private firms can be blocked from expanding when smoothed profit is negative and cash runway is short, while contraction logic remains active.
-3. **Pricing** — Private prices react to inventory pressure using each firm's sampled `price_adjustment_rate` and `target_inventory_weeks`. Large gluts create larger cuts; sell-outs with low stock create smaller upward nudges. Baseline and healthcare firms keep category-specific special handling.
-4. **Wage setting** — Private post-warmup wages ratchet from the current `wage_offer` rather than being re-anchored to one tick of realized revenue per worker. Pressure comes from hiring failure, turnover, profitability, runway, sell-through, and inventory.
-
-**Firm Personalities and Trait Sampling:**
-
-Each firm still has a broad personality (`aggressive`, `moderate`, `conservative`), but the actual response speeds are sampled per firm rather than hard-coded to one exact number. In practice this means firms share the same decision rules while differing in:
-
-- `risk_tolerance`
-- `price_adjustment_rate`
-- `wage_adjustment_rate`
-- `target_inventory_weeks`
-- hire/fire limits
-- R&D and investment propensity
-
-**Baseline (Government) Firms:**
-
-- One per category (Food, Housing, Services, Healthcare)
-- Act as safety-net providers with lower quality
-- During warmup (`CONFIG.time.warmup_ticks`, default 10), hire proportional share of workforce
-- After warmup, gradually reduce staff to let private firms take over (support ratios: 1.0 during cooldown, 0.8 after)
-
-**Bankruptcy:**
-- Firms with cash below -$1,000 exit the economy
-- All employees are laid off
-- New firms enter the least-represented category when total firms drop below minimum
-
-### Government Agent
-
-The government collects taxes, provides transfers, makes investments, and adjusts policy.
-
-**Key State:**
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `cash_balance` | float | Government reserves |
-| `wage_tax_rate` | float (0-1) | Tax on household wages |
-| `profit_tax_rate` | float (0-1) | Tax on firm profits |
-| `unemployment_benefit_level` | float | Per-tick payment to unemployed |
-| `fiscal_pressure` | float | Rolling EMA of `(spending - revenue) / GDP`, used for fiscal penalties |
-| `spending_efficiency` | float (0.5-1.0) | Soft budget-pressure penalty applied to government discretionary spending |
-| `infrastructure_productivity_multiplier` | float | Economy-wide productivity boost |
-| `technology_quality_multiplier` | float | Economy-wide quality boost |
-| `social_happiness_multiplier` | float | Economy-wide happiness boost |
-
-**Behaviors per tick:**
-
-1. **Tax collection** — Collects wage taxes from households and profit taxes from firms.
-2. **Transfers** — Distributes unemployment benefits and other transfers.
-3. **Investment** — When cash > $10,000, invests in:
-   - Infrastructure (+0.5% productivity per $1,000)
-   - Technology (+0.5% quality per $500)
-   - Social programs (+0.5% happiness per $750)
-4. **Soft fiscal constraint** — Tracks two different budget metrics:
-   - `deficit_ratio`: snapshot-style treasury stress, computed from government cash relative to current GDP
-   - `fiscal_pressure`: rolling EMA of per-tick deficit flow, used to degrade `spending_efficiency`
-
-### Fiscal Pressure and Spending Efficiency
-
-- `fiscal_pressure` is the control signal the simulator uses for budget pressure.
-- It is updated from per-tick `(spending - revenue) / GDP` and clamped to a floor of `-0.15`, so long surplus periods create only a modest fiscal buffer rather than an unrecoverable negative well.
-- `spending_efficiency` is derived from `fiscal_pressure`:
-  - below `0.05`: no penalty
-  - `0.05-0.15`: mild efficiency loss
-  - `0.15-0.30`: stronger penalty
-  - above `0.30`: hard floor at `0.5`
-- Treasury outflows counted in this pressure path include transfers, infrastructure spending, technology spending, sector subsidies, bailout disbursements, bond purchases, and public-works capitalization.
-
----
-
-## Healthcare System
-
-Healthcare is modeled as a **non-storable service**, not a tradable inventory good.
-
-### How It Works
-
-1. **Demand**: Households request care based on health level. At each annual anchor tick, they sample a visit count from a health-bucket distribution (healthy → 0-2 visits/year; critically ill → 4-6 visits/year).
-2. **Queueing**: Requests go into firm-specific FIFO queues. Households pick providers by queue pressure (shortest wait) with minimal price weighting for critical cases.
-3. **Processing**: Healthcare firms process queued visits up to labor-based capacity each tick. `effective_capacity = floor(workers * capacity_per_worker)`.
-4. **Healing**: Each completed visit restores health: `delta = (1 - health_at_plan_time) / planned_visits`.
-5. **Payment**: Households pay for completed visits. Government subsidy is configurable via `healthcare_visit_subsidy_share`.
-
-### Doctor Training Pipeline
-
-- Total training: 208 ticks (4 years)
-- First half (ticks 0-103): Student — cannot work
-- Second half (ticks 104-207): Resident — can work in healthcare at 0.5 visits/tick
-- After completion: Doctor — contributes 2-3 visits/tick
-- Enrollment throttled based on active trainees and healthcare backlog signals
-
-### Healthcare Staffing
-
-- Backlog-driven: `desired_workers = ceil((arrivals_ema + backlog/horizon) / capacity_per_worker)`
-- Per-firm doctor cap: `ceil(population * 0.002)` (0.2% of households)
-- Healthcare firms prioritized in hiring order before other sectors
-
----
+- four baseline firms, one each for Food, Housing, Services, and Healthcare
+- queued private firms, distributed primarily to Food and Services in the current startup model
+- households with distributed skills, ages, and starting cash
+- seeded initial doctors for the baseline Healthcare firm
+- firm ownership links from firms back to households
+- a bank with cash reserves scaled by household count
+- a government with starting cash scaled by household count
 
 ## Tick Lifecycle
 
-Each tick executes these phases in order:
+The authoritative lifecycle is `Economy.step()` in [`backend/economy.py`](../backend/economy.py). The current sequence is:
 
-| Phase | What Happens |
-|-------|-------------|
-| 1. Reset counters | Clear per-tick consumption counters, legacy remnants |
-| 2. Firm planning | Each firm plans production, labor needs, prices, wages |
-| 3. Household planning | Each household plans labor supply and consumption budget |
-| 4. Healthcare requests | Households submit healthcare service requests to queues |
-| 5. Healthcare staffing | Backlog influences healthcare firm hiring plans |
-| 6. Medical training | Student/resident progression, debt accrual, enrollment |
-| 7. Labor matching | Bilateral matching: firms sorted by ID, workers matched by skills. Healthcare firms with backlog prioritized |
-| 8. Apply labor | Wages paid, skill growth applied, experience accumulated |
-| 9. Production | Firms produce goods using Cobb-Douglas function with wellbeing and infrastructure multipliers |
-| 10. Goods market | First-come-first-served clearing by household ID. Food/housing/services only (not healthcare) |
-| 11. Healthcare processing | Healthcare firms process queued visits up to capacity |
-| 12. Government taxes | Wage and profit tax collection |
-| 13. Government transfers | Unemployment benefits, social transfers |
-| 14. Apply purchases | Household cash debited, firm revenue credited |
-| 15. Inventory consumption | Households consume 10% of pantry per tick; counters credited |
-| 16. Government investment | Infrastructure, technology, social program spending |
-| 17. Wellbeing update | Health, happiness, morale recalculated for all households |
-| 18. Firm exits | Bankrupt firms removed, employees laid off |
-| 19. Firm entry | New firms created in under-served categories |
-| 20. Policy adjustment | Government adjusts tax rates, benefits based on conditions |
-| 21. Statistics | Aggregate metrics computed and emitted |
+1. Refresh warmup state, activate queued firms after warmup, reset per-tick telemetry, apply post-warmup stimulus if active, refresh subsidy caps, reset bank telemetry, apply random shocks, reset healthcare tick state, lock doctor health where configured, and enqueue healthcare requests.
+2. Build market views and unemployment statistics.
+3. If government stabilizers are enabled, update loan commitments, execute authorized bailouts, and maintain or deauthorize public-works capacity.
+4. Firms refresh one shared health snapshot, consider long-term capital loans, plan production/labor, record working-capital diagnostics, plan prices, apply price/rent stabilization caps, plan wages, disable ordinary labor-market hiring for Healthcare, and plan capital investment.
+5. Issue working-capital bridge credit where enabled and eligible.
+6. Process firm investment loan requests through the bank.
+7. Enforce the active minimum-wage floor in firm wage plans.
+8. Households update education status, job-search cooldowns tick, labor plans are created, unemployment guardrails normalize search/reservation state, and consumption plans are generated or reused in performance mode.
+9. If the bank exists, households may request consumption loans and the bank may originate them.
+10. Labor matching runs through the configured matcher, records hire/layoff events, and records failed-hiring regime events.
+11. Firms and households apply labor outcomes; firm rosters are synchronized with household employment state.
+12. Firms produce goods/services and update expected sales.
+13. Households withdraw up to the configured accessible share of deposits to cover planned purchases before market clearing.
+14. Food, Services, and tradable goods clear through the goods market.
+15. Services firms may expand employee-slot infrastructure; bank-backed service infrastructure loans may be offered.
+16. Housing rental market clears, repairs apply, housing firms consider unit expansion, and bank-backed housing expansion loans may be offered.
+17. Miscellaneous revenue is redistributed through the internal misc firm path.
+18. Healthcare firms process queued visits up to effective capacity; households pay with cash/deposits, subsidies, or medical loans where available.
+19. Government plans wage/profit/property/investment-related taxes and transfers.
+20. Capital-investment spending is recycled.
+21. Firms receive sales revenue, pay taxes, and apply price/wage updates.
+22. Bank loan repayments are collected after wages and sales are available.
+23. Household wage income, CEO income, transfers, taxes, purchases, medical loan payments, and ledgers are applied.
+24. Government fiscal results are applied.
+25. Bank deposit rates update, household deposit sweeps/withdrawals run, credit scores update, and settled loans are cleaned up.
+26. Government infrastructure, technology, social spending, and bond purchases are applied and routed back into circulation where appropriate.
+27. Investment taxes are collected and fiscal pressure/spending efficiency are updated.
+28. Household wellbeing updates run, with lower cadence in performance mode.
+29. Bankrupt private firms exit and eligible new firms enter under-served sectors.
+30. If rule-based government stabilizers are enabled and the LLM government is disabled, automatic government policy adjustment runs.
+31. Statistics, health diagnostics, firm-distress diagnostics, and sector-shortage diagnostics update.
+32. Firm profits and healthcare worker bonuses are distributed to household owners/workers, household ledgers finalize, affordability telemetry updates, and the simulation clock advances.
 
-### Warmup Period
+The server applies pending runtime config changes and completed LLM decisions only at safe boundaries around this tick loop.
 
-The first `CONFIG.time.warmup_ticks` ticks are a warmup period where baseline
-(government) firms operate at higher capacity to bootstrap the economy. The
-default is currently 10 ticks, but it is configuration-driven rather than
-hard-coded. After warmup, baseline firms gradually reduce their workforce to let
-private firms compete.
+## Households
 
----
+Households maintain cash, bank deposits, skills, age, employment state, wage, health, happiness, morale, expectations, preferences, inventory, medical status, debt, and history used by the live UI.
 
-## Market Mechanics
+Key current mechanics:
 
-### Labor Market
+- A household can work only if `health >= 0.10` and it is not in the student phase of medical training.
+- Unemployed, work-capable households are normalized into active job search by default through `ECOSIM_FORCE_UNEMPLOYED_SEARCH=1`.
+- Long-term unemployed reservation wages are clamped to an observable market anchor by default after `ECOSIM_UNEMPLOYED_CLAMP_TICKS=8`.
+- Employed households can perform staggered on-the-job search after warmup. If a switching attempt fails to match, the household keeps its prior employer.
+- Matching wage premiums in the current matcher are `25% * skill_level` plus `3%` per year of category experience, capped at `30%`.
+- Consumption planning uses wage income, benefit income, dividend income, personality-driven saving behavior, current cash, and accessible deposit liquidity.
+- Health, happiness, and morale update from food, housing, services, employment, wage satisfaction, healthcare, poverty stress, and government social multipliers.
+- Medical training has student/resident/doctor stages. Residents and doctors add healthcare capacity; doctors are seeded during large-economy initialization.
 
-- **Matching**: Firms sorted by `firm_id`; each firm hires from the pool of job-seekers.
-- **Priority**: Healthcare firms with active backlogs are prioritized before other sectors.
-- **Wage determination**: `actual_wage = wage_offer * (1 + skill_premium + experience_premium)`.
-- **Skill premium**: Up to 50% for max skill (0.5 * skills_level).
-- **Experience premium**: 5% per year of industry experience, capped at 50%.
+## Firms
 
-**Firm hiring throughput:**
+Firms plan before state mutations are applied. The common pattern is:
 
-Firms can hire up to `max(max_hires_per_tick, ceil(workers * 0.25))` workers per tick. The `max_hires_per_tick` trait (1–4 workers depending on personality: conservative, moderate, aggressive) ensures even small/zero-worker firms can hire. The 25% scaling ensures growing firms can actually catch up to demand. Contraction is similarly bounded by `max(max_fires_per_tick, ceil(workers * 0.20))`.
+1. compute a shared health snapshot
+2. plan production and labor
+3. plan price
+4. plan wage
+5. apply labor, production, sales, taxes, price, and wage changes later in the tick
 
-Hiring intent is gated by two conditions: sell-through rate ≥ 65% (firm is selling most of what it produces) and cash runway above the survival-mode threshold (2 ticks). A firm with adequate demand but short runway does not hire; a firm with good runway but poor sell-through does not hire. Both gates must pass for expansion to proceed.
+The shared firm-health snapshot includes cash runway, smoothed profit margin, sell-through rate, inventory weeks, unfilled-position streak, turnover, survival mode, burn mode, and a category wage anchor.
 
-**On-the-Job Search (Newspaper Mechanic):**
+Private firm behavior includes:
 
-Employed households periodically check whether another firm is offering
-significantly better wages. The check is staggered by a cooldown so workers do
-not all sample the market at once. When possible, the comparison uses the
-posted wage signal from the worker's current employer category rather than one
-economy-wide average. Job-switchers enter the labor pool as active candidates
-that tick.
+- inventory-aware production and pricing
+- sector-specific pricing paths for generic firms, housing, healthcare, baseline firms, and services
+- wage planning that uses the active minimum-wage floor, unemployment, benefit levels, firm health, and hiring pressure
+- survival and burn modes under distress
+- staged layoffs and hiring gates
+- capital investment, service infrastructure, housing unit expansion, and bank/government-backed lending paths
+- bankruptcy when cash falls below the configured threshold or distress persists through the zero-cash guard
+- new firm entry into under-served sectors
 
-- Category-level posted wages are computed from private firms' planned wage offers.
-- If no category-specific signal is available, the household falls back to the global mean posted wage.
-- If a job-switcher fails to match with a new employer during that tick's matching phase, they fall back to their previous employer rather than becoming unemployed. Voluntary job search cannot create accidental layoffs.
-- This mechanic creates competitive wage pressure on firms from employed workers, not just from the unemployed pool.
+Baseline firms are protected from bankruptcy and provide a safety-net floor. Public works can create additional baseline-style capacity when enabled by policy.
 
-### Goods Market
+## Labor Market
 
-- **Clearing**: First-come-first-served by `household_id` order.
-- **Selection**: Households choose firms based on price, quality, and stochastic noise.
-- **Price elasticity**: Food is inelastic (0.5), services somewhat elastic (0.8), housing elastic (1.5).
-- **Satiation caps**: Food purchases capped at ~3 units/tick; healthcare at 5 units/tick to prevent hoarding.
+The default matcher is `fast`; the legacy matcher remains available for comparison.
 
-### Production
+Configuration:
 
-- **Cobb-Douglas**: `output = units_per_worker * workers^alpha` (alpha = 0.82, diminishing returns).
-- **Productivity multipliers**: Infrastructure investment, worker experience, worker wellbeing all multiply base output.
-- **Just-in-time**: Firms produce to replace sales, not to build inventory.
+```env
+ECOSIM_LABOR_MATCH_MODE=fast
+ECOSIM_COMPARE_LABOR_MATCH=0
+ECOSIM_COMPARE_LABOR_MATCH_STRIDE=1
+ECOSIM_LABOR_DIAGNOSTICS=0
+ECOSIM_LABOR_DIAGNOSTICS_STRIDE=10
+```
 
----
+Current matching behavior:
 
-## Key Parameters
+- incumbent jobs are retained unless a layoff or successful job switch changes the relationship
+- work-ineligible households are excluded
+- job seekers are filtered by reservation wage and medical-only status
+- candidate priority favors higher skill, with deterministic tie-breaking
+- actual wages include skill and category-experience premiums
+- unfilled vacancies record diagnostic reasons such as no searchers or reservation wages above offers
 
-| Parameter | Default | Effect |
-|-----------|---------|--------|
-| `warmup_ticks` | 10 | Duration of government-heavy warmup (reduced from 52; override with `--warmup-ticks`) |
-| `food_health_mid_threshold` | 2.0 | Food units for moderate health |
-| `food_starvation_penalty` | 0.05 | Health penalty per tick without food |
-| `health_recovery_per_medical_unit` | 0.02 | Health restored per medical inventory unit consumed |
-| `consumption_rate` | 0.10 | Fraction of inventory consumed per tick (half-life ~7 ticks) |
-| `diminishing_returns_exponent` | 0.82 | Cobb-Douglas alpha for production |
-| `bankruptcy_threshold` | -1000 | Cash level triggering firm exit |
-| `skill_growth_rate` | 0.001 | Passive skill improvement per tick |
-| `experience_premium_rate` | 0.05 | Wage premium per year of experience |
-| `subsistence_min_cash` | 50.0 | Budget threshold that triggers desperation savings drawdown |
-| `savings_drawdown_rate` | 1–5% | Per-household, personality-derived fraction of cash savings spent per tick |
-| `healthcare_capacity_per_worker_default` | 2.0 | Visits per healthcare worker per tick |
+The warehouse and metrics path expose labor diagnostics such as unemployed-not-searching, wage-ineligible seekers, forced-search adjustments, and reservation-clamp adjustments.
 
-For the full 400+ parameter reference, see `backend/config.py`.
+## Goods, Housing, And Healthcare
 
----
+Goods market:
 
-## Economic Dynamics
+- Food and Services clear through the goods-market path.
+- Services are treated as current-tick capacity rather than stored household inventory.
+- Households use bounded awareness pools, price/quality preferences, and stochastic noise when choosing firms.
+- Sector subsidies reduce household payment when the government has remaining subsidy budget.
 
-### What Creates Growth
-- Employment → wages → consumption → firm revenue → more hiring
-- Government infrastructure investment compounds productivity over time
-- Skill and experience accumulation increase worker output
-- Private firms outcompete baseline firms on quality
+Housing:
 
-### What Causes Recessions
-- Food shortage → health drops → can't work → no income → deeper poverty
-- Firm bankruptcy cascades → mass layoffs → demand collapse
-- Government deficit → reduced transfers → weaker safety net
-- Wellbeing death spiral: unhappy → unproductive → lower output → unhappier
+- Housing clears through a rental-market path separate from ordinary goods clearing.
+- Rent affordability, vacancies, evictions, repairs, occupancy pressure, rent stabilization, and housing expansion are tracked.
+- Housing unit expansion can use self-financing or bank loans depending on state.
 
-### Built-in Stabilizers
-- Government counter-cyclical policy (automatic tax/benefit adjustments)
-- Baseline firms as employer of last resort
-- Mercy floor on happiness decay (below 0.25)
-- Minimum health threshold (0.10) for labor participation
-- New firm creation when market has too few competitors
+Healthcare:
+
+- Healthcare is queue-based and non-storable.
+- Households enqueue healthcare requests based on health status and planned visit schedules.
+- Healthcare firms process visits up to labor-based capacity, with resident/doctor capacity differences.
+- Payment can use cash, accessible deposits, government subsidy, or medical loans.
+- Denied visits and completed visits are emitted as healthcare events.
+
+## Government
+
+The government owns the policy surface implemented in [`backend/policy_schema.py`](../backend/policy_schema.py). It collects taxes, applies transfers and subsidies, manages public works, runs fiscal investments, tracks fiscal pressure, applies bailouts, and records policy state for the UI and warehouse.
+
+Policy choices can come from:
+
+- manual runtime controls in the frontend
+- automatic rule-based stabilizers
+- the live LLM government when enabled
+- offline LLM runners and benchmark tools
+
+When the live LLM government is enabled, deterministic rule-based policy adjustment is bypassed so policy choices come from the model plus mechanical validation and application code.
+
+## Bank And Credit
+
+The standard dashboard economy includes a `BankAgent`. The bank tracks cash reserves, deposits, active loans, lending capacity, credit scores, interest income, deposit interest, defaults, repayments, and loan loss provision.
+
+Current bank-integrated paths include:
+
+- household deposit sweeps and withdrawals
+- deposit interest, constrained by bank profitability/reserves
+- firm capital loans
+- service infrastructure loans
+- housing expansion loans
+- working-capital bridge credit
+- consumption loans
+- medical loans
+- repayment collection and default handling
+- firm and household credit score updates
+
+The engine keeps fallback paths for runs where `bank` is `None`.
+
+## LLM Government
+
+The LLM government observes compact macro, sector, fiscal, shortage, and prior-decision context. It does not receive raw household or firm records. Its proposed changes are validated against `policy_schema.py`, rate-limited, grouped where needed, and separated into accepted/rejected changes.
+
+Default scheduling is configured in `CONFIG.llm`: decisions occur on an interval, after warmup/start gates, and are run outside the tick phase in a background task. Completed decisions are applied before a later tick begins.
+
+## Warehouse And Diagnostics
+
+When persistence is enabled, the server records:
+
+- run metadata and policy config
+- tick metrics and sector metrics
+- firm snapshots
+- sampled household snapshots
+- tracked household history
+- labor and healthcare events
+- policy actions
+- decision features
+- tick diagnostics
+- sector shortage diagnostics
+- regime events
+- full LLM government decisions
+
+The live decision context is also available in memory through `GET /decision-context/live`, even before warehouse batches flush.
+
+## Important Defaults
+
+| Setting | Current default |
+|---|---|
+| Tick length | 1 week |
+| Ticks per year | 52 |
+| Warmup ticks | 10 |
+| Setup households | 1000 in frontend/server default |
+| Setup private-firms setting | 5 per setup input, redistributed by factory rules |
+| Labor matcher | `fast` |
+| Household snapshot stride | 5 warehouse ticks |
+| Direct local warehouse | disabled unless `ECOSIM_ENABLE_WAREHOUSE=1` |
+| Docker warehouse | enabled SQLite runtime volume |
+| Live LLM government | disabled by default |
+| Tax lever max LLM step | 0.05 per decision |

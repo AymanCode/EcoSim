@@ -304,7 +304,8 @@ class HouseholdBehaviorConfig:
     buffer_stock_spend_bonus: float = 1.3  # Spend fraction multiplier when above target ratio
 
     # Feature 3: Bounded Rationality (Awareness Pool)
-    awareness_pool_max_size: int = 7  # Max firms per category in awareness pool (5-10 range)
+    awareness_pool_initial_size: int = 7  # Firms seen per category before organic discovery expands the pool
+    awareness_pool_max_size: int = 10  # Max firms per category in awareness pool after discovery growth
     switching_friction_housing: float = 0.15  # 15% utility advantage needed to switch housing firm
     switching_friction_food: float = 0.02  # 2% utility advantage needed to switch food firm
     switching_friction_services: float = 0.05  # 5% utility advantage for services

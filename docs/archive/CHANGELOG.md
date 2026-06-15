@@ -4,6 +4,485 @@ This document tracks all implementation changes, improvements, and features adde
 
 ---
 
+## [2026-06-08] 10k Full-App Tick Performance Increment
+
+### Overview
+
+The 10k-household full-app integration run was spending most of its time in backend tick compute, not the browser. The baseline full-app evidence run (`benchmarks/results/2026-06-08-032725-full-app-evidence`) showed backend tick compute p50/p95 at `3359.0 ms` / `6156.0 ms`, while browser JSON parse stayed at `0.2 ms` / `0.3 ms`. That made the optimization target clear: preserve all simulation behavior and reduce the backend hot path in small, verifiable increments.
+
+This change focuses only on internal caching and precomputation inside household consumption planning. It does not change the awareness-pool rules, refresh cadence, random seed formulas, purchase allocation math, firm selection logic, or dashboard protocol.
+
+### Changes
+
+- **Shared awareness refresh market views**:
+  - Added `AwarenessMarketView` and `build_awareness_market_views()` in `backend/agents.py`.
+  - `HouseholdAgent.refresh_awareness_pool()` now accepts an optional precomputed view.
+  - `Economy._batch_plan_consumption()` builds the view lazily once per tick only when at least one household needs awareness refresh.
+  - This removes repeated per-household reconstruction of the same positive-price firm IDs, valid-firm sets, and firm lookup dictionaries during 10k-household refresh ticks.
+
+- **Deterministic tie-break noise prefix cache**:
+  - `_get_purchase_tie_break_noise()` now caches one deterministic noise buffer up to the awareness-pool cap and returns read-only prefixes for shorter pool lengths.
+  - The seed formula is unchanged: category CRC32 mixed with household ID.
+  - This avoids recreating NumPy RNGs when awareness pools grow from initial size toward max size during ramp-up.
+
+- **Regression tests**:
+  - Added direct equivalence coverage proving raw market refresh and precomputed-view refresh produce the same awareness pools, refresh ticks, cached membership sets, zero-price exclusion, and primary-firm protection.
+  - Added direct coverage proving cached tie-break prefixes match the old per-length seeded RNG output.
+  - Added a batch-consumption test proving all household refreshes in one tick receive the same shared precomputed market view.
+
+### Why
+
+The goal was not to rewrite consumption planning or chase a large risky speedup. The system was already functionally correct, so the priority was to reduce repeated work without changing economic behavior.
+
+The audit showed a periodic slowdown every fourth tick, aligned with `CONFIG.households.pool_refresh_interval = 4`. Those ticks refresh awareness pools for all 10k households. The old path rebuilt the same category-level market data inside each household refresh. That is a safe optimization target: compute once per tick, reuse many times, and keep the household-level decision logic intact.
+
+The second bottleneck was repeated deterministic tie-break RNG setup in `_plan_category_purchases()`. Because a seeded RNG sequence for length `N` has the same prefix as a seeded RNG sequence for any longer length, caching the capped-length sequence preserves the exact values for shorter requests while removing repeated RNG construction.
+
+### Verification
+
+Correctness gates:
+
+```bash
+python -m pytest backend\tests_contracts\test_hot_path_optimizations.py backend\tests_contracts\test_contracts_behavior.py -q
+python -m backend.tools.benchmarks.regression_snapshot --households 1500 --firms-per-category 5 --seed 42 --ticks 17 --snap-ticks 1,4,5,8,9,12,13,16,17 --compare benchmarks\results\ecosim_awareness_golden_before.json
+git diff --check -- backend\agents.py backend\economy.py backend\tests_contracts\test_hot_path_optimizations.py
+```
+
+Results:
+
+- Focused and adjacent behavior tests: `22 passed`.
+- Deterministic snapshot compare: `MATCH` within `1e-06`.
+- Diff whitespace check: clean.
+
+Performance gates:
+
+```bash
+python -m backend.tools.benchmarks.run_sim_bench --households 10000 --ticks 24 --warmup-ticks 10 --seeds 42 --firms-per-category 5 --profile --profile-top 35
+python -m backend.tools.integration.run_full_app_evidence --households 10000 --ticks 50 --timeout-seconds 900 --tick-batch-size 5
+```
+
+Measured results:
+
+- Backend 10k benchmark p95 tick latency: `3859.913 ms` before -> `3247.828 ms` after.
+- Full-app 10k backend tick compute p50/p95: `3359.0 ms` / `6156.0 ms` before -> `3266.0 ms` / `4625.0 ms` after.
+- Browser parse remained negligible at p95 `0.3 ms`, confirming the remaining bottleneck is still backend tick compute.
+
+Key artifacts:
+
+- Before full-app evidence: `benchmarks/results/2026-06-08-032725-full-app-evidence/summary.md`
+- After full-app evidence: `benchmarks/results/2026-06-08-180457-full-app-evidence/summary.md`
+- After backend benchmark/profile: `benchmarks/results/2026-06-08-180113-sim/summary.md`
+- Golden deterministic snapshot: `benchmarks/results/ecosim_awareness_golden_before.json`
+
+### Follow-Up Increment: Plan Consumption Awareness Filtering
+
+After the first increment, `_plan_category_purchases()` was still the largest consumption-planning cost. The next safest target was repeated per-household awareness filtering over precomputed category arrays. The prior code built a boolean mask by scanning every firm in the category for every household/category call, even though each household awareness pool is capped around 10 firms.
+
+Additional changes:
+
+- `Economy._batch_plan_consumption()` now adds `indices_by_firm_id` to each per-category array cache.
+- `HouseholdAgent._filter_category_arrays_to_awareness_pool()` centralizes array filtering for housing, food, and services.
+- The helper uses precomputed firm-id positions when available and falls back to the old boolean-mask path for direct callers that pass simple arrays.
+- Selected positions are sorted before array indexing so filtered arrays preserve original market order, not awareness-pool order. This is important because utility arrays, tie-break noise alignment, softmax shares, and primary-firm selection all depend on order.
+
+Anti-points and compensations:
+
+- **Risk: order drift could change purchases.** Compensation: tests prove market order is preserved even when awareness-pool order differs.
+- **Risk: stale or missing index maps from direct callers.** Compensation: the helper falls back to the old boolean-mask path when `indices_by_firm_id` is absent.
+- **Risk: no-overlap pools could accidentally fall back to the full market.** Compensation: tests prove the optimized helper returns empty arrays, matching the current array path.
+- **Risk: micro-optimizing inside purchase selection could change economics.** Compensation: the change does not alter budget fractions, price caps, utility formulas, stochastic seed formulas, softmax allocation, or switching friction.
+
+Additional verification:
+
+```bash
+python -m pytest backend\tests_contracts\test_hot_path_optimizations.py -q
+python -m pytest backend\tests_contracts\test_contracts_behavior.py -q
+python -m backend.tools.benchmarks.regression_snapshot --households 1500 --firms-per-category 5 --seed 42 --ticks 17 --snap-ticks 1,4,5,8,9,12,13,16,17 --compare benchmarks\results\ecosim_awareness_golden_before.json
+python -m backend.tools.benchmarks.run_sim_bench --households 10000 --ticks 24 --warmup-ticks 10 --seeds 42 --firms-per-category 5 --profile --profile-top 35
+python -m backend.tools.integration.run_full_app_evidence --households 10000 --ticks 50 --timeout-seconds 900 --tick-batch-size 5
+```
+
+Additional results:
+
+- Hot-path tests: `11 passed`.
+- Adjacent behavior tests: `14 passed`.
+- Deterministic snapshot compare: `MATCH` within `1e-06`.
+- Backend 10k benchmark p95 tick latency after the first increment: `3247.828 ms`; after this follow-up: `3082.237 ms`.
+- `_plan_category_purchases()` sampled profile cost: `3.058 s` after the first increment -> `2.899 s` after this follow-up.
+- Full-app 10k backend tick compute: p50 improved from `3266.0 ms` to `3125.0 ms`; p95 stayed at `4625.0 ms`.
+
+Remaining safe follow-up:
+
+The next likely target is still inside `_plan_category_purchases()`, but the safer next step is another audit rather than immediate code: the profile now shows the new helper itself, price-cap checks, and food average-price mean calculations as visible costs. Any further change should be tested against direct purchase-plan equivalence and deterministic multi-tick snapshots before measuring speed.
+
+---
+
+## [2026-05-18] Policy Forecasting V1 — Simulation-Backed ML/DS Layer
+
+### Overview
+
+EcoSim had a strong simulator but no data-science story. This change adds one as a self-contained `policy_forecasting/` package that treats the simulator as a controlled experiment lab. It answers one narrow, defensible question: inside EcoSim's frozen 10k-agent economy, can early labor/demand/welfare/firm/fiscal/policy signals forecast unemployment and consumer distress eight ticks ahead under six pre-registered policy interventions — and what is the matched-seed effect of each policy?
+
+The hard constraint was that the simulator is set in stone. The package therefore never edits `backend/`. It imports the sim read-only, applies government lever deltas through the existing public `GovernmentAgent.set_lever()` API, drives `Economy.step()` tick by tick, and snapshots one per-tick row per `(run_id, policy_canonical, seed, tick)`. Two deliverables share that one dataset: a leakage-safe forecaster and a matched-seed policy-effect analysis. This shared-asset framing is what makes it one project, not two.
+
+The design was hardened through five adversarial review rounds before any code was written: an initial reviewer pass surfaced ten findings (3 blockers, 7 majors — per-tick telemetry missing, held-out-policy leakage via duplicate lever vectors, determinism not proven byte-for-byte, undefined distress metric, under-powered confidence intervals, runtime infeasibility, overclaiming bullets). Each was resolved in a frozen spec (`docs/POLICY_FORECASTING_V1.md`) and frozen schema (`docs/POLICY_FORECASTING_SCHEMA.md`) before implementation, then re-verified to "implementation-ready."
+
+### Changes
+
+- **New `policy_forecasting/` package (zero `backend/` edits, own venv):**
+  - `sweep/wrapper.py` — external driver: applies frozen lever deltas via public API, steps the economy, snapshots the frozen feature manifest from public surfaces (`get_economic_metrics()`, government/agent `to_dict()`, `backend/data/models.py`). Parallel across `(policy, seed)`. No simulator manifest column required a base edit (dropped columns: none).
+  - `distress.py` — frozen consumer-distress formula bound to real repo fields (`subsistence_min_cash` `backend/config.py:52`; food shortfall `economy.py:4179`; `min_food_per_tick` `economy.py:4119`).
+  - `dataset.py` — t+8 label join; hard leakage-exclusion list (`run_id`, `policy_canonical`, `levers_json`, `seed`, `tick`, every `*__t+8`); mandatory no-policy-state ablation.
+  - `split.py` — disjoint train / validation / frozen-final-test blocks by `(canonical lever vector, seed)`; CI blocking by run and time-regime.
+  - `models.py` — policy-aware persistence + trend baselines, ElasticNet, gradient boosting.
+  - `evaluate.py` — paired blocked bootstrap deltas vs baselines (no claim if CI crosses zero); matched-seed Wilcoxon signed-rank with Holm/BH correction and a determinism noise band.
+  - `determinism.py` — fresh-process, `PYTHONHASHSEED=0`, full per-tick hash replicate harness.
+  - `run_pipeline.py`, `run_explain.py` — orchestrators added to chain sweep → dataset → split → models → evaluate → SHAP into result JSON.
+  - `demo/app.py`, `tests/` (12 tests), `README.md`, `RESULTS.md`, `requirements.txt`.
+- **One bug fixed during validation:** `split.py` time-regime assignment used a pandas `groupby.apply` returning a multi-column frame into a single column; vectorized with `cumcount`/`pd.cut`, regime boundaries preserved.
+- **Wrapper correctness fix:** `essential_spend` was a hardcoded `50.0`; now bound to live `CONFIG.households.subsistence_min_cash` per the frozen schema.
+
+### Why
+
+The project needed an interview-defensible DS story, not a Kaggle-tier model. The value is the experimental design and the validation discipline, not the algorithm. Three decisions carry that:
+
+1. **Frozen base + external wrapper.** The simulator is the experimental apparatus; mutating it would invalidate every prior run and entangle unrelated WIP. Driving it read-only through its public API keeps the experiment honest and the blast radius zero.
+2. **Determinism as a gate, measured not assumed.** Matched-seed treatment effects are only valid if the same seed and policy produce the same trajectory. Rather than claim this, the harness measures it: two fresh-process replicates at 10k were byte-identical (`max_abs_delta=0.0`). That promoted the determinism story from "measured and hedged" to "byte-identical gate passed," and made the policy deltas exact (noise band 0.0).
+3. **Leakage-safe, multiplicity-corrected, honest about nulls.** Held-out seeds *and* held-out lever vectors; features strictly ≤ t; persistence/trend baselines that must be beaten with a bootstrap CI clear of zero; Wilcoxon + Holm across policies × outcomes. Distress at t+8 is reported as an honest null (not forecastable better than persistence); profit-tax shows no detectable household effect. Reporting the nulls is what makes the positive results believable.
+
+Interview framing: this is simulator system identification, not real-world macro prediction. The defensible claim is a controlled experiment platform — matched-seed policy treatment effects plus a leakage-safe forecaster — over a known complex stochastic system. When asked "why should I believe this?", the answer is the held-out splits and the passing byte-identical determinism gate, not the model choice. The killing question ("which feature-outcome relationships transfer to a real economy?") is answered up front: none are claimed to; transportability is explicitly untested in V1.
+
+Headline results (10k confirm: 6 arms × 24 matched seeds × 80 ticks, full numbers in `policy_forecasting/RESULTS.md`):
+
+- Gradient boosting forecasts unemployment at t+8 with R²=0.92, beating policy-aware persistence by 0.080 MAE (95% CI [0.056, 0.107]) on held-out seeds and unseen lever vectors; robust to the no-policy-state ablation.
+- SHAP: the 4-tick GDP moving average dominates (~10× the next feature) — a leading demand signal persistence cannot see, which is precisely why gradient boosting beats it.
+- Six of eight matched-seed policy effects are significant after Holm correction (dz up to 22) with coherent within-simulator mechanisms; two are honest nulls.
+- Resume bullet (quantified) is recorded in `policy_forecasting/RESULTS.md`.
+
+### Verification
+
+```bash
+python -m policy_forecasting.sweep.wrapper --confirm-seeds --households 10000 --ticks 80 --processes 8 --output policy_forecasting/artifacts/confirm10k_ticks.parquet
+python -m policy_forecasting.dataset      policy_forecasting/artifacts/confirm10k_ticks.parquet policy_forecasting/artifacts/confirm10k_supervised.parquet
+python -m policy_forecasting.determinism  --arm baseline --seed 0 --households 10000 --ticks 80 --output policy_forecasting/artifacts/determinism_confirm10k.json
+python -m policy_forecasting.run_pipeline policy_forecasting/artifacts/confirm10k_ticks.parquet policy_forecasting/artifacts/confirm10k_result.json --determinism-json policy_forecasting/artifacts/determinism_confirm10k.json
+python -m policy_forecasting.run_explain  policy_forecasting/artifacts/confirm10k_ticks.parquet policy_forecasting/artifacts/explain
+PYTHONHASHSEED=0 PYTHONPATH=. policy_forecasting/.venv/Scripts/python -m pytest policy_forecasting/tests -q
+```
+
+10k confirm completed (~2.25 h, 11,520 tick rows). 12/12 package tests pass. Determinism gate byte-identical at 10k. `backend/` left byte-identical throughout (no simulator edits).
+
+---
+
+## [2026-05-17] WebSocket Session Isolation And Resume Reliability
+
+### Overview
+Fixed two shared-state reliability issues that could make local runs behave inconsistently during pause/resume or when multiple browser tabs/users connected to the backend.
+
+The first issue was Python import aliasing: benchmark modules could import `backend.config.CONFIG` while the simulation runtime used top-level `config.CONFIG`, creating two separate global config objects in the same process. That made seed and benchmark configuration updates look correct in the harness while the simulation could still read old values.
+
+The second issue was WebSocket lifecycle ownership: all dashboard connections shared one process-global `SimulationManager`. A pause/resume/reset sequence, a refresh, or a second tab could overwrite the active websocket or leave an old tick loop running in the background. That is the class of bug where the UI says "paused" or "starting" but the backend state is actually stale, still running, or owned by a previous connection.
+
+### Changes
+
+- **Benchmark import consistency**:
+  - Updated benchmark modules to import the same top-level backend modules used by the simulation runner.
+  - Added a regression test proving `run_sim_bench`, `run_policy_sweep`, `run_warehouse_bench`, and `regression_snapshot` all share the same `CONFIG` singleton as the simulation runtime.
+
+- **Per-WebSocket simulation sessions**:
+  - Added `SessionRegistry` in `backend/server.py` to allocate one isolated `SimulationManager` per websocket connection.
+  - Kept the legacy REST `manager` for existing read endpoints, avoiding a broader API migration in the same fix.
+  - The websocket endpoint now sends a `SESSION` message with a `sessionId` and routes `SETUP`, `START`, `STOP`, `RESET`, `CONFIG`, and `STABILIZERS` commands to that connection's own manager.
+  - Added an `ECOSIM_MAX_SESSIONS` guardrail, defaulting to `8`, so concurrent sessions are bounded instead of unbounded.
+
+- **Pause/resume run-loop safety**:
+  - Added `SimulationManager.start_background_loop()` so `START` resumes an active loop task instead of spawning a second loop while the previous tick is still finishing.
+  - Added `SimulationManager.stop_background_loop()` so `STOP`, `RESET`, disconnects, and setup replacement use one lifecycle path.
+  - `RESET` and disconnect paths now cancel active background tasks for that websocket session, while normal pause leaves the task reusable if a user resumes quickly.
+
+- **Tests**:
+  - Added unit coverage for isolated session allocation and release.
+  - Added websocket integration coverage proving two simultaneous `/ws` clients receive distinct session ids and distinct managers.
+  - Added lifecycle coverage proving a quick pause/resume does not create duplicate run-loop tasks.
+
+### Why
+This makes EcoSim behave more like a real multi-user service instead of a single-process demo. Each browser tab/user gets an isolated simulation session, so one connection cannot steal another connection's active websocket or mutate another run's pause/resume state.
+
+The run-loop change directly targets the intermittent resume failure: when a user pauses and quickly resumes, the backend now treats that as a state transition on one existing task instead of possibly starting a second loop against the same economy.
+
+Interview framing: this was a reliability refactor of shared mutable state. The fix introduced session-scoped ownership, bounded concurrency, lifecycle idempotency, and regression tests around the exact failure mode.
+
+### Verification
+
+```bash
+python -m pytest backend/tests_contracts/test_benchmark_harness.py backend/tests_server/test_server_sessions.py backend/tests_server/test_live_llm_government.py backend/tests_server/test_server_api.py -q
+python -m py_compile backend/server.py backend/tools/benchmarks/run_sim_bench.py backend/tools/benchmarks/run_warehouse_bench.py backend/tools/benchmarks/run_policy_sweep.py backend/tools/benchmarks/regression_snapshot.py
+python -m pytest backend/tests_contracts backend/tests_server -q -m "not llm and not research"
+python -m pytest backend/data/tests backend/tests_server/test_server_api.py -q
+cd frontend-react && npm run lint
+cd frontend-react && npm run build
+```
+
+All commands passed. The frontend build still reports the existing large-chunk and outdated browser-data warnings.
+
+---
+
+## [2026-05-12] 1,000-Household Results And Live LLM Government Dashboard
+
+### Overview
+Updated the public LLM results around the new `1,000` household comparison, then moved the LLM government from an offline/batch experiment into the live frontend simulation path. The government can now think in the background while ticks continue, apply completed policy decisions at safe tick boundaries, and show its current status, policy, and latest decision in the dashboard.
+
+### Changes
+
+- **Docs and published artifacts**:
+  - Updated `README.md` and `experiments/llm_government_1k/LLM_RESULTS.md` so the featured experiment reflects the `1,000` household run instead of the older small smoke run.
+  - Added the `experiments/llm_government_1k/per_model_runs/` report artifacts used by the updated markdown links.
+  - Committed and pushed the docs/results update as `eb11e81` with the requested message: `updated llm ouputs to 1000 hosueholds`.
+
+- **`backend/server.py`**:
+  - Made frontend setup default to `enable_llm_government: true`.
+  - Added a nonblocking LLM government scheduler:
+    - snapshots the economy at decision ticks,
+    - runs the provider call in a background task,
+    - keeps the simulation ticking while the model thinks,
+    - applies completed decisions before the next `Economy.step()`.
+  - Added safe fallback behavior when no LLM provider is available. The simulation keeps running with rule-based government instead of failing startup.
+  - Extended websocket metrics with `llmGovernment`, `governmentPolicy`, and richer latest-decision state.
+  - Expanded runtime `CONFIG` handling so the frontend can update the full government policy surface while the simulation is running.
+
+- **`frontend-react/src/App.jsx` and `frontend-react/src/NeuralGovernment.jsx`**:
+  - Rebuilt the Government tab around:
+    - a live central government hologram,
+    - grouped policy controls,
+    - current fiscal/labor state,
+    - latest LLM decision feed,
+    - accepted/rejected policy changes,
+    - visible rule-based fallback state.
+  - Fixed `SystemDistressGauge` so percent unemployment does not instantly clamp the gauge to `100`.
+  - Removed fake static deltas and replaced them with real live state or no badge.
+  - Kept the existing dark technical theme and used the current React/Tailwind/lucide/canvas stack.
+
+- **Warehouse and database**:
+  - Added `llm_government_decisions` to SQLite and Postgres schemas.
+  - Added the `LLMGovernmentDecision` model and manager insert/read support.
+  - Kept `policy_actions` as the per-lever applied-action log while storing the full LLM decision separately.
+  - Added SQLite/Postgres migration files for the new decision table.
+  - Narrowed `.gitignore` so backend migration scripts are visible to Git.
+
+- **Tests and reliability**:
+  - Added tests for atomic/idempotent persistence of full LLM decisions plus policy actions.
+  - Added live scheduler/config tests for provider fallback and runtime government lever updates.
+  - Updated the existing LLM interval contract to prove the model call no longer blocks ticks and applies only at a boundary.
+  - Added docstrings across the requested major Python files and confirmed there are no missing top-level/class/method docstrings in that list.
+
+### Why
+The `1,000` household run is now the real comparison point, so the public docs needed to stop presenting the older small smoke run as the main result.
+
+The live dashboard needed the LLM government to behave like part of the running system, not like a blocking batch script. Background scheduling keeps the simulation responsive, while boundary-only application preserves the tick-engine invariant that state should not mutate mid-phase.
+
+The frontend needed to show what the government is actually doing. Without LLM status, current policy, accepted/rejected changes, and fallback state, the UI made the government feel static even when policy was changing.
+
+The warehouse needed full decision persistence because applied levers alone do not explain what the model saw, why it acted, what was rejected, or whether the response was malformed. Keeping both full decisions and individual policy actions makes later analysis much easier.
+
+### Verification
+
+```bash
+python -m pytest backend\tests_contracts backend\tests_server -q
+python -m pytest backend\data\tests backend\tests_server\test_server_api.py -q
+cd frontend-react && npm.cmd run lint
+cd frontend-react && npm.cmd run build
+```
+
+Also ran a local websocket smoke test against `127.0.0.1:8002` that confirmed setup/start works, metrics stream, `llmGovernment` and `governmentPolicy` are present, and runtime `CONFIG` changes apply by the next tick.
+
+Figma capture was attempted, but the connector returned `ReauthenticationRequired: 401`, so visual capture through Figma could not be completed in this session.
+
+---
+
+## [2026-05-11] LLM Government Evaluation Harness Fixes And Live Smoke Test
+
+### Overview
+Fixed systematic evaluation issues in the LLM government harness so model behavior can be separated more cleanly from bad test inputs. Count-like observations now stay integer-shaped, fiscal pressure is routed through explicit ratio diagnostics, and LLM evidence is audited without blocking decisions.
+
+### Changes
+
+- **`backend/tools/llm/llm_government.py`**:
+  - Added count-like observation handling for firm counts, bankruptcy counts, healthcare queues/denials, labor counts, housing failures, bailout-assisted counts, public works jobs, and stabilization-limited counts.
+  - Kept lag/noise/coverage behavior, but clamped count-like observed values to non-negative integers before exposing them to the LLM.
+  - Added `evidence_audit` for model-supplied evidence with non-blocking classifications such as `matched_metric`, `matched_policy`, `unknown_key`, `format_issue`, and `value_mismatch`.
+  - Extended evidence auditing to recognize sector diagnostics, so evidence like `food: avg_price=...` is counted as grounded instead of unknown.
+  - Reworded prompt fiscal context to expose `fiscal_pressure_ratio`, `instant_deficit_to_gdp_ratio`, and `fiscal_pressure_denominator_gdp` rather than ambiguous raw fiscal-pressure text.
+  - Updated computed fiscal-mode pressure bands to align with the simulator's documented pressure thresholds.
+
+- **`backend/economy.py`**:
+  - Added explicit fiscal-pressure diagnostics:
+    - `fiscal_pressure_instant_ratio`
+    - `fiscal_pressure_denominator_gdp`
+  - Routed fiscal-pressure denominator selection through current firm revenue first, then existing tick revenue, then recent metrics-history GDP, and only then `1.0`.
+  - Preserved the existing `fiscal_pressure` field as the rolling EMA control signal.
+
+- **`backend/server.py`**:
+  - Persisted `evidence_audit` alongside LLM `rationale`, legacy `reasoning`, `evidence`, and `decision_summary` in policy action payloads.
+
+- **`backend/tools/llm/run_llm_government_test.py`**:
+  - Added evidence-audit counts and match rate to decision-quality summaries.
+  - Stored evidence and evidence-audit details in JSON/markdown run artifacts.
+
+- **`backend/tests_contracts/`**:
+  - Added contract coverage for integer-shaped count observations, evidence-audit classification, fiscal-pressure denominator fallback, fiscal-mode pressure bands, and prompt fiscal wording.
+  - Re-ran social-spending/healthcare regression coverage to ensure the earlier happiness-only social policy behavior stayed intact.
+
+### Live LLM Smoke Test
+
+Ran the local LM Studio government smoke test:
+
+```bash
+python backend\tools\llm\run_llm_government_test.py --ticks 32 --households 80 --interval 4 --first-decision-tick 15 --warmup-ticks 10 --provider lmstudio --model microsoft/phi-4-mini-reasoning --base-url http://127.0.0.1:8080 --no-probe --max-tokens 1200 --output-dir experiments\llm_government_1k
+```
+
+Latest artifact:
+
+```text
+experiments\llm_government_1k\llm_government_latest.json
+```
+
+Observed result:
+
+- Count metrics were clean: no fractional or negative count-like observations.
+- Evidence audit reached `100.0%` match rate in the final run (`16/16` evidence items).
+- The model grounded rationale in supplied data such as distressed food firms, government cash, food-sector diagnostics, and current subsidy policy.
+- The model chose food-sector subsidies, raised subsidy level to `25`, then held steady instead of escalating bailouts.
+- Prior-decision memory and hold/no-change decisions continued to route correctly.
+
+### Verification
+
+```bash
+python -m py_compile backend\tools\llm\llm_government.py backend\economy.py backend\server.py backend\tools\llm\run_llm_government_test.py
+python -m pytest backend\tests_contracts\test_contracts_llm.py -q
+python -m pytest backend\tests_contracts\test_contracts_integration.py::test_contract_fiscal_pressure_clamps_surplus_floor_and_can_trigger_penalty backend\tests_contracts\test_contracts_integration.py::test_contract_fiscal_pressure_denominator_falls_back_to_history_gdp -q
+python -m pytest backend\tests_contracts\test_contracts_behavior.py::test_contract_social_multiplier_does_not_scale_healthcare_healing backend\tests_contracts\test_contracts_behavior.py::test_contract_social_multiplier_is_policy_funded_and_decays backend\tests_contracts\test_contracts_llm.py::test_contract_social_spending_changes_wellbeing_multiplier -q
+python -m pytest backend\tests_contracts backend\tests_server -q
+```
+
+All commands pass.
+
+### Why
+The goal is to evaluate LLM government capability, not accidentally test whether a model can recover from misleading harness data. Fractional firm counts, negative queue counts, and ambiguous fiscal-pressure scale made it too easy to misclassify systematic test issues as model reasoning failures.
+
+Evidence auditing now gives a measurable way to tell whether the model is citing supplied information, citing stale/wrong values, or inventing keys. It does not constrain the model's policy decision, so it preserves the evaluation surface while making results easier to interpret.
+
+The live smoke test shows the model is now substantially better grounded. The remaining fiscal observation is calibration-related: `fiscal_pressure_ratio` is routed correctly, but still remains high in early post-warmup ticks, so future work should inspect whether pressure should reset/decay differently after warmup or whether the crisis threshold is too low for the simulation's normal early deficit profile.
+
+---
+
+## [2026-05-11] LLM Government Rationale, Fiscal Memory, And Happiness-Only Social Spending
+
+### Overview
+Expanded the LLM government control loop so decisions are more auditable and better grounded in the data the model receives. `social_spending` now acts strictly as a happiness-only public-good lever, while the LLM prompt includes compact fiscal attribution and prior-decision judgement cards.
+
+### Changes
+
+- **`backend/agents.py`**:
+  - Kept `social_spending` as the policy lever with `none | low | medium | high` levels and the existing default of `medium`.
+  - Kept the existing spending table: `$0`, `$250`, `$750`, and `$1500` per tick.
+  - Removed the social multiplier from household health recovery. Social programs now boost happiness only.
+  - Updated social-program comments/docstrings so they no longer imply healthcare or direct health effects.
+
+- **`backend/economy.py`**:
+  - Removed social multiplier scaling from queue-based healthcare healing.
+  - Kept social spending wired into the simulation: treasury cash is spent, routed through the misc redistribution pool, and applied to the decaying `social_happiness_multiplier`.
+  - Added per-tick fiscal telemetry for transfer spending, infrastructure spending, technology spending, social spending, and net fiscal flow.
+
+- **`backend/tools/llm/llm_government.py`**:
+  - Revised the LLM response contract to prefer:
+    - `fiscal_mode`
+    - `primary_goal`
+    - `rationale`
+    - `evidence`
+    - `changes`
+  - Preserved legacy `reasoning` as a backward-compatible alias and fallback.
+  - Added a compact fiscal context block with revenue, spending, net fiscal flow, cash balance, fiscal pressure, spending efficiency, and spending breakdown.
+  - Added decision memory cards containing:
+    - data seen at the prior decision
+    - accepted/rejected changes
+    - prior rationale and evidence
+    - short-term provisional impact
+    - mature impact after `CONFIG.llm.government_impact_horizon`
+  - Kept memory compact and bounded by the configured history window rather than exposing raw household, firm, or event streams.
+
+- **`backend/server.py`**:
+  - Stored LLM `rationale`, `reasoning`, `evidence`, and validator `decision_summary` in policy action payloads.
+  - Added fiscal breakdown fields to the in-memory metrics snapshots used by LLM decision memory.
+
+- **`backend/tests_contracts/`**:
+  - Added mock-only LLM contract coverage for `rationale`/`evidence`, legacy `reasoning` fallback, fiscal context prompt contents, previous-rationale memory, and mature-vs-short-term impact horizons.
+  - Added a behavior contract proving social happiness multiplier does not scale healthcare healing.
+
+### Verification
+
+```bash
+python -m py_compile backend\tests_contracts\test_contracts_llm.py backend\tests_contracts\test_contracts_behavior.py backend\agents.py backend\economy.py backend\server.py backend\tools\llm\llm_government.py
+python -m pytest backend\tests_contracts\test_contracts_llm.py -q
+python -m pytest backend\tests_contracts\test_contracts_behavior.py -q
+python -m pytest backend\tests_contracts backend\tests_server -q
+```
+
+All commands pass. No live LLM/provider calls were run.
+
+### Why
+The LLM government needs enough leverage and feedback to function well, but not so much raw data that the prompt becomes noisy. The new fiscal block tells the model what money it is earning, spending, and losing by policy bucket. The decision memory lets it compare the data it saw, the rationale it gave, and what changed afterward over both short and mature horizons.
+
+`social_spending` was narrowed to happiness only because it is meant to test social/public-good policy, not physical healthcare policy. Health remains an outcome metric the LLM can observe and reason about, but social spending no longer directly heals households or improves healthcare effectiveness.
+
+---
+
+## [2026-05-11] Agent Guide Refresh And Test Suite Cleanup
+
+### Overview
+Updated repository agent guidance and audited the backend pytest suite for stale, duplicated, and obsolete tests. The stable and full backend test trees now pass against the current simulation behavior.
+
+### Changes
+
+- **`docs/internal/AGENTS.md`**:
+  - Rewrote the agent guide around the current Python/FastAPI, NumPy, React/Vite JSX, WebSocket, and async LangGraph/LLM architecture.
+  - Documented that `backend/economy.py::Economy.step()` is the canonical tick lifecycle, while `docs/SIMULATION.md` still contains a stale 21-row lifecycle table.
+  - Added guardrails for tick ordering, market clearing, deterministic seeds, vectorized NumPy hot paths, async policy consistency, and camelCase API payloads.
+
+- **`backend/tests_contracts/`**:
+  - Removed dead legacy module-level skip aliases:
+    - `test_tier1_invariants.py`
+    - `test_tier2_behavior_contracts.py`
+    - `test_tier3_short_integration.py`
+    - `test_healthcare_contracts.py`
+  - Pruned obsolete baseline support and baseline containment tests that asserted fields and helper flows removed from the current slotted agent model.
+  - Rewrote stale housing-rent tests to exercise `_clear_housing_rental_market()` instead of inlining the old `revenue_this_tick` finalization path.
+  - Updated income/dividend tests for the current aggregate dividend tracking model (`last_dividend_income`, `last_dividend_firm_ids`) and liquidity-capped consumption planning.
+  - Updated healthcare tests for current unaffordable-visit behavior: denied visits are removed from the queue and logged, rather than requeued forever.
+  - Updated services-pricing tests for current marginal-cost interpolation plus EMA smoothing, while keeping market-clearing floor coverage.
+  - Updated macro spawning and services shortfall tests to match current under-served competitor entry and services-as-current-capacity behavior.
+  - Relaxed brittle prompt and research sensitivity assertions to check durable contract signals instead of exact prose punctuation or noise-floor median-cash deltas.
+
+- **`backend/agents.py`**:
+  - Replaced remaining stale `_get_good_category(...)` calls with the imported `get_good_category(...)`, fixing direct household planning/purchase paths.
+
+- **`backend/tests_contracts/README.md`**:
+  - Updated test-suite notes to reflect removal of legacy alias modules.
+
+### Verification
+
+```bash
+python -m pytest backend\tests_contracts backend\tests_server -q -m "not llm and not research"
+python -m pytest backend\tests_contracts -q -m "llm or research"
+python -m pytest backend\tests_contracts backend\tests_server -q
+```
+
+All three commands pass. The full backend run reports the existing expected xfail and runtime skips.
+
+### Why
+The suite had accumulated tests for removed internals, alias modules that only skipped at collection time, and expectations tied to old implementation details. This cleanup keeps coverage focused on current contracts: deterministic simulation behavior, real production paths, money conservation, queue semantics, market clearing, policy surfaces, and frontend-facing payload stability.
+
+---
+
 ## [2026-05-03] Household Liquidity, Healthcare Deadlock Fix, Services Pricing, Bank Interest Reform
 
 ### Overview

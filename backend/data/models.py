@@ -300,6 +300,26 @@ class PolicyAction:
 
 
 @dataclass
+class LLMGovernmentDecision:
+    """Represents one full LLM government decision cycle."""
+    run_id: str
+    snapshot_tick: int
+    applied_tick: Optional[int]
+    status: str
+    provider: str
+    model: str
+    raw_response_json: str
+    normalized_response_json: str
+    accepted_changes_json: str
+    rejected_changes_json: str
+    rationale: Optional[str] = None
+    evidence_audit_json: Optional[str] = None
+    elapsed_ms: Optional[float] = None
+    error_message: Optional[str] = None
+    event_key: Optional[str] = None
+
+
+@dataclass
 class PolicyConfig:
     """Represents policy configuration."""
     run_id: str

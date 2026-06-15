@@ -75,8 +75,8 @@ def parse_args():
                         help="Print per-category planned-vs-cleared spending gaps for ticks 12-15")
     parser.add_argument("--firm-hire-gate-diagnostics", action="store_true",
                         help="Print per-firm hiring gate diagnostics at the final tick")
-    parser.add_argument("--output-dir", type=str, default="llm_run_outputs",
-                        help="Directory for JSON/Markdown run artifacts (default: llm_run_outputs)")
+    parser.add_argument("--output-dir", type=str, default="experiments/llm_government_supporting_runs",
+                        help="Directory for JSON/Markdown run artifacts (default: experiments/llm_government_supporting_runs)")
     parser.add_argument("--no-output-files", action="store_true",
                         help="Do not write JSON/Markdown run artifacts")
     parser.add_argument("--disable-bailouts", action="store_true",

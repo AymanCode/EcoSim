@@ -2,15 +2,21 @@ import React, { useEffect, useRef } from 'react';
 
 const NeuralGovernment = ({
   active = true,
-  activityLevel = 'normal'
+  activityLevel = 'normal',
+  mode = 'ready'
 }) => {
   const containerRef = useRef(null);
   const canvasRef = useRef(null);
   const activityLevelRef = useRef(activityLevel);
+  const modeRef = useRef(mode);
 
   useEffect(() => {
     activityLevelRef.current = activityLevel;
   }, [activityLevel]);
+
+  useEffect(() => {
+    modeRef.current = mode;
+  }, [mode]);
 
   useEffect(() => {
     const container = containerRef.current;
@@ -165,11 +171,18 @@ const NeuralGovernment = ({
         };
       });
 
-      // Government neutral colors (Indigo / Gold / White)
-      const primaryRbg = '139, 92, 246'; // Violet/Indigo
-      const accentRgb = '250, 204, 21';  // Yellow/Gold
+      const palette = {
+        thinking: { primary: '203, 213, 225', accent: '251, 191, 36' },
+        applying: { primary: '203, 213, 225', accent: '110, 231, 183' },
+        provider_unavailable: { primary: '100, 116, 139', accent: '148, 163, 184' },
+        error: { primary: '190, 90, 103', accent: '231, 162, 170' },
+        disabled: { primary: '100, 116, 139', accent: '148, 163, 184' },
+        ready: { primary: '203, 213, 225', accent: '251, 191, 36' }
+      }[modeRef.current] || { primary: '203, 213, 225', accent: '251, 191, 36' };
+      const primaryRbg = palette.primary;
+      const accentRgb = palette.accent;
       
-      ctx.lineWidth = 1;
+      ctx.lineWidth = 0.85;
 
       connections.forEach(([i, j]) => {
         const p1 = projected[i];
@@ -182,14 +195,12 @@ const NeuralGovernment = ({
 
           if (p1.tag === 'core' && p2.tag === 'core') {
             ctx.save();
-            ctx.strokeStyle = `rgba(${accentRgb}, 0.8)`;
-            ctx.lineWidth = 2;
-            ctx.shadowBlur = 10;
-            ctx.shadowColor = `rgb(${accentRgb})`;
+            ctx.strokeStyle = `rgba(${accentRgb}, 0.38)`;
+            ctx.lineWidth = 1.15;
             ctx.stroke();
             ctx.restore();
           } else {
-            ctx.strokeStyle = `rgba(${primaryRbg}, 0.3)`;
+            ctx.strokeStyle = `rgba(${primaryRbg}, 0.22)`;
             ctx.stroke();
           }
         }
@@ -199,38 +210,39 @@ const NeuralGovernment = ({
         let size = Math.max(0.5, 2 * p.scale);
         ctx.beginPath();
 
-        let r = 139, g = 92, b = 246, a = 0.5;
+        let r = 167, g = 139, b = 250, a = 0.5;
 
         if (p.tag === 'core') {
             const wave = Math.sin(p.origY / 15 - pulse);
-            r = 250; g = 204; b = 21; // Gold
+            [r, g, b] = accentRgb.split(',').map(v => Number(v.trim()));
             if (wave > 0.5) {
-                a = 1;
-                size *= 1.5;
-                ctx.shadowBlur = 15;
-                ctx.shadowColor = `rgb(${accentRgb})`;
+                a = 0.72;
+                size *= 1.35;
+                ctx.shadowBlur = 0;
             } else {
-                a = 0.4;
+                a = 0.26;
                 ctx.shadowBlur = 0;
             }
         } else if (p.tag === 'apex') {
-            r = 255; g = 255; b = 255; a = 1; // Pure white apex
-            size *= 3 + Math.sin(pulse) * 1;
-            ctx.shadowBlur = 20;
-            ctx.shadowColor = 'white';
+            [r, g, b] = accentRgb.split(',').map(v => Number(v.trim()));
+            a = 0.68;
+            size *= 1.9 + Math.sin(pulse) * 0.18;
+            ctx.shadowBlur = 0;
         } else {
             ctx.shadowBlur = 0;
-            if (Math.random() > 0.99) {
-                // Occasional data twinkle
-                r = 255; g = 255; b = 255; a = 0.9;
-                ctx.shadowBlur = 5;
-                ctx.shadowColor = 'white';
-            }
+            [r, g, b] = primaryRbg.split(',').map(v => Number(v.trim()));
+            a = 0.28;
         }
 
         ctx.fillStyle = `rgba(${r}, ${g}, ${b}, ${a})`;
-        const dim = size * 2;
-        ctx.fillRect(p.x - size, p.y - size, dim, dim);
+        if (p.tag === 'apex') {
+            ctx.beginPath();
+            ctx.arc(p.x, p.y, size, 0, Math.PI * 2);
+            ctx.fill();
+        } else {
+            const dim = size * 2;
+            ctx.fillRect(p.x - size, p.y - size, dim, dim);
+        }
         ctx.shadowBlur = 0;
       });
 

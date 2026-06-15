@@ -27,6 +27,7 @@ from data.models import (
     HealthcareEvent,
     HouseholdSnapshot,
     LaborEvent,
+    LLMGovernmentDecision,
     PolicyAction,
     PolicyConfig,
     RegimeEvent,
@@ -859,6 +860,113 @@ class TestDatabaseManager(unittest.TestCase):
             ('test_policy_action_idempotent',),
         )
         self.assertEqual(len(fetched), 1)
+
+    def test_persist_llm_government_decision_bundle_is_atomic_and_idempotent(self):
+        """Flush full LLM decisions and applied policy actions in one idempotent transaction."""
+        run_id = 'test_llm_decision_bundle'
+        self.db.create_run(SimulationRun(run_id=run_id))
+
+        policy_actions = [
+            PolicyAction(
+                run_id=run_id,
+                tick=16,
+                actor='government_llm',
+                action_type='public_works',
+                payload_json='{"value": "on"}',
+                reason_summary='Labor market support',
+                event_key='policy:test_llm_decision_bundle:16:public_works',
+            )
+        ]
+        llm_decisions = [
+            LLMGovernmentDecision(
+                run_id=run_id,
+                snapshot_tick=15,
+                applied_tick=16,
+                status='applied',
+                provider='mock/test',
+                model='mock-model',
+                raw_response_json='{"response": {"public_works": "on"}}',
+                normalized_response_json='{"decisions": {"public_works": "on"}}',
+                accepted_changes_json='{"public_works": "on"}',
+                rejected_changes_json='[]',
+                rationale='Labor market support',
+                evidence_audit_json='[]',
+                elapsed_ms=12.0,
+                event_key='llm-gov:test_llm_decision_bundle:15:16',
+            )
+        ]
+
+        for _ in range(2):
+            self.db.persist_flush_bundle(
+                run_id=run_id,
+                last_fully_persisted_tick=16,
+                policy_actions=policy_actions,
+                llm_government_decisions=llm_decisions,
+            )
+
+        policy_rows = self.db.execute_query(
+            "SELECT * FROM policy_actions WHERE run_id = ?",
+            (run_id,),
+        )
+        decision_rows = self.db.get_llm_government_decisions(run_id)
+        self.assertEqual(len(policy_rows), 1)
+        self.assertEqual(len(decision_rows), 1)
+        self.assertEqual(decision_rows[0]['snapshot_tick'], 15)
+        self.assertEqual(decision_rows[0]['accepted_changes_json'], '{"public_works": "on"}')
+
+    def test_persist_llm_government_decision_bundle_rolls_back_on_error(self):
+        """A failed LLM-decision insert rolls back policy actions from the same flush."""
+        run_id = 'test_llm_decision_bundle_atomic_error'
+        self.db.create_run(SimulationRun(run_id=run_id))
+
+        original_insert_decisions = self.db._insert_llm_government_decision_rows
+
+        def raising_decision_insert(cursor, decisions):
+            raise sqlite3.IntegrityError("synthetic LLM decision failure")
+
+        self.db._insert_llm_government_decision_rows = raising_decision_insert
+        try:
+            with self.assertRaises(sqlite3.IntegrityError):
+                self.db.persist_flush_bundle(
+                    run_id=run_id,
+                    last_fully_persisted_tick=16,
+                    policy_actions=[
+                        PolicyAction(
+                            run_id=run_id,
+                            tick=16,
+                            actor='government_llm',
+                            action_type='public_works',
+                            payload_json='{"value": "on"}',
+                            reason_summary='Labor market support',
+                            event_key='policy:test_llm_decision_bundle_atomic_error:16:public_works',
+                        )
+                    ],
+                    llm_government_decisions=[
+                        LLMGovernmentDecision(
+                            run_id=run_id,
+                            snapshot_tick=15,
+                            applied_tick=16,
+                            status='applied',
+                            provider='mock/test',
+                            model='mock-model',
+                            raw_response_json='{}',
+                            normalized_response_json='{}',
+                            accepted_changes_json='{"public_works": "on"}',
+                            rejected_changes_json='[]',
+                            rationale='Labor market support',
+                            evidence_audit_json='[]',
+                            event_key='llm-gov:test_llm_decision_bundle_atomic_error:15:16',
+                        )
+                    ],
+                )
+        finally:
+            self.db._insert_llm_government_decision_rows = original_insert_decisions
+
+        self.assertEqual(
+            len(self.db.execute_query("SELECT * FROM policy_actions WHERE run_id = ?", (run_id,))),
+            0,
+        )
+        self.assertEqual(len(self.db.get_llm_government_decisions(run_id)), 0)
 
     def test_insert_regime_events_is_idempotent(self):
         """Duplicate regime event inserts should be ignored by event key."""

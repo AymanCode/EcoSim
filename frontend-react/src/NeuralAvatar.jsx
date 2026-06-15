@@ -78,10 +78,10 @@ const NeuralAvatar = ({
                 connectionRadius: 16 * S,
                 rotationSpeed: 0.008,
                 palette: {
-                    link: 'rgba(20, 184, 166, 0.15)',
-                    happy: 'rgba(45, 212, 191, 0.25)',
-                    nodePrimary: '#0d9488',
-                    nodeAccent: '#2dd4bf'
+                    link: 'rgba(167, 139, 250, 0.14)',
+                    happy: 'rgba(110, 231, 183, 0.20)',
+                    nodePrimary: '#FBBF24',
+                    nodeAccent: '#F8DFA6'
                 }
             };
         };
@@ -129,10 +129,10 @@ const NeuralAvatar = ({
                 connectionRadius: 40,
                 rotationSpeed: 0.004,
                 palette: {
-                    link: 'rgba(14, 165, 233, 0.22)',
-                    happy: 'rgba(56, 189, 248, 0.35)',
-                    nodePrimary: '#0ea5e9',
-                    nodeAccent: '#38bdf8'
+                    link: 'rgba(251, 191, 36, 0.18)',
+                    happy: 'rgba(110, 231, 183, 0.20)',
+                    nodePrimary: '#FBBF24',
+                    nodeAccent: '#F8DFA6'
                 }
             };
         };
