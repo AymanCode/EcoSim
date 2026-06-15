@@ -59,23 +59,30 @@ The main runtime sequence is implemented in [`backend/economy.py`](backend/econo
 
 ## Performance
 
-EcoSim's primary benchmark is a saturated weekly market simulation with 10,000 autonomous consumer agents and roughly 300 firm agents. Each tick advances labor matching, production, consumer choice, market clearing, banking, housing, healthcare, taxes, transfers, firm lifecycle, and wellbeing updates.
+EcoSim's headline benchmark is the whole application running end to end, because that is what a user actually waits on. Each measured run drives the production React build through a real Chrome browser over CDP, streams live state from the FastAPI WebSocket server, and persists every tick to a live SQLite warehouse. Earlier write-ups led with isolated subsystem numbers; this leads with the full-app figure because it reflects real use. The LLM government is deliberately excluded from this benchmark.
 
-These are local workstation benchmarks, not hosted production-capacity claims.
+At 10,000 households and roughly 300 firms, backend tick compute dominated full-app latency. Efficiency-only changes to consumption planning (shared awareness market views, cached deterministic tie-break noise, precomputed awareness-pool indexing) cut it without changing any simulation logic. Deterministic snapshots match the pre-change golden within `1e-06`, so the speedup did not move a single decision.
 
-| Area | 10k-agent workload | Throughput / latency | Event volume |
-|---|---|---:|---:|
-| Simulation engine | 3 deterministic seeds, 123 saturated-market ticks | `3.65s` p50 tick, `5.58s` p95 tick, `14.84` simulated weeks/min | `~160k` purchase events/tick |
-| SQLite analytics warehouse | 3 runs, 600 ticks persisted | `49.94k` rows/sec, `0.36%` mean write overhead, `0.43 ms` p95 summary query | `421,328` analytical rows, `187.5 MB` SQLite DB |
-| React dashboard browser | 10k-agent Chrome session, 100 live tick messages | `0.30 ms` p95 JSON parse, `57.7 ms` p95 next-frame latency, `1.64s` LCP | `4.05 MB` streamed, `47.9 KB` p95 payload |
+| Full-app 10k-household run (LLM excluded) | Before | After |
+|---|---:|---:|
+| p95 backend tick compute, 5-run median (seed 42) | `6156 ms` | `4000 ms` (`-35%`) |
+| p95 backend tick compute, 3-seed median (seeds 7, 42, 99) | n/a | `4625 ms` |
+| p50 backend tick compute, 5-run median | n/a | `2750 ms` |
+| Browser JSON parse, p95 | n/a | `0.3 ms` |
 
-Benchmark takeaways:
+Browser parse stayed at `0.3 ms` p95 across every run, which confirms the remaining cost is backend tick compute, not the dashboard. Full run-by-run ledgers: [5-run, seed 42](benchmarks/results/2026-06-08-5run-full-app-evidence-ledger.md) and [3-seed](benchmarks/results/2026-06-08-3seed-full-app-evidence-ledger.md). Method, gates, and reproduction commands are in the [changelog](docs/archive/CHANGELOG.md).
 
-- Built a Python/FastAPI agent-based macroeconomic simulator that advances 10,000 autonomous consumers and hundreds of firms through labor, goods, banking, housing, healthcare, and policy markets at `3.65s` p50 tick latency.
-- Designed a SQLite analytics warehouse for simulation experiments, persisting `421k+` analytical rows at `49.94k rows/sec` with `0.36%` mean tick-loop write overhead.
-- Benchmarked a live React dashboard for 10k-agent simulations, streaming `100` tick updates with `47.9 KB` p95 payloads, `0.30 ms` p95 JSON parse time, and `57.7 ms` p95 next-frame latency.
+### Component micro-benchmarks
 
-Full methodology and artifacts are in [`benchmarks/results/2026-05-17-optimized-performance.md`](benchmarks/results/2026-05-17-optimized-performance.md).
+These isolate individual subsystems under their own synthetic load and are not comparable to the full-app numbers above. They run different tick counts and a saturated steady state rather than a cold 50-tick run:
+
+| Subsystem | Workload | Result |
+|---|---|---|
+| Simulation engine, isolated | 3 seeds, 123 saturated-market ticks | `14.84` simulated weeks/min, `~160k` purchase events/tick |
+| SQLite analytics warehouse | 3 runs, 600 ticks persisted | `49.94k` rows/sec, `0.36%` mean write overhead, `421,328` rows |
+| React dashboard browser | 100 live tick messages | `0.30 ms` p95 parse, `57.7 ms` p95 next-frame, `47.9 KB` p95 payload |
+
+Component methodology and artifacts are in [`benchmarks/results/2026-05-17-optimized-performance.md`](benchmarks/results/2026-05-17-optimized-performance.md). All figures are local workstation benchmarks, not hosted production-capacity claims.
 
 ## Policy Forecasting
 
