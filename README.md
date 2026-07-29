@@ -7,15 +7,31 @@
 [![React](https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=black)](frontend-react/package.json)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
-EcoSim is an agent-based macroeconomic sandbox for testing how households, firms, a bank, and government policy interact over weekly simulation ticks. It models labor, goods, housing, healthcare, credit, taxes, transfers, live dashboards, LLM-guided policy experiments, deterministic policy stress tests, forecasting workflows, and optional warehouse persistence.
+EcoSim is a local-first, agent-based macroeconomic research environment for exploring how households, firms, a bank, and government policy interact over weekly simulation ticks. It makes the system-level effects of policy choices observable across labor, goods, housing, healthcare, credit, taxation, transfers, and public spending.
 
-You can run a rule-based economy, change policy levers live from the dashboard, or enable the AI Policy Engine so an LLM can propose bounded government actions through the same validated policy schema used by the UI and backend.
+You can run a rule-based economy, change policy levers from the dashboard, or enable the experimental AI Policy Engine so an LLM can propose bounded government actions through the same validated policy schema used by the UI and backend. The AI-governance track is the project's current research direction and the foundation for more rigorous LLM policy benchmarks.
 
 | Track | What it shows | Start here |
 |---|---|---|
-| Live simulation | Households, firms, markets, fiscal policy, and banking evolving in real time | [Quickstart](#quickstart) |
-| AI policy experiments | Five LLM governments compared against a rule-based baseline in the same 1,000-household economy | [Can an AI run an economy?](docs/experiments/AI_GOVERNMENT_EXPERIMENT.md) |
-| Policy forecasting | Deterministic 10,000-household sweeps for matched-seed policy effects and leakage-safe unemployment forecasting | [Policy Forecasting V1](policy_forecasting/RESULTS.md) |
+| Core simulation | Households, firms, markets, fiscal policy, and banking evolving in real time | [Quickstart](#quickstart) |
+| AI governance research | A five-model LLM government comparison, bounded policy-agent harness, and evolving evaluation contract | [Featured evaluation](docs/experiments/AI_GOVERNMENT_EXPERIMENT.md) |
+| Policy analysis | Deterministic 10,000-household sweeps for matched-seed policy effects and leakage-safe within-simulator forecasting | [Policy Forecasting V1](policy_forecasting/RESULTS.md) |
+
+> **Featured AI engineering case study:** [Can an AI run an economy?](docs/experiments/AI_GOVERNMENT_EXPERIMENT.md)
+>
+> Five LLMs and a rule-based baseline govern the same 1,000-household economy through a schema-validated policy interface. The work covers provider abstraction, structured model output, retry and repair behavior, policy validation, decision telemetry, and comparative evaluation. See the [evaluation protocol](docs/evals/ECOSIM_LLM_ECONOMIC_GOVERNANCE_EVAL_PROTOCOL.md) and [LLM government harness](backend/tools/llm/run_llm_government_test.py) for the engineering details.
+
+## Quickstart
+
+EcoSim ships as a local two-container stack: a FastAPI simulation service and an Nginx-served React dashboard. From the repository root:
+
+```bash
+docker compose up --build -d --wait
+```
+
+Open `http://localhost:5173`. The stack includes the default SQLite research warehouse, and the frontend proxies `/ws` and `/health` to the backend inside Docker.
+
+That is the complete startup path; no local Python or Node.js setup is required.
 
 ## Dashboard
 
@@ -33,6 +49,14 @@ The React dashboard opens in the Config view and streams live simulation state f
 ![Government policy panel with sliders and fiscal flow](docs/assets/gov-screenshot.png)
 *Government console: manual policy controls, LLM status, fiscal flow, and policy decision history.*
 
+## Featured AI Governance Evaluation
+
+The completed AI-governance study compares Granite 8B, Gemma 26B, Llama 70B, GPT-OSS 120B, and Ring 1T against a fixed rule-based government. Every run uses the same seed, 200-tick horizon, observation interface, policy schema, and decision schedule so the policymaker is the controlled variable.
+
+The main engineering result is the evaluation harness itself: model calls run outside the simulation hot path, responses must satisfy a structured contract, invalid actions are rejected locally, and every decision preserves its evidence, accepted changes, rejected changes, latency, provider, and resulting economic state.
+
+**[Read the full multi-model evaluation](docs/experiments/AI_GOVERNMENT_EXPERIMENT.md)**
+
 ## Model
 
 Each tick represents roughly one simulated week:
@@ -43,7 +67,9 @@ Each tick represents roughly one simulated week:
 - The government collects wage/profit/property/investment taxes, pays transfers and subsidies, funds public works and investments, tracks fiscal pressure, and applies validated policy levers.
 - The server streams aggregate metrics, tracked household/firm details, policy state, logs, and LLM government status to the frontend.
 
-The main runtime sequence is implemented in [`backend/economy.py`](backend/economy.py). The API and streaming lifecycle are implemented in [`backend/server.py`](backend/server.py).
+The main runtime sequence is implemented in [`backend/economy.py`](backend/economy.py). The API and per-session streaming lifecycle are implemented in [`backend/server.py`](backend/server.py).
+
+Results are conditional on a synthetic, heuristic model. EcoSim is useful for controlled comparisons and mechanism exploration; it is not calibrated to a real national economy and should not be used as a real-world forecast or policy recommendation. See [Model Scope and Limitations](docs/MODEL_SCOPE.md) for the interpretation contract.
 
 ## Highlights
 
@@ -55,7 +81,7 @@ The main runtime sequence is implemented in [`backend/economy.py`](backend/econo
 | Optional LLM government | Provider calls run in the background, and accepted decisions apply only at safe tick boundaries. |
 | Experiment warehouse | SQLite, PostgreSQL, or TimescaleDB can store run metadata, metrics, snapshots, events, policy actions, diagnostics, and full LLM decisions. |
 | Forecasting package | [`policy_forecasting`](policy_forecasting) imports the simulator read-only, runs matched-seed policy sweeps, builds t+8 datasets, and reports policy effects with paired statistical tests. |
-| Regression coverage | Contract-style backend tests plus frontend lint and build checks guard the main simulation and UI paths. |
+| Regression coverage | Contract, session, warehouse, forecasting, and frontend checks guard the main simulation and UI paths. |
 
 ## Performance
 
@@ -63,12 +89,17 @@ EcoSim's headline benchmark is the whole application running end to end, because
 
 At 10,000 households and roughly 300 firms, backend tick compute dominated full-app latency. Efficiency-only changes to consumption planning (shared awareness market views, cached deterministic tie-break noise, precomputed awareness-pool indexing) cut it without changing any simulation logic. Deterministic snapshots match the pre-change golden within `1e-06`, so the speedup did not move a single decision.
 
-| Full-app 10k-household run (LLM excluded) | Before | After |
-|---|---:|---:|
-| p95 backend tick compute, 5-run median (seed 42) | `6156 ms` | `4000 ms` (`-35%`) |
-| p95 backend tick compute, 3-seed median (seeds 7, 42, 99) | n/a | `4625 ms` |
-| p50 backend tick compute, 5-run median | n/a | `2750 ms` |
-| Browser JSON parse, p95 | n/a | `0.3 ms` |
+| Measured optimization (10k households, seed 42, LLM excluded) | Before | After | Change |
+|---|---:|---:|---:|
+| p95 backend tick compute, 5-run median | `6156 ms` | `4000 ms` | `-35%` |
+
+Current full-application measurements:
+
+| Metric | Result |
+|---|---:|
+| p95 backend tick compute, 3-seed median (seeds 7, 42, 99) | `4625 ms` |
+| p50 backend tick compute, 5-run median (seed 42) | `2750 ms` |
+| Browser JSON parse, p95 | `0.3 ms` |
 
 Browser parse stayed at `0.3 ms` p95 across every run, which confirms the remaining cost is backend tick compute, not the dashboard. Full run-by-run ledgers: [5-run, seed 42](benchmarks/results/2026-06-08-5run-full-app-evidence-ledger.md) and [3-seed](benchmarks/results/2026-06-08-3seed-full-app-evidence-ledger.md). Method, gates, and reproduction commands are in the [changelog](docs/archive/CHANGELOG.md).
 
@@ -104,52 +135,19 @@ This is simulator system identification, not a real-world macroeconomic forecast
 
 Matched-seed policy effects are paired against baseline with Wilcoxon signed-rank tests and Holm correction. Within the simulator, high minimum wage reduced `unemployment@t+8` by `0.021` and distress by `0.026`; high benefits increased `unemployment@t+8` by `0.073`; high wage tax increased distress by `0.040`; food subsidy reduced distress by `0.012`; high profit tax showed no detectable household effect in this sweep.
 
-Forecasting takeaway:
-
-- Built a leakage-safe policy forecasting and matched-seed experiment pipeline on a deterministic 10,000-household economic simulator, forecasting 8-tick-ahead unemployment at `R2=0.924` and beating a policy-aware persistence baseline by `0.080` MAE on held-out seeds and unseen policy lever vectors.
-
 Full methodology, results, and reproduction commands are in [`policy_forecasting/RESULTS.md`](policy_forecasting/RESULTS.md). The design rationale is in [`docs/POLICY_FORECASTING_V1.md`](docs/POLICY_FORECASTING_V1.md), with the frozen feature contract in [`docs/POLICY_FORECASTING_SCHEMA.md`](docs/POLICY_FORECASTING_SCHEMA.md).
 
-## Quickstart
+## Contributor Verification
 
-Run the full stack with Docker. This builds the backend, frontend, and default SQLite-backed runtime.
+These checks support development and CI. They are not required to start EcoSim.
 
-```bash
-git clone https://github.com/AymanCode/EcoSim.git
-cd EcoSim
-docker compose up --build -d --wait
-```
-
-Open `http://localhost:5173`. The frontend proxies `/ws` and `/health` to the backend inside Docker.
-
-## Local Development
-
-Backend:
-
-```bash
-python --version
-python -m venv .venv
-source .venv/bin/activate   # Windows: .venv\Scripts\Activate.ps1
-python -m pip install -e ".[dev,ml]"
-python -m uvicorn backend.server:app --reload --port 8002
-```
-
-Frontend:
-
-```bash
-cd frontend-react
-npm install
-npm run dev
-```
-
-Open `http://localhost:5173`. Vite proxies `ws://localhost:5173/ws` and `/health` to the backend on port `8002`.
-
-## Testing
+<details>
+<summary>Backend and frontend verification commands</summary>
 
 Stable backend gate:
 
 ```bash
-python -m pip install -e ".[dev,ml]"
+python -m pip install -c backend/requirements.lock -e ".[dev,ml]"
 python -m pytest backend/tests_contracts backend/tests_server -q -m "not llm and not research"
 ```
 
@@ -171,12 +169,20 @@ Frontend:
 cd frontend-react
 npm ci
 npm run lint
+npm run test
 npm run build
 ```
 
-## Configuration
+</details>
 
-The Docker stack enables SQLite warehouse persistence in `/app/runtime/ecosim.db`. Direct local backend runs leave persistence off unless enabled explicitly:
+## Optional Configuration
+
+The default Docker stack requires no environment variables and enables SQLite warehouse persistence in `/app/runtime/ecosim.db`.
+
+<details>
+<summary>Warehouse, LLM provider, and labor-market settings</summary>
+
+Direct local backend runs leave persistence off unless enabled explicitly:
 
 ```env
 ECOSIM_ENABLE_WAREHOUSE=1
@@ -209,31 +215,38 @@ ECOSIM_CLAMP_UNEMPLOYED_RESERVATION=1
 ECOSIM_UNEMPLOYED_CLAMP_TICKS=8
 ```
 
+</details>
+
 ## Architecture
 
 ```mermaid
 flowchart TD
-  frontend["frontend-react<br/>React + Vite + Recharts"]
-  websocket["WebSocket<br/>/ws"]
-  rest["REST reads<br/>/health, /decision-context/live, /warehouse/..."]
-  server["backend/server.py<br/>FastAPI, run lifecycle, streaming, warehouse batching"]
-  economy["backend/economy.py<br/>tick coordinator and market clearing"]
-  agents["backend/agents.py<br/>household, firm, bank, government agents"]
-  policy["backend/policy_schema.py<br/>validated policy action space"]
-  warehouse["backend/data<br/>SQLite/PostgreSQL/Timescale warehouse"]
-  tools["backend/tools<br/>LLM runners, benchmarks, analysis, diagnostics"]
-  forecasting["policy_forecasting<br/>matched-seed sweeps and t+8 forecasting"]
-  artifacts["experiments + benchmarks<br/>reports and reproducible artifacts"]
+  dashboard["Research dashboard<br/>(React / Vite / Recharts)"]
+  sessions["Session API and live telemetry<br/>(FastAPI / WebSockets)"]
+  guardrails["Policy validation and safe application<br/>(Pydantic / policy_schema.py)"]
+  simulation["Agent-based economic simulation<br/>(Python / NumPy)"]
+  llmEval["LLM governance evaluation<br/>(LangGraph / provider adapters)"]
+  forecasting["Matched-seed policy forecasting<br/>(pandas / scikit-learn)"]
+  warehouse["Research warehouse<br/>(SQLite / PostgreSQL / TimescaleDB)"]
+  artifacts["Reports and reproducible artifacts<br/>(Markdown / JSON / CSV)"]
 
-  frontend --> websocket --> server --> economy --> agents
-  frontend --> rest --> server
-  server --> warehouse
-  server --> policy
-  tools --> economy
-  tools --> policy
-  tools --> artifacts
-  forecasting --> economy
-  forecasting --> artifacts
+  dashboard --> sessions --> guardrails --> simulation --> warehouse --> artifacts
+  llmEval --> guardrails
+  forecasting --> simulation
+
+  classDef experience fill:#DBEAFE,stroke:#2563EB,color:#172554,stroke-width:2px;
+  classDef runtime fill:#DCFCE7,stroke:#16A34A,color:#14532D,stroke-width:2px;
+  classDef safety fill:#FEF3C7,stroke:#D97706,color:#78350F,stroke-width:2px;
+  classDef researchNode fill:#FFEDD5,stroke:#EA580C,color:#7C2D12,stroke-width:2px;
+  classDef dataNode fill:#E0E7FF,stroke:#4F46E5,color:#312E81,stroke-width:2px;
+  classDef artifactNode fill:#F1F5F9,stroke:#64748B,color:#0F172A,stroke-width:1.5px;
+
+  class dashboard experience;
+  class sessions,simulation runtime;
+  class guardrails safety;
+  class llmEval,forecasting researchNode;
+  class warehouse dataNode;
+  class artifacts artifactNode;
 ```
 
 ## Repository Layout
