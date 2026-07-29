@@ -18,6 +18,11 @@ Core files:
 - `warehouse_factory.py`: backend selector
 - `migrations/`: schema application scripts
 
+The runtime factory automatically applies the idempotent SQLite schema when it
+opens a database. This lets a fresh local or Docker volume work immediately.
+Use the migrations below when upgrading an older database that already has
+tables requiring new columns.
+
 ## Migration Guide
 
 The migration scripts are backend-specific and intentionally incremental.
@@ -305,7 +310,7 @@ Purpose:
 Current surfaces:
 
 1. `SimulationManager.get_live_decision_context(window=...)`
-2. `GET /decision-context/live`
+2. `GET /decision-context/live?session_id={session_id}`
 
 The live context window stores:
 
@@ -490,7 +495,7 @@ Combined validation:
 
 Current read endpoints:
 
-- `GET /decision-context/live?window=20`
+- `GET /decision-context/live?session_id={session_id}&window=20`
 - `GET /warehouse/runs`
 - `GET /warehouse/compare?run_ids=run_a&run_ids=run_b`
 - `GET /warehouse/runs/{run_id}/policy-context?tick=120&window=20&policy_lookback=12&impact_horizon=12`

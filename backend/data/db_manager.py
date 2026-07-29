@@ -65,6 +65,21 @@ class DatabaseManager:
         self.conn = sqlite3.connect(db_path, check_same_thread=False)
         self.conn.row_factory = sqlite3.Row  # Return rows as dicts
 
+    def apply_schema(self, schema_path: str = None):
+        """Create any missing SQLite warehouse objects.
+
+        The checked-in schema is intentionally idempotent, so this is safe for
+        both a fresh database and an already-initialized database. Incremental
+        migrations are still required when upgrading older schemas whose
+        existing tables need new columns.
+        """
+        if schema_path is None:
+            schema_path = os.path.join(os.path.dirname(__file__), "schema.sql")
+
+        with open(schema_path, "r", encoding="utf-8") as schema_file:
+            self.conn.executescript(schema_file.read())
+        self.conn.commit()
+
     def close(self):
         """Close database connection"""
         if self.conn:

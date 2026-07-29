@@ -23,6 +23,7 @@ from data.models import (
     TickDiagnostic,
     TickMetrics,
 )
+from data.warehouse_factory import create_warehouse_manager
 
 
 def _apply_sqlite_schema(db_path: Path) -> None:
@@ -35,8 +36,29 @@ def _apply_sqlite_schema(db_path: Path) -> None:
         conn.close()
 
 
+def test_sqlite_factory_initializes_a_fresh_database(tmp_path, monkeypatch):
+    db_path = tmp_path / "fresh-warehouse.db"
+    monkeypatch.setenv("ECOSIM_WAREHOUSE_BACKEND", "sqlite")
+    monkeypatch.setenv("ECOSIM_SQLITE_PATH", str(db_path))
+
+    manager = create_warehouse_manager()
+    try:
+        tables = {
+            row[0]
+            for row in manager.conn.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'table'"
+            ).fetchall()
+        }
+    finally:
+        manager.close()
+
+    assert "simulation_runs" in tables
+    assert "tick_metrics" in tables
+
+
 def test_live_decision_context_endpoint_returns_recent_window(monkeypatch):
-    test_manager = server.SimulationManager()
+    registry = server.SessionRegistry(max_sessions=2)
+    session_id, test_manager = registry.open_session()
     test_manager.tick = 7
     test_manager.live_decision_context_history.extend(
         [
@@ -47,10 +69,13 @@ def test_live_decision_context_endpoint_returns_recent_window(monkeypatch):
     )
     test_manager.latest_decision_context = {"tick": 6, "consumerDistressScore": 18.0, "source": "approx"}
 
-    monkeypatch.setattr(server, "manager", test_manager)
+    monkeypatch.setattr(server, "session_registry", registry)
     client = TestClient(server.app)
 
-    response = client.get("/decision-context/live", params={"window": 2})
+    response = client.get(
+        "/decision-context/live",
+        params={"session_id": session_id, "window": 2},
+    )
     assert response.status_code == 200
     payload = response.json()
 
@@ -59,6 +84,18 @@ def test_live_decision_context_endpoint_returns_recent_window(monkeypatch):
     assert payload["historyCount"] == 2
     assert [row["tick"] for row in payload["history"]] == [5, 6]
     assert payload["latest"]["tick"] == 6
+
+
+def test_live_decision_context_endpoint_rejects_unknown_session(monkeypatch):
+    monkeypatch.setattr(server, "session_registry", server.SessionRegistry(max_sessions=2))
+    client = TestClient(server.app)
+
+    response = client.get(
+        "/decision-context/live",
+        params={"session_id": "missing-session"},
+    )
+
+    assert response.status_code == 404
 
 
 def test_warehouse_history_endpoints_return_tick_and_decision_rows(tmp_path, monkeypatch):
@@ -455,7 +492,6 @@ def test_warehouse_history_endpoints_return_tick_and_decision_rows(tmp_path, mon
 
     monkeypatch.setenv("ECOSIM_WAREHOUSE_BACKEND", "sqlite")
     monkeypatch.setenv("ECOSIM_SQLITE_PATH", str(db_path))
-    monkeypatch.setattr(server, "manager", server.SimulationManager())
     client = TestClient(server.app)
 
     runs_response = client.get("/warehouse/runs")

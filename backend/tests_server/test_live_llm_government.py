@@ -9,7 +9,6 @@ if str(BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(BACKEND_ROOT))
 
 import server
-from config import CONFIG
 from tests_contracts.factories import make_economy
 
 
@@ -18,14 +17,14 @@ def test_provider_unavailable_falls_back_without_crashing(monkeypatch):
     manager = server.SimulationManager()
     manager.economy = make_economy(num_households=12, num_firms_per_category=1, disable_shocks=True, seed=910)
 
-    monkeypatch.setattr(CONFIG.llm, "enable_llm_government", True)
+    manager.config.llm.enable_llm_government = True
     monkeypatch.setattr(server, "create_provider", None)
     monkeypatch.setattr(server, "LLMGovernmentAdvisor", None)
     monkeypatch.setattr(server, "_LLM_IMPORT_ERROR", RuntimeError("provider missing"))
 
     assert asyncio.run(manager._ensure_llm_government()) is False
     assert manager.llm_status == "provider_unavailable"
-    assert CONFIG.llm.enable_llm_government is False
+    assert manager.config.llm.enable_llm_government is False
     assert manager.economy.llm_government is None
 
 
@@ -34,7 +33,7 @@ def test_runtime_config_updates_apply_government_levers(monkeypatch):
     manager = server.SimulationManager()
     manager.economy = make_economy(num_households=12, num_firms_per_category=1, disable_shocks=True, seed=911)
 
-    monkeypatch.setattr(CONFIG.llm, "enable_llm_government", False)
+    manager.config.llm.enable_llm_government = False
     asyncio.run(
         manager._apply_config_updates(
             {
@@ -60,7 +59,7 @@ def test_runtime_config_updates_apply_government_levers(monkeypatch):
     )
 
     gov = manager.economy.government
-    assert CONFIG.llm.enable_llm_government is True
+    assert manager.config.llm.enable_llm_government is True
     assert gov.wage_tax_rate == 0.22
     assert gov.profit_tax_rate == 0.18
     assert gov.public_works_toggle == "on"

@@ -6,7 +6,7 @@ import pytest
 
 from agents import GovernmentAgent
 import server
-from config import CONFIG
+from config import CONFIG, use_config
 from policy_schema import POLICY_SCHEMA, PROMPT_POLICY_LEVERS, normalize_current_policy
 from tools.llm.llm_government import (
     LLMGovernmentAdvisor,
@@ -1265,35 +1265,36 @@ def test_contract_server_llm_decision_interval_is_enforced(tiny_economy_factory,
 
     monkeypatch.setattr(manager, "_ensure_llm_government", ensure_ready)
     monkeypatch.setattr(manager, "_buffer_policy_action", capture_policy_action)
-    monkeypatch.setattr(CONFIG.llm, "enable_llm_government", True)
-    monkeypatch.setattr(CONFIG.time, "warmup_ticks", 10)
-    monkeypatch.setattr(CONFIG.llm, "government_start_tick", 15)
-    monkeypatch.setattr(CONFIG.llm, "government_start_after_warmup_ticks", 5)
-    monkeypatch.setattr(CONFIG.llm, "government_decision_interval", 26)
+    monkeypatch.setattr(manager.config.llm, "enable_llm_government", True)
+    monkeypatch.setattr(manager.config.time, "warmup_ticks", 10)
+    monkeypatch.setattr(manager.config.llm, "government_start_tick", 15)
+    monkeypatch.setattr(manager.config.llm, "government_start_after_warmup_ticks", 5)
+    monkeypatch.setattr(manager.config.llm, "government_decision_interval", 26)
 
     async def scenario():
-        loop = asyncio.get_running_loop()
-        started = loop.time()
-        await manager._schedule_llm_government_if_due()
-        elapsed = loop.time() - started
+        with use_config(manager.config):
+            loop = asyncio.get_running_loop()
+            started = loop.time()
+            await manager._schedule_llm_government_if_due()
+            elapsed = loop.time() - started
 
-        assert elapsed < 0.02
-        assert manager.llm_task is not None
-        assert manager.llm_status == "thinking"
-        assert manager.economy.government.public_works_toggle != "on"
+            assert elapsed < 0.02
+            assert manager.llm_task is not None
+            assert manager.llm_status == "thinking"
+            assert manager.economy.government.public_works_toggle != "on"
 
-        manager.economy.step()
-        manager.tick = manager.economy.current_tick
-        assert manager.economy.current_tick == 16
-        assert manager.economy.government.public_works_toggle != "on"
+            manager.economy.step()
+            manager.tick = manager.economy.current_tick
+            assert manager.economy.current_tick == 16
+            assert manager.economy.government.public_works_toggle != "on"
 
-        await manager.llm_task
-        manager._collect_llm_task_result()
-        assert calls["count"] == 1
-        assert manager.pending_llm_decision is not None
-        assert manager.economy.government.public_works_toggle != "on"
+            await manager.llm_task
+            manager._collect_llm_task_result()
+            assert calls["count"] == 1
+            assert manager.pending_llm_decision is not None
+            assert manager.economy.government.public_works_toggle != "on"
 
-        manager._apply_llm_decision_at_boundary()
+            manager._apply_llm_decision_at_boundary()
 
     asyncio.run(scenario())
 
@@ -1308,7 +1309,12 @@ def test_contract_server_llm_decision_interval_is_enforced(tiny_economy_factory,
 
     manager.tick = 16
     manager.economy.current_tick = 16
-    asyncio.run(manager._schedule_llm_government_if_due())
+
+    async def assert_not_due():
+        with use_config(manager.config):
+            await manager._schedule_llm_government_if_due()
+
+    asyncio.run(assert_not_due())
     assert manager.llm_task is None
     assert calls["count"] == 1
 

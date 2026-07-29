@@ -5,8 +5,12 @@ Centralizes all tunable parameters for the economic simulation.
 This replaces scattered "magic numbers" throughout the codebase.
 """
 
+import copy
+import sys
+from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass, field
-from typing import Dict, Tuple
+from typing import Dict, Iterator, Optional, Tuple
 
 
 @dataclass
@@ -900,5 +904,65 @@ class SimulationConfig:
                 raise ValueError(f"{name} low ({lo}) must be <= high ({hi})")
 
 
-# Global configuration instance
-CONFIG = SimulationConfig()
+_DEFAULT_CONFIG = SimulationConfig()
+_ACTIVE_CONFIG: ContextVar[Optional[SimulationConfig]] = ContextVar(
+    "ecosim_active_config",
+    default=None,
+)
+
+
+def get_config() -> SimulationConfig:
+    """Return the configuration owned by the current execution context."""
+    return _ACTIVE_CONFIG.get() or _DEFAULT_CONFIG
+
+
+def clone_config(source: Optional[SimulationConfig] = None) -> SimulationConfig:
+    """Create an independent configuration tree for one simulation session."""
+    return copy.deepcopy(source or get_config())
+
+
+@contextmanager
+def use_config(config: SimulationConfig) -> Iterator[SimulationConfig]:
+    """Make *config* visible through ``CONFIG`` for the current context only."""
+    token = _ACTIVE_CONFIG.set(config)
+    try:
+        yield config
+    finally:
+        _ACTIVE_CONFIG.reset(token)
+
+
+class _ContextLocalConfig:
+    """Compatibility proxy for code that imports the historical ``CONFIG`` name.
+
+    Command-line tools continue to use the process default. Server sessions set
+    a context-local configuration, so existing simulation code reads the
+    correct session without sharing mutable settings across clients.
+    """
+
+    def __getattribute__(self, name: str):
+        if name == "__dict__":
+            return get_config().__dict__
+        return object.__getattribute__(self, name)
+
+    def __getattr__(self, name: str):
+        return getattr(get_config(), name)
+
+    def __setattr__(self, name: str, value) -> None:
+        setattr(get_config(), name, value)
+
+    def __deepcopy__(self, memo):
+        return copy.deepcopy(get_config(), memo)
+
+    def __repr__(self) -> str:
+        return repr(get_config())
+
+
+CONFIG = _ContextLocalConfig()
+
+# The historical runtime imports ``config`` from inside ``backend/`` while
+# application entry points use ``backend.config``. Keep both names bound to
+# one module so they cannot create separate default configuration objects.
+if __name__ == "config":
+    sys.modules.setdefault("backend.config", sys.modules[__name__])
+elif __name__ == "backend.config":
+    sys.modules.setdefault("config", sys.modules[__name__])

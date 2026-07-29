@@ -1,29 +1,15 @@
-"""EcoSim WebSocket Server
+"""FastAPI application for EcoSim's local research dashboard.
 
-FastAPI application that bridges the simulation engine with the React
-frontend via a persistent WebSocket connection.  The server handles:
+Each ``/ws`` connection owns an isolated simulation manager, configuration
+snapshot, economy, and random-number state. The server coordinates setup,
+pause/resume/reset lifecycle commands, streams per-tick metrics to the
+connection that owns the run, and optionally batches research data to the
+configured warehouse.
 
-- **Simulation lifecycle**: setup → run (tick loop) → pause / resume / reset.
-- **Real-time streaming**: each tick's aggregate metrics, per-subject
-  histories, and wage-telemetry diagnostics are broadcast as JSON frames.
-- **Runtime config**: stabiliser toggles, tax-rate sliders, and tracked-
-  subject selection can be changed mid-run without restarting.
-- **Data warehouse** (optional): when a warehouse backend (SQLite /
-  TimescaleDB) is available, aggregate metrics, compact decision features,
-  firm snapshots, sampled household snapshots, tracked-household history,
-  and append-only events are batched and flushed for offline analysis.
-
-Protocol
---------
-The frontend opens a single ``/ws`` WebSocket.  Messages are JSON objects
-with a ``type`` field:
-
-    → ``setup``          — create economy, select households / firms to track
-    → ``start``          — begin tick loop
-    → ``pause`` / ``resume``
-    → ``updateConfig``   — change tax rates or stabiliser flags mid-run
-    ← ``tick``           — per-tick metrics payload (server → client)
-    ← ``setup_complete`` — confirmation after economy initialisation
+The WebSocket protocol uses JSON objects with an uppercase ``type`` field.
+Clients send ``SETUP``, ``START``, ``STOP``, ``RESET``, ``CONFIG``, and
+``STABILIZERS``. The server begins with ``SESSION``, emits lifecycle
+acknowledgements, and sends metric frames while the simulation is running.
 """
 
 import asyncio
@@ -37,6 +23,7 @@ import random
 import time
 import uuid
 from collections import deque
+from contextlib import contextmanager
 from types import SimpleNamespace
 
 # Add current directory to path so we can import backend modules
@@ -48,7 +35,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field, field_validator
 import numpy as np
 
-from config import CONFIG
+from config import clone_config, use_config
 from policy_schema import ORDERED_LEVERS
 from utils.category_utils import get_good_category_capitalized
 from tools.runners.run_large_simulation import (
@@ -177,9 +164,6 @@ def _get_warehouse_reader():
     """Return a warehouse manager for read-only API calls."""
     if create_warehouse_manager is None:
         raise HTTPException(status_code=503, detail="Warehouse backend is not available in this environment.")
-
-    if manager.warehouse_manager is not None:
-        return manager.warehouse_manager, False
 
     try:
         return create_warehouse_manager(), True
@@ -354,6 +338,7 @@ class SimulationManager:
 
     def __init__(self, session_id: Optional[str] = None):
         self.session_id = session_id or uuid.uuid4().hex
+        self.config = clone_config()
         self.economy = None
         self.is_running = False
         self.run_task: Optional[asyncio.Task] = None
@@ -427,6 +412,33 @@ class SimulationManager:
         self.llm_task_started_at: Optional[float] = None
         self.llm_provider_name: Optional[str] = None
         self.llm_model_name: Optional[str] = None
+        self._python_random_state = random.Random(self.config.random_seed).getstate()
+        self._numpy_random_state = np.random.RandomState(self.config.random_seed).get_state()
+
+    def _reset_random_state(self, seed: int) -> None:
+        """Reset this session's legacy module-level RNG state."""
+        self._python_random_state = random.Random(seed).getstate()
+        self._numpy_random_state = np.random.RandomState(seed).get_state()
+
+    @contextmanager
+    def _random_scope(self):
+        """Temporarily activate this session's Python and NumPy RNG streams.
+
+        ``Economy.step()`` is synchronous, so restoring the process state around
+        it prevents interleaved WebSocket sessions from consuming each other's
+        random streams without changing the simulator's established mechanics.
+        """
+        outer_python_state = random.getstate()
+        outer_numpy_state = np.random.get_state()
+        random.setstate(self._python_random_state)
+        np.random.set_state(self._numpy_random_state)
+        try:
+            yield
+        finally:
+            self._python_random_state = random.getstate()
+            self._numpy_random_state = np.random.get_state()
+            random.setstate(outer_python_state)
+            np.random.set_state(outer_numpy_state)
 
     def start_background_loop(self) -> bool:
         """Start or resume the tick loop without creating duplicate loop tasks.
@@ -517,14 +529,14 @@ class SimulationManager:
         effective_config = dict(config)
         effective_config["num_households"] = int(num_households)
         effective_config["num_firms"] = int(num_firms)
-        effective_config["seed"] = int(getattr(CONFIG, "random_seed", 0))
+        effective_config["seed"] = int(getattr(self.config, "random_seed", 0))
         effective_config["stabilizers"] = dict(self.stabilizer_state)
 
         try:
             run = SimulationRun(
                 run_id=self.warehouse_run_id,
                 status="running",
-                seed=int(getattr(CONFIG, "random_seed", 0)),
+                seed=int(getattr(self.config, "random_seed", 0)),
                 num_households=num_households,
                 num_firms=num_firms,
                 config_json=json.dumps(effective_config, sort_keys=True),
@@ -1367,17 +1379,17 @@ class SimulationManager:
         accepted = latest.get("decisions", latest.get("applied_changes", {})) or {}
         rejected = latest.get("rejected_changes", []) or []
         status = self.llm_status
-        if not CONFIG.llm.enable_llm_government and status != "provider_unavailable":
+        if not self.config.llm.enable_llm_government and status != "provider_unavailable":
             status = "disabled"
         elif self.llm_task is not None and not self.llm_task.done():
             status = "thinking"
         elif self.pending_llm_decision is not None:
             status = "ready"
         return {
-            "enabled": bool(getattr(CONFIG.llm, "enable_llm_government", False)),
+            "enabled": bool(getattr(self.config.llm, "enable_llm_government", False)),
             "status": status,
             "provider": self.llm_provider_name,
-            "model": self.llm_model_name or getattr(CONFIG.llm, "government_model", ""),
+            "model": self.llm_model_name or getattr(self.config.llm, "government_model", ""),
             "snapshotTick": self.llm_snapshot_tick,
             "appliedTick": self.llm_applied_tick,
             "latestDecision": latest,
@@ -1388,7 +1400,7 @@ class SimulationManager:
 
     async def _ensure_llm_government(self) -> bool:
         """Lazily initialize the provider and government agent."""
-        if not CONFIG.llm.enable_llm_government:
+        if not self.config.llm.enable_llm_government:
             self.llm_status = "disabled"
             return False
         if self.llm_government is not None:
@@ -1398,17 +1410,17 @@ class SimulationManager:
         if create_provider is None or LLMGovernmentAdvisor is None:
             self.llm_status = "provider_unavailable"
             self.llm_last_error = f"LLM government unavailable: {_LLM_IMPORT_ERROR}"
-            CONFIG.llm.enable_llm_government = False
+            self.config.llm.enable_llm_government = False
             logger.warning(self.llm_last_error)
             return False
 
         try:
-            self.llm_provider = await create_provider(CONFIG.llm)
-            self.llm_government = LLMGovernmentAdvisor(self.llm_provider, CONFIG.llm)
+            self.llm_provider = await create_provider(self.config.llm)
+            self.llm_government = LLMGovernmentAdvisor(self.llm_provider, self.config.llm)
             if self.economy is not None:
                 self.economy.llm_government = self.llm_government
             self.llm_provider_name = str(getattr(self.llm_provider, "name", "unknown"))
-            self.llm_model_name = str(getattr(CONFIG.llm, "government_model", ""))
+            self.llm_model_name = str(getattr(self.config.llm, "government_model", ""))
             self.llm_status = "ready"
             self.llm_last_error = None
             logger.info("Initialized LLM government (%s).", self.llm_provider_name)
@@ -1419,7 +1431,7 @@ class SimulationManager:
             self.llm_government = None
             self.llm_status = "provider_unavailable"
             self.llm_last_error = str(exc)
-            CONFIG.llm.enable_llm_government = False
+            self.config.llm.enable_llm_government = False
             if self.economy is not None:
                 self.economy.llm_government = None
             return False
@@ -1443,8 +1455,8 @@ class SimulationManager:
             raise RuntimeError("LLM government is not initialized")
         result = await self.llm_government.decide(economy_snapshot)
         result["snapshotTick"] = int(snapshot_tick)
-        result["model"] = getattr(CONFIG.llm, "government_model", "")
-        result["philosophy"] = getattr(CONFIG.llm, "government_philosophy", "")
+        result["model"] = getattr(self.config.llm, "government_model", "")
+        result["philosophy"] = getattr(self.config.llm, "government_philosophy", "")
         result["provider"] = result.get("provider") or getattr(self.llm_provider, "name", "unknown")
         return result
 
@@ -1482,7 +1494,7 @@ class SimulationManager:
             self.llm_status = "ready"
             self.llm_last_error = None
         except asyncio.CancelledError:
-            self.llm_status = "disabled" if not CONFIG.llm.enable_llm_government else "ready"
+            self.llm_status = "disabled" if not self.config.llm.enable_llm_government else "ready"
         except Exception as exc:
             self.llm_status = "error"
             self.llm_last_error = str(exc)
@@ -1491,7 +1503,7 @@ class SimulationManager:
                 "appliedTick": None,
                 "status": "error",
                 "provider": self.llm_provider_name or "unknown",
-                "model": self.llm_model_name or getattr(CONFIG.llm, "government_model", ""),
+                "model": self.llm_model_name or getattr(self.config.llm, "government_model", ""),
                 "decisions": {},
                 "accepted_llm_changes": {},
                 "rejected_changes": [],
@@ -1514,7 +1526,7 @@ class SimulationManager:
 
         result = dict(self.pending_llm_decision)
         self.pending_llm_decision = None
-        if not CONFIG.llm.enable_llm_government:
+        if not self.config.llm.enable_llm_government:
             self.llm_status = "disabled"
             return
 
@@ -1575,7 +1587,7 @@ class SimulationManager:
                     "value": after_value,
                     "before": before_value,
                     "after": lever_after.get(lever, after_value),
-                    "model": getattr(CONFIG.llm, "government_model", ""),
+                    "model": getattr(self.config.llm, "government_model", ""),
                     "provider": provider_name,
                     "elapsed_ms": elapsed_ms,
                     "parse_ok": bool(result.get("parse_ok", False)),
@@ -1653,7 +1665,7 @@ class SimulationManager:
                 applied_tick=applied_tick,
                 status=str(decision.get("status", "applied" if accepted else "no_change")),
                 provider=str(decision.get("provider", self.llm_provider_name or "unknown")),
-                model=str(decision.get("model", self.llm_model_name or getattr(CONFIG.llm, "government_model", ""))),
+                model=str(decision.get("model", self.llm_model_name or getattr(self.config.llm, "government_model", ""))),
                 raw_response_json=raw_response_json,
                 normalized_response_json=normalized_response_json,
                 accepted_changes_json=json.dumps(accepted, sort_keys=True, default=str),
@@ -1806,6 +1818,11 @@ class SimulationManager:
             self._previous_avg_health = 0.0
 
     def initialize(self, config: Dict[str, Any] = None):
+        """Initialize this session under its owned config and RNG context."""
+        with use_config(self.config), self._random_scope():
+            return self._initialize_scoped(config)
+
+    def _initialize_scoped(self, config: Dict[str, Any] = None):
         """Create a fresh economy and prepare all tracking state.
 
         Validates *config* through the ``SetupConfig`` Pydantic model,
@@ -1829,12 +1846,13 @@ class SimulationManager:
         validated = SetupConfig(**config)
         num_households = validated.num_households
         num_firms = validated.num_firms
-        seed = int(validated.seed if validated.seed is not None else getattr(CONFIG, "random_seed", 0))
-        CONFIG.random_seed = seed
+        seed = int(validated.seed if validated.seed is not None else getattr(self.config, "random_seed", 0))
+        self.config.random_seed = seed
         if validated.enable_llm_government is not None:
-            CONFIG.llm.enable_llm_government = bool(validated.enable_llm_government)
-        random.seed(seed)
-        np.random.seed(seed)
+            self.config.llm.enable_llm_government = bool(validated.enable_llm_government)
+        self._reset_random_state(seed)
+        random.setstate(self._python_random_state)
+        np.random.set_state(self._numpy_random_state)
         
         logger.info(f"Initializing economy with {num_households} households and {num_firms} firms/cat...")
         self.economy = create_large_economy(
@@ -1899,7 +1917,7 @@ class SimulationManager:
             self.llm_task.cancel()
         self.llm_task = None
         self.pending_llm_decision = None
-        self.llm_status = "ready" if bool(getattr(CONFIG.llm, "enable_llm_government", False)) else "disabled"
+        self.llm_status = "ready" if bool(getattr(self.config.llm, "enable_llm_government", False)) else "disabled"
         self.llm_snapshot_tick = None
         self.llm_applied_tick = None
         self.llm_last_error = None
@@ -2030,6 +2048,11 @@ class SimulationManager:
                 }
 
     async def run_loop(self):
+        """Run this session with its context-local configuration active."""
+        with use_config(self.config):
+            await self._run_loop_scoped()
+
+    async def _run_loop_scoped(self):
         """Run ticks, stream metrics, flush warehouse batches, and schedule LLM work.
 
         Runtime config and completed LLM decisions are applied only at loop
@@ -2042,7 +2065,7 @@ class SimulationManager:
 
         logger.info("Starting simulation loop")
         try:
-            if CONFIG.llm.enable_llm_government:
+            if self.config.llm.enable_llm_government:
                 await self._ensure_llm_government()
             history_stride = 25
             while self.is_running and self.active_websocket:
@@ -2058,7 +2081,8 @@ class SimulationManager:
 
                 # Run one step
                 policy_before = self._snapshot_government_policy()
-                self.economy.step()
+                with self._random_scope():
+                    self.economy.step()
                 self.tick += 1
                 self._record_automatic_policy_changes(
                     policy_before=policy_before,
@@ -2176,7 +2200,7 @@ class SimulationManager:
                 self._select_tracked_firms()
 
                 tracked_subjects = []
-                hh_cfg = CONFIG.households
+                hh_cfg = self.config.households
                 wage_anchor_low, wage_anchor_mid, wage_anchor_high = getattr(
                     self.economy, "cached_wage_percentiles", (0.0, 0.0, 0.0)
                 )
@@ -2696,7 +2720,7 @@ class SimulationManager:
 
         if "enableLlmGovernment" in config_data:
             enabled = bool(config_data["enableLlmGovernment"])
-            CONFIG.llm.enable_llm_government = enabled
+            self.config.llm.enable_llm_government = enabled
             if not enabled:
                 if self.llm_task is not None and not self.llm_task.done():
                     self.llm_task.cancel()
@@ -2829,14 +2853,19 @@ class SessionRegistry:
         session_manager.active_websocket = None
 
 
-manager = SimulationManager(session_id="legacy-rest")
 session_registry = SessionRegistry()
 
 
 @app.get("/decision-context/live")
-async def get_live_decision_context(window: int = Query(default=20, ge=1, le=200)):
-    """Return the current in-memory rolling decision context window."""
-    return manager.get_live_decision_context(window=window)
+async def get_live_decision_context(
+    session_id: str = Query(..., min_length=1),
+    window: int = Query(default=20, ge=1, le=200),
+):
+    """Return the rolling decision context for one active simulation session."""
+    session_manager = session_registry.get(session_id)
+    if session_manager is None:
+        raise HTTPException(status_code=404, detail="Active simulation session not found.")
+    return session_manager.get_live_decision_context(window=window)
 
 
 @app.get("/warehouse/runs")
