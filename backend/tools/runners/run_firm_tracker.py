@@ -1,4 +1,4 @@
-﻿from pathlib import Path
+from pathlib import Path
 import sys
 
 TOOLS_ROOT = Path(__file__).resolve().parents[1]
@@ -95,7 +95,7 @@ def main():
     print(f"{'=' * 120}")
 
     header = (f"{'Tick':>4} | {'Revenue':>9} | {'WageBill':>9} | {'TaxPaid':>8} | "
-              f"{'Profit':>9} | {'Cash':>11} | {'Empl':>4} | {'Î”':>4} | "
+              f"{'Profit':>9} | {'Cash':>11} | {'Empl':>4} | {'Δ':>4} | "
               f"{'Decision':>10} | {'Inv':>6} | {'Sold':>6} | {'Price':>7} | "
               f"{'Surv':>4} | {'Margin':>7}")
     print(header)
@@ -152,7 +152,7 @@ def main():
 
     # Final analysis
     if tracked is not None:
-        print(f"\n{'â”€' * 70}")
+        print(f"\n{'─' * 70}")
         print(f"FIRM #{firm_id} ANALYSIS:")
         print(f"  Cash balance:     ${firm.cash_balance:>12,.0f}")
         print(f"  Employees:        {len(firm.employees):>12}")

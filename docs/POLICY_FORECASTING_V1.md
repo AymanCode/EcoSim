@@ -85,6 +85,6 @@ Within the simulator, matched-seed policy effects showed that high minimum wage 
 - The distress target is useful as a welfare proxy, but it did not beat persistence in V1.
 - Results should be rerun if the base simulator behavior, policy schema, or feature contract changes.
 
-## Reusable Summary
+## Result Summary
 
 > Built a leakage-safe forecasting and matched-seed policy experiment pipeline on a deterministic 10k-agent economic simulator: gradient boosting predicts 8-tick-ahead unemployment at `R^2=0.92`, beating a policy-aware persistence baseline by `0.080` MAE on held-out seeds and unseen policy lever vectors; quantified 6 policy interventions with paired Wilcoxon tests under a byte-identical determinism gate.

@@ -1,4 +1,4 @@
-﻿from pathlib import Path
+from pathlib import Path
 import sys
 
 TOOLS_ROOT = Path(__file__).resolve().parents[1]
@@ -331,8 +331,8 @@ def main():
                   f"{avg_happiness:13.3f} | ${avg_wage:7.2f} | ${economy.government.cash_balance:8.0f}")
 
     print()
-    print(f"âœ“ Generated {num_ticks} ticks of data")
-    print(f"âœ“ Database saved to: {db_path}")
+    print(f"✓ Generated {num_ticks} ticks of data")
+    print(f"✓ Database saved to: {db_path}")
     print()
 
     # Generate summary statistics
@@ -374,7 +374,7 @@ def main():
     with open(summary_path, 'w') as f:
         json.dump(summary, f, indent=2)
 
-    print(f"âœ“ Summary saved to: {summary_path}")
+    print(f"✓ Summary saved to: {summary_path}")
     print()
     print("Sample data generation complete!")
     print()

@@ -4,6 +4,30 @@ This document tracks all implementation changes, improvements, and features adde
 
 ---
 
+## [2026-07-28] Research Readiness And Session Isolation
+
+### Overview
+
+Strengthened EcoSim as a local research project without changing the settled economic mechanics. The work closes the remaining shared configuration and random-number state between WebSocket sessions, states the model's interpretation boundary, removes public-facing project residue, and expands automated verification.
+
+### Changes
+
+- Each `SimulationManager` now owns an independent configuration tree and Python/NumPy random stream.
+- Existing simulation code reads the active session through a context-local compatibility layer, avoiding a broad engine refactor.
+- `GET /decision-context/live` now requires a WebSocket session ID and cannot silently return state from an unrelated legacy manager.
+- Added regression tests for session config, RNG isolation, initialization order, live-context routing, and the frontend session handshake.
+- Added `docs/MODEL_SCOPE.md` with intended uses, assumptions, limitations, interpretation guidance, AI-governance benchmark status, and the local-only deployment boundary.
+- Repositioned the README around mechanism research, controlled policy comparisons, and the emerging AI-governance evaluation track.
+- Replaced starter frontend metadata/assets, repaired broken text encoding in tracked tools, and removed career-oriented language from public benchmark outputs.
+- Expanded CI to cover Python correctness linting, warehouse/API tests, forecasting tests, frontend behavior tests, and production dependency auditing.
+- Added bounded dependency ranges, a locked backend runtime, monthly dependency update checks, and Docker secret-file exclusions.
+
+### Scope
+
+No household, firm, market, banking, government, forecasting, or policy mechanics were changed. A larger engine/package decomposition remains a separate, higher-risk refactor.
+
+---
+
 ## [2026-06-08] 10k Full-App Tick Performance Increment
 
 ### Overview
@@ -144,20 +168,20 @@ The design was hardened through five adversarial review rounds before any code w
 
 ### Why
 
-The project needed an interview-defensible DS story, not a Kaggle-tier model. The value is the experimental design and the validation discipline, not the algorithm. Three decisions carry that:
+The work prioritizes experimental design and validation discipline over model complexity. Three decisions carry that:
 
 1. **Frozen base + external wrapper.** The simulator is the experimental apparatus; mutating it would invalidate every prior run and entangle unrelated WIP. Driving it read-only through its public API keeps the experiment honest and the blast radius zero.
 2. **Determinism as a gate, measured not assumed.** Matched-seed treatment effects are only valid if the same seed and policy produce the same trajectory. Rather than claim this, the harness measures it: two fresh-process replicates at 10k were byte-identical (`max_abs_delta=0.0`). That promoted the determinism story from "measured and hedged" to "byte-identical gate passed," and made the policy deltas exact (noise band 0.0).
 3. **Leakage-safe, multiplicity-corrected, honest about nulls.** Held-out seeds *and* held-out lever vectors; features strictly ≤ t; persistence/trend baselines that must be beaten with a bootstrap CI clear of zero; Wilcoxon + Holm across policies × outcomes. Distress at t+8 is reported as an honest null (not forecastable better than persistence); profit-tax shows no detectable household effect. Reporting the nulls is what makes the positive results believable.
 
-Interview framing: this is simulator system identification, not real-world macro prediction. The defensible claim is a controlled experiment platform — matched-seed policy treatment effects plus a leakage-safe forecaster — over a known complex stochastic system. When asked "why should I believe this?", the answer is the held-out splits and the passing byte-identical determinism gate, not the model choice. The killing question ("which feature-outcome relationships transfer to a real economy?") is answered up front: none are claimed to; transportability is explicitly untested in V1.
+Interpretation boundary: this is simulator system identification, not real-world macro prediction. The evidence supports a controlled experiment platform with matched-seed policy treatment effects and a leakage-safe forecaster over a known stochastic system. The held-out splits and passing byte-identical determinism gate support that claim; transportability to a real economy is explicitly untested in V1.
 
 Headline results (10k confirm: 6 arms × 24 matched seeds × 80 ticks, full numbers in `policy_forecasting/RESULTS.md`):
 
 - Gradient boosting forecasts unemployment at t+8 with R²=0.92, beating policy-aware persistence by 0.080 MAE (95% CI [0.056, 0.107]) on held-out seeds and unseen lever vectors; robust to the no-policy-state ablation.
 - SHAP: the 4-tick GDP moving average dominates (~10× the next feature) — a leading demand signal persistence cannot see, which is precisely why gradient boosting beats it.
 - Six of eight matched-seed policy effects are significant after Holm correction (dz up to 22) with coherent within-simulator mechanisms; two are honest nulls.
-- Resume bullet (quantified) is recorded in `policy_forecasting/RESULTS.md`.
+- The quantified result summary is recorded in `policy_forecasting/RESULTS.md`.
 
 ### Verification
 
@@ -210,7 +234,7 @@ This makes EcoSim behave more like a real multi-user service instead of a single
 
 The run-loop change directly targets the intermittent resume failure: when a user pauses and quickly resumes, the backend now treats that as a state transition on one existing task instead of possibly starting a second loop against the same economy.
 
-Interview framing: this was a reliability refactor of shared mutable state. The fix introduced session-scoped ownership, bounded concurrency, lifecycle idempotency, and regression tests around the exact failure mode.
+This was a reliability refactor of shared mutable state. The fix introduced session-scoped ownership, bounded concurrency, lifecycle idempotency, and regression tests around the exact failure mode.
 
 ### Verification
 

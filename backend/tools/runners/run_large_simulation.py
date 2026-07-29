@@ -1,4 +1,4 @@
-﻿from pathlib import Path
+from pathlib import Path
 import sys
 
 TOOLS_ROOT = Path(__file__).resolve().parents[1]
@@ -1180,19 +1180,19 @@ def main(
     metrics = economy.get_economic_metrics()
 
     print("=" * 80)
-    print("ðŸ“Š COMPREHENSIVE ECONOMIC DASHBOARD")
+    print("📊 COMPREHENSIVE ECONOMIC DASHBOARD")
     print("=" * 80)
     print()
 
     # GDP and Economic Output
-    print("ðŸ“ˆ ECONOMIC OUTPUT")
+    print("📈 ECONOMIC OUTPUT")
     print("-" * 80)
     print(f"  Current tick GDP:             ${metrics['gdp_this_tick']:>15,.2f}")
     print(f"  Total wealth (economy):       ${metrics['total_economy_cash']:>15,.2f}")
     print()
 
     # Labor Market
-    print("ðŸ‘¥ LABOR MARKET")
+    print("👥 LABOR MARKET")
     print("-" * 80)
     print(f"  Total households:             {metrics['total_households']:>15,}")
     print(f"  Employed:                     {metrics['employed_count']:>15,}")
@@ -1205,7 +1205,7 @@ def main(
     print()
 
     # Household Wellbeing
-    print("ðŸ˜Š HOUSEHOLD WELLBEING")
+    print("😊 HOUSEHOLD WELLBEING")
     print("-" * 80)
     print(f"  Average happiness:            {metrics['mean_happiness']:>18.3f}")
     print(f"  Average morale:               {metrics['mean_morale']:>18.3f}")
@@ -1214,7 +1214,7 @@ def main(
     print()
 
     # Household Finances
-    print("ðŸ’° HOUSEHOLD FINANCES")
+    print("💰 HOUSEHOLD FINANCES")
     print("-" * 80)
     print(f"  Total household cash:         ${metrics['total_household_cash']:>15,.2f}")
     print(f"  Average cash per household:   ${metrics['mean_household_cash']:>15,.2f}")
@@ -1222,7 +1222,7 @@ def main(
     print()
 
     # Firm Sector
-    print("ðŸ¢ FIRM SECTOR")
+    print("🏢 FIRM SECTOR")
     print("-" * 80)
     print(f"  Active firms:                 {metrics['total_firms']:>18,}")
     print(f"  Total firm cash:              ${metrics['total_firm_cash']:>15,.2f}")
@@ -1236,7 +1236,7 @@ def main(
     print()
 
     # Government
-    print("ðŸ›ï¸  GOVERNMENT FINANCES & POLICY")
+    print("🏛️  GOVERNMENT FINANCES & POLICY")
     print("-" * 80)
     print(f"  Government cash:              ${metrics['government_cash']:>15,.2f}")
     print(f"  Wage tax rate:                {metrics['wage_tax_rate']:>15.1%}")
@@ -1260,7 +1260,7 @@ def main(
     print()
 
     print("=" * 80)
-    print("ðŸ“¸ SAMPLE TRAJECTORIES (5 households, 5 firms)")
+    print("📸 SAMPLE TRAJECTORIES (5 households, 5 firms)")
     print("=" * 80)
     print()
 

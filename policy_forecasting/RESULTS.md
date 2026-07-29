@@ -47,7 +47,7 @@ Policy effects are paired against baseline across 24 matched seeds with Wilcoxon
 
 Within this simulator, higher minimum wage reduced later unemployment and distress; higher benefits increased later unemployment; higher wage tax increased distress; food subsidy reduced distress; and high profit tax showed no detectable household effect in this sweep.
 
-## Reusable Summary
+## Result Summary
 
 > Built a leakage-safe forecasting and matched-seed policy experiment pipeline on a deterministic 10k-agent economic simulator: gradient boosting predicts 8-tick-ahead unemployment at `R^2=0.92`, beating a policy-aware persistence baseline by `0.080` MAE on held-out seeds and unseen policy lever vectors; quantified 6 policy interventions with paired Wilcoxon tests under a byte-identical determinism gate.
 

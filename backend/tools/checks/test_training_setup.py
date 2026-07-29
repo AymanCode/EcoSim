@@ -1,4 +1,4 @@
-﻿from pathlib import Path
+from pathlib import Path
 import sys
 
 TOOLS_ROOT = Path(__file__).resolve().parents[1]
@@ -37,24 +37,24 @@ print()
 print("Checking dependencies...")
 try:
     import numpy as np
-    print("  âœ“ numpy installed")
+    print("  ✓ numpy installed")
 except ImportError:
-    print("  âœ— numpy NOT installed - run: pip install numpy")
+    print("  ✗ numpy NOT installed - run: pip install numpy")
     sys.exit(1)
 
 try:
     import pandas as pd
-    print("  âœ“ pandas installed")
+    print("  ✓ pandas installed")
 except ImportError:
-    print("  âœ— pandas NOT installed - run: pip install pandas")
+    print("  ✗ pandas NOT installed - run: pip install pandas")
     sys.exit(1)
 
 try:
     from scipy.stats import qmc
-    print("  âœ“ scipy installed (Latin Hypercube Sampling available)")
+    print("  ✓ scipy installed (Latin Hypercube Sampling available)")
     has_scipy = True
 except ImportError:
-    print("  âš  scipy NOT installed - will use random sampling (less optimal)")
+    print("  ⚠ scipy NOT installed - will use random sampling (less optimal)")
     print("    Install with: pip install scipy")
     has_scipy = False
 
@@ -64,9 +64,9 @@ print()
 print("Checking simulation modules...")
 try:
     from run_large_simulation import create_large_economy
-    print("  âœ“ run_large_simulation module found")
+    print("  ✓ run_large_simulation module found")
 except ImportError as e:
-    print(f"  âœ— Error importing simulation: {e}")
+    print(f"  ✗ Error importing simulation: {e}")
     sys.exit(1)
 
 print()
@@ -82,7 +82,7 @@ import time
 try:
     # Generate 5 test policies
     policies = generate_policy_samples(num_samples=5)
-    print(f"âœ“ Generated {len(policies)} test policies")
+    print(f"✓ Generated {len(policies)} test policies")
 
     # Run simulations
     results = []
@@ -109,7 +109,7 @@ try:
     avg_time = total_time / len(results)
 
     print()
-    print(f"âœ“ All test simulations completed")
+    print(f"✓ All test simulations completed")
     print(f"  Total time: {total_time:.1f}s")
     print(f"  Average per simulation: {avg_time:.1f}s")
     print()
@@ -130,8 +130,8 @@ try:
     df = pd.DataFrame(results)
     test_file = "test_training_data.csv"
     df.to_csv(test_file, index=False)
-    print(f"âœ“ Data saved to {test_file}")
-    print(f"  Shape: {df.shape[0]} rows Ã— {df.shape[1]} columns")
+    print(f"✓ Data saved to {test_file}")
+    print(f"  Shape: {df.shape[0]} rows × {df.shape[1]} columns")
     print()
 
     # Show sample data
@@ -141,7 +141,7 @@ try:
     print()
 
     print("="*70)
-    print("âœ“ SETUP VERIFICATION COMPLETE")
+    print("✓ SETUP VERIFICATION COMPLETE")
     print("="*70)
     print()
     print("Everything looks good! You're ready to run:")
@@ -152,7 +152,7 @@ try:
 except Exception as e:
     print()
     print("="*70)
-    print("âœ— SETUP VERIFICATION FAILED")
+    print("✗ SETUP VERIFICATION FAILED")
     print("="*70)
     print(f"Error: {e}")
     print()
@@ -161,4 +161,3 @@ except Exception as e:
     print()
     print("Please fix the error before running full data generation.")
     sys.exit(1)
-

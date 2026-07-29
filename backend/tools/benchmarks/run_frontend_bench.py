@@ -541,10 +541,10 @@ def _render_summary(metadata: dict[str, Any], summary: dict[str, Any]) -> str:
             f"- CLS: `{summary.get('cls', 0.0)}`",
             f"- Used JS heap: `{summary.get('used_js_heap_mb', 0.0)} MB`",
             "",
-            "## Resume Bullet Drafts",
+            "## Evidence Summary",
             "",
             (
-                "- Benchmarked a live React dashboard for a 10k-agent simulation, measuring WebSocket payloads, "
+                "- The live React dashboard benchmark measures WebSocket payloads, "
                 "browser JSON parse time, frame latency, long tasks, and Core Web Vitals-style load/stability metrics."
             ),
         ]

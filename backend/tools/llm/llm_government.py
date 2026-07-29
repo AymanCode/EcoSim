@@ -539,16 +539,6 @@ def _format_recent_policy_memory(memory: List[Dict[str, Any]]) -> str:
                 f"  mature_after_impact_horizon: {mature_text}",
             ]
         )
-        continue
-        lines.append(
-            f"- tick {item.get('tick')}: {item.get('decisions')} | "
-            f"Δunemployment={fmt(impact.get('unemployment_delta_pp'), 'pp')}, "
-            f"ΔGDP={fmt(impact.get('gdp_delta_pct'), '%')}, "
-            f"Δhealth={fmt(impact.get('mean_health_delta_pp'), 'pp')}, "
-            f"Δdistress={fmt(impact.get('consumer_distress_delta_pct'), '%')} | "
-            f"{rejection_text} "
-            f"reason={reasoning}"
-        )
     return "\n".join(lines)
 
 

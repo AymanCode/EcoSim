@@ -1,4 +1,4 @@
-﻿
+
 """EcoSim runner for one LLM-controlled private firm.
 
 Usage:
