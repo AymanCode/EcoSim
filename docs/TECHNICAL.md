@@ -11,7 +11,7 @@ This guide describes the active EcoSim implementation. Source code and runtime c
 | Frontend | React 19, Vite, Recharts, Tailwind CSS, lucide-react |
 | Persistence | SQLite by default for Docker/local warehouse, PostgreSQL/Timescale optional |
 | LLM tooling | LangGraph/LangChain Core orchestration with LM Studio, Ollama, Groq, and OpenRouter provider paths |
-| Tests | pytest, pytest-asyncio, contract-style suites, frontend ESLint/build |
+| Tests | pytest, pytest-asyncio, contract and integration suites, frontend Vitest/ESLint/build |
 | Packaging | Docker Compose for the full stack |
 
 ## Entry Points
@@ -28,7 +28,7 @@ This guide describes the active EcoSim implementation. Source code and runtime c
 
 ## Runtime Flow
 
-The browser connects to the backend over `/ws`. A run starts with `SETUP`, then `START` launches the tick loop. The server owns a single `SimulationManager`, applies pending runtime config updates at safe tick boundaries, calls `Economy.step()`, builds a compact dashboard payload, and streams it back to the client.
+The browser connects to the backend over `/ws`. Each connection receives a session ID and its own `SimulationManager`, configuration snapshot, random-number state, economy, and lifecycle. A run starts with `SETUP`, then `START` launches that session's tick loop. The manager applies pending runtime config updates at safe tick boundaries, calls `Economy.step()`, builds a compact dashboard payload, and streams it back to that client. The session registry enforces a bounded connection count and removes state when a socket closes.
 
 When the warehouse is enabled, the server buffers aggregate metrics, sector metrics, snapshots, events, diagnostics, policy actions, and LLM decision rows. Flushes are batched rather than committed per row.
 
@@ -49,14 +49,14 @@ Accepted commands:
 | `CONFIG` | Queue runtime-safe policy/config updates. |
 | `STABILIZERS` | Toggle household, firm, government, or all automatic stabilizers. |
 
-Server messages include `SETUP_COMPLETE`, `STARTED`, `STOPPED`, `RESET`, `STABILIZERS_UPDATED`, errors, and tick payloads containing `metrics`, `firm_stats`, and `logs`.
+The server first sends `SESSION` with the connection's session ID. Other messages include `SETUP_COMPLETE`, `STARTED`, `STOPPED`, `RESET`, `STABILIZERS_UPDATED`, errors, and tick payloads containing `metrics`, `firm_stats`, and `logs`.
 
 ## REST Surfaces
 
 Core endpoints:
 
 - `GET /health`
-- `GET /decision-context/live?window=20`
+- `GET /decision-context/live?session_id={session_id}&window=20`
 - `GET /warehouse/runs`
 - `GET /warehouse/compare?run_ids=run_a&run_ids=run_b`
 - `GET /warehouse/runs/{run_id}/summary`
@@ -139,6 +139,10 @@ OLLAMA_BASE_URL=http://localhost:11434
 
 The harness validates JSON, rejects malformed or out-of-range actions, limits substantive changes, tracks accepted/rejected changes, and persists full decision records when the warehouse is enabled.
 
+## Dependency Reproducibility
+
+`pyproject.toml` defines supported dependency ranges. `backend/requirements.lock` pins the backend and warehouse runtime used by Docker and can be supplied as a constraints file for local development. The forecasting package keeps its separate, frozen research environment in `policy_forecasting/requirements.txt`; the frontend is pinned by `frontend-react/package-lock.json`.
+
 ## Performance Notes
 
 The hot path stays in memory. Database writes are buffered. The backend uses NumPy for labor and consumption paths where practical, caches selected metrics on a stride in the server loop, and supports `ECOSIM_LABOR_MATCH_MODE=fast` for the optimized matcher.
@@ -159,6 +163,7 @@ ECOSIM_UNEMPLOYED_CLAMP_TICKS=8
 Stable backend:
 
 ```bash
+python -m pip install -c backend/requirements.lock -e ".[dev,ml]"
 python -m pytest backend/tests_contracts backend/tests_server -q -m "not llm and not research"
 ```
 
@@ -180,6 +185,7 @@ Frontend:
 cd frontend-react
 npm ci
 npm run lint
+npm run test
 npm run build
 ```
 

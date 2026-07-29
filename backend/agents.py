@@ -31,7 +31,7 @@ import math
 import random
 import zlib
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 import numpy as np
 
@@ -40,6 +40,9 @@ from policy_schema import ORDERED_LEVERS as POLICY_ORDERED_LEVERS, SIMPLE_ENUM_L
 
 
 from utils.category_utils import get_good_category
+
+if TYPE_CHECKING:
+    from economy import Economy
 
 
 @dataclass(slots=True)
