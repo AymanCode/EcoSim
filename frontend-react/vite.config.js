@@ -7,9 +7,11 @@ export default defineConfig({
   build: {
     rollupOptions: {
       output: {
-        manualChunks: {
-          charts: ['recharts'],
-          icons: ['lucide-react'],
+        // Function form rather than the object shorthand: Vite 8 builds on
+        // rolldown, which only accepts a function here.
+        manualChunks(id) {
+          if (id.includes('node_modules/recharts')) return 'charts'
+          if (id.includes('node_modules/lucide-react')) return 'icons'
         },
       },
     },
