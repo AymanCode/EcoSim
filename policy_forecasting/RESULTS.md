@@ -53,7 +53,9 @@ Within this simulator: higher minimum wage reduced later unemployment and distre
 
 ## Result Summary
 
-> Built a leakage-safe forecasting and matched-seed policy experiment pipeline on a deterministic 10k-agent economic simulator: gradient boosting predicts 8-tick-ahead unemployment at `R^2=0.92`, beating a policy-aware persistence baseline by `0.080` MAE on held-out seeds and unseen policy lever vectors; quantified 6 policy interventions with paired Wilcoxon tests under a byte-identical determinism gate.
+The forecaster works on unemployment and does not work on distress. Gradient boosting predicts unemployment 8 ticks ahead at `R^2=0.924`, beating a policy-aware persistence baseline by `0.080` MAE on seeds and policy lever vectors it never saw in training. The same setup fails on consumer distress: `R^2=-0.056`, no better than persistence. Both results are reported as they came out.
+
+On the policy side, 6 of the 10 arm-outcome pairs cleared the claim gate. The rest are either true nulls or effects too small to claim, listed individually in the table above. The determinism gate passed byte-identical, so these deltas carry no replicate noise and do not need a repeat-run allowance.
 
 ## Reproduce
 
