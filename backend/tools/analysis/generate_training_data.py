@@ -1,4 +1,4 @@
-﻿from pathlib import Path
+from pathlib import Path
 import sys
 
 TOOLS_ROOT = Path(__file__).resolve().parents[1]
@@ -198,7 +198,7 @@ def main():
     # Generate policy samples
     print("Generating policy configurations...")
     policies = generate_policy_samples(NUM_SAMPLES)
-    print(f"âœ“ Generated {len(policies)} policy configurations")
+    print(f"✓ Generated {len(policies)} policy configurations")
     print()
 
     # Run simulations
@@ -247,11 +247,11 @@ def main():
                 checkpoint_df = pd.DataFrame(training_data)
                 checkpoint_file = f"training_data_checkpoint_{i+1}.csv"
                 checkpoint_df.to_csv(checkpoint_file, index=False)
-                print(f"  âœ“ Checkpoint saved: {checkpoint_file}")
+                print(f"  ✓ Checkpoint saved: {checkpoint_file}")
                 print()
 
         except Exception as e:
-            print(f"  âœ— Error in simulation {i+1}: {e}")
+            print(f"  ✗ Error in simulation {i+1}: {e}")
             print(f"    Policy: {policy}")
             continue
 
@@ -271,8 +271,8 @@ def main():
     output_file = f"training_data_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
     df.to_csv(output_file, index=False)
 
-    print(f"âœ“ Training data saved: {output_file}")
-    print(f"  Shape: {df.shape[0]} rows Ã— {df.shape[1]} columns")
+    print(f"✓ Training data saved: {output_file}")
+    print(f"  Shape: {df.shape[0]} rows × {df.shape[1]} columns")
     print()
 
     # Show summary statistics
@@ -281,7 +281,7 @@ def main():
     print(df.describe())
     print()
 
-    print("âœ“ Ready for model training!")
+    print("✓ Ready for model training!")
 
 if __name__ == "__main__":
     main()

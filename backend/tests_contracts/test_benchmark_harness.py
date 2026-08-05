@@ -85,7 +85,7 @@ def test_write_outputs_create_json_and_csv(tmp_path: Path):
     assert csv_rows[1]["duration_ms"] == "14.5"
 
 
-def test_render_sim_summary_contains_resume_bullets_and_context():
+def test_render_sim_summary_contains_evidence_and_context():
     metadata = {
         "commit": "abc1234",
         "python": "3.11.9",
@@ -106,7 +106,7 @@ def test_render_sim_summary_contains_resume_bullets_and_context():
 
     markdown = render_sim_summary(metadata=metadata, summary=summary, profile_paths=["profile.txt"])
 
-    assert "Resume Bullet Drafts" in markdown
+    assert "Evidence Summary" in markdown
     assert "10k+ agents" in markdown
     assert "abc1234" in markdown
     assert "profile.txt" in markdown

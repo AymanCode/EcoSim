@@ -1,4 +1,4 @@
-﻿from pathlib import Path
+from pathlib import Path
 import sys
 
 TOOLS_ROOT = Path(__file__).resolve().parents[1]
@@ -11,14 +11,14 @@ for _candidate in (BACKEND_ROOT, TOOLS_ROOT, TOOLS_ROOT / 'analysis', TOOLS_ROOT
 EcoSim All-Archetype Runner
 ============================
 Runs run_household_llm_tester.py 5 times, one per archetype:
-  1. frugal       â€” high saver, high frugality
-  2. average      â€” closest to population median
-  3. spendthrift  â€” low saver, spends freely
-  4. random_a     â€” random household (seed 42)
-  5. random_b     â€” a different random household (seed 99)
+  1. frugal       — high saver, high frugality
+  2. average      — closest to population median
+  3. spendthrift  — low saver, spends freely
+  4. random_a     — random household (seed 42)
+  5. random_b     — a different random household (seed 99)
 
 Each run is fully independent: separate economy, separate log file.
-All rich per-tick output is preserved â€” this script just sequences them.
+All rich per-tick output is preserved — this script just sequences them.
 
 Output files:
   household_llm_run_log_frugal.json
@@ -107,9 +107,9 @@ async def run_one(
     prev_state = None
     post_warmup_tick = 0
 
-    print("\n" + "â”€" * 70)
+    print("\n" + "─" * 70)
     print(f" {'Tick':>4} | {'Cash':>8} | {'Deposit':>8} | {'Employment':>20} | {'Health':>6} | LLM")
-    print("â”€" * 70)
+    print("─" * 70)
 
     for tick in range(args.ticks):
         economy.step()
@@ -145,7 +145,7 @@ async def run_one(
             )
             elapsed = time.perf_counter() - t0
             print(f"{elapsed:.1f}s")
-            print(f"  ðŸ’¬ {response.strip()[:200]}")
+            print(f"  💬 {response.strip()[:200]}")
         except Exception as e:
             elapsed = time.perf_counter() - t0
             print(f"FAIL ({elapsed:.1f}s): {e}")
@@ -166,9 +166,9 @@ async def run_one(
 
         # Beta feedback
         if post_warmup_tick > 0 and post_warmup_tick % args.feedback_every == 0:
-            print(f"\n{'â”€' * 70}")
-            print(f"  BETA FEEDBACK â€” tick {economy.current_tick} ({post_warmup_tick} post-warmup ticks as {label})")
-            print(f"{'â”€' * 70}")
+            print(f"\n{'─' * 70}")
+            print(f"  BETA FEEDBACK — tick {economy.current_tick} ({post_warmup_tick} post-warmup ticks as {label})")
+            print(f"{'─' * 70}")
 
             event_summary = "\n".join(
                 f"  tick {e['tick']}: cash=${e['state']['cash']:.0f}, "
@@ -196,13 +196,13 @@ async def run_one(
             except Exception as e:
                 print(f"Feedback call failed: {e}")
 
-            print(f"{'â”€' * 70}\n")
+            print(f"{'─' * 70}\n")
             conversation_history = []
 
     # Final state
     hh = economy.household_lookup[hh_id]
     print(f"\n{'=' * 70}")
-    print(f"  FINAL STATE â€” {label.upper()}")
+    print(f"  FINAL STATE — {label.upper()}")
     print(f"{'=' * 70}")
     print(f"  Cash:        ${hh.cash_balance:.0f}")
     print(f"  Savings:     ${hh.bank_deposit:.0f}")

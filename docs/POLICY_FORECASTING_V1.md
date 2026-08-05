@@ -75,7 +75,7 @@ The 10k confirm run passed the determinism gate with `hash_equal=True` and `max_
 
 Gradient boosting forecasted `unemployment@t+8` at `R^2=0.924` and beat the policy-aware persistence baseline by `0.080` MAE on held-out seeds and unseen policy lever vectors. The `consumer_distress@t+8` target did not beat persistence, which is reported as a negative result rather than tuned away.
 
-Within the simulator, matched-seed policy effects showed that high minimum wage reduced later unemployment and distress, high benefits increased later unemployment, high wage tax increased distress, food subsidy reduced distress, and high profit tax showed no detectable household effect in this sweep.
+Within the simulator, matched-seed policy effects showed that high minimum wage reduced later unemployment and distress, high benefits increased later unemployment, high wage tax increased distress, and food subsidy reduced distress. High profit tax moved distress by a measurable but very small amount (Holm `p=0.038`, `dz=+0.61`) that falls below the effect-size bar for a claim, and left unemployment unchanged. Per-arm numbers are in [policy_forecasting/RESULTS.md](../policy_forecasting/RESULTS.md).
 
 ## Caveats
 
@@ -85,6 +85,6 @@ Within the simulator, matched-seed policy effects showed that high minimum wage 
 - The distress target is useful as a welfare proxy, but it did not beat persistence in V1.
 - Results should be rerun if the base simulator behavior, policy schema, or feature contract changes.
 
-## Reusable Summary
+## Result Summary
 
 > Built a leakage-safe forecasting and matched-seed policy experiment pipeline on a deterministic 10k-agent economic simulator: gradient boosting predicts 8-tick-ahead unemployment at `R^2=0.92`, beating a policy-aware persistence baseline by `0.080` MAE on held-out seeds and unseen policy lever vectors; quantified 6 policy interventions with paired Wilcoxon tests under a byte-identical determinism gate.

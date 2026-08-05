@@ -854,7 +854,7 @@ Current implementation status:
 - the same decision layer is persisted to `decision_features` when the
   warehouse is enabled
 - the live window is exposed through `SimulationManager.get_live_decision_context()`
-  and `GET /decision-context/live`
+  and `GET /decision-context/live?session_id={session_id}`
 - recent policy changes are included alongside the live rolling context
 - full accepted/rejected LLM government decisions are persisted to
   `llm_government_decisions` when the warehouse is enabled

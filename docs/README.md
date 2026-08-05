@@ -6,6 +6,7 @@ Active documentation for the current EcoSim codebase. Code and runtime configura
 
 | Document | Purpose |
 |---|---|
+| [MODEL_SCOPE.md](MODEL_SCOPE.md) | Intended uses, interpretation rules, assumptions, limitations, and AI-governance benchmark status |
 | [SIMULATION.md](SIMULATION.md) | Current model behavior, tick lifecycle, agents, markets, policy, banking, LLM government, and diagnostics |
 | [TECHNICAL.md](TECHNICAL.md) | Stack, entry points, API surfaces, config, warehouse, LLM setup, performance notes, and validation commands |
 | [FRONTEND.md](FRONTEND.md) | React dashboard views, WebSocket contract, runtime config mapping, and visual components |
@@ -21,6 +22,8 @@ Active documentation for the current EcoSim codebase. Code and runtime configura
 | [HOUSEHOLD_LABOR_DERISKING.md](HOUSEHOLD_LABOR_DERISKING.md) | Labor-search guardrails, reservation-wage clamping, diagnostics, and runtime flags |
 | [POLICY_FORECASTING_V1.md](POLICY_FORECASTING_V1.md) | Policy stress-testing and forecasting design rationale |
 | [POLICY_FORECASTING_SCHEMA.md](POLICY_FORECASTING_SCHEMA.md) | Frozen dataset schema for the policy forecasting pipeline |
+| [evals/ECOSIM_LLM_ECONOMIC_GOVERNANCE_EVAL_PROTOCOL.md](evals/ECOSIM_LLM_ECONOMIC_GOVERNANCE_EVAL_PROTOCOL.md) | Draft protocol, claim boundaries, episode design, baselines, scoring, and reporting for the AI-governance benchmark |
+| [testing/full_app_evidence_test.md](testing/full_app_evidence_test.md) | End-to-end evidence standard for the dashboard, server, stream, warehouse, and REST readback |
 
 ## Component Docs
 
@@ -31,7 +34,7 @@ Active documentation for the current EcoSim codebase. Code and runtime configura
 | [../backend/tools/README.md](../backend/tools/README.md) | Supplementary runner, benchmark, LLM, analysis, and check utilities |
 | [../backend/tests_contracts/README.md](../backend/tests_contracts/README.md) | Contract-test suite layout and factory usage |
 | [../frontend-react/README.md](../frontend-react/README.md) | Frontend startup notes |
-| [../experiments/llm_government_1k/README.md](../experiments/llm_government_1k/README.md) | Public LLM government comparison artifacts |
+| [experiments/AI_GOVERNMENT_EXPERIMENT.md](experiments/AI_GOVERNMENT_EXPERIMENT.md) | Featured AI engineering case study: five LLM governments, one controlled baseline, and the bounded evaluation harness |
 
 ## Experiments
 

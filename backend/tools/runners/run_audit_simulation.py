@@ -1,4 +1,4 @@
-﻿from pathlib import Path
+from pathlib import Path
 import sys
 
 TOOLS_ROOT = Path(__file__).resolve().parents[1]
@@ -878,7 +878,7 @@ class RunAuditSummarizer:
         }
 
 
-# â”€â”€ Serializers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ── Serializers ──────────────────────────────────────────────────────
 
 def serialize_household(hh: HouseholdAgent) -> Dict[str, Any]:
     """Capture every readable field on a household."""
@@ -1688,7 +1688,7 @@ def serialize_tick(
     return record
 
 
-# â”€â”€ Main â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ── Main ─────────────────────────────────────────────────────────────
 
 def parse_args():
     p = argparse.ArgumentParser(description="EcoSim Full Audit Runner")
@@ -1721,7 +1721,7 @@ def main():
         num_households=args.households,
         num_firms_per_category=args.firms_per_category,
     )
-    # Enable audit action logging â€” captures all plans/outcomes per tick
+    # Enable audit action logging — captures all plans/outcomes per tick
     economy.audit_log_enabled = True
 
     if args.no_shocks:
@@ -1816,7 +1816,7 @@ def main():
     print(f"Final money drift: ${drift:+,.2f} ({drift / initial_money * 100:+.4f}%)")
     print(f"Lines: {args.ticks + 3} (1 config + 1 initial + {args.ticks} ticks + 1 run_summary)")
 
-    # â”€â”€ Auto-generate compact LLM digest â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    # ── Auto-generate compact LLM digest ───────────────────────────────
     if not args.no_digest:
         from audit_digest import build_digest, estimate_tokens, load_audit
 

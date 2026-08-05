@@ -275,8 +275,7 @@ const resolveWebSocketEndpoint = () => {
 
   if (typeof window !== 'undefined') {
     const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
-    const host = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' ? 'localhost:8002' : window.location.host;
-    return `${protocol}://${host}/ws`;
+    return `${protocol}://${window.location.host}/ws`;
   }
 
   return 'ws://localhost:8002/ws';
@@ -811,7 +810,7 @@ const LineChart = ({
             {formatValue(headlineValue ?? lastValue)}<span className="text-[10px] text-slate-500 ml-0.5">{suffix}</span>
           </div>
           <div className="text-[10px] text-slate-500 mt-0.5">
-            {headlineLabel}{subtitle ? ` Â· ${subtitle}` : ''}{timeRange ? ` Â· ${timeRange}` : ''}
+            {headlineLabel}{subtitle ? ` · ${subtitle}` : ''}{timeRange ? ` · ${timeRange}` : ''}
           </div>
         </div>
         {legend && (
@@ -895,6 +894,7 @@ export default function EcoSimUI() {
   const pendingConfigRef = useRef(null);
   const [isInitializing, setIsInitializing] = useState(false);
   const [wsConnected, setWsConnected] = useState(false);
+  const [sessionId, setSessionId] = useState('');
 
   // Simulation State
   const [metrics, setMetrics] = useState({
@@ -1291,7 +1291,9 @@ export default function EcoSimUI() {
       socket.onmessage = (event) => {
         if (cancelled || ws.current !== socket) return;
         const data = JSON.parse(event.data);
-        if (data.type === "SETUP_COMPLETE") {
+        if (data.type === "SESSION") {
+          setSessionId(data.sessionId || '');
+        } else if (data.type === "SETUP_COMPLETE") {
           setIsInitializing(false);
           setIsInitialized(true);
           setActiveView('DASHBOARD');
@@ -1394,6 +1396,7 @@ export default function EcoSimUI() {
       socket.onclose = () => {
         if (ws.current !== socket) return;
         setWsConnected(false);
+        setSessionId('');
         console.log("WS Disconnected");
         setIsRunning(false);
         setIsInitializing(false);
@@ -1737,13 +1740,15 @@ export default function EcoSimUI() {
 
         {/* CONNECTION STATUS */}
         <div className="flex flex-col items-center space-y-2 mt-auto group relative cursor-pointer">
-          <div className={`h-2.5 w-2.5 rounded-full ${isInitialized ? 'bg-emerald-500' : 'bg-rose-500/80'}`}></div>
-          <span className={`text-[9px] font-mono tracking-widest font-bold ${isInitialized ? 'text-emerald-500' : 'text-rose-400'}`}>
-            {isInitialized ? 'ONLINE' : 'OFFLINE'}
+          <div className={`h-2.5 w-2.5 rounded-full ${wsConnected ? 'bg-emerald-500' : 'bg-rose-500/80'}`}></div>
+          <span className={`text-[9px] font-mono tracking-widest font-bold ${wsConnected ? 'text-emerald-500' : 'text-rose-400'}`}>
+            {wsConnected ? 'ONLINE' : 'OFFLINE'}
           </span>
           {/* Tooltip */}
           <div className="absolute left-full ml-4 bottom-0 px-2 py-1 bg-slate-800 text-slate-200 text-[10px] font-mono rounded border border-slate-700 opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none whitespace-nowrap z-50 shadow-xl">
-            {isInitialized ? 'Connected to Simulation Core' : 'Awaiting Connection...'}
+            {wsConnected
+              ? `Connected to Simulation Core${sessionId ? ` · Session ${sessionId.slice(0, 8)}` : ''}`
+              : 'Awaiting Connection...'}
           </div>
         </div>
       </nav>
@@ -1839,7 +1844,7 @@ export default function EcoSimUI() {
                   </div>
 
                   <div className="col-span-12 lg:col-span-4 tech-panel p-4">
-                    <SectionHeader icon={Building2} title="Market map" meta={firmStats ? `Sized by firm count Â· ${formatInteger(firmStats.total_firms)} firms` : 'Awaiting firms'} />
+                    <SectionHeader icon={Building2} title="Market map" meta={firmStats ? `Sized by firm count · ${formatInteger(firmStats.total_firms)} firms` : 'Awaiting firms'} />
                     {firmStats?.categories?.length ? (
                       <div className="space-y-3">
                         {firmStats.categories.map(cat => {
@@ -1851,7 +1856,7 @@ export default function EcoSimUI() {
                             <div key={cat.category}>
                               <div className="flex justify-between text-xs mb-1">
                                 <span className="text-slate-300">{formatSector(cat.category)}</span>
-                                <span className="font-mono tabular-nums text-slate-500">{formatInteger(cat.firm_count)} firms Â· avg cash {formatCurrency(cat.avg_cash || 0)}</span>
+                                <span className="font-mono tabular-nums text-slate-500">{formatInteger(cat.firm_count)} firms · avg cash {formatCurrency(cat.avg_cash || 0)}</span>
                               </div>
                               <div className="h-8 rounded bg-slate-950/60 border border-slate-800 overflow-hidden">
                                 <div
@@ -2598,7 +2603,7 @@ export default function EcoSimUI() {
                             <div className="flex justify-between items-center">
                               <div>
                                 <h3 className="text-lg font-display text-slate-100">{readableEntityName(selectedTrackedFirm.name)}</h3>
-                                <div className="text-[11px] text-slate-500" title={selectedTrackedFirm.name}>Sector: {formatSector(selectedTrackedFirm.category)} Â· Internal ID: {selectedTrackedFirm.name}</div>
+                                <div className="text-[11px] text-slate-500" title={selectedTrackedFirm.name}>Sector: {formatSector(selectedTrackedFirm.category)} · Internal ID: {selectedTrackedFirm.name}</div>
                               </div>
                               <Badge tone={firmStatusTone(selectedTrackedFirm.state)}>{selectedTrackedFirm.state}</Badge>
                             </div>
@@ -2955,7 +2960,7 @@ export default function EcoSimUI() {
                             <div className="mt-2 space-y-2">
                               {previousRunPolicyChanges.map((action, i) => (
                                 <div key={`previous-${action.tick}-${i}`} className="text-[11px] text-slate-500">
-                                  Tick {formatTick(action.tick || 0)} Â· {formatPolicyMessage(action)}
+                                  Tick {formatTick(action.tick || 0)} · {formatPolicyMessage(action)}
                                 </div>
                               ))}
                             </div>
@@ -3345,5 +3350,3 @@ export default function EcoSimUI() {
     </div>
   );
 }
-
-

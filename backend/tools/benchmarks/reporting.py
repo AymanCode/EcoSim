@@ -181,16 +181,16 @@ def render_sim_summary(
         "",
         *_summary_table("By Tick Phase", summary.get("phases", {})),
         "",
-        "## Resume Bullet Drafts",
+        "## Evidence Summary",
         "",
         (
-            f"- Benchmarked a Python agent-based economic simulator {scale_phrase}, "
-            f"measuring p50/p95/p99 tick latency and processing `{weeks_per_minute}` simulated weeks/minute "
+            f"- The Python agent-based simulator was measured {scale_phrase}, "
+            f"with p50/p95/p99 tick latency and `{weeks_per_minute}` simulated weeks/minute "
             f"at `{p95} ms` p95 tick latency on the recorded local environment."
         ),
         (
-            "- Built a reproducible performance harness with commit/runtime metadata, CSV/JSON outputs, "
-            "and profile artifacts to support defensible SWE/AI engineering resume claims."
+            "- The harness records commit/runtime metadata, CSV/JSON outputs, and optional profiles "
+            "so results can be compared and reproduced."
         ),
     ]
     if profile_paths:
@@ -219,11 +219,11 @@ def render_warehouse_summary(*, metadata: Mapping[str, Any], summary: Mapping[st
         f"- Max SQLite DB size: `{summary.get('max_database_size_mb', 0.0)} MB`",
         f"- Max SQLite WAL size: `{summary.get('max_wal_size_mb', 0.0)} MB`",
         "",
-        "## Resume Bullet Drafts",
+        "## Evidence Summary",
         "",
         (
-            "- Benchmarked SQLite/PostgreSQL-compatible warehouse ingest for EcoSim, "
-            f"writing `{summary.get('total_rows_written', 0)}` analytical rows at "
+            "- The SQLite/PostgreSQL-compatible warehouse benchmark wrote "
+            f"`{summary.get('total_rows_written', 0)}` analytical rows at "
             f"`{summary.get('overall_rows_per_second', 0.0)} rows/sec` with "
             f"`{summary.get('p95_summary_query_ms', 0.0)} ms` p95 summary-query latency."
         ),
@@ -257,10 +257,10 @@ def render_policy_sweep_summary(*, metadata: Mapping[str, Any], summary: Mapping
     lines.extend(
         [
             "",
-            "## Resume Bullet Drafts",
+            "## Evidence Summary",
             "",
             (
-                "- Ran reproducible policy sweeps over simulated economies, reporting confidence intervals "
+                "- Reproducible policy sweeps report confidence intervals "
                 "for GDP, unemployment, and welfare outcomes across multiple seeds."
             ),
         ]

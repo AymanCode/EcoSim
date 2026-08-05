@@ -65,6 +65,8 @@ Pre-launch controls:
 
 After initialization, policy controls queue `CONFIG` updates. Changes are debounced client-side and applied by the server at safe tick boundaries.
 
+![EcoSim configuration view with run profile and policy controls](assets/config-tab.png)
+
 ## Command View
 
 The Command view is the main run monitor. It shows:
@@ -93,6 +95,8 @@ Displayed state includes:
 - canvas avatar visualization via `NeuralAvatar`
 
 The tracked subset is selected server-side. It is not the full population.
+
+![EcoSim population view with household state and history](assets/subjects-tab.png)
 
 ## Markets View
 
@@ -158,6 +162,8 @@ Features:
 - selected event detail
 - buffered list capped client-side
 
+![EcoSim logs view with filters and event detail](assets/logs-tab.png)
+
 ## WebSocket Contract
 
 Endpoint:
@@ -166,11 +172,13 @@ Endpoint:
 ws://localhost:8002/ws
 ```
 
+Each connection receives its own bounded server session. The session ID is retained for display and for session-specific REST reads such as the live decision context.
+
 Commands sent by the frontend:
 
 | Command | Payload shape |
 |---|---|
-| `SETUP` | `{ command: "SETUP", config: { num_households, num_firms, wage_tax, profit_tax, enable_llm_government, disable_stabilizers, disabled_agents } }` |
+| `SETUP` | `{ command: "SETUP", config: { num_households, num_firms, seed, wage_tax, profit_tax, enable_llm_government, disable_stabilizers, disabled_agents } }` |
 | `START` | `{ command: "START" }` |
 | `STOP` | `{ command: "STOP" }` |
 | `RESET` | `{ command: "RESET" }` |
@@ -181,6 +189,7 @@ Important server messages:
 
 | Message | Meaning |
 |---|---|
+| `SESSION` | Connection accepted; includes the isolated `sessionId` |
 | `SETUP_COMPLETE` | Economy initialized |
 | `STARTED` | Tick loop running |
 | `STOPPED` | Tick loop paused |

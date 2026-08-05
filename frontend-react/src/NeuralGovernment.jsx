@@ -210,7 +210,7 @@ const NeuralGovernment = ({
         let size = Math.max(0.5, 2 * p.scale);
         ctx.beginPath();
 
-        let r = 167, g = 139, b = 250, a = 0.5;
+        let r, g, b, a;
 
         if (p.tag === 'core') {
             const wave = Math.sin(p.origY / 15 - pulse);

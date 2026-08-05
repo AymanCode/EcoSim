@@ -53,6 +53,7 @@ from agents import (
     FirmAgent,
     BankAgent,
     GovernmentAgent,
+    FirmHealthSnapshot,
     LoanContract,
     build_awareness_market_views,
 )

@@ -16,4 +16,4 @@ Supplementary utilities for analysis, benchmarks, diagnostics, LLM experiments, 
 
 - Production server entry is `backend/server.py`, not a script in this folder.
 - Benchmark-specific notes live in [`benchmarks/README.md`](benchmarks/README.md).
-- LLM government public artifacts live under [`../../experiments/llm_government_1k`](../../experiments/llm_government_1k).
+- The curated LLM government report lives at [`../../docs/experiments/AI_GOVERNMENT_EXPERIMENT.md`](../../docs/experiments/AI_GOVERNMENT_EXPERIMENT.md).

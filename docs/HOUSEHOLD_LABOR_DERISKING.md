@@ -100,6 +100,6 @@ After enabling these changes, check these trends over 100-300 ticks:
 3. Unemployment should improve without collapsing mean wage.
 4. Tick duration should stay similar (normalization is O(households) and lightweight).
 
-## Interview Talk Track (Short)
+## Implementation Summary
 
-"I added a de-risk labor normalization layer between household planning and matching. It guarantees unemployed, work-capable agents are discoverable by the matcher and adds a configurable market-aware reservation wage clamp for long-term unemployment. I instrumented it with explicit correction metrics so we can quantify intervention frequency and run A/B validation against legacy behavior."
+The labor-normalization layer runs between household planning and matching. It keeps unemployed, work-capable agents discoverable by the matcher and adds a configurable, market-aware reservation-wage clamp for long-term unemployment. Explicit correction metrics make the intervention frequency measurable and support A/B validation against legacy behavior.

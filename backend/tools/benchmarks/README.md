@@ -1,6 +1,12 @@
 # EcoSim Benchmarks
 
-Non-production benchmark CLIs for producing resume-ready, reproducible metrics.
+Non-production benchmark CLIs for producing reproducible performance evidence.
+
+Install the benchmark dependencies from the repository root:
+
+```powershell
+python -m pip install -c backend/requirements.lock -e ".[dev,ml,benchmarks]"
+```
 
 ## Simulation Throughput
 
@@ -62,4 +68,4 @@ By default, each command writes artifacts under:
 benchmarks/results/YYYY-MM-DD-HHMMSS-<benchmark>/
 ```
 
-Each run includes raw JSON, CSV rows, a Markdown summary, runtime metadata, and resume bullet drafts.
+Each run includes raw JSON, CSV rows, a Markdown summary, and runtime metadata.

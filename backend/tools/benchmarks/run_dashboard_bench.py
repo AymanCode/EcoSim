@@ -115,10 +115,10 @@ def _render_summary(metadata: dict[str, Any], summary: dict[str, Any]) -> str:
             f"- p95 message inter-arrival: `{summary['p95_interarrival_ms']} ms`",
             f"- p95 backend tick compute: `{summary['p95_backend_tick_compute_ms']} ms`",
             "",
-            "## Resume Bullet Drafts",
+            "## Evidence Summary",
             "",
             (
-                "- Benchmarked live WebSocket dashboard responsiveness for EcoSim, measuring payload size, "
+                "- The live WebSocket dashboard benchmark measures payload size, "
                 "message cadence, and backend tick compute time under configurable agent loads."
             ),
         ]

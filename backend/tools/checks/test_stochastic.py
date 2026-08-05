@@ -1,4 +1,4 @@
-﻿from pathlib import Path
+from pathlib import Path
 import sys
 
 TOOLS_ROOT = Path(__file__).resolve().parents[1]
@@ -94,8 +94,8 @@ if __name__ == "__main__":
     print()
 
     if cash_variation > 1000 or unemp_variation > 0.5:
-        print("âœ“ SUCCESS: Simulation exhibits stochastic behavior!")
+        print("✓ SUCCESS: Simulation exhibits stochastic behavior!")
         print("  Different runs with same policy produce different outcomes.")
     else:
-        print("âœ— WARNING: Results are too similar - may still be deterministic")
+        print("✗ WARNING: Results are too similar - may still be deterministic")
 

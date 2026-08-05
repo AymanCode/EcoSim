@@ -235,7 +235,7 @@ When persistence is enabled, the server records:
 - regime events
 - full LLM government decisions
 
-The live decision context is also available in memory through `GET /decision-context/live`, even before warehouse batches flush.
+The live decision context is also available in memory through `GET /decision-context/live?session_id={session_id}`, even before warehouse batches flush. The session ID is sent to the WebSocket client in the initial `SESSION` message.
 
 ## Important Defaults
 

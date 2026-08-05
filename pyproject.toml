@@ -1,23 +1,28 @@
 [build-system]
-requires = ["setuptools>=65"]
+requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "ecosim"
 version = "2.0.0"
-description = "Agent-based economic simulation with households, firms, and government"
+description = "Local agent-based economic research simulator with bounded AI-governance experiments"
+readme = "README.md"
+license = "MIT"
+authors = [
+    { name = "Ayman" },
+]
 requires-python = ">=3.11"
 dependencies = [
-    "fastapi>=0.135.0",
-    "uvicorn>=0.41.0",
-    "websockets>=16.0",
-    "httpx>=0.28.0",
-    "python-dotenv>=1.0.0",
-    "numpy>=2.0.0",
-    "pydantic>=2.0.0",
-    "psycopg[binary]>=3.2.0",
-    "langgraph>=0.2.0",
-    "langchain-core>=0.3.0",
+    "fastapi>=0.135.0,<1",
+    "uvicorn>=0.41.0,<1",
+    "websockets>=16.0,<17",
+    "httpx>=0.28.0,<1",
+    "python-dotenv>=1.0.0,<2",
+    "numpy>=2.0.0,<3",
+    "pydantic>=2.0.0,<3",
+    "psycopg[binary]>=3.2.0,<4",
+    "langgraph>=0.2.0,<2",
+    "langchain-core>=0.3.0,<2",
 ]
 
 [project.optional-dependencies]
@@ -29,14 +34,32 @@ dev = [
     "isort>=5.13.0",
     "flake8>=6.1.0",
     "mypy>=1.7.0",
+    "ruff>=0.12.0,<1",
     "types-requests>=2.31.0",
 ]
 ml = [
-    "pandas>=2.1.0",
+    "pandas>=2.1.0,<4",
+]
+benchmarks = [
+    "requests>=2.32.0,<3",
 ]
 
 [tool.setuptools]
-py-modules = []
+include-package-data = true
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["backend*", "policy_forecasting*"]
+exclude = [
+    "backend.tests_contracts*",
+    "backend.tests_server*",
+    "backend.data.tests*",
+    "policy_forecasting.tests*",
+]
+namespaces = true
+
+[tool.setuptools.package-data]
+"backend.data" = ["*.sql"]
 
 [tool.black]
 line-length = 120
@@ -51,6 +74,19 @@ python_version = "3.11"
 warn_return_any = true
 warn_unused_configs = true
 ignore_missing_imports = true
+
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+extend-exclude = [
+    "docs/internal",
+    "frontend-react",
+]
+
+[tool.ruff.lint]
+# Start with correctness failures across the full historical codebase. Style
+# rules can be expanded incrementally without forcing a broad core rewrite.
+select = ["E9", "F63", "F7", "F82"]
 
 [tool.pytest.ini_options]
 pythonpath = ["backend"]

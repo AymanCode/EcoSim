@@ -1,4 +1,4 @@
-﻿
+
 """LLM-controlled single-firm advisor for local simulation experiments.
 
 The design goal is narrow and testable:

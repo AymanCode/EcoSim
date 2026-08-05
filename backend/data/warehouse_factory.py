@@ -17,7 +17,13 @@ def create_warehouse_manager():
 
     if backend == "sqlite":
         sqlite_path = os.getenv("ECOSIM_SQLITE_PATH")
-        return DatabaseManager(db_path=sqlite_path) if sqlite_path else DatabaseManager()
+        manager = DatabaseManager(db_path=sqlite_path) if sqlite_path else DatabaseManager()
+        try:
+            manager.apply_schema()
+        except Exception:
+            manager.close()
+            raise
+        return manager
 
     if backend in {"postgres", "postgresql", "timescale", "timescaledb"}:
         from .postgres_manager import PostgresDatabaseManager

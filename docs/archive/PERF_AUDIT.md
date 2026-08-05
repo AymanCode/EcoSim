@@ -121,7 +121,7 @@ Why it is expensive
 - Duplicate work: both Economy and server compute overlapping metrics.
 
 Low effort
-- Compute metrics every N ticks for UI (e.g., every 5–10 ticks) while keeping simulation tick-level data internal.
+- Compute metrics every N ticks for UI (e.g., every 5â€“10 ticks) while keeping simulation tick-level data internal.
 - Limit history arrays to a fixed window (ring buffer) to prevent unbounded growth in memory.
 
 Medium effort
@@ -202,7 +202,7 @@ Location
 
 Why it is expensive
 - Every tick builds large payloads (tracked subjects, histories, firm tables) and sends via WS.
-- Metrics overlap with Economy’s metrics.
+- Metrics overlap with Economy's metrics.
 
 Low effort
 - Reduce payload frequency (send every N ticks) and/or reduce fields in payload.
@@ -218,18 +218,18 @@ High effort
 
 ## Effort Tiers Summary
 
-Low effort (1–2 days)
+Low effort (1â€“2 days)
 - Replace `next(...)` household lookups with `self.household_lookup.get(...)` in `_calculate_experience_adjusted_production()`.
 - Add a ring buffer for histories in `backend/server.py`.
 - Compute UI metrics every N ticks rather than every tick.
 - Cache household `total_goods` to avoid repeated `sum(goods_inventory)`.
 
-Medium effort (3–7 days)
+Medium effort (3â€“7 days)
 - Batch or vectorize labor matching and/or goods clearing for the main categories.
 - Consolidate metrics computation (single source of truth in Economy).
 - Combine snapshot builds (tax/transfers) into single passes.
 
-High effort (1–3 weeks)
+High effort (1â€“3 weeks)
 - Data-oriented refactor for households/firms (arrays for core attributes).
 - Vectorized goods/labor markets end-to-end.
 - Separate simulation kernel from UI/transport entirely (event or batch streaming).
@@ -247,6 +247,6 @@ High effort (1–3 weeks)
 
 ## Open Questions
 
-- What is your target scale for “resume” demos (1k agents vs 100k)?
+- What is the target scale for interactive demos (1k agents vs 100k)?
 - Is realtime UI required during large runs, or can we run headless and stream summary snapshots?
-- Are we willing to add a “fast mode” that trades accuracy for speed (e.g., aggregated households)?
+- Are we willing to add a "fast mode" that trades accuracy for speed (e.g., aggregated households)?

@@ -88,7 +88,7 @@ def create_economy(num_households: int = 200, enable_bank: bool = True) -> Econo
             max_rental_units=max_units,
         )
         firm.set_personality("conservative")
-        # happiness_boost_per_unit removed â€” services affect happiness via wellbeing path only
+        # happiness_boost_per_unit removed — services affect happiness via wellbeing path only
         gov.register_baseline_firm(category, firm.firm_id)
         firms.append(firm)
         next_firm_id += 1
@@ -122,7 +122,7 @@ def create_economy(num_households: int = 200, enable_bank: bool = True) -> Econo
                 is_baseline=False,
             )
             firm.set_personality(personality)
-            # happiness_boost_per_unit removed â€” services affect happiness via wellbeing path only
+            # happiness_boost_per_unit removed — services affect happiness via wellbeing path only
             queued_firms.append(firm)
             next_firm_id += 1
 
