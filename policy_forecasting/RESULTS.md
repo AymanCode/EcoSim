@@ -42,10 +42,14 @@ Policy effects are paired against baseline across 24 matched seeds with Wilcoxon
 | `benefit_high` | distress@t+8 | +0.009 | [0.006, 0.011] | <0.001 | 1.4 | significant |
 | `wage_tax_high` | distress@t+8 | +0.040 | [0.039, 0.040] | <0.001 | 22.3 | significant |
 | `subsidy_food_25` | distress@t+8 | -0.012 | [-0.013, -0.011] | <0.001 | -5.2 | significant |
-| `profit_tax_high` | both | ~0 | n/a | 1.0 | ~0 | no detectable effect |
-| `wage_tax_high` / subsidy | unemployment@t+8 | ~0 | n/a | 1.0 | ~0 | no detectable effect |
+| `profit_tax_high` | distress@t+8 | +0.0011 | [+0.0004, +0.0018] | 0.038 | +0.61 | effect below claim threshold |
+| `profit_tax_high` | unemployment@t+8 | +0.0001 | [-0.0009, +0.0011] | 1.0 | +0.05 | no detectable effect |
+| `subsidy_food_25` | unemployment@t+8 | +0.0004 | [-0.0010, +0.0017] | 1.0 | +0.11 | no detectable effect |
+| `wage_tax_high` | unemployment@t+8 | -0.0003 | [-0.0015, +0.0008] | 1.0 | -0.11 | no detectable effect |
 
-Within this simulator, higher minimum wage reduced later unemployment and distress; higher benefits increased later unemployment; higher wage tax increased distress; food subsidy reduced distress; and high profit tax showed no detectable household effect in this sweep.
+An arm is claimed as significant only when Holm-corrected `p < 0.05`, `|dz| >= 0.8`, and the effect exceeds the measured determinism noise band. `profit_tax_high` on distress clears the p-value gate but not the effect-size gate, so it is reported as an exploratory small effect rather than a claim.
+
+Within this simulator, higher minimum wage reduced later unemployment and distress; higher benefits increased later unemployment; higher wage tax increased distress; food subsidy reduced distress; and high profit tax produced no claimable household effect in this sweep.
 
 ## Result Summary
 
