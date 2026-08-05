@@ -54,6 +54,7 @@ backend/sample_data/*.json
 
 # Internal-only scaffolding/audit docs (kept on disk, never published)
 docs/internal/
+docs/INTERVIEW_PRACTICE.md
 
 # Audit / evaluation artifacts
 audit_full_dump*.jsonl
