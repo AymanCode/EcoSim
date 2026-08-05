@@ -8,6 +8,11 @@ updates:
       python-dependencies:
         patterns:
           - "*"
+    ignore:
+      # streamlit pins pyarrow<25, so a pyarrow 25 bump makes the grouped
+      # update unresolvable. Drop this entry once streamlit relaxes the cap.
+      - dependency-name: pyarrow
+        versions: [">=25"]
 
   - package-ecosystem: npm
     directory: /frontend-react
