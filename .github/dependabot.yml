@@ -22,6 +22,14 @@ updates:
       frontend-dependencies:
         patterns:
           - "*"
+    ignore:
+      # Tailwind v4 is a framework migration, not a version bump: the PostCSS
+      # plugin moved to @tailwindcss/postcss, @tailwind directives are replaced
+      # by @import, and several utilities were renamed. A green build would not
+      # prove the dashboard still renders correctly, so it needs its own PR with
+      # a visual review rather than riding along in a grouped update.
+      - dependency-name: tailwindcss
+        update-types: ["version-update:semver-major"]
 
   - package-ecosystem: github-actions
     directory: /
