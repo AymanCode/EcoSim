@@ -2,35 +2,25 @@
 
 I built EcoSim to test a simple question: if you give an LLM the policy controls of a simulated government, can it make coherent decisions and keep an economy running?
 
-For this run, I scaled the experiment to **1,000 households** and compared five LLMs, from an 8B local model to a 1T OpenRouter model, against a fixed rule-based baseline. Every run used the same seed, same simulation length, same government action schema, and same decision schedule. The only thing that changed was the policymaker.
+For this run I scaled the experiment to **1,000 households** and compared five LLMs, from an 8B model running locally to a 1T model on OpenRouter, against a fixed rule-based baseline. Every run used the same seed, the same simulation length, the same government action schema, and the same decision schedule. The only thing that changed was the policymaker.
 
-**Short version:** yes, the models can run the economy in the limited sense that they read the state, choose valid policies, and produce different measurable outcomes. But "good governance" is not one number. Ring 1T had the strongest overall run. Llama 70B protected the treasury. GPT-OSS 120B reasoned cleanly but nearly bankrupted the government. Granite 8B got stuck in a narrow bailout loop.
+**Short version:** yes, in a limited sense. The models read the state, chose valid policies, and produced different measurable outcomes. But "good governance" is not one number. Ring 1T had the strongest overall run. Llama 70B protected the treasury. GPT-OSS 120B reasoned cleanly but nearly bankrupted the government. Granite 8B got stuck in a narrow bailout loop.
 
-The interesting part is not just who won. The interesting part is that the LLMs had recognizable governing styles, and those styles showed up in GDP, unemployment, government cash, and household wellbeing.
-
----
-
-## Highlights
-
-- **LLM orchestration layer** with schema-validated policy actions, provider-specific retry handling, JSON repair for malformed outputs, and per-decision telemetry.
-- **Reproducible multi-model evaluation** comparing Granite 8B, Gemma 26B, Llama 70B, GPT-OSS 120B, Ring 1T, and a no-LLM baseline under the same seed and action space.
-- **1,000-household agent simulation** where households, firms, labor, housing, healthcare, goods markets, and government policy all interact tick by tick.
-- **Decision quality metrics** separated from economic outcomes, including accepted decision rate and evidence match rate.
-- **Locally generated run artifacts** with prompt context, policy choices, accepted changes, rejected changes, final metrics, and firm-level financials for post-run analysis.
+What I found more useful than the ranking is that the models had recognizable governing styles, and those styles showed up in GDP, unemployment, government cash, and household wellbeing.
 
 ---
 
 ## What the simulation does
 
-EcoSim is a turn-based economic simulation. Each tick, three major groups act:
+EcoSim is a turn-based economic simulation. Each tick, three groups act.
 
 **Households** look for work, earn wages or unemployment benefits, pay taxes, and spend on food, housing, healthcare, and services. Health and happiness move with income, prices, employment, and policy.
 
 **Firms** hire workers, set wages and prices, produce goods, sell into markets, pay taxes, and can become distressed. The main sectors are food, housing, services, and healthcare.
 
-**The government** collects taxes and chooses policy. In the baseline run, that policy is fixed and rule-based. In the LLM runs, a model reads a compact economic report every 26 ticks and chooses from a constrained policy schema.
+**The government** collects taxes and chooses policy. In the baseline run that policy is fixed and rule-based. In the LLM runs, a model reads a compact economic report every 26 ticks and chooses from a constrained policy schema.
 
-The 1,000-household setup also scales the firm side and healthcare staffing with the larger population. This is not just more households squeezed into a tiny market.
+The 1,000-household setup also scales the firm side and healthcare staffing with the population. The point was to avoid a run where a large population is squeezed into a small market.
 
 ---
 
@@ -59,16 +49,16 @@ Every run in the main table uses:
 
 ## LLM harness
 
-The government runner is built like a production agent harness, not a loose prompt script.
+I built the government runner with the pieces I would want in a real agent harness rather than as a prompt script.
 
-- **Structured I/O.** Every model returns JSON policy actions validated against `policy_schema.py`.
-- **Constrained action space.** Models can only use known fiscal and market levers. They cannot invent a policy or set impossible values.
-- **Retry and repair.** Blank, malformed, or truncated provider responses are retried or repaired before anything touches simulation state.
-- **Provider-agnostic runner.** The same harness drives OpenRouter, Groq, and local LM Studio models. Swapping models is a config change.
-- **Outcome telemetry.** Economic results are logged separately from behavior metrics like accepted decision rate and evidence match rate.
-- **Per-decision logs.** Each cycle records the prompt context, raw model plan, accepted changes, rejected changes, current policy, and state metrics.
+- Every model has to return JSON policy actions, and every action is validated against `policy_schema.py`.
+- Models can only use the known fiscal and market levers. They cannot invent a policy or set impossible values.
+- Blank, malformed, or truncated provider responses are retried or repaired before anything touches simulation state.
+- The same harness drives OpenRouter, Groq, and local LM Studio models. Swapping models is a config change.
+- Economic results are logged separately from behavior metrics like accepted decision rate and evidence match rate.
+- Each decision cycle records the prompt context, the raw model plan, accepted changes, rejected changes, the current policy, and state metrics.
 
-That separation matters. A model can cite the economy correctly and still pick bad policy. A model can also make a valid policy move for the wrong stated reason. The harness keeps those questions separate.
+The split between economic results and behavior metrics matters more than it looks. A model can cite the economy correctly and still pick bad policy. It can also make a valid policy move for the wrong stated reason. I wanted to be able to tell those apart, so the harness keeps them as separate questions.
 
 ---
 
@@ -145,7 +135,7 @@ The rule-based baseline does not receive decision-quality scores because it does
 - **Granite 8B got stuck.** It kept increasing food bailout capacity, stopped making new useful changes, ended cash-negative, and had the worst final unemployment.
 - **The baseline was decent.** It did not win, but it also did not collapse. That makes the comparison more useful.
 
-One important result: at 1,000 households, final happiness was low across the board. The models separated more clearly on unemployment, GDP, and fiscal stability than on household wellbeing. That is a real finding and probably a sign that the larger-scale sim is exposing late-run household stress.
+One result I want to flag on its own: at 1,000 households, final happiness was low across the board. The models separated more clearly on unemployment, GDP, and fiscal stability than on household wellbeing. I think that is a finding in itself, and probably a sign that the larger simulation is exposing late-run household stress, but I have not diagnosed it yet.
 
 ---
 
@@ -155,7 +145,7 @@ One important result: at 1,000 households, final happiness was low across the bo
 
 **Llama 3.3 70B.** Llama protected the treasury better than anyone. It cut social spending early, raised wage taxes, and later used targeted support for food and services. Final government cash was $75,197, the best in the table. The downside is clear: final happiness fell to 0.045, the worst result. This is the "balanced books, unhappy households" run.
 
-**GPT-OSS 120B.** GPT-OSS made clean, valid decisions and cited the prompt well. It had the highest evidence match rate at 94.4%. Its policy style was growth-oriented: lower profit taxes, infrastructure spending, wage tax changes, food monitoring, and later food subsidies. The problem is cash discipline. It went as low as -$44,878 before recovering to $14,306 by the end. The model looked technically disciplined while still taking the economy too close to the edge.
+**GPT-OSS 120B.** GPT-OSS made clean, valid decisions and cited the prompt well. It had the highest evidence match rate at 94.4%. Its policy style was growth-oriented: lower profit taxes, infrastructure spending, wage tax changes, food monitoring, and later food subsidies. The problem was cash discipline. It went as low as -$44,878 before recovering to $14,306 by the end. The model looked technically disciplined while still taking the economy too close to the edge.
 
 **Gemma 4 26B.** Gemma governed like a sector firefighter. It started with food bailouts, moved to all-sector bailouts, raised profit taxes when cash got tighter, monitored healthcare prices, and added food subsidies. It completed the run with positive cash at $23,876, but final unemployment stayed high at 29.71%. One decision at tick 171 came back as nested grouped actions (`group sector_subsidy`, `group bailout`) instead of valid policy keys. The schema rejected those changes and the run continued safely.
 
@@ -167,15 +157,15 @@ One important result: at 1,000 households, final happiness was low across the bo
 
 ## Engineering takeaways
 
-**Validation did real work.** Gemma's malformed grouped action at tick 171 did not break the run because policy changes have to pass the schema before touching state.
+The validation did real work. Gemma's malformed grouped action at tick 171 did not break the run, because a policy change has to pass the schema before it touches state.
 
-**Provider reliability matters.** The same harness ran local LM Studio models, Groq models, and OpenRouter models. That makes model comparison practical, but it also means the runner has to handle different response quirks.
+Provider reliability is its own problem. The same harness ran local LM Studio models, Groq models, and OpenRouter models, which is what makes the comparison practical, but it also means the runner has to handle each provider's response quirks.
 
-**Decision quality is not policy quality.** GPT-OSS had the strongest evidence discipline and every decision passed validation. It still drove government cash negative. Clean agent behavior is useful, but it is not the same thing as good governance.
+Decision quality is not policy quality. GPT-OSS had the strongest evidence discipline and every one of its decisions passed validation. It still drove government cash negative. Clean agent behavior is useful, but it is not the same thing as good governance.
 
-**Scale changed the story.** At 1,000 households, weak strategies became easier to see. Granite's narrow bailout loop and Llama's happiness trade-off both stand out clearly.
+Scale made weak strategies easier to see. At 1,000 households, Granite's narrow bailout loop and Llama's happiness trade-off both stand out clearly.
 
-**The best model did not optimize everything.** Ring won the main comparison, but even Ring ended with low absolute happiness. The run says "best in this setup," not "solved governance."
+The best model did not optimize everything. Ring won the main comparison, but even Ring ended with low absolute happiness. The run says "best in this setup," not "solved governance."
 
 ---
 
@@ -193,9 +183,9 @@ The more useful question is not "which model is biggest?" It is "which governing
 
 Inside this sandbox, yes. The models read the economy, chose policies, and the economy moved in response. They were not random. They had styles: growth manager, cash hawk, sector firefighter, bailout loop, and balanced active manager.
 
-Outside the sandbox, no claim that strong. Real economies have central banks, debt markets, politics, trade, expectations, regional differences, shocks, legal constraints, and people who react to policy before it lands. EcoSim is not a country. It is a controlled environment for testing agentic policy behavior.
+Outside the sandbox, I would not make a claim that strong. Real economies have central banks, debt markets, politics, trade, expectations, regional differences, shocks, legal constraints, and people who react to policy before it lands. EcoSim is a controlled environment for testing agentic policy behavior, not a country.
 
-The strongest takeaway is practical: an LLM can be put behind a constrained action schema, observed, scored, retried, audited, and compared across providers. That is useful beyond this economic sandbox.
+The takeaway I would actually stand behind is practical: an LLM can be put behind a constrained action schema, observed, scored, retried, audited, and compared across providers. That is useful beyond this economic sandbox.
 
 ---
 
@@ -224,8 +214,8 @@ The strongest takeaway is practical: an LLM can be put behind a constrained acti
 
 ## Reproducing this
 
-The simulation, policy schema, and LLM harness are all in this repo. Same seed gives the same baseline run. Pointing the runner at a different model swaps the policymaker without changing the simulation.
+The simulation, policy schema, and LLM harness are all in this repo. The same seed gives the same baseline run. Pointing the runner at a different model swaps the policymaker without changing the simulation.
 
-Raw per-run artifacts are generated by `backend/tools/llm/run_llm_government_test.py` and intentionally left out of the public repository. The curated table above keeps the public result readable without publishing every generated JSON and Markdown output file.
+Raw per-run artifacts are generated by `backend/tools/llm/run_llm_government_test.py` and intentionally left out of the public repository. Each run writes its prompt context, policy choices, accepted and rejected changes, final metrics, and firm-level financials locally for post-run analysis. The curated table above keeps the public result readable without publishing every generated JSON and Markdown output file.
 
 For the broader project, see the [project README](../../README.md).
