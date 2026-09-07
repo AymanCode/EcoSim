@@ -5,14 +5,28 @@ The EcoSim frontend is a React/Vite dashboard for launching, controlling, and in
 ## Stack
 
 - React 19
-- Vite
-- Recharts
-- Tailwind CSS
+- Vite (run with Node 22; the Vite dev server needs `cwd=frontend-react`)
+- Recharts for the line and bar charts
+- Tailwind CSS on top of a token stylesheet
 - lucide-react icons
 - Custom canvas-based neural visualizations
 - WebSocket transport through `/ws`
 
-The application entry point is [`frontend-react/src/App.jsx`](../frontend-react/src/App.jsx). Vite proxies `/ws` and `/health` to the backend on port `8002` during local development. The production Docker image serves the built app through Nginx and proxies the same paths to the backend service.
+The application entry point is [`frontend-react/src/App.jsx`](../frontend-react/src/App.jsx), which owns the session state, the WebSocket protocol client, and the handlers, and renders one screen component per view.
+
+### Source layout
+
+| Path | Owns |
+|---|---|
+| `src/theme/tokens.css` | The design tokens (two themes: `ember`, dark by default, and `paper`, light), fonts, base styles, and the panel "fill rule" that makes charts grow to their panel |
+| `src/ui/` | Stat tiles (`StatTile`, `ChartTile`, `HeroMetric` with a tick-driven count-up), pills, chips, deltas, key/value rows, panels, page headers, inputs |
+| `src/charts/` | `TimeSeries` (the one line chart: tick-aligned series, end labels, threshold bands, policy-change markers, split-at-change mode), `Sparkline`, `Meter`, `CompositionBar`, `Radar`, `ProfileBars`, `Ledger`, shared `tones` |
+| `src/screens/` | One component per view: `Config`, `Command`, `Population`, `Markets`, `Finance`, `Government` (with `government/Timeline`, `EffectsPanel`, `LeverTile`), `Logs` |
+| `src/shell/` | `Rail`, `TopBar`, `StatusStrip`, `Logo` |
+| `src/telemetry.js`, `src/format.js`, `src/logs.js`, `src/governmentInsights.js` | Pure helpers: history access and derived metrics, formatters, log normalisation, policy derivations |
+| `src/test/renderScreen.jsx`, `src/test/fixtures/frame.json` | Screen test helper and a real tick frame captured from the server |
+
+The theme toggle in the top bar switches `data-theme` on `<html>` and persists the choice in `localStorage['ecosim.theme']`. Money fields in the frame (`gdp`, `govProfit`, `govRevenue`, `govTransfers`, `govInvestments`, `bondPurchases`, `netWorth`, `govDebt`) are in millions and are formatted with `formatMillionsAdaptive`. Vite proxies `/ws` and `/health` to the backend on port `8002` during local development. The production Docker image serves the built app through Nginx and proxies the same paths to the backend service.
 
 ## Running Locally
 
@@ -40,13 +54,13 @@ The sidebar currently exposes seven views:
 
 | View | Route state | Purpose |
 |---|---|---|
-| Config | `CONFIG` | Launch profile, policy defaults, stabilizer toggles, backend status |
-| Command | `DASHBOARD` | Macro metrics, stress signals, sector status, live chart history |
-| Population | `SUBJECTS` | Tracked household drill-down, wage reasoning, health, morale, traits, history |
-| Markets | `FIRMS` | Sector rollups, tracked firm detail, prices, wages, inventory, revenue, profit |
-| Finance | `FINANCE` | Government debt/fiscal balance, bank and government-backed loan telemetry |
-| Government | `GOVERNMENT` | Manual policy controls, AI Policy Engine toggle, fiscal flow, decision history |
-| Logs | `LOGS` | Buffered event stream with filters and detail inspection |
+| Config | `CONFIG` | Preflight: run profile, opening policy, assistant and stabilizer toggles, checklist, what the run creates, schedule |
+| Command | `DASHBOARD` | Live ticker, six stat tiles, GDP with policy markers, population stress meter and history, sector price small multiples, wealth composition, wages, unemployment band |
+| Population | `SUBJECTS` | Roster with cohort filters, one household's radar profile against the population median, wealth and wage history, wage drivers, housing, this-tick cash ledger, events |
+| Markets | `FIRMS` | Sector map with price charts, selected firm dossier, sortable all-firms table, cash and profit history |
+| Finance | `FINANCE` | Net fiscal balance hero, revenue/transfers/bonds/net-worth chart tiles, fiscal flows with markers, per-tick ledger, government-backed loans, state capacity |
+| Government | `GOVERNMENT` | Policy changes timeline with per-change effects (charts split at the change tick), compact lever tiles highlighting what moved, latest AI decision with audited evidence, ledger, assistant card |
+| Logs | `LOGS` | Filter row, stat tiles, severity-marked event table, event detail with same-entity history and buffer breakdown |
 
 Only Config is available before initialization. Other views unlock after a successful `SETUP`.
 
@@ -233,7 +247,9 @@ Legacy-style UI fields for UBI, wealth tax, target inflation, and birth rate are
 | `NeuralBuilding` | [`src/NeuralBuilding.jsx`](../frontend-react/src/NeuralBuilding.jsx) | Firm and market state |
 | `NeuralGovernment` | [`src/NeuralGovernment.jsx`](../frontend-react/src/NeuralGovernment.jsx) | Government and policy engine state |
 
-These are canvas animations managed with React effects and refs. They are presentation components only; simulation state comes from the WebSocket payload.
+These are canvas animations managed with React effects and refs, placed in bounded accent slots on the Population, Markets and Government screens. They are presentation components only; simulation state comes from the WebSocket payload.
+
+Everything else on screen is built from `src/ui` and `src/charts`. Every colour is a token (`var(--acc)`, `var(--good)`, …); status colours always come with a label; charts fill their panel through the `.chart{flex:1}` rule and grids that hold charts grow to the panel.
 
 ## Build Checks
 
@@ -241,5 +257,12 @@ These are canvas animations managed with React effects and refs. They are presen
 cd frontend-react
 npm ci
 npm run lint
+npm run test
 npm run build
+```
+
+Use Node 22 (`npx --yes node@22 ./node_modules/.bin/vitest run` works when the default node is older). Screen tests render a real tick frame from `src/test/fixtures/frame.json`; regenerate it against the current server with:
+
+```bash
+.venv/bin/python frontend-react/scripts/capture_fixture.py 60
 ```

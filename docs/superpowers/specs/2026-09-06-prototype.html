@@ -1,0 +1,662 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="ember">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>EcoSim prototype</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600;700&family=Barlow+Semi+Condensed:wght@500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  [data-theme=ember]{--page:#08090B;--panel:#111316;--panel2:#171A1F;--panel3:#1F232A;--line:rgba(255,255,255,.08);--line2:rgba(255,255,255,.15);
+    --ink:#F5F6F7;--ink2:#C2C7CF;--ink3:#8A919C;--ink4:#5B626C;--acc:#FF6B1A;--acc-ink:#1A0A00;--acc-soft:rgba(255,107,26,.14);
+    --good:#34D399;--warn:#FFB020;--crit:#E0245E;--ai:#C084FC;--s1:#3987e5;--s2:#199e70;--s3:#9085e9;--s4:#d55181;--grid:#20242B;
+    --font:'Barlow';--font-num:'Barlow Semi Condensed';--num-stretch:100%;--mono:'JetBrains Mono';--glow:0px;--hero-w:600;--hero-ls:0}
+  [data-theme=paper]{--page:#EDE9E0;--panel:#FBF9F4;--panel2:#F4F0E8;--panel3:#E7E2D7;--line:rgba(20,18,14,.09);--line2:rgba(20,18,14,.18);
+    --ink:#14120F;--ink2:#3E3A33;--ink3:#77716A;--ink4:#A39D92;--acc:#D2491E;--acc-ink:#FFFFFF;--acc-soft:rgba(210,73,30,.12);
+    --good:#1D8F4E;--warn:#A16207;--crit:#9F1239;--ai:#7C3AED;--s1:#2a78d6;--s2:#1baf7a;--s3:#4a3aa7;--s4:#e87ba4;--grid:#DDD7CB;
+    --font:'Barlow';--font-num:'Barlow Semi Condensed';--num-stretch:100%;--mono:'JetBrains Mono';--glow:0px;--hero-w:600;--hero-ls:0}
+
+  *{box-sizing:border-box}
+  html,body{height:100%;margin:0}
+  body{background:var(--page);color:var(--ink2);font-family:var(--font),system-ui,-apple-system,sans-serif;font-size:13px;line-height:1.45;-webkit-font-smoothing:antialiased;overflow:hidden;transition:background .25s}
+  button{font:inherit;color:inherit;background:none;border:0;cursor:pointer;padding:0}
+  .mono{font-family:var(--mono),ui-monospace,monospace;font-variant-numeric:tabular-nums}
+  .app{display:flex;height:100vh}
+
+  /* rail */
+  .rail{width:76px;border-right:1px solid var(--line);display:flex;flex-direction:column;align-items:center;padding-top:12px;gap:2px;background:var(--panel);flex:none}
+  .mark{width:38px;height:38px;display:flex;align-items:center;justify-content:center;margin-bottom:6px;color:var(--ink)}
+  .mark svg{width:32px;height:32px}
+  .wordmark{font-size:11px;font-weight:700;letter-spacing:-.01em;color:var(--ink);margin-bottom:12px}
+  .wordmark span{font-weight:400;color:var(--ink3)}
+  .nav{width:64px;height:54px;border-radius:9px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;color:var(--ink4);font-size:10px;font-weight:600;position:relative;transition:color .15s,background .15s}
+  .nav:hover{color:var(--ink2);background:var(--panel2)}
+  .nav svg{width:18px;height:18px;stroke:currentColor;fill:none;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
+  .nav.on{color:var(--acc);background:var(--acc-soft)}
+  .nav.on::before{content:'';position:absolute;left:-6px;top:15px;bottom:15px;width:3px;border-radius:3px;background:var(--acc);box-shadow:0 0 10px var(--acc)}
+  .online{margin-top:auto;margin-bottom:64px;font-size:9px;color:var(--good);letter-spacing:.12em;display:flex;flex-direction:column;align-items:center;gap:5px}
+  .online i{width:7px;height:7px;border-radius:50%;background:var(--good);box-shadow:0 0 8px var(--good)}
+
+  /* main */
+  .main{flex:1;display:flex;flex-direction:column;min-width:0}
+  .topbar{height:54px;border-bottom:1px solid var(--line);display:flex;align-items:center;padding:0 20px;gap:14px;background:var(--panel);flex:none}
+  .crumb{font-weight:600;color:var(--ink);font-size:14px}
+  .crumb span{color:var(--ink4);font-weight:500}
+  .tickbox{display:flex;align-items:center;gap:8px;border:1px solid var(--line2);border-radius:8px;padding:4px 10px;background:var(--page)}
+  .tickbox .k{font-size:10px;letter-spacing:.12em;color:var(--ink3);font-weight:700}
+  .tickbox .v{font-size:16px;font-weight:600;color:var(--acc);font-family:var(--mono);font-variant-numeric:tabular-nums}
+  .tickbox .dot{width:7px;height:7px;border-radius:50%;background:var(--good);box-shadow:0 0 8px var(--good);animation:blink 1.4s ease-in-out infinite}
+  .paused .tickbox .dot{background:var(--warn);box-shadow:0 0 8px var(--warn);animation:none}
+  @keyframes blink{50%{opacity:.3}}
+  .btn{border:1px solid var(--line2);background:var(--panel2);color:var(--ink2);border-radius:8px;padding:7px 12px;font-size:12px;font-weight:600;display:inline-flex;align-items:center;gap:6px;transition:background .15s,border-color .15s}
+  .btn:hover{background:var(--panel3);border-color:var(--ink4)}
+  .btn.primary{border-color:transparent;background:var(--acc);color:var(--acc-ink)}
+  .btn.primary:hover{filter:brightness(1.08)}
+  .btn.big{padding:12px 20px;font-size:14px;border-radius:10px}
+  .btn.danger{color:var(--crit)}
+  .strip{height:30px;border-bottom:1px solid var(--line);display:flex;align-items:center;padding:0 20px;gap:22px;font-family:var(--mono);font-size:11px;color:var(--ink3);background:var(--panel);flex:none;overflow:hidden;white-space:nowrap}
+  .strip b{color:var(--ink2);font-weight:500}
+  .strip .sep{width:1px;height:12px;background:var(--line2);flex:none}
+  .view{flex:1;overflow:auto;padding:16px 20px 96px;scrollbar-width:thin;scrollbar-color:var(--panel3) transparent}
+  .ph{display:flex;align-items:flex-end;justify-content:space-between;margin-bottom:12px;gap:16px}
+  .eyebrow{font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--acc)}
+  .ph h3{font-size:22px;font-weight:700;color:var(--ink);margin:2px 0 0;letter-spacing:-.02em}
+  .ph .sum{color:var(--ink3);font-size:12px;margin-top:2px}
+  .g12{display:grid;grid-template-columns:repeat(12,1fr);gap:10px}
+  .g4{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}
+  .g2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  .col{display:flex;flex-direction:column;gap:10px}
+  .s3{grid-column:span 3}.s4{grid-column:span 4}.s5{grid-column:span 5}.s6{grid-column:span 6}.s7{grid-column:span 7}.s8{grid-column:span 8}.s9{grid-column:span 9}.s12{grid-column:span 12}
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:10px 12px;min-width:0;position:relative;display:flex;flex-direction:column}
+  .panel.hot{border-color:color-mix(in srgb,var(--acc) 35%,transparent);box-shadow:0 0 0 1px color-mix(in srgb,var(--acc) 10%,transparent),0 10px 30px rgba(0,0,0,.2)}
+  .ttl{display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;gap:8px;flex:none}
+  .ttl h4{font-size:12px;font-weight:700;color:var(--ink2);margin:0}
+  .ttl small{font-size:11px;color:var(--ink4)}
+  .lbl{font-size:11px;color:var(--ink3);font-weight:600}
+  .muted{color:var(--ink4)}
+
+  /* pills / chips */
+  .pill{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--line2);border-radius:999px;padding:2px 9px;font-size:11px;font-weight:700;color:var(--ink2);background:var(--panel2);white-space:nowrap}
+  .pill i{width:6px;height:6px;border-radius:50%;display:inline-block;background:var(--ink3)}
+  .pill.good i{background:var(--good);box-shadow:0 0 var(--glow) var(--good)}
+  .pill.warn i{background:var(--warn);box-shadow:0 0 var(--glow) var(--warn)}
+  .pill.crit i{background:var(--crit);box-shadow:0 0 var(--glow) var(--crit)}
+  .pill.ai i{background:var(--ai);box-shadow:0 0 var(--glow) var(--ai)}
+  .pill.acc i{background:var(--acc);box-shadow:0 0 var(--glow) var(--acc)}
+  .chips{display:flex;gap:6px;flex-wrap:wrap}
+  .chip{font-size:11px;font-weight:600;border:1px solid var(--line);border-radius:999px;padding:3px 9px;color:var(--ink3);background:transparent}
+  .chip:hover{color:var(--ink2);border-color:var(--line2)}
+  .chip.on{border-color:color-mix(in srgb,var(--acc) 45%,transparent);color:var(--ink);background:var(--acc-soft)}
+
+  /* tile */
+  .tile{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:11px 13px 9px;position:relative;overflow:hidden;min-width:0;transition:border-color .3s}
+  .tile .l{font-size:11px;color:var(--ink3);font-weight:600;display:flex;justify-content:space-between;align-items:center;gap:6px;white-space:nowrap}.tile .l span:first-child{overflow:hidden;text-overflow:ellipsis}
+  .tile .v{font-size:27px;font-weight:var(--hero-w);color:var(--ink);letter-spacing:var(--hero-ls);line-height:1.15;margin-top:5px;white-space:nowrap}
+  .tile .foot{display:flex;justify-content:space-between;align-items:flex-end;margin-top:5px;gap:8px}
+  .tile .cap{font-size:11px;color:var(--ink4);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .tile svg[data-spark]{height:22px;width:64px;flex:none}
+  .delta{font-family:var(--mono);font-size:10.5px;font-weight:600;border-radius:6px;padding:1px 6px;background:var(--panel2);border:1px solid var(--line);color:var(--ink3);white-space:nowrap}
+  .delta.up{color:var(--good)}.delta.down{color:var(--crit)}
+  .tile.warn .v{color:var(--warn)}.tile.warn{border-color:color-mix(in srgb,var(--warn) 45%,transparent)}
+  .tile.crit .v{color:var(--crit)}.tile.crit{border-color:color-mix(in srgb,var(--crit) 55%,transparent)}
+  .tile.crit::after{content:'';position:absolute;inset:0;border-radius:10px;box-shadow:inset 0 0 26px color-mix(in srgb,var(--crit) 22%,transparent);animation:pulse 2.4s ease-in-out infinite;pointer-events:none}
+  @keyframes pulse{50%{opacity:.25}}
+  .tile.flash::before{content:'';position:absolute;inset:0;background:var(--acc-soft);animation:flash .8s ease-out forwards;pointer-events:none}
+  @keyframes flash{to{opacity:0}}
+  .hero .v{font-size:48px;font-weight:var(--hero-w);color:var(--ink);letter-spacing:var(--hero-ls);line-height:1;margin-top:6px;text-shadow:0 0 calc(var(--glow)*4) color-mix(in srgb,var(--acc) 25%,transparent)}
+  .hero .v.good{color:var(--good);text-shadow:0 0 calc(var(--glow)*4) color-mix(in srgb,var(--good) 30%,transparent)}
+  .hero .v.crit{color:var(--crit)}
+  .hero .meta{display:flex;align-items:center;gap:8px;margin-top:8px;flex-wrap:wrap}
+  .kpi{display:flex;flex-direction:column}
+  .kpi .n{font-size:22px;font-weight:700;color:var(--ink);letter-spacing:-.02em;line-height:1.1}
+  .kpi .k{font-size:11px;color:var(--ink3);font-weight:600}
+
+  /* charts */
+  .chart{position:relative;width:100%;flex:1;min-height:0}
+  .chart svg{display:block;width:100%;height:100%;overflow:visible}
+  .chart .tip{position:absolute;pointer-events:none;background:var(--panel3);border:1px solid var(--line2);border-radius:6px;padding:5px 8px;font-family:var(--mono);font-size:11px;color:var(--ink);white-space:nowrap;display:none;z-index:5;box-shadow:0 8px 20px rgba(0,0,0,.25);line-height:1.5}
+  .axis text{font-family:var(--mono),monospace;font-size:10px;fill:var(--ink4)}
+  .axis line{stroke:var(--grid);stroke-width:1}
+  .endlab{font-family:var(--font),sans-serif;font-size:11px;font-weight:700;fill:var(--ink)}
+  .endsub{font-family:var(--mono),monospace;font-size:10px;fill:var(--ink3)}
+  .mk text{font-family:var(--font),sans-serif;font-size:10px;fill:var(--ai);font-weight:700}
+  .glow{filter:drop-shadow(0 0 var(--glow) currentColor)}
+  @keyframes draw{to{stroke-dashoffset:0}}
+  .draw{stroke-dasharray:3000;stroke-dashoffset:3000;animation:draw 1.4s cubic-bezier(.2,.7,.2,1) forwards}
+  @keyframes fadein{to{opacity:1}}
+  .fill{opacity:0;animation:fadein .7s .7s forwards}
+  .enddot{animation:beat 1.6s ease-in-out infinite}
+  @keyframes beat{50%{r:6.5}}
+  .legend{display:flex;gap:14px;font-size:11px;color:var(--ink3);flex-wrap:wrap}
+  .legend i{width:10px;height:3px;border-radius:2px;display:inline-block;margin-right:5px;vertical-align:middle}
+
+  /* gauges/bars */
+  .gauge{display:flex;flex-direction:column;align-items:center;flex:none}.gauge.big{margin:6px auto 0}
+  .gauge svg{width:96px;height:58px;overflow:visible}
+  .gauge.big svg{width:200px;height:118px}
+  .gauge .gv{font-size:20px;font-weight:700;color:var(--ink);margin-top:-22px;letter-spacing:-.02em}
+  .gauge.big .gv{font-size:44px;margin-top:-58px;letter-spacing:-.03em}
+  .gauge .gl{font-size:10px;color:var(--ink3);font-weight:600;margin-top:2px}
+  .bar{display:grid;grid-template-columns:78px 1fr 44px;align-items:center;gap:8px;font-size:11px;color:var(--ink3);padding:3px 0}
+  .bar .tr{height:7px;border-radius:3px;background:var(--panel3);overflow:hidden}
+  .bar .fl{height:100%;border-radius:3px;transition:width .6s cubic-bezier(.2,.7,.2,1)}
+  .bar .nv{font-family:var(--mono);color:var(--ink2);text-align:right;font-size:11px}
+  .canvas-slot{border:1px dashed var(--line2);border-radius:10px;background:radial-gradient(ellipse at center,color-mix(in srgb,var(--s1) 12%,transparent),transparent 65%);display:flex;align-items:center;justify-content:center;color:var(--ink4);font-size:10px;text-align:center;line-height:1.4;padding:8px}
+
+  /* rows / lists / tables */
+  .row{display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid var(--line);font-size:12px;gap:10px}
+  .row:last-child{border-bottom:0}
+  .row .k{color:var(--ink3)}
+  .row .n{font-family:var(--mono);color:var(--ink);font-variant-numeric:tabular-nums}
+  .sig{display:flex;gap:10px;align-items:flex-start;padding:8px 0;border-bottom:1px solid var(--line)}
+  .sig:last-child{border-bottom:0}
+  .sig .rail-b{width:3px;align-self:stretch;border-radius:2px;flex:none}
+  .sig .t{font-weight:700;color:var(--ink);font-size:12px}
+  .sig .d{color:var(--ink3);font-size:11px;margin-top:1px}
+  .sig .when{margin-left:auto;font-family:var(--mono);font-size:10px;color:var(--ink4);white-space:nowrap}
+  table{width:100%;border-collapse:collapse;font-size:12px}
+  th{text-align:left;font-size:10.5px;font-weight:700;color:var(--ink4);padding:6px 8px;border-bottom:1px solid var(--line2);cursor:pointer;user-select:none;white-space:nowrap}
+  th.ar,td.ar{text-align:right}
+  td{padding:7px 8px;border-bottom:1px solid var(--line);color:var(--ink2);white-space:nowrap}
+  td.n{font-family:var(--mono);font-variant-numeric:tabular-nums;color:var(--ink)}
+  tr.sel td{background:var(--acc-soft)}
+  tbody tr{cursor:pointer}
+  tbody tr:hover td{background:var(--panel2)}
+  .ibar{display:inline-block;height:6px;border-radius:3px;background:var(--acc);vertical-align:middle;margin-right:6px;opacity:.85}
+
+  /* roster */
+  .roster{display:flex;flex-direction:column;gap:3px;flex:1;min-height:0;max-height:560px;overflow:auto}
+  .r{display:grid;grid-template-columns:8px 1fr auto 56px;align-items:center;gap:10px;padding:7px 8px;border-radius:8px;border:1px solid transparent;cursor:pointer}
+  .r:hover{background:var(--panel2)}
+  .r.on{background:var(--acc-soft);border-color:color-mix(in srgb,var(--acc) 35%,transparent)}
+  .r .st{width:8px;height:8px;border-radius:50%}
+  .r .nm{font-weight:700;color:var(--ink);font-size:12px}
+  .r .em{font-size:10px;color:var(--ink4)}
+  .r .cash{font-family:var(--mono);font-size:11px;color:var(--ink2);text-align:right}
+  .r svg{width:56px;height:18px}
+  .search{border:1px solid var(--line2);border-radius:8px;padding:6px 10px;font-size:12px;color:var(--ink4);background:var(--page);margin-bottom:8px}
+
+  /* inputs */
+  .field{margin-bottom:14px}
+  .field .fh{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px}
+  .field .fh label{font-size:12px;font-weight:600;color:var(--ink2)}
+  .field .fh .val{font-family:var(--mono);font-size:12px;color:var(--acc);background:var(--acc-soft);border-radius:6px;padding:1px 7px}
+  .field .desc{font-size:11px;color:var(--ink4);margin-top:4px}
+  input[type=range]{-webkit-appearance:none;width:100%;height:18px;background:transparent;margin:0}
+  input[type=range]::-webkit-slider-runnable-track{height:4px;border-radius:999px;background:linear-gradient(to right,var(--acc) var(--p,50%),var(--panel3) var(--p,50%))}
+  input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:14px;height:14px;border-radius:50%;background:var(--acc);border:2px solid var(--panel);margin-top:-5px;box-shadow:0 0 var(--glow) var(--acc)}
+  .select{border:1px solid var(--line2);border-radius:8px;padding:7px 10px;font-size:12px;color:var(--ink);background:var(--page);display:flex;justify-content:space-between}
+  .toggle{display:flex;justify-content:space-between;align-items:center;gap:10px;border:1px solid var(--line);border-radius:8px;padding:8px 10px;cursor:pointer;background:var(--page)}
+  .toggle .tl{font-size:12px;font-weight:600;color:var(--ink)}
+  .toggle .td{font-size:10.5px;color:var(--ink4)}
+  .sw{width:34px;height:20px;border-radius:999px;background:var(--panel3);position:relative;flex:none;transition:background .2s}
+  .sw::after{content:'';position:absolute;top:3px;left:3px;width:14px;height:14px;border-radius:50%;background:var(--ink3);transition:transform .2s,background .2s}
+  .toggle.on .sw{background:var(--acc)}.toggle.on .sw::after{transform:translateX(14px);background:var(--acc-ink)}
+  .check{display:flex;align-items:center;gap:10px;padding:7px 0;border-bottom:1px solid var(--line);font-size:12px}
+  .check:last-child{border-bottom:0}
+  .check i{width:18px;height:18px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-size:11px;font-weight:800;color:var(--acc-ink);background:var(--good);flex:none}
+  .check .ck{color:var(--ink);font-weight:600}.check .cd{color:var(--ink4);font-size:11px;margin-left:auto;font-family:var(--mono)}
+
+  /* ticker */
+  .ticker{overflow:hidden;border:1px solid var(--line);border-radius:8px;background:var(--panel);margin-bottom:10px;height:30px;display:flex;align-items:center;position:relative}
+  .ticker .lbl{position:absolute;left:0;top:0;bottom:0;padding:0 10px;display:flex;align-items:center;background:var(--panel);z-index:2;font-size:10px;letter-spacing:.1em;color:var(--acc);font-weight:800;border-right:1px solid var(--line)}
+  .ticker .track{display:flex;gap:34px;white-space:nowrap;animation:tick 60s linear infinite;padding-left:80px;font-family:var(--mono);font-size:11px;color:var(--ink3)}
+  .ticker .track b{color:var(--ink);font-weight:600;margin-left:6px}
+  .ticker .track .up{color:var(--good)}.ticker .track .dn{color:var(--crit)}
+  @keyframes tick{to{transform:translateX(-50%)}}
+
+  /* timeline */
+  .tl-item{display:grid;grid-template-columns:52px 14px 1fr;gap:10px;padding:8px 0;border-bottom:1px solid var(--line);align-items:start}
+  .tl-item:last-child{border-bottom:0}
+  .tl-item .tt{font-family:var(--mono);font-size:10.5px;color:var(--ink4);padding-top:3px}
+  .tl-item .dot{width:10px;height:10px;border-radius:50%;margin-top:5px;border:2px solid var(--panel)}
+  .tl-item .tb{font-size:12px;color:var(--ink);font-weight:700}
+  .tl-item .tr{font-size:11px;color:var(--ink3);margin-top:2px}
+  .ba{display:flex;gap:8px;flex-wrap:wrap}
+  .ba .b{border:1px solid var(--line);border-radius:8px;padding:6px 10px;background:var(--page);min-width:112px}
+  .ba .b .k{font-size:10px;color:var(--ink4);font-weight:600}
+  .ba .b .v{font-family:var(--mono);font-size:12px;color:var(--ink);margin-top:2px}
+  .ba .b .v .arrow{color:var(--ink4);margin:0 4px}
+
+  /* logs */
+  .logwrap{max-height:calc(100vh - 300px);overflow:auto;scrollbar-width:thin}
+  tr.sev-warning td:first-child{box-shadow:inset 3px 0 0 var(--warn)}
+  tr.sev-error td:first-child{box-shadow:inset 3px 0 0 var(--crit)}
+  tr.sev-info td:first-child{box-shadow:inset 3px 0 0 var(--line2)}
+  .json{font-family:var(--mono);font-size:11px;background:var(--page);border:1px solid var(--line);border-radius:8px;padding:10px;color:var(--ink3);white-space:pre;overflow:auto;line-height:1.5}
+  .json b{color:var(--acc);font-weight:500}.json i{color:var(--ink);font-style:normal}
+
+  /* tray */
+  .tray{position:fixed;left:76px;right:0;bottom:0;height:56px;border-top:1px solid var(--line2);background:color-mix(in srgb,var(--panel) 92%,transparent);backdrop-filter:blur(8px);display:flex;align-items:center;gap:18px;padding:0 20px;z-index:20;font-size:12px;color:var(--ink3)}
+  .tray .grp{display:flex;align-items:center;gap:6px}
+  .tray .grp .k{font-size:10px;letter-spacing:.08em;font-weight:800;color:var(--ink4);margin-right:4px}
+  .tray .opt{border:1px solid var(--line2);border-radius:8px;padding:5px 10px;font-size:12px;font-weight:600;color:var(--ink2);background:var(--page);display:inline-flex;align-items:center;gap:8px}
+  .tray .opt.on{border-color:var(--acc);color:var(--ink);box-shadow:0 0 0 1px color-mix(in srgb,var(--acc) 35%,transparent)}
+  .tray .opt i{width:12px;height:12px;border-radius:3px;display:inline-block}
+  .tray .opt svg{width:18px;height:18px}
+  .tray .hint{margin-left:auto;color:var(--ink4)}
+  @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+</style>
+<style id="unslop">
+  .panel,.tile{border-radius:6px}.btn{border-radius:5px}.select,.toggle,.search,.canvas-slot,.json{border-radius:5px}
+  .glow{filter:none}.enddot{animation:none}
+  .hero .v,.hero .v.good{text-shadow:none}
+  .panel.hot{box-shadow:none;border-color:color-mix(in srgb,var(--acc) 45%,transparent)}
+  .pill i{box-shadow:none!important}.nav.on::before{box-shadow:none}.tickbox .dot{box-shadow:none}.online i{box-shadow:none}
+  .tile.crit::after{display:none}.tile.crit{box-shadow:none}
+  .tray{backdrop-filter:none;background:var(--panel)}
+  .ticker .track{animation-duration:90s}
+  tr.sev-warning td:first-child,tr.sev-error td:first-child,tr.sev-info td:first-child{box-shadow:none}
+  .sdot{width:7px;height:7px;border-radius:50%;margin-top:6px;flex:none;display:inline-block}
+  .ba{gap:0 18px}.ba .b{border:0;border-top:1px solid var(--line);border-radius:0;background:transparent;padding:6px 0;min-width:100px}
+  .mrow{display:flex;align-items:flex-end;gap:14px}.mlbl{padding-bottom:8px}
+  .meter{position:relative;height:8px;border-radius:2px;background:var(--panel3);margin-top:8px}.meter .fill{height:100%;border-radius:2px;background:var(--good);transition:width .6s cubic-bezier(.2,.7,.2,1)}.meter .z{position:absolute;top:-4px;width:1px;height:16px;background:var(--ink4)}
+  .stack{display:flex;gap:2px;height:14px;border-radius:3px;overflow:hidden;margin-top:4px}.stack div{height:100%}
+  .profhead{display:flex;justify-content:space-between;align-items:center;margin-bottom:2px;gap:8px}
+  .radar{width:100%;height:252px;display:block}
+  .pb{display:grid;grid-template-columns:76px 1fr 36px;gap:8px;align-items:center;font-size:11px;color:var(--ink3);padding:3px 0}.pb .tr{position:relative;height:5px;border-radius:2px;background:var(--panel3)}.pb .fl{height:100%;border-radius:2px}.pb .md{position:absolute;top:-3px;width:1px;height:11px;background:var(--ink2)}.pb .nv{font-family:var(--mono);color:var(--ink2);text-align:right}
+  .tile .v,.hero .v,.kpi .n{font-family:var(--font-num),var(--font),sans-serif;font-stretch:var(--num-stretch,100%);font-weight:600}
+  .tile .v{font-size:29px}.hero .v{font-size:52px;letter-spacing:var(--hero-ls)}
+  .ph h3{font-weight:600}.wordmark{font-weight:600}
+  .ctile{display:flex;flex-direction:column}.ctile .cap{font-size:11px;color:var(--ink4)}.ctile .chart{flex:1}
+  .ledger .lr{display:grid;grid-template-columns:96px 1fr 84px;gap:10px;align-items:center;font-size:12px;color:var(--ink3);padding:4px 0}.ledger .lr .tr{height:10px;border-radius:2px;background:var(--panel3);position:relative}.ledger .lr .fl{position:absolute;left:0;top:0;height:100%;border-radius:2px;transition:width .5s}.ledger .lr .nv{font-family:var(--mono);text-align:right;color:var(--ink)}.ledger .lr.net{border-top:1px solid var(--line);margin-top:4px;padding-top:8px;font-weight:600;color:var(--ink2)}
+  .lever{border:1px solid var(--line);border-radius:6px;padding:8px 10px;display:flex;flex-direction:column;gap:6px;background:var(--page);min-width:0}.lever.active{border-color:color-mix(in srgb,var(--acc) 50%,transparent)}.lever.ai{border-color:color-mix(in srgb,var(--ai) 50%,transparent)}
+  .lever .lh{display:flex;justify-content:space-between;gap:8px;font-size:12px;font-weight:600;color:var(--ink2)}.lever .lh b{color:var(--ink);font-size:12.5px;white-space:nowrap}.lever.active .lh b{color:var(--acc)}.lever.ai .lh b{color:var(--ai)}.lever .lf{display:flex;justify-content:space-between;gap:6px;font-size:10.5px;color:var(--ink4)}
+  .lgroup{display:flex;align-items:center;gap:10px;font-size:10.5px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--ink4);margin:10px 0 6px}.lgroup i{flex:1;height:1px;background:var(--line)}.lgrid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+  .ic{display:inline-block;border:1px solid var(--line);border-radius:4px;padding:1px 6px;font-size:10.5px;color:var(--ink3);margin:2px 4px 0 0}.ic b{font-weight:600}
+  .audit{display:inline-block;font-family:var(--mono);font-size:9.5px;padding:1px 5px;border-radius:3px;background:var(--panel3);color:var(--ink2);min-width:66px;text-align:center}.audit.ok{color:var(--good)}.audit.bad{color:var(--crit)}
+  .quote{border-left:2px solid var(--ai);padding-left:10px;font-size:12.5px;color:var(--ink2);margin:8px 0;line-height:1.5}
+  .outcomes{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}.outcomes .o{border-top:1px solid var(--line);padding-top:6px;font-size:11.5px;color:var(--ink2)}.outcomes .o h5{margin:0 0 4px;font-size:10.5px;font-weight:700}
+  .facts{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-top:12px}.fact{border-top:1px solid var(--line);padding-top:6px}.fact .k{font-size:10.5px;color:var(--ink4);font-weight:600}.fact .v{font-size:20px;font-weight:600;color:var(--ink);font-family:var(--font-num),var(--font),sans-serif;white-space:nowrap}.fact .v small{font-size:10.5px;color:var(--ink4);font-weight:500;margin-left:4px;font-family:var(--font)}
+  .tl-item .dot{border:0}
+  .lv{border:1px solid var(--line);border-radius:5px;padding:6px 8px;background:var(--page);min-width:0}.lv .lvt{display:flex;justify-content:space-between;gap:6px;font-size:11.5px;color:var(--ink2);font-weight:600}.lv .lvt b{color:var(--ink);white-space:nowrap}.lv.active{border-color:color-mix(in srgb,var(--acc) 45%,transparent)}.lv.hit{box-shadow:0 0 0 2px color-mix(in srgb,var(--hit) 60%,transparent);border-color:var(--hit)}.lv .lvc{font-size:10px;color:var(--ink4);margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .lv2{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+  .tlc{border:1px solid var(--line);border-radius:6px;padding:8px 10px;cursor:pointer;margin-bottom:6px;background:var(--page);transition:border-color .15s}.tlc:hover{border-color:var(--line2)}.tlc.on{border-color:var(--acc);background:var(--acc-soft)}.tlc .tb{font-size:12.5px;font-weight:600;color:var(--ink)}
+  .effgrid{display:grid;grid-template-columns:1fr 1fr;gap:8px 14px}.effh{display:flex;justify-content:space-between;align-items:baseline;gap:8px;font-size:11.5px}.effh .mono{font-size:11.5px}
+  .lgroup{margin:8px 0 5px}
+  .panel > :is(.g4,.g2,.effgrid):has(.chart){flex:1;min-height:0}
+  .panel > :is(.g4,.g2,.effgrid):has(.chart) > div{display:flex;flex-direction:column;min-height:0}
+  .panel > :is(.g4,.g2,.effgrid):has(.chart) > div > .chart{flex:1}
+  .effpane{display:flex;flex-direction:column;min-height:0}.effpane .effgrid{flex:1;min-height:0}.effpane .effgrid > div{display:flex;flex-direction:column;min-height:0}.effpane .effgrid .chart{flex:1}
+  .tablefill{flex:1;min-height:0;overflow:auto}
+  .tlwrap{position:relative;padding-left:18px;margin-top:4px}.tlwrap::before{content:'';position:absolute;left:5px;top:10px;bottom:10px;width:1px;background:var(--line2)}
+  .tlc{position:relative;display:grid;grid-template-columns:58px 1fr;gap:10px;padding:10px 12px;margin-bottom:8px;border:1px solid var(--line);border-radius:6px;background:var(--page)}
+  .tlc::before{content:'';position:absolute;left:-17px;top:16px;width:9px;height:9px;border-radius:50%;background:var(--tlc,var(--ink4));box-shadow:0 0 0 3px var(--panel)}
+  .tlc .tk{font-family:var(--mono);font-size:14px;font-weight:600;color:var(--ink);line-height:1.1}.tlc .ac{font-size:10px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;margin-top:3px}
+  .tlc .tb{font-size:14px;font-weight:600;color:var(--ink);line-height:1.2}.tlc .td{font-size:11px;color:var(--ink3);margin-top:2px}
+  .tlc.on{border-color:var(--tlc,var(--acc));background:color-mix(in srgb,var(--tlc,var(--acc)) 9%,var(--panel))}
+  .tlc.on::before{box-shadow:0 0 0 3px var(--panel),0 0 0 5px color-mix(in srgb,var(--tlc,var(--acc)) 45%,transparent)}
+  .effpane h4 b{color:var(--acc);font-weight:600}
+</style>
+
+
+
+</head>
+<body>
+<div class="app">
+  <nav class="rail">
+    <div class="mark" id="mark"></div>
+    <div class="wordmark">Eco<span>Sim</span></div>
+    <div id="nav"></div>
+    <div class="online"><i></i>ONLINE</div>
+  </nav>
+  <div class="main">
+    <div class="topbar">
+      <div class="crumb" id="crumb">Command deck</div>
+      <span class="tickbox"><span class="dot"></span><span class="k">TICK</span><span class="v" id="tick">00000</span></span>
+      <span class="pill good" id="runpill"><i></i>Running</span>
+      <span style="margin-left:auto"></span>
+      <button class="btn" id="runbtn">❚❚ Suspend</button>
+      <button class="btn danger" title="Reset">↺</button>
+    </div>
+    <div class="strip" id="strip"></div>
+    <div class="view" id="view"></div>
+  </div>
+</div>
+<div class="tray">
+  <div class="grp"><span class="k">THEME</span>
+    <button class="opt" data-theme-pick="ember"><i style="background:#FF6B1A;box-shadow:inset 0 0 0 3px #111316"></i>Dark · carbon &amp; ember</button>
+    <button class="opt" data-theme-pick="paper"><i style="background:#D2491E;box-shadow:inset 0 0 0 3px #FBF9F4"></i>Light · paper &amp; ember</button>
+  </div>
+  <span id="logopicks" hidden></span>
+  <div class="hint">Click around. Tell me in the terminal what feels right and what doesn't.</div>
+</div>
+
+<script>
+(function(){
+  // ---------- rng, data ----------
+  let seed=42;const rnd=()=>{seed=(seed*16807)%2147483647;return (seed-1)/2147483646};
+  const pick=a=>a[Math.floor(rnd()*a.length)];
+  const walk=(n,s,d,v,m=0)=>{const a=[];let x=s;for(let i=0;i<n;i++){x=Math.max(m,x+d+(rnd()-.5)*v);a.push(x)}return a};
+  const N=250;
+  const GEN={gdp:[52000,25,900,1000],unemp:[31,-.01,.9,3],wage:[46,.012,.5,20],medwage:[43,.012,.5,18],happy:[28,0,.6,5],health:[79,0,.4,40],
+    rev:[26000,40,1400,0],out:[20000,-5,900,0],bonds:[600,.6,40,0],debt:[0,0,0,0],loans:[9,0,.9,0],ownfirms:[4,0,0,0],networth:[320,1.2,20,0],
+    gini:[.62,0,.01,.2],top10:[47,0,.5,10],bottom50:[6.5,0,.3,1],tickms:[60,0,12,20],firms:[30,0,.6,5],employees:[640,0,10,50],wageoffer:[42,.01,.5,20],struggling:[4,0,.8,0],
+    'price.food':[5.6,.003,.12,.5],'price.housing':[25,.01,.5,2],'price.services':[8.2,.004,.2,.5],'price.healthcare':[10.8,.004,.25,.5],
+    'supply.food':[1400,0,60,0],'supply.housing':[50,0,3,0],'supply.services':[300,0,20,0],'supply.healthcare':[120,0,10,0]};
+  const H={};for(const k in GEN){const [s,d,v,m]=GEN[k];H[k]=walk(N,s,d,v,m)}
+  for(let i=N-166;i<N;i++)H.rev[i]+=2600; // wage tax change at t96
+  const DER={employment:()=>H.unemp.map(v=>100-v),profit:()=>H.rev.map((r,i)=>r-H.out[i]),
+    stress:()=>H.unemp.map((u,i)=>Math.min(100,u*.45+(100-H.happy[i])*.4+H.struggling[i]*1.5)),mid40:()=>H.top10.map((t,i)=>100-t-H.bottom50[i])};
+  const getH=k=>H[k]||(DER[k]&&DER[k]());
+  const cur=k=>{const a=getH(k);return a[a.length-1]};
+  const back=(k,n)=>{const a=getH(k);return a[Math.max(0,a.length-1-n)]};
+
+  const S={tick:262,running:true,view:'command',selH:0,selF:1,selLog:0,theme:'ember',logo:1,sortKey:'cash',sortDir:-1,logFilter:'All',profile:'radar',selChange:1};
+  const POL=[{t:96,key:'wage_tax_rate',label:'Wage tax 15% → 18%',prev:'15%',value:'18%',by:'you',ok:true,why:''},
+    {t:202,key:'public_works',label:'Public works: on',prev:'Off',value:'On',by:'ai',ok:true,why:'Unemployment above 25% for 40 ticks while the treasury ran a surplus; public works absorbs idle labour without new debt.'},
+    {t:240,key:'profit_tax_rate',label:'Profit tax 20% → 28%',prev:'20%',value:'28%',by:'ai',ok:false,why:'Refused by the fiscal guard: a third instrument inside the two-instrument window.'}];
+
+  const HH=[['Agent 284','WORKING','Services Firm #8',1608,.68,.77,1,.91,51.36],['Agent 464','WORKING','Services Firm #7',193,.71,.62,.78,.55,44.1],
+    ['Agent 650','UNEMPLOYED','—',41,.58,.31,.4,.62,0],['Agent 095','WORKING','Baseline Food',408,.85,.74,1,.91,44.21],['Agent 731','WORKING','Food Firm #11',122,.66,.49,.7,.48,39.5],
+    ['Agent 118','WORKING','Housing Co',2904,.9,.81,1,.88,58.2],['Agent 507','WORKING','Services Firm #2',688,.77,.7,.9,.7,47.8],['Agent 012','UNEMPLOYED','—',8,.42,.18,.2,.35,0],
+    ['Agent 339','WORKING','Clinic #1',3170,.93,.86,1,.97,71.4],['Agent 552','WORKING','Food Firm #14',260,.7,.6,.8,.6,41.2],['Agent 877','WORKING','Services Firm #11',954,.8,.75,1,.8,49.9],['Agent 203','UNEMPLOYED','—',66,.5,.28,.3,.5,0]]
+    .map((r,i)=>({id:i,name:r[0],state:r[1],emp:r[2],cash:r[3],health:r[4],happy:r[5],morale:r[6],skills:r[7],wage:r[8],rent:20,age:22+Math.floor(rnd()*40),
+      needs:{food:rnd(),housing:.5+rnd()*.5,services:rnd(),healthcare:rnd()},hist:{cash:walk(40,Math.max(20,r[3]*.5),r[3]*.012,r[3]*.08,0),wage:walk(40,Math.max(0,r[8]-4),.1,1,0)}}));
+  HH.forEach(h=>{h.hist.cash[39]=h.cash;h.hist.wage[39]=h.wage});
+  const FIRMS=[['Baseline Housing','Housing',1547526,25.44,36,50,-244,'ACTIVE'],['Food Firm #9','Food',92944,5.83,27,27,1638,'SCALING'],['Services Firm #11','Services',83016,8.22,39,36,2243,'ACTIVE'],
+    ['Food Firm #14','Food',37983,5.31,44,44,1252,'ACTIVE'],['Clinic #1','Healthcare',28400,10.8,52,20,410,'ACTIVE'],['Services Firm #8','Services',22137,8.9,36,29,-5,'ACTIVE'],
+    ['Services Firm #7','Services',18220,7.7,36,25,120,'ACTIVE'],['Housing Co','Housing',15900,24.1,38,12,300,'ACTIVE'],['Food Firm #11','Food',9200,5.9,33,18,-140,'ACTIVE'],
+    ['Services Firm #2','Services',4100,8.1,36,9,-260,'STRUGGLING'],['Food Firm #3','Food',1850,5.4,31,6,-310,'DISTRESSED'],['Baseline Food','Food',-997583,5.0,36,58,-2,'BAILOUT']]
+    .map((r,i)=>({id:i,name:r[0],sector:r[1],cash:r[2],price:r[3],wage:r[4],emp:r[5],profit:r[6],state:r[7],hist:{cash:walk(40,Math.max(0,r[2]*.7),r[2]*.008,Math.abs(r[2])*.05,-1e7),profit:walk(40,r[6],0,Math.abs(r[6])*.6+40,-1e5)}}));
+  const SECTORS=['Food','Housing','Services','Healthcare'],STONE={Food:'s1',Housing:'s2',Services:'s3',Healthcare:'s4'};
+  const LOGS=[];const mkLog=t=>{const r=rnd();
+    if(r<.5)return{t,type:'System',ent:'Simulation core',msg:'Tick '+t+' completed in '+cur('tickms').toFixed(0)+' ms',sev:'info',ms:cur('tickms')};
+    if(r<.65)return{t,type:'Market',ent:'Goods market',msg:'Food cleared at '+F.usd2(cur('price.food'))+' · '+Math.round(cur('supply.food'))+' units',sev:'info'};
+    if(r<.8){const f=pick(FIRMS);return{t,type:'Firm',ent:f.name,msg:'Hired '+(1+Math.floor(rnd()*3))+' workers at '+F.usd2(f.wage),sev:'info'}}
+    if(r<.9){const h=pick(HH);return{t,type:'Agent',ent:h.name,msg:'Missed rent payment · cash '+F.money(h.cash),sev:'warning'}}
+    if(r<.96){const f=pick(FIRMS);return{t,type:'Firm',ent:f.name,msg:'Entered distress · cash below $2,000',sev:'error'}}
+    return{t,type:'Policy',ent:'Government',msg:'Transfers paid: '+F.money(cur('out')*.6),sev:'info'}};
+
+  // ---------- formatters ----------
+  const F={money:v=>(v<0?'-':'')+'$'+(Math.abs(v)>=1e6?(Math.abs(v)/1e6).toFixed(2)+'M':Math.abs(v)>=1e3?(Math.abs(v)/1e3).toFixed(1)+'K':Math.abs(v).toFixed(0)),
+    moneyS:v=>(v>=0?'+':'-')+'$'+(Math.abs(v)>=1e3?(Math.abs(v)/1e3).toFixed(1)+'K':Math.abs(v).toFixed(0)),
+    usd2:v=>'$'+v.toFixed(2),pct1:v=>v.toFixed(1)+'%',int:v=>Math.round(v).toLocaleString(),dec1:v=>v.toFixed(1),dec3:v=>v.toFixed(3),ms:v=>v.toFixed(0)+' ms',score:v=>v.toFixed(0)};
+  for(let t=S.tick-60;t<=S.tick;t++){LOGS.push(mkLog(t));if(rnd()<.4)LOGS.push(mkLog(t))}
+  const TONE={'':'',good:'var(--good)',warn:'var(--warn)',crit:'var(--crit)',ai:'var(--ai)',acc:'var(--acc)',s1:'var(--s1)',s2:'var(--s2)',s3:'var(--s3)',s4:'var(--s4)',ink3:'var(--ink3)'};
+  const TILES={
+    gdp:{label:'GDP output',fmt:'money',cap:'per tick'},
+    unemp:{label:'Unemployment',fmt:'pct1',cap:'share of labour force',tone:v=>v>35?'crit':v>25?'warn':'',upBad:true},
+    employment:{label:'Employment',fmt:'pct1',cap:'share of labour force'},
+    wage:{label:'Average wage',fmt:'usd2',cap:'worker mean'},
+    stress:{label:'Macro stress',fmt:'score',cap:'composite /100',tone:v=>v>70?'crit':v>45?'warn':'',upBad:true},
+    profit:{label:'Fiscal balance',fmt:'moneyS',cap:'net flow per tick',tone:v=>v<0?'crit':''},
+    happy:{label:'Happiness',fmt:'dec1',cap:'population mean /100',tone:v=>v<30?'warn':''},
+    health:{label:'Health index',fmt:'dec1',cap:'latest sample /100'},
+    rev:{label:'Revenue',fmt:'money',cap:'wage + profit tax'},
+    out:{label:'Transfers + investment',fmt:'money',cap:'benefits · public works'},
+    bonds:{label:'Bond purchases',fmt:'money',cap:'rising for 8 ticks',tone:v=>v>700?'warn':'',upBad:true},
+    debt:{label:'Treasury debt',fmt:'money',cap:'flat since tick 72',tone:v=>v>0?'crit':''},
+    loans:{label:'Gov-backed loans',fmt:'int',cap:'firms with credit'},
+    ownfirms:{label:'State-owned firms',fmt:'int',cap:'of 30 firms'},
+    firms:{label:'Firms',fmt:'int',cap:'across 4 sectors'},
+    employees:{label:'Employees',fmt:'int',cap:'on firm rosters'},
+    wageoffer:{label:'Average wage offer',fmt:'usd2',cap:'posted by firms'},
+    struggling:{label:'Struggling firms',fmt:'int',cap:'cash below $2,000',tone:v=>v>=6?'crit':v>=3?'warn':'',upBad:true},
+    tickms:{label:'Tick time',fmt:'ms',cap:'compute per tick',tone:v=>v>120?'warn':''},
+    networth:{label:'Household net worth',fmt:'money',cap:'mean per household'}
+  };
+  const CH={
+    gdp:()=>({series:[{k:'gdp',tone:'acc',name:'GDP'}],fmt:F.money,endLabel:true,markers:true,axes:true}),
+    unemp:()=>({series:[{k:'unemp',tone:'crit',name:'Unemployment'}],fmt:F.pct1,endLabel:true,axes:true,band:[25,100],markers:true}),
+    wages:()=>({series:[{k:'wage',tone:'acc',name:'Mean'},{k:'medwage',tone:'s1',name:'Median'}],fmt:F.usd2,endLabel:true,axes:true}),
+    flows:()=>({series:[{k:'rev',tone:'acc',name:'Revenue'},{k:'out',tone:'s1',name:'Outlays'}],fmt:F.money,endLabel:true,markers:true,axes:true}),
+    profitHero:()=>({series:[{k:'profit',tone:'good',name:''}],fmt:F.money}),
+    debt:()=>({series:[{k:'debt',tone:'ink3',name:''}],fmt:F.money,axes:true,lo0:true}),
+    networth:()=>({series:[{k:'networth',tone:'acc',name:''}],fmt:F.money,axes:true}),
+    happy:()=>({series:[{k:'happy',tone:'s1',name:'Happiness'},{k:'health',tone:'s3',name:'Health'}],fmt:F.dec1,endLabel:true,axes:true}),
+    hhCash:()=>({series:[{d:HH[S.selH].hist.cash,tone:'acc',name:''}],fmt:F.money,axes:true}),
+    hhWage:()=>({series:[{d:HH[S.selH].hist.wage,tone:'s1',name:''}],fmt:F.usd2,axes:true}),
+    fCash:()=>({series:[{d:FIRMS[S.selF].hist.cash,tone:'acc',name:''}],fmt:F.money,axes:true}),
+    fProfit:()=>({series:[{d:FIRMS[S.selF].hist.profit,tone:'s3',name:''}],fmt:F.money,axes:true,zero:true}),
+    tickms:()=>({series:[{k:'tickms',tone:'s1',name:''}],fmt:F.ms,axes:false,n:80})
+  };
+  SECTORS.forEach(s=>{CH['price.'+s]=()=>({series:[{k:'price.'+s.toLowerCase(),tone:STONE[s],name:s}],fmt:F.usd2,endLabel:true,axes:false,n:120})});
+  CH.stress=()=>{const v=cur('stress');return{series:[{k:'stress',tone:v>70?'crit':v>45?'warn':'good',name:''}],fmt:F.score,axes:false,n:80}};
+  CH.gini=()=>({series:[{k:'gini',tone:'acc',name:''}],fmt:F.dec3,axes:false,n:250});
+  CH.loansHist=()=>({series:[{k:'loans',tone:'s1',name:''}],fmt:F.int,axes:true,n:250,lo0:true});
+
+  // ---------- svg helpers ----------
+  const NS='http://www.w3.org/2000/svg';const el=(t,a,p)=>{const e=document.createElementNS(NS,t);for(const k in a)e.setAttribute(k,a[k]);if(p)p.appendChild(e);return e};
+  function drawSpark(svg,d,tone){svg.innerHTML='';const w=64,h=22;svg.setAttribute('viewBox','0 0 '+w+' '+h);const lo=Math.min(...d),hi=Math.max(...d);
+    const sx=i=>2+i*(w-4)/(d.length-1),sy=v=>h-3-((v-lo)/((hi-lo)||1))*(h-6);const p=d.map((v,i)=>(i?'L':'M')+sx(i).toFixed(1)+' '+sy(v).toFixed(1)).join(' ');
+    const alert=tone==='warn'||tone==='crit';const lc=alert?TONE[tone]:'var(--ink4)';el('path',{d:p,fill:'none',style:'stroke:'+lc+';stroke-width:1.25;stroke-linecap:round;stroke-linejoin:round'},svg);
+    el('circle',{cx:sx(d.length-1),cy:sy(d[d.length-1]),r:2.4,style:'fill:'+(alert?TONE[tone]:TONE[tone==='flat'?'ink3':tone]||'var(--acc)')},svg)}
+  function drawGauge(svg,v,tone,anim){svg.innerHTML='';const big=svg.closest('.gauge').classList.contains('big');const W=big?200:96,cx=W/2,cy=big?110:52,r=big?92:40,sw=big?12:6;svg.setAttribute('viewBox','0 0 '+W+' '+(cy+6));
+    const pt=a=>[cx+r*Math.cos(Math.PI*(1-a)),cy-r*Math.sin(Math.PI*(1-a))];const arc=(a0,a1)=>{const [x0,y0]=pt(a0),[x1,y1]=pt(a1);return 'M'+x0+' '+y0+' A'+r+' '+r+' 0 0 1 '+x1+' '+y1};
+    el('path',{d:arc(0,1),fill:'none',style:'stroke:var(--panel3);stroke-width:'+sw+';stroke-linecap:round'},svg);
+    const len=Math.PI*r;el('path',{d:arc(0,Math.max(.015,Math.min(1,v/100))),fill:'none',class:'glow',style:'color:'+TONE[tone]+';stroke:'+TONE[tone]+';stroke-width:'+sw+';stroke-linecap:round;'+(anim?'stroke-dasharray:'+len+';stroke-dashoffset:'+len+';animation:draw 1.1s .2s cubic-bezier(.2,.7,.2,1) forwards':'')},svg)}
+  const EFF={gdp:['GDP output','acc','money'],unemp:['Unemployment','s1','pct1'],happy:['Happiness','s2','dec1'],profit:['Net fiscal flow','good','moneyS']};
+  const specFor=key=>{if(CH[key])return CH[key]();if(key.startsWith('eff.')){const k=key.slice(4);const ch=POL[S.selChange]||POL[0];const e=EFF[k];return {series:[{k,tone:e[1],name:''}],fmt:F[e[2]],axes:false,n:170,split:ch.t,splitColor:ch.by==='ai'?'var(--ai)':ch.by==='you'?'var(--acc)':'var(--ink3)'}}const k=key.replace(/^t\./,'');const t=TILES[k]||{};const tone=(t.tone&&t.tone(cur(k)))||'acc';return {series:[{k,tone,name:''}],fmt:F[t.fmt||'money'],axes:false,n:120,lo0:k==='debt'}};
+  function drawChart(wrap,spec,anim){
+    let svg=wrap.querySelector('svg');if(!svg){svg=el('svg',{},wrap);wrap.appendChild(Object.assign(document.createElement('div'),{className:'tip'}))}
+    svg.innerHTML='';const w=wrap.clientWidth||600,h=wrap.clientHeight||160;svg.setAttribute('viewBox','0 0 '+w+' '+h);
+    const n=spec.n||N;const series=spec.series.map(s=>({...s,d:(s.d||getH(s.k)).slice(-n)}));const len=series[0].d.length;
+    const padL=spec.axes?46:4,padR=spec.endLabel?78:8,padT=spec.markers?14:8,padB=spec.axes?18:4;
+    const all=series.flatMap(s=>s.d);let lo=Math.min(...all),hi=Math.max(...all);if(spec.zero){lo=Math.min(lo,0);hi=Math.max(hi,0)}const span=(hi-lo)||Math.abs(hi)||1;lo-=span*.04;hi+=span*.06;if(spec.lo0)lo=0;
+    const sx=i=>padL+i*(w-padL-padR)/(len-1),sy=v=>padT+(1-(v-lo)/(hi-lo))*(h-padT-padB);const tickAt=i=>S.tick-(len-1-i);
+    if(spec.axes){const g=el('g',{class:'axis'},svg);[0,.5,1].forEach(t=>{const y=padT+(1-t)*(h-padT-padB);el('line',{x1:padL,x2:w-padR,y1:y,y2:y},g);el('text',{x:padL-8,y:y+3,'text-anchor':'end'},g).textContent=spec.fmt(lo+t*(hi-lo))});
+      [0,.25,.5,.75,1].forEach(t=>{el('text',{x:padL+t*(w-padL-padR),y:h-4,'text-anchor':'middle'},g).textContent='t'+tickAt(Math.round(t*(len-1)))})}
+    if(spec.zero){const y=sy(0);el('line',{x1:padL,x2:w-padR,y1:y,y2:y,style:'stroke:var(--ink4);stroke-width:1;stroke-dasharray:3 3'},svg)}
+    if(spec.band){const y1=sy(Math.min(hi,spec.band[1])),y2=sy(Math.max(lo,spec.band[0]));if(y2>y1)el('rect',{x:padL,y:y1,width:w-padL-padR,height:y2-y1,style:'fill:var(--crit);opacity:.07'},svg)}
+    series.forEach((s,idx)=>{const col=TONE[s.tone];const id='g'+Math.random().toString(36).slice(2,8);const defs=el('defs',{},svg);const lg=el('linearGradient',{id,x1:0,y1:0,x2:0,y2:1},defs);
+      el('stop',{offset:'0%',style:'stop-color:'+col+';stop-opacity:.14'},lg);el('stop',{offset:'100%',style:'stop-color:'+col+';stop-opacity:0'},lg);
+      const line=s.d.map((v,i)=>(i?'L':'M')+sx(i).toFixed(1)+' '+sy(v).toFixed(1)).join(' ');
+      const si=spec.split!=null?len-1-(S.tick-spec.split):-1;
+      if(si>0&&si<len-1){const sc=spec.splitColor||'var(--ai)';
+        const pre=s.d.slice(0,si+1).map((v,i)=>(i?'L':'M')+sx(i).toFixed(1)+' '+sy(v).toFixed(1)).join(' ');
+        const post=s.d.slice(si).map((v,i)=>(i?'L':'M')+sx(si+i).toFixed(1)+' '+sy(v).toFixed(1)).join(' ');
+        el('rect',{x:sx(si),y:padT,width:sx(len-1)-sx(si),height:h-padT-padB,style:'fill:'+sc+';opacity:.07'},svg);
+        el('path',{d:post+' L'+sx(len-1).toFixed(1)+' '+sy(lo).toFixed(1)+' L'+sx(si).toFixed(1)+' '+sy(lo).toFixed(1)+' Z',fill:'url(#'+id+')'},svg);
+        el('path',{d:pre,fill:'none',style:'stroke:var(--ink4);stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round'},svg);
+        el('path',{d:post,fill:'none',style:'stroke:'+col+';stroke-width:2;stroke-linecap:round;stroke-linejoin:round'},svg);
+        el('line',{x1:sx(si),x2:sx(si),y1:padT,y2:h-padB,style:'stroke:'+sc+';stroke-width:1.5;opacity:.9'},svg);
+        el('circle',{cx:sx(si),cy:sy(s.d[si]),r:3.5,style:'fill:'+sc},svg);
+      }else{
+      el('path',{d:line+' L'+sx(len-1).toFixed(1)+' '+sy(lo).toFixed(1)+' L'+sx(0).toFixed(1)+' '+sy(lo).toFixed(1)+' Z',fill:'url(#'+id+')',class:anim?'fill':''},svg);
+      el('path',{d:line,fill:'none',class:anim?'draw':'',style:'stroke:'+col+';stroke-width:2;stroke-linecap:round;stroke-linejoin:round;animation-delay:'+(idx*.15)+'s'},svg);}
+      const ex=sx(len-1),ey=sy(s.d[len-1]);el('circle',{cx:ex,cy:ey,r:7,style:'fill:var(--panel)'},svg);el('circle',{cx:ex,cy:ey,r:4.5,class:'enddot glow',style:'fill:'+col+';color:'+col},svg);
+      if(spec.endLabel){el('text',{x:ex+11,y:ey+4,class:'endlab'},svg).textContent=spec.fmt(s.d[len-1]);el('text',{x:ex+11,y:ey+16,class:'endsub'},svg).textContent=s.name}});
+    if(spec.markers&&w>470)POL.forEach((p,pi)=>{const i=len-1-(S.tick-p.t);if(i<2||i>=len)return;const x=sx(i);const g=el('g',{class:'mk'},svg);
+      el('line',{x1:x,x2:x,y1:padT,y2:h-padB,style:'stroke:var(--ai);stroke-width:1.5;stroke-dasharray:'+(p.ok?'0':'3 3')+';opacity:.8'},g);el('circle',{cx:x,cy:padT,r:3,style:'fill:var(--ai)'},g);
+      const t=el('text',{x:x+6,y:padT+11+(pi%2)*13},g);t.textContent=(p.by==='ai'?'AI · ':'')+p.label;if(x>w*.7){t.setAttribute('x',x-6);t.setAttribute('text-anchor','end')}});
+    const cross=el('line',{y1:padT,y2:h-padB,style:'stroke:var(--ink3);stroke-width:1;stroke-dasharray:3 3;display:none'},svg);const hov=series.map(s=>el('circle',{r:5,style:'fill:'+TONE[s.tone]+';stroke:var(--panel);stroke-width:2;display:none'},svg));
+    const tip=wrap.querySelector('.tip');wrap.onmousemove=e=>{const r=wrap.getBoundingClientRect();const x=(e.clientX-r.left)*(w/r.width);const i=Math.round((x-padL)/(w-padL-padR)*(len-1));if(i<0||i>=len){wrap.onmouseleave();return}
+      const cx=sx(i);cross.setAttribute('x1',cx);cross.setAttribute('x2',cx);cross.style.display='';hov.forEach((c,k)=>{c.setAttribute('cx',cx);c.setAttribute('cy',sy(series[k].d[i]));c.style.display=''});
+      tip.innerHTML='<span class="muted">t'+tickAt(i)+'</span>'+series.map(s=>'<br>'+(s.name?s.name+' ':'')+'<b>'+spec.fmt(s.d[i])+'</b>').join('');tip.style.display='block';
+      const px=(cx/w)*r.width;tip.style.left=(px>r.width*.65?px-tip.offsetWidth-14:px+14)+'px';tip.style.top='6px'};
+    wrap.onmouseleave=()=>{cross.style.display='none';hov.forEach(c=>c.style.display='none');tip.style.display='none'}}
+
+
+  // ---------- holistic household profile ----------
+  const PROF=h=>[['Health',h.health],['Happiness',h.happy],['Morale',h.morale],['Skills',h.skills],['Food',h.needs.food],['Housing',h.needs.housing],['Services',h.needs.services],['Healthcare',h.needs.healthcare]];
+  const MED=[.72,.55,.8,.7,.6,.78,.5,.62];
+  function drawRadar(svg,h,anim){svg.innerHTML='';const W=320,Hh=252,cx=160,cy=122,R=84;svg.setAttribute('viewBox','0 0 '+W+' '+Hh);const P=PROF(h);const n=P.length;
+    const pt=(i,r)=>{const a=-Math.PI/2+i*2*Math.PI/n;return [cx+r*Math.cos(a),cy+r*Math.sin(a)]};
+    [.25,.5,.75,1].forEach(k=>{el('path',{d:P.map((_,i)=>{const [x,y]=pt(i,R*k);return (i?'L':'M')+x.toFixed(1)+' '+y.toFixed(1)}).join(' ')+'Z',fill:'none',style:'stroke:var(--grid);stroke-width:1'},svg)});
+    P.forEach((_,i)=>{const [x,y]=pt(i,R);el('line',{x1:cx,y1:cy,x2:x,y2:y,style:'stroke:var(--grid);stroke-width:1'},svg)});
+    el('path',{d:MED.map((v,i)=>{const [x,y]=pt(i,R*v);return (i?'L':'M')+x.toFixed(1)+' '+y.toFixed(1)}).join(' ')+'Z',style:'fill:var(--ink4);fill-opacity:.12;stroke:var(--ink4);stroke-width:1'},svg);
+    const d=P.map((p,i)=>{const [x,y]=pt(i,R*Math.max(.04,p[1]));return (i?'L':'M')+x.toFixed(1)+' '+y.toFixed(1)}).join(' ')+'Z';
+    el('path',{d,style:'fill:var(--acc);fill-opacity:.14;stroke:var(--acc);stroke-width:1.5;stroke-linejoin:round',class:anim?'draw':''},svg);
+    P.forEach((p,i)=>{const [x,y]=pt(i,R*Math.max(.04,p[1]));const tone=p[1]<.3?'var(--crit)':p[1]<.5?'var(--warn)':'var(--acc)';el('circle',{cx:x,cy:y,r:5,style:'fill:var(--panel)'},svg);el('circle',{cx:x,cy:y,r:3,style:'fill:'+tone},svg);
+      const [lx,ly]=pt(i,R+22);const t=el('text',{x:lx,y:ly+3,'text-anchor':Math.abs(lx-cx)<8?'middle':lx>cx?'start':'end',style:'font-family:var(--font),sans-serif;font-size:10.5px;font-weight:600;fill:var(--ink3)'},svg);t.textContent=p[0];
+      const v=el('tspan',{x:lx,dy:12,style:'font-family:var(--mono),monospace;font-size:10px;font-weight:500;fill:'+(p[1]<.3?'var(--crit)':'var(--ink)')},t);v.textContent=Math.round(p[1]*100)});
+    const lg=el('text',{x:W-4,y:Hh-4,'text-anchor':'end',style:'font-family:var(--font),sans-serif;font-size:10px;fill:var(--ink4)'},svg);lg.textContent='grey = population median';}
+  const profileBars=h=>PROF(h).map((p,i)=>'<div class="pb"><span>'+p[0]+'</span><div class="tr"><div class="fl" style="width:'+Math.round(p[1]*100)+'%;background:'+(p[1]<.3?'var(--crit)':p[1]<.5?'var(--warn)':'var(--acc)')+'"></div><i class="md" style="left:'+Math.round(MED[i]*100)+'%"></i></div><span class="nv">'+Math.round(p[1]*100)+'</span></div>').join('')+'<div class="muted" style="font-size:10px;margin-top:4px">tick mark = population median</div>';
+
+  // ---------- html helpers ----------
+  const tile=(k,cls='')=>{const t=TILES[k];return '<div class="tile '+cls+'" data-tile="'+k+'"><div class="l"><span>'+t.label+'</span><span class="delta" data-delta="'+k+'"></span></div><div class="v" data-num="'+k+'" data-fmt="'+t.fmt+'"></div><div class="foot"><span class="cap">'+t.cap+'</span><svg data-spark="'+k+'"></svg></div></div>'};
+  const chart=(k,h,extra='')=>'<div class="chart" data-chart="'+k+'" style="min-height:'+h+'px;'+extra+'"></div>';
+  const bar=(k,v,tone,fmt=x=>x.toFixed(2))=>'<div class="bar"><span>'+k+'</span><div class="tr"><div class="fl" style="width:'+Math.round(v*100)+'%;background:'+TONE[tone]+'"></div></div><span class="nv">'+fmt(v)+'</span></div>';
+  const rowKV=(k,v,tone='')=>'<div class="row"><span class="k">'+k+'</span><span class="n" style="color:'+(TONE[tone]||'var(--ink)')+'">'+v+'</span></div>';
+  const sig=(tone,t,d,when)=>'<div class="sig"><i class="sdot" style="background:'+TONE[tone]+'"></i><div><div class="t">'+t+'</div>'+(d?'<div class="d">'+d+'</div>':'')+'</div><span class="when">'+when+'</span></div>';
+  const field=(label,val,p,desc)=>'<div class="field"><div class="fh"><label>'+label+'</label><span class="val">'+val+'</span></div><input type="range" style="--p:'+p+'%" value="'+p+'" min="0" max="100"><div class="desc">'+desc+'</div></div>';
+  const sel=(label,val)=>'<div class="field"><div class="fh"><label>'+label+'</label></div><div class="select"><span>'+val+'</span><span class="muted">⌄</span></div></div>';
+  const toggle=(label,desc,on,extra='')=>'<div class="toggle '+(on?'on':'')+'" onclick="this.classList.toggle(\'on\')" '+extra+'><div><div class="tl">'+label+'</div><div class="td">'+desc+'</div></div><span class="sw"></span></div>';
+  const stateTone=s=>s==='WORKING'?'good':s==='UNEMPLOYED'?'crit':'warn';
+  const firmTone=s=>s==='ACTIVE'||s==='SCALING'?'good':s==='STRUGGLING'?'warn':'crit';
+  const hhRisk=h=>h.state==='UNEMPLOYED'||h.cash<150;
+
+
+  const ctile=k=>{const t=TILES[k];return '<div class="tile ctile" data-tile="'+k+'"><div class="l"><span>'+t.label+'</span><span class="delta" data-delta="'+k+'"></span></div><div class="v" data-num="'+k+'" data-fmt="'+t.fmt+'"></div><div class="cap">'+t.cap+'</div>'+chart('t.'+k,64,'margin-top:6px')+'</div>'};
+  const ledgerHTML=()=>{const rev=cur('rev'),out=cur('out'),tr=out*.62,inv=out*.28,bd=cur('bonds'),net=cur('profit');const mx=Math.max(rev,tr,inv,bd,Math.abs(net),1);
+    const row=(l,v,col,sign,cls='')=>'<div class="lr '+cls+'"><span>'+l+'</span><div class="tr"><div class="fl" style="width:'+Math.round(Math.abs(v)/mx*100)+'%;background:'+col+'"></div></div><span class="nv"'+(cls?' style="color:'+(net>=0?'var(--good)':'var(--crit)')+'"':'')+'>'+sign+F.money(Math.abs(v))+'</span></div>';
+    return row('Revenue',rev,'var(--acc)','+')+row('Transfers',tr,'var(--s1)','−')+row('Investments',inv,'var(--s1)','−')+row('Bond purchases',bd,'var(--s1)','−')+row('Net flow',net,net>=0?'var(--good)':'var(--crit)',net>=0?'+':'−','net')};
+  const hhLedger=h=>{const w=h.wage||0,r=h.rent,f=8.4*(.6+h.needs.food),sv=5.2*h.needs.services,hc=h.health<.6?11:0;const net=w-r-f-sv-hc;const mx=Math.max(w,r,f,sv,hc,Math.abs(net),1);const row=(l,v,col,sign,cls='')=>'<div class="lr '+cls+'"><span>'+l+'</span><div class="tr"><div class="fl" style="width:'+Math.round(Math.abs(v)/mx*100)+'%;background:'+col+'"></div></div><span class="nv"'+(cls?' style="color:'+(net>=0?'var(--good)':'var(--crit)')+'"':'')+'>'+sign+F.usd2(Math.abs(v))+'</span></div>';return row('Wage',w,'var(--acc)','+')+row('Rent',r,'var(--s1)','−')+row('Food',f,'var(--s1)','−')+row('Services',sv,'var(--s1)','−')+(hc?row('Healthcare',hc,'var(--s1)','−'):'')+row('Net',net,net>=0?'var(--good)':'var(--crit)',net>=0?'+':'−','net')};
+  const LEVERS=[
+    {g:'Taxes',items:[['wage_tax_rate','Wage tax','18%','15%','percent',36],['profit_tax_rate','Profit tax','20%','20%','percent',40],['investment_tax_rate','Investment tax','10%','10%','readonly']]},
+    {g:'Welfare & labor',items:[['benefit_level','Benefit level','Neutral','Neutral','enum'],['minimum_wage_policy','Minimum wage policy','Neutral','Neutral','enum'],['public_works','Public works','On','Off','toggle']]},
+    {g:'Public spending',items:[['infrastructure_spending','Infrastructure','None','None','enum'],['technology_spending','Technology','None','None','enum'],['social_spending','Social spending','Medium','Medium','enum']]},
+    {g:'Market interventions',items:[['sector_subsidy_target','Sector subsidy','None · 0%','None · 0%','enum'],['price_stabilization_target','Price stabilization','None · Off','None · Off','enum'],['rent_stabilization_level','Rent stabilization','Off','Off','enum']]},
+    {g:'Bailouts',items:[['bailout_policy','Bailout policy','Off','Off','enum'],['bailout_target','Bailout target','None','None','enum'],['bailout_budget','Bailout budget','$0','$0','enum']]}];
+  const DECISION={goal:'Pushing unemployment down',mode:'Normal',computed:'Normal',observed:240,applied:241,ms:3800,
+    rationale:'Unemployment has stayed above 25% for 40 ticks while the treasury runs a surplus. Public works absorbs idle labour without new debt. A profit-tax increase would fund it faster, but it would be a third instrument in this window.',
+    evidence:[['unemployment=29.1%','matched','matches observation'],['fiscal_balance=+$27.8K','matched','matches observation'],['gini=0.61','mismatch','shown 0.585'],['bond_purchases=rising','unverified','not in what the model saw']],
+    accepted:[['Public works','On']],refused:[['Profit tax','28%','Exceeds the two-instrument limit in this window.']]};
+  const leverCard=it=>{const [key,label,live,def,kind,pct]=it;const active=live!==def;const ch=[...POL].reverse().find(p=>p.key===key&&p.ok)||null;const ref=[...POL].reverse().find(p=>p.key===key&&!p.ok);
+    const ctl=kind==='percent'?'<input type="range" style="--p:'+pct+'%" value="'+pct+'" min="0" max="100">':kind==='toggle'?'<div class="toggle '+(live==='On'?'on':'')+'" style="padding:5px 8px" onclick="this.classList.toggle(\'on\')"><span class="tl" style="font-size:11px">'+live+'</span><span class="sw"></span></div>':kind==='readonly'?'<div class="muted" style="font-size:11px;padding:6px 0">Set by the simulator</div>':'<div class="select" style="padding:5px 9px;font-size:11.5px"><span>'+live+'</span><span class="muted">⌄</span></div>';
+    const who=p=>p.by==='ai'?['AI','var(--ai)']:p.by==='you'?['You','var(--acc)']:['Auto','var(--ink3)'];
+    const foot=ref?'<span style="color:var(--crit);font-weight:600">'+ref.value+' refused · t'+ref.t+'</span>':ch?'<span style="color:'+who(ch)[1]+';font-weight:600">'+who(ch)[0]+' · t'+ch.t+'</span>':'<span>'+(active?'Set at launch':'Default')+'</span>';
+    return '<div class="lever '+(active?'active':'')+' '+(ch&&ch.by==='ai'?'ai':'')+'"><div class="lh"><span>'+label+'</span><b class="mono">'+live+'</b></div>'+ctl+'<div class="lf">'+foot+'<span class="muted">'+(ch&&ch.prev?'was '+ch.prev:'default '+def)+'</span></div></div>'};
+  const impact=t=>{const at=k=>{const a=getH(k);const i=a.length-1-(S.tick-t);return i>=0?a[i]:null};const g0=at('gdp'),u0=at('unemp'),h0=at('happy'),p0=at('profit');if(g0==null||S.tick-t<2)return null;return {ticks:S.tick-t,gdp:(cur('gdp')-g0)/Math.abs(g0||1)*100,un:cur('unemp')-u0,hp:cur('happy')-h0,fl:cur('profit')-p0}};
+  const chipI=(l,v,good)=>'<span class="ic">'+l+' <b style="color:'+(good===null?'var(--ink)':good?'var(--good)':'var(--crit)')+'">'+v+'</b></span>';
+  const impactChips=t=>{const im=impact(t);if(!im)return '<span class="ic muted">measuring…</span>';const sg=(n,d,s='')=>(n>0?'+':n<0?'−':'')+Math.abs(n).toFixed(d)+s;return chipI('GDP',sg(im.gdp,1,'%'),im.gdp>0)+chipI('Unemployment',sg(im.un,1,' pp'),im.un<0)+chipI('Happiness',sg(im.hp,1),im.hp>0)+chipI('Net flow',(im.fl>=0?'+':'−')+F.money(Math.abs(im.fl)),im.fl>0)};
+
+  // ---------- views ----------
+  const V={};
+  V.config=()=>'<div class="ph"><div><div class="eyebrow">Preflight</div><h3>Launch a run</h3><div class="sum">Set the population, seed and opening policy. Everything here is sent once with SETUP.</div></div><button class="btn primary big" onclick="go(\'command\')">▶ Launch simulation</button></div>'+
+    '<div class="g12">'+
+    '<div class="panel s4"><div class="ttl"><h4>Run profile</h4><small>seeded, reproducible</small></div>'+field('Population',"1,000",9,'Household agents created at launch. 100 to 10,000.')+field('Firms per sector',"5",40,'Initial firms in each of the four sectors.')+'<div class="field"><div class="fh"><label>Seed</label></div><div class="select"><span class="mono">42</span><span class="muted">integer</span></div><div class="desc">Same seed, same run. Change it to get a different economy.</div></div></div>'+
+    '<div class="panel s4"><div class="ttl"><h4>Opening policy</h4><small>adjustable while running</small></div>'+field('Wage tax','15%',30,'Share of household wages collected each tick.')+field('Profit tax','20%',40,'Share of firm profit collected after sales.')+field('Minimum wage','$20',20,'Floor on posted wage offers.')+sel('Benefit level','Neutral')+'</div>'+
+    '<div class="s4 col"><div class="panel"><div class="ttl"><h4>Policy assistant</h4><small>optional</small></div>'+toggle('AI government','Model proposes bounded lever changes off the tick path. Manual controls stay live.',false)+'<div style="height:8px"></div>'+toggle('Disable automatic stabilizers','Isolate direct policy effects. Off by default.',false)+'</div>'+
+    '<div class="panel" style="flex:1"><div class="ttl"><h4>Preflight</h4><small>ready</small></div><div class="check"><i>✓</i><span class="ck">Backend connected</span><span class="cd">ws · 12 ms</span></div><div class="check"><i>✓</i><span class="ck">Session issued</span><span class="cd">d9b78c2e</span></div><div class="check"><i>✓</i><span class="ck">Profile valid</span><span class="cd">≥ 3 households</span></div><div class="check"><i>✓</i><span class="ck">Warehouse</span><span class="cd">sqlite · ecosim.db</span></div></div></div>'+
+    '<div class="panel s12 hot"><div class="ttl"><h4>What this run creates</h4><small>from the profile above</small></div><div style="display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin-top:4px">'+
+    ['1,000|households','20|firms','4|sectors','42|seed','manual|policy'].map(x=>{const [n,k]=x.split('|');return '<div class="kpi"><span class="n" style="font-size:34px">'+n+'</span><span class="k">'+k+'</span></div>'}).join('')+'</div><div class="muted" style="margin-top:10px;font-size:12px">Weekly ticks. Households work, buy food, rent or buy housing, use services and healthcare. Firms hire, price and expand. The treasury taxes and transfers. Results describe this synthetic economy only.</div></div>'+
+    '<div class="panel s4"><div class="ttl"><h4>Run schedule</h4><small>what happens when</small></div>'+rowKV('One tick','one week')+rowKV('Aggregate metrics','every 5 ticks')+rowKV('History samples','every 25 ticks')+rowKV('Assistant review','every 35 ticks')+rowKV('Warehouse flush','every 50 ticks')+'</div><div class="panel s5"><div class="ttl"><h4>Sectors at launch</h4><small>one baseline firm each, plus new entrants</small></div><div class="g4">'+SECTORS.map((sc,i)=>'<div style="padding:4px 0 4px '+(i?'12px':'0')+';border-left:'+(i?'1px solid var(--line)':'0')+'"><div style="font-weight:600;color:var(--ink)"><i style="display:inline-block;width:8px;height:8px;border-radius:2px;background:'+TONE[STONE[sc]]+';margin-right:6px"></i>'+sc+'</div><div class="kpi" style="margin-top:6px"><span class="n">5</span><span class="k">firms</span></div><div class="muted" style="font-size:11px;margin-top:4px">Baseline '+sc+' · opens at '+['$5.00','$25.00','$8.00','$10.00'][i]+'</div></div>').join('')+'</div></div><div class="panel s3"><div class="ttl"><h4>Assistant setup</h4><small>off until enabled</small></div>'+rowKV('Provider','local')+rowKV('Model','phi-4-mini')+rowKV('Instrument window','2 per cycle')+rowKV('Fiscal guard','on','good')+rowKV('Observation fields','14')+'</div>'+
+    '</div>';
+
+  V.command=()=>'<div class="ph"><div><div class="eyebrow">Command</div><h3>Economic command deck</h3><div class="sum" id="cmdsum"></div></div><span class="legend"><span><i style="background:var(--acc)"></i>Primary series</span><span><i style="background:var(--ai);width:2px;height:10px"></i>Policy change</span></span></div>'+
+    '<div class="ticker"><span class="lbl">LIVE</span><div class="track" id="ticker"></div></div>'+
+    '<div class="g12"><div class="s12" style="display:grid;grid-template-columns:repeat(6,1fr);gap:10px">'+['gdp','unemp','employment','wage','stress','profit'].map(k=>tile(k)).join('')+'</div>'+
+    '<div class="panel s8"><div class="ttl"><h4>Economic pulse · GDP output</h4><small>last 250 ticks · hover for values</small></div>'+chart('gdp',250)+'</div>'+
+    '<div class="panel s4"><div class="ttl"><h4>Population stress</h4><small>45% unemployment · 40% unhappiness · 15% firm pressure</small></div><div class="mrow"><div class="hero" style="margin:0"><div class="v" data-num="stress" data-fmt="score" style="font-size:46px"></div></div><div class="mlbl"><div id="stresslbl" class="lbl">composite /100</div><div class="muted" style="font-size:11px">0–45 nominal · 45–70 elevated · 70+ critical</div></div></div><div class="meter" id="stressmeter"><div class="fill"></div><i class="z" style="left:45%"></i><i class="z" style="left:70%"></i></div>'+chart('stress',64,'margin-top:10px')+'<div class="g2" style="margin-top:10px">'+tile('happy')+tile('health')+'</div></div>'+
+    '<div class="panel s8"><div class="ttl"><h4>Sector prices</h4><small>one chart per sector · last 120 ticks</small></div><div class="g4">'+SECTORS.map(s=>'<div><div class="lbl" style="display:flex;justify-content:space-between"><span><i style="display:inline-block;width:8px;height:8px;border-radius:2px;background:'+TONE[STONE[s]]+';margin-right:6px"></i>'+s+'</span><span class="mono" data-num="price.'+s.toLowerCase()+'" data-fmt="usd2" style="color:var(--ink)"></span></div>'+chart('price.'+s,84,'margin-top:4px')+'</div>').join('')+'</div></div>'+
+    '<div class="panel s4"><div class="ttl"><h4>Wealth distribution</h4><small>share of wealth by cohort</small></div><div id="wealthbars"></div><div class="ttl" style="margin-top:12px"><h4>Gini coefficient</h4><span class="delta" data-delta="gini"></span></div><div style="display:flex;align-items:center;gap:10px"><span class="kpi"><span class="n" data-num="gini" data-fmt="dec3" style="font-size:28px"></span></span><span class="pill crit" id="ginipill"><i></i>High inequality</span></div>'+chart('gini',66,'margin-top:6px')+'</div>'+
+    '<div class="panel s4"><div class="ttl"><h4>Wages</h4><small>mean vs median</small></div>'+chart('wages',150)+'</div>'+
+    '<div class="panel s4"><div class="ttl"><h4>Policy assistant</h4><small>manual controls active</small></div><div style="display:flex;gap:8px;align-items:center"><span class="pill ai"><i></i>Last acted t202</span><span class="pill">Inactive</span></div><p style="font-size:12px;color:var(--ink2);margin:10px 0 6px">Public works were switched on at tick 202 because unemployment had stayed above 25% for 40 ticks while the treasury ran a surplus.</p><div class="ba"><div class="b"><div class="k">Unemployment since</div><div class="v">31.4%<span class="arrow">→</span><span data-num="unemp" data-fmt="pct1"></span></div></div><div class="b"><div class="k">Fiscal balance</div><div class="v">+$8.1K<span class="arrow">→</span><span data-num="profit" data-fmt="moneyS"></span></div></div></div></div>'+
+    '<div class="panel s4"><div class="ttl"><h4>Unemployment</h4><small>band above 25% · policy markers</small></div>'+chart('unemp',150)+'</div></div>';
+
+  V.population=()=>{const h=HH[S.selH];const risk=HH.filter(hhRisk).length;return '<div class="ph"><div><div class="eyebrow">Population</div><h3>Households</h3><div class="sum">12 tracked households of 1,000. '+risk+' at risk, '+HH.filter(x=>x.state==='UNEMPLOYED').length+' unemployed.</div></div><div style="display:flex;gap:8px"><div class="kpi"><span class="n" data-num="employment" data-fmt="pct1"></span><span class="k">employed</span></div><div class="kpi" style="margin-left:14px"><span class="n" style="color:var(--warn)">'+risk+'</span><span class="k">at risk</span></div><div class="kpi" style="margin-left:14px"><span class="n">$412</span><span class="k">median cash</span></div></div></div>'+
+    '<div class="g12"><div class="panel s3"><div class="search">Search name, employer, state…</div><div class="chips" style="margin-bottom:8px"><span class="chip on">All 12</span><span class="chip">Working</span><span class="chip">Unemployed</span><span class="chip">At risk</span><span class="chip">No housing</span></div><div class="roster">'+
+    HH.map(x=>'<div class="r '+(x.id===S.selH?'on':'')+'" onclick="selH('+x.id+')"><i class="st" style="background:'+TONE[hhRisk(x)?(x.state==='UNEMPLOYED'?'crit':'warn'):'good']+'"></i><div><div class="nm">'+x.name+'</div><div class="em">'+(x.state==='UNEMPLOYED'?'Unemployed':x.emp)+'</div></div><div class="cash">'+F.money(x.cash)+'</div><svg data-spark-d="'+x.id+'"></svg></div>').join('')+'</div></div>'+
+    '<div class="panel s6 hot"><div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px"><div><div class="lbl">'+h.name+' · id '+String(284+h.id*37).padStart(4,'0')+' · age '+h.age+'</div><div style="font-size:26px;font-weight:700;color:var(--ink);letter-spacing:-.02em;margin-top:2px">'+(h.state==='UNEMPLOYED'?'Looking for work':h.emp)+' <span style="font-size:13px;color:var(--ink3);font-weight:500">'+(h.wage?'· '+F.usd2(h.wage)+'/tick':'')+'</span></div><div class="chips" style="margin-top:8px"><span class="pill '+stateTone(h.state)+'"><i></i>'+h.state.charAt(0)+h.state.slice(1).toLowerCase()+'</span><span class="pill '+(h.cash>150?'good':'warn')+'"><i></i>'+(h.cash>150?'Rented · secure':'Rent at risk')+'</span>'+(h.needs.food<.3?'<span class="pill warn"><i></i>Food inventory low</span>':'')+'</div></div><div style="text-align:right"><div class="lbl">Net worth</div><div class="hero"><div class="v" style="font-size:38px" data-num-d="cash" data-fmt="money"></div></div><span class="delta '+(h.hist.cash[39]>=h.hist.cash[14]?'up':'down')+'">'+(h.hist.cash[39]>=h.hist.cash[14]?'▲':'▼')+' '+F.money(Math.abs(h.hist.cash[39]-h.hist.cash[14]))+' vs t'+(S.tick-25)+'</span></div></div>'+
+    '<div style="display:grid;grid-template-columns:150px 1fr;gap:14px;margin-top:14px"><div class="canvas-slot" style="min-height:200px">NeuralAvatar canvas<br>kept as an accent</div><div><div class="profhead"><span class="lbl">Profile · '+h.name+' against the population median</span><span class="chips"><span class="chip '+(S.profile!=='bars'?'on':'')+'" onclick="setProfile(\'radar\')">Radar</span><span class="chip '+(S.profile==='bars'?'on':'')+'" onclick="setProfile(\'bars\')">Bars</span></span></div>'+(S.profile==='bars'?profileBars(h):'<svg class="radar" data-radar="'+h.id+'"></svg>')+'</div></div>'+
+    '<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-top:14px">'+[['Expected wage',F.usd2(h.wage||39)],['Reservation wage',F.usd2((h.wage||39)-.05)],['Monthly rent','$'+h.rent],['Medical debt','$0']].map(x=>'<div class="kpi"><span class="k">'+x[0]+'</span><span class="n" style="font-size:16px;font-family:var(--mono)">'+x[1]+'</span></div>').join('')+'</div>'+'<div class="g2" style="margin-top:14px"><div><div class="ttl"><h4>Wealth</h4><small>40 ticks</small></div>'+chart('hhCash',118)+'</div><div><div class="ttl"><h4>Wage</h4><small>40 ticks</small></div>'+chart('hhWage',118)+'</div></div></div>'+
+    '<div class="s3 col"><div class="panel"><div class="ttl"><h4>Wage drivers</h4><small>why they ask '+F.usd2(h.wage||39)+'</small></div>'+rowKV('Anchor',h.state==='UNEMPLOYED'?'Unemployed floor':'Employed wage')+rowKV('Reservation',F.usd2((h.wage||39)-.05))+rowKV('Gap vs current',h.state==='UNEMPLOYED'?'—':'$0.05','good')+rowKV('Unemployed for',h.state==='UNEMPLOYED'?(14+h.id)+' ticks':'0 ticks',h.state==='UNEMPLOYED'?'crit':'')+rowKV('Skills',h.skills.toFixed(2))+'</div><div class="panel"><div class="ttl"><h4>Housing</h4></div>'+rowKV('Status',h.cash>150?'Rented':'Rent at risk',h.cash>150?'':'warn')+rowKV('Monthly rent','$'+h.rent)+rowKV('Need met',h.needs.housing>.6?'Yes':'Partly',h.needs.housing>.6?'good':'warn')+rowKV('Security',h.cash>150?'Secure':'Fragile',h.cash>150?'good':'crit')+'</div><div class="panel"><div class="ttl"><h4>This tick</h4><small>cash movement</small></div><div class="ledger" data-hh="'+h.id+'"></div></div><div class="panel" style="flex:1"><div class="ttl"><h4>Recent events</h4></div>'+sig('good','Wage paid · '+F.usd2(h.wage||0),'',`t${S.tick-1}`)+sig('good','Paid rent · $'+h.rent,'',`t${S.tick-1}`)+sig(h.needs.food<.3?'warn':'good',h.needs.food<.3?'Food purchase failed':'Bought food','',`t${S.tick-2}`)+sig(h.needs.services<.3?'warn':'good',h.needs.services<.3?'Skipped services':'Used services','',`t${S.tick-3}`)+sig('ai','Public works transfer','',`t${S.tick-9}`)+sig(h.health<.6?'warn':'good',h.health<.6?'Clinic visit · queued':'Health check · fine','',`t${S.tick-14}`)+'</div></div>'};
+  V.markets=()=>{const f=FIRMS[S.selF];const rows=[...FIRMS].sort((a,b)=>(a[S.sortKey]>b[S.sortKey]?1:-1)*S.sortDir);const maxCash=Math.max(...FIRMS.map(x=>Math.abs(x.cash)));
+    return '<div class="ph"><div><div class="eyebrow">Markets</div><h3>Firms &amp; sectors</h3><div class="sum">30 firms across four sectors. Housing holds most of the cash, food employs most of the people.</div></div><div class="chips">'+['Food Firm #9','Services Firm #11','Housing Co','Clinic #1'].map(n=>'<span class="chip" onclick="selF('+FIRMS.findIndex(x=>x.name===n)+')">'+n+'</span>').join('')+'<span class="chip">+ watch</span></div></div>'+
+    '<div class="g12"><div class="s12 g4">'+['firms','employees','wageoffer','struggling'].map(k=>tile(k)).join('')+'</div>'+
+    '<div class="panel s8"><div class="ttl"><h4>Sector map</h4><small>firms · employees · cash · price</small></div><div class="g4">'+SECTORS.map((s,i)=>{const fs=FIRMS.filter(x=>x.sector===s);const cash=fs.reduce((a,x)=>a+x.cash,0)/fs.length;return '<div style="padding:4px 0 4px '+(i?'14px':'0')+';border-left:'+(i?'1px solid var(--line)':'0')+'"><div style="display:flex;justify-content:space-between;align-items:center"><span style="font-weight:700;color:var(--ink)"><i style="display:inline-block;width:8px;height:8px;border-radius:2px;background:'+TONE[STONE[s]]+';margin-right:6px"></i>'+s+'</span><span class="pill '+(cash<2000?'crit':'good')+'"><i></i>'+(cash<2000?'Distress':'Stable')+'</span></div><div style="display:flex;gap:14px;margin-top:8px"><div class="kpi"><span class="n">'+[16,2,12,1][i]+'</span><span class="k">firms</span></div><div class="kpi"><span class="n">'+[292,50,284,20][i]+'</span><span class="k">employees</span></div></div><div class="lbl" style="margin-top:8px;display:flex;justify-content:space-between"><span>avg cash</span><span class="mono" style="color:'+(cash<2000?'var(--crit)':'var(--ink)')+'">'+F.money(cash)+'</span></div><div class="lbl" style="display:flex;justify-content:space-between"><span>price</span><span class="mono" data-num="price.'+s.toLowerCase()+'" data-fmt="usd2" style="color:var(--ink)"></span></div>'+chart('price.'+s,54,'margin-top:6px')+'</div>'}).join('')+'</div></div>'+
+    '<div class="panel s4 hot"><div class="ttl"><h4>Selected firm</h4><span class="pill '+firmTone(f.state)+'"><i></i>'+f.state.charAt(0)+f.state.slice(1).toLowerCase()+'</span></div><div style="font-size:22px;font-weight:700;color:var(--ink);letter-spacing:-.02em">'+f.name+'</div><div class="lbl"><i style="display:inline-block;width:8px;height:8px;border-radius:2px;background:'+TONE[STONE[f.sector]]+';margin-right:6px"></i>'+f.sector+' · id '+f.id+'</div><div style="display:grid;grid-template-columns:110px 1fr;gap:12px;margin-top:10px;flex:1"><div class="canvas-slot" style="min-height:120px">NeuralBuilding canvas</div><div>'+rowKV('Cash',F.money(f.cash),f.cash<2000?'crit':'')+rowKV('Profit / tick',F.moneyS(f.profit),f.profit<0?'crit':'good')+rowKV('Employees',f.emp)+rowKV('Wage offer',F.usd2(f.wage))+rowKV('Price',F.usd2(f.price))+rowKV('Inventory',Math.round(300+f.id*37))+rowKV('Quality',(4+f.id*.3).toFixed(1))+'</div></div></div>'+
+    '<div class="panel s8"><div class="ttl"><h4>All firms</h4><small>click a column to sort · click a row to inspect</small></div><div class="tablefill"><table><thead><tr>'+[['name','Firm'],['sector','Sector'],['cash','Cash','ar'],['price','Price','ar'],['wage','Wage','ar'],['emp','Employees','ar'],['profit','Profit','ar'],['state','State']].map(c=>'<th class="'+(c[2]||'')+'" onclick="sortF(\''+c[0]+'\')">'+c[1]+(S.sortKey===c[0]?(S.sortDir<0?' ↓':' ↑'):'')+'</th>').join('')+'</tr></thead><tbody>'+
+    rows.map(x=>'<tr class="'+(x.id===S.selF?'sel':'')+'" onclick="selF('+x.id+')"><td style="font-weight:600;color:var(--ink)">'+x.name+'</td><td><i style="display:inline-block;width:8px;height:8px;border-radius:2px;background:'+TONE[STONE[x.sector]]+';margin-right:6px"></i>'+x.sector+'</td><td class="n ar"><span class="ibar" style="width:'+Math.round(Math.abs(x.cash)/maxCash*40)+'px;background:'+(x.cash<0?'var(--crit)':'var(--acc)')+'"></span>'+F.money(x.cash)+'</td><td class="n ar">'+F.usd2(x.price)+'</td><td class="n ar">'+F.usd2(x.wage)+'</td><td class="n ar">'+x.emp+'</td><td class="n ar" style="color:'+(x.profit<0?'var(--crit)':'var(--good)')+'">'+F.moneyS(x.profit)+'</td><td><span class="pill '+firmTone(x.state)+'"><i></i>'+x.state.charAt(0)+x.state.slice(1).toLowerCase()+'</span></td></tr>').join('')+'</tbody></table></div></div>'+
+    '<div class="s4 col"><div class="panel" style="flex:1"><div class="ttl"><h4>Cash · '+f.name+'</h4><small>40 ticks</small></div>'+chart('fCash',150)+'</div><div class="panel" style="flex:1"><div class="ttl"><h4>Profit · '+f.name+'</h4><small>40 ticks</small></div>'+chart('fProfit',150)+'</div></div></div>'};
+
+  V.finance=()=>'<div class="ph"><div><div class="eyebrow">Finance</div><h3>Treasury &amp; credit</h3><div class="sum" id="finsum"></div></div><span class="legend"><span><i style="background:var(--acc)"></i>Revenue</span><span><i style="background:var(--s1)"></i>Outlays</span><span><i style="background:var(--ai);width:2px;height:10px"></i>Policy change</span></span></div>'+
+    '<div class="g12"><div class="panel hero hot s3"><div class="lbl">Net fiscal balance · per tick</div><div class="v" data-num="profit" data-fmt="moneyS" data-tone="profit"></div><div class="meta"><span class="delta" data-delta="profit"></span><span class="pill good" id="surpluspill"><i></i>Surplus</span></div>'+chart('profitHero',56,'margin-top:10px')+'</div>'+
+    '<div class="s9" style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px">'+['rev','out','bonds','networth'].map(k=>ctile(k)).join('')+'</div>'+
+    '<div class="panel s8"><div class="ttl"><h4>Fiscal flows</h4><small>last 250 ticks · hover for values</small></div>'+chart('flows',232)+'</div>'+
+    '<div class="panel s4"><div class="ttl"><h4>Fiscal flow this tick</h4><small>where the money came from and went</small></div><div class="ledger"></div><div class="g2" style="margin-top:12px">'+tile('loans')+tile('debt')+'</div></div>'+
+    '<div class="panel s7"><div class="ttl"><h4>Government-backed loans</h4><small>firms holding treasury credit · 250 ticks</small></div>'+chart('loansHist',110)+'</div>'+
+    '<div class="panel s5"><div class="ttl"><h4>State capacity</h4><small>what the treasury holds</small></div>'+rowKV('Government-owned firms','4')+rowKV('Government-backed loans',String(Math.round(cur('loans'))))+rowKV('Bond purchases',F.money(cur('bonds')))+rowKV('Investments','$0')+rowKV('Treasury debt','$0 · none recorded','good')+'</div></div>';
+
+  V.government=()=>{const active=LEVERS.flatMap(g=>g.items).filter(i=>i[2]!==i[3]).length;const D=DECISION;const who=p=>p.by==='ai'?'var(--ai)':p.by==='you'?'var(--acc)':'var(--ink4)';const whoL=p=>p.by==='ai'?'AI':p.by==='you'?'You':'Auto';
+    const sel=POL[S.selChange]||POL[0];const at=(k,t)=>{const a=getH(k);const i=a.length-1-(S.tick-t);return i>=0?a[i]:null};
+    const effRow=k=>{const e=EFF[k];const b=at(k,sel.t),n=cur(k);const d=b==null?null:n-b;const good=d==null?null:(k==='unemp'?d<0:d>0);const fmt=F[e[2]];return '<div><div class="effh"><span class="lbl">'+e[0]+'</span><span class="mono" style="color:var(--ink)">'+(b==null?'—':fmt(b))+' <span class="muted">→</span> '+fmt(n)+(d==null?'':' <b style="color:'+(good?'var(--good)':'var(--crit)')+'">'+(d>0?'+':'−')+(k==='unemp'||k==='happy'?Math.abs(d).toFixed(1)+(k==='unemp'?' pp':' pts'):F.money(Math.abs(d)))+'</b>')+'</span></div>'+chart('eff.'+k,110,'margin-top:4px')+'</div>'};
+    const changeCard=(p,i)=>{const c=p.ok?who(p):'var(--crit)';return '<div class="tlc '+(i===S.selChange?'on':'')+'" style="--tlc:'+c+'" onclick="selChange('+i+')"><div><div class="tk">t'+p.t+'</div><div class="ac" style="color:'+c+'">'+(p.ok?whoL(p):'Refused')+'</div></div><div style="min-width:0"><div class="tb">'+p.label+'</div>'+(p.ok?'<div class="td">'+(p.why||(p.by==='you'?'Manual change from the console.':'Automatic adjustment.'))+'</div><div style="margin-top:6px">'+impactChips(p.t)+'</div>':'<div class="td">Blocked by the fiscal guard. The economy never saw it.</div>')+'</div></div>'};
+    const leverTile=it=>{const [key,label,live,def]=it;const activeL=live!==def;const ch=[...POL].reverse().find(p=>p.key===key&&p.ok)||null;const hit=sel.key===key;const hitCol=sel.ok?who(sel):'var(--crit)';
+      return '<div class="lv '+(activeL?'active':'')+(hit?' hit':'')+'" style="'+(hit?'--hit:'+hitCol:'')+'"><div class="lvt"><span>'+label+'</span><b class="mono" style="'+(ch&&ch.by==='ai'?'color:var(--ai)':activeL?'color:var(--acc)':'')+'">'+live+'</b></div>'+(hit?'<div class="lvc" style="color:'+hitCol+'">'+(sel.ok?whoL(sel)+' moved it · t'+sel.t+' · was '+sel.prev:'refused '+sel.value+' · t'+sel.t)+'</div>':ch?'<div class="lvc">'+whoL(ch)+' · t'+ch.t+' · was '+ch.prev+'</div>':'')+'</div>'};
+    return '<div class="ph"><div><div class="eyebrow">Government</div><h3>Government console</h3><div class="sum">What changed, who changed it, and how the economy moved afterwards. Levers sit around the changes, not in front of them.</div></div></div>'+
+    '<div class="panel hot" style="display:grid;grid-template-columns:minmax(0,1.25fr) 180px minmax(0,.75fr);gap:16px;padding:12px 16px"><div><div class="chips"><span class="pill ai"><i></i>AI government · phi-4-mini</span><span class="pill good"><i></i>Fiscal mode '+D.mode+'</span><span class="pill acc"><i></i>Goal · '+D.goal+'</span></div><div style="font-size:24px;font-weight:600;color:var(--ink);letter-spacing:-.01em;margin-top:6px;line-height:1.1">'+D.goal+'</div><p style="margin:4px 0 0;font-size:12px;color:var(--ink3);max-width:60ch">Observed t'+D.observed+', applied t'+D.applied+'. Moved 1 instrument, refused 1. Next observation window opens at t275.</p><div class="facts" style="margin-top:8px"><div class="fact"><div class="k">Observed → applied</div><div class="v">'+D.observed+' → '+D.applied+'</div></div><div class="fact"><div class="k">Decision latency</div><div class="v">3.8<small>s</small></div></div><div class="fact"><div class="k">This cycle</div><div class="v">1 · 1<small>accepted · refused</small></div></div><div class="fact"><div class="k">Active interventions</div><div class="v">'+active+'<small>of 17</small></div></div></div></div><div class="canvas-slot">NeuralGovernment canvas</div><div style="display:flex;flex-direction:column;justify-content:flex-end">'+toggle('AI government','Model proposes, the fiscal guard validates, levers apply next tick.',true)+'</div></div>'+
+    '<div class="g12" style="margin-top:10px"><div class="panel s8" style="display:grid;grid-template-columns:minmax(0,5.4fr) minmax(0,6.6fr);gap:14px"><div style="display:flex;flex-direction:column;min-height:0"><div class="ttl"><h4 style="font-size:14px">Policy changes</h4><span class="legend"><span><i style="background:var(--ai);width:8px;height:8px;border-radius:50%"></i>AI</span><span><i style="background:var(--acc);width:8px;height:8px;border-radius:50%"></i>You</span><span><i style="background:var(--ink4);width:8px;height:8px;border-radius:50%"></i>Auto</span></span></div>'+'<div class="tlwrap">'+[...POL].map((p,i)=>[p,i]).reverse().map(([p,i])=>changeCard(p,i)).join('')+'<div class="tlc" style="cursor:default;--tlc:var(--ink4)"><div><div class="tk">t40</div><div class="ac" style="color:var(--ink4)">Auto</div></div><div><div class="tb">Investment tax 9.8% → 10%</div><div class="td">Automatic adjustment.</div></div></div></div><div class="ttl" style="margin-top:auto;padding-top:8px"><h4>This run</h4><small>'+(POL.length+1)+' changes</small></div>'+rowKV('AI accepted',POL.filter(p=>p.by==='ai'&&p.ok).length,'good')+rowKV('AI refused',POL.filter(p=>p.by==='ai'&&!p.ok).length,'crit')+rowKV('Manual',POL.filter(p=>p.by==='you').length)+rowKV('Automatic','1')+rowKV('Next AI review','t275')+'</div>'+
+    '<div class="effpane" style="border-left:1px solid var(--line);padding-left:14px;min-width:0"><div class="ttl"><h4 style="font-size:14px">'+(sel.ok?'Effects since t'+sel.t+' · <b>'+sel.label+'</b>':'Refused at t'+sel.t+' · <b>'+sel.label+'</b>')+'</h4><small>'+(sel.ok?whoL(sel)+' · '+(S.tick-sel.t)+' ticks of movement · not attribution':'no effect')+'</small></div>'+(sel.ok?'<div class="effgrid">'+['gdp','unemp','happy','profit'].map(effRow).join('')+'</div>':'<div class="muted" style="font-size:12px;padding:10px 0">The fiscal guard blocked this change, so the economy never saw it. The charts on the left show the accepted changes instead.</div>')+
+    (sel.by==='ai'?'<div style="margin-top:10px"><div class="lbl">What the model argued</div><p class="quote" style="margin:6px 0">'+(sel.why||D.rationale)+'</p>'+(sel.t===D.observed?'<div>'+D.evidence.map(e=>'<div style="display:flex;gap:8px;align-items:center;font-size:11.5px;padding:2px 0"><span class="audit '+(e[1]==='matched'?'ok':e[1]==='mismatch'?'bad':'')+'">'+e[1]+'</span><span class="mono" style="color:var(--ink2)">'+e[0]+'</span><span class="muted" style="margin-left:auto;font-size:10.5px">'+e[2]+'</span></div>').join('')+'</div>':'')+'</div>':sel.by==='you'?'<div class="muted" style="font-size:11.5px;margin-top:10px">Manual change from the console. Applied at the next tick boundary.</div>':'')+
+    '<div style="margin-top:10px;display:flex;gap:6px;flex-wrap:wrap;align-items:center"><span class="lbl">Lever moved</span><span class="pill" style="color:'+(sel.ok?who(sel):'var(--crit)')+'"><i style="background:'+(sel.ok?who(sel):'var(--crit)')+'"></i>'+LEVERS.flatMap(g=>g.items).filter(i=>i[0]===sel.key).map(i=>i[1])[0]+' · '+sel.prev+' → '+sel.value+'</span></div></div></div>'+
+    '<div class="panel s4"><div class="ttl"><h4>Policy stance</h4><small>'+active+' of 17 off default</small></div>'+LEVERS.map(g=>'<div class="lgroup">'+g.g+'<i></i></div><div class="lv2">'+g.items.map(leverTile).join('')+'</div>').join('')+'<div class="muted" style="font-size:10.5px;margin-top:8px">Click a lever to edit it. The highlighted one is what the selected change moved.</div></div>'+
+    '<div class="panel s4"><div class="ttl"><h4>Fiscal flow this tick</h4><small>per tick</small></div><div class="ledger"></div></div>'+
+    '<div class="panel s5"><div class="ttl"><h4>Assistant</h4><small>phi-4-mini · local provider · reviews every 35 ticks</small></div><div class="facts" style="margin-top:4px"><div class="fact"><div class="k">Decisions</div><div class="v">7</div></div><div class="fact"><div class="k">Accepted · refused</div><div class="v">5 · 2</div></div><div class="fact"><div class="k">Parsed OK</div><div class="v">7<small>of 7</small></div></div><div class="fact"><div class="k">Avg latency</div><div class="v">3.6<small>s</small></div></div></div>'+rowKV('Next review','t275')+rowKV('Instrument window','2 per cycle')+rowKV('Last error','none','good')+'</div>'+
+    '<div class="panel s3"><div class="ttl"><h4>State capacity</h4></div>'+rowKV('Government-owned firms','4')+rowKV('Government-backed loans','9')+rowKV('Bond purchases',F.money(cur('bonds')))+rowKV('Treasury debt','$0','good')+rowKV('Levers at default',(17-active)+' / 17')+'</div></div>'};
+
+  V.logs=()=>{const types=['All','System','Market','Agent','Firm','Policy','Bank'];const counts={};LOGS.forEach(l=>counts[l.type]=(counts[l.type]||0)+1);const rows=LOGS.filter(l=>S.logFilter==='All'||l.type===S.logFilter);const selv=rows[Math.min(S.selLog,rows.length-1)]||rows[0];const same=selv?LOGS.filter(l=>l.ent===selv.ent&&l!==selv).slice(-6).reverse():[];
+    return '<div class="ph"><div><div class="eyebrow">Logs</div><h3>Audit console</h3><div class="sum">Client-buffered live events. Newest at the bottom, auto-scroll on.</div></div><div style="display:flex;gap:8px"><button class="btn">Comfortable</button><button class="btn" style="border-color:var(--acc)">Auto-scroll on</button></div></div>'+
+    '<div class="chips" style="margin-bottom:10px;align-items:center">'+types.map(t=>'<span class="chip '+(S.logFilter===t?'on':'')+'" onclick="logFilter(\''+t+'\')">'+t+' <b class="mono" style="font-weight:500;margin-left:4px;color:var(--ink3)">'+(t==='All'?LOGS.length:counts[t]||0)+'</b></span>').join('')+'<span style="width:1px;height:16px;background:var(--line2);margin:0 6px"></span><span class="chip on">All severities</span><span class="chip">Info</span><span class="chip">Warning</span><span class="chip">Error</span></div>'+
+    '<div class="g12"><div class="s9 col"><div class="g4">'+'<div class="tile"><div class="l"><span>Events</span></div><div class="v" id="evcount">'+LOGS.length+'</div><div class="foot"><span class="cap">buffered</span></div></div><div class="tile"><div class="l"><span>Warnings</span></div><div class="v" style="color:var(--warn)">'+LOGS.filter(l=>l.sev==='warning').length+'</div><div class="foot"><span class="cap">last 60 ticks</span></div></div><div class="tile"><div class="l"><span>Errors</span></div><div class="v" style="color:var(--crit)">'+LOGS.filter(l=>l.sev==='error').length+'</div><div class="foot"><span class="cap">last 60 ticks</span></div></div>'+tile('tickms')+'</div>'+
+    '<div class="panel" style="flex:1"><div class="search" style="margin-bottom:6px">Search tick, entity, or message…</div><div class="logwrap" id="logwrap"><table><thead><tr><th>Tick</th><th>Type</th><th>Entity</th><th>Message</th><th class="ar">Duration</th></tr></thead><tbody id="logbody">'+rows.map((l,i)=>logRow(l,i,selv===l)).join('')+'</tbody></table></div></div></div>'+
+    '<div class="panel s3"><div class="ttl"><h4>Selected event</h4><small class="mono">t'+(selv?selv.t:'')+'</small></div>'+(selv?rowKV('Type',selv.type)+rowKV('Severity',selv.sev,selv.sev==='error'?'crit':selv.sev==='warning'?'warn':'')+rowKV('Entity',selv.ent)+'<div class="lbl" style="margin-top:10px">Message</div><div style="font-size:13px;color:var(--ink);margin:4px 0 12px">'+selv.msg+'</div><div class="lbl">Raw</div><div class="json" style="margin-top:4px">{\n  <b>"tick"</b>: <i>'+selv.t+'</i>,\n  <b>"type"</b>: <i>"'+selv.type.toUpperCase().slice(0,3)+'"</i>,\n  <b>"txt"</b>: <i>"'+selv.msg+'"</i>\n}</div><div class="ttl" style="margin-top:14px"><h4>Same entity</h4><small>'+selv.ent+' · last '+same.length+'</small></div>'+(same.length?same.map(l=>sig(l.sev==='error'?'crit':l.sev==='warning'?'warn':'ink3',l.msg,'', 't'+l.t)).join(''):'<div class="muted" style="font-size:11.5px">No other events from this entity in the buffer.</div>'):'')+'<div class="ttl" style="margin-top:14px"><h4>Buffer by type</h4><small>'+LOGS.length+' events</small></div><div class="ledger" data-static="1">'+types.slice(1).map(t=>{const c=counts[t]||0;return '<div class="lr"><span>'+t+'</span><div class="tr"><div class="fl" style="width:'+Math.round(c/Math.max(1,LOGS.length)*100)+'%;background:var(--ink3)"></div></div><span class="nv">'+c+'</span></div>'}).join('')+'</div></div></div>'};
+  const logRow=(l,i,sel)=>'<tr class="sev-'+l.sev+' '+(sel?'sel':'')+'" onclick="selLog('+i+')"><td class="n">'+l.t+'</td><td><i class="sdot" style="margin:0 7px 0 0;vertical-align:middle;background:'+(l.sev==='error'?'var(--crit)':l.sev==='warning'?'var(--warn)':'var(--ink4)')+'"></i>'+l.type+'</td><td>'+l.ent+'</td><td style="white-space:normal">'+l.msg+'</td><td class="n ar">'+(l.ms?l.ms.toFixed(0)+' ms':'—')+'</td></tr>';
+
+  // ---------- logos ----------
+  const LOGOS={
+    1:'<svg viewBox="0 0 32 32" fill="none"><path d="M6 5v21h21" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" opacity=".42"/><path d="M8 8C14 10 18 14 26 23" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/><path d="M8 24C14 20 18 15 26 9" stroke="var(--acc)" stroke-width="2.4" stroke-linecap="round"/><circle cx="17.2" cy="15.6" r="3.1" fill="var(--acc)" stroke="var(--panel)" stroke-width="1.6"/></svg>'};
+
+  // ---------- nav & shell ----------
+  const NAV=[['config','Config','<path d="M12 20a8 8 0 1 0 0-16 8 8 0 0 0 0 16z"/><path d="M12 8v4l2.5 2.5"/>'],['command','Command','<path d="M22 12h-4l-3 9L9 3l-3 9H2"/>'],['population','Population','<path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.9M16 3.1a4 4 0 0 1 0 7.8"/>'],['markets','Markets','<path d="M3 21h18M5 21V7l8-4v18M19 21V11l-6-4M9 9v.01M9 12v.01M9 15v.01"/>'],['finance','Finance','<path d="M21 12V7H5a2 2 0 0 1 0-4h14v4"/><path d="M3 5v14a2 2 0 0 0 2 2h16v-5"/><path d="M18 12a2 2 0 0 0 0 4h4v-4z"/>'],['government','Government','<path d="M3 22h18M6 18v-7M10 18v-7M14 18v-7M18 18v-7M12 2 2 7h20z"/>'],['logs','Logs','<path d="m4 17 6-6-6-6M12 19h8"/>']];
+  const CRUMB={config:'Preflight',command:'Command deck',population:'Population',markets:'Markets',finance:'Finance',government:'Government',logs:'Logs'};
+  function renderNav(){document.getElementById('nav').innerHTML=NAV.map(n=>'<button class="nav '+(S.view===n[0]?'on':'')+'" onclick="go(\''+n[0]+'\')"><svg viewBox="0 0 24 24">'+n[2]+'</svg>'+n[1]+'</button>').join('');document.getElementById('crumb').innerHTML='EcoSim <span>/</span> '+CRUMB[S.view]}
+  function renderMark(){document.getElementById('mark').innerHTML=LOGOS[S.logo];document.getElementById('logopicks').innerHTML=[1].map(i=>'<button class="opt '+(S.logo===i?'on':'')+'" onclick="setLogo('+i+')">'+LOGOS[i]+'</button>').join('');
+    document.querySelectorAll('[data-theme-pick]').forEach(b=>b.classList.toggle('on',b.dataset.themePick===S.theme))}
+  window.go=v=>{S.view=v;render()};window.selH=i=>{S.selH=i;render()};window.selF=i=>{S.selF=i;render()};window.sortF=k=>{if(S.sortKey===k)S.sortDir*=-1;else{S.sortKey=k;S.sortDir=-1}render()};
+  window.selLog=i=>{S.selLog=i;render()};window.setProfile=v=>{S.profile=v;render();report('profile:'+v)};window.selChange=i=>{S.selChange=i;render()};window.logFilter=t=>{S.logFilter=t;S.selLog=0;render()};
+  window.setLogo=i=>{S.logo=i;renderMark();report('logo:'+i)};
+  const report=v=>{try{window.brainstorm&&window.brainstorm.choice(v)}catch(e){}};
+  document.querySelectorAll('[data-theme-pick]').forEach(b=>b.onclick=()=>{S.theme=b.dataset.themePick;document.documentElement.dataset.theme=S.theme;renderMark();report('theme:'+S.theme);mount(false)});
+  document.getElementById('runbtn').onclick=()=>{S.running=!S.running;document.body.classList.toggle('paused',!S.running);document.getElementById('runbtn').textContent=S.running?'❚❚ Suspend':'▶ Resume';const p=document.getElementById('runpill');p.className='pill '+(S.running?'good':'warn');p.innerHTML='<i></i>'+(S.running?'Running':'Suspended')};
+
+  // ---------- render/mount/refresh ----------
+  function render(){renderNav();document.getElementById('view').innerHTML=V[S.view]();mount(true);refresh(true)}
+  function mount(anim){document.querySelectorAll('[data-chart]').forEach(w=>drawChart(w,specFor(w.dataset.chart),anim));
+    document.querySelectorAll('[data-gauge-v]').forEach(s=>drawGauge(s,+s.dataset.gaugeV,s.dataset.tone,anim));
+    document.querySelectorAll('[data-gauge="stress"]').forEach(s=>{const v=cur('stress');drawGauge(s,v,v>70?'crit':v>45?'warn':'good',anim)});
+    document.querySelectorAll('[data-radar]').forEach(s=>drawRadar(s,HH[+s.dataset.radar],anim));
+    document.querySelectorAll('[data-spark-d]').forEach(s=>{const h=HH[+s.dataset.sparkD];drawSpark(s,h.hist.cash.slice(-24),h.state==='UNEMPLOYED'?'crit':hhRisk(h)?'warn':'acc')})}
+  function animateNum(elm,to,fmt,fromZero){const from=fromZero?0:(elm._cur??to);elm._cur=to;const id=(elm._anim=(elm._anim||0)+1);if(Math.abs(to-from)<1e-9){elm.textContent=fmt(to);return}const t0=performance.now(),dur=fromZero?800:450;
+    const step=t=>{if(elm._anim!==id)return;const k=Math.max(0,Math.min(1,(t-t0)/dur)),e=1-Math.pow(1-k,3);elm.textContent=fmt(from+(to-from)*e);if(k<1)requestAnimationFrame(step);else elm.textContent=fmt(to)};requestAnimationFrame(step)}
+  function refresh(first){
+    document.getElementById('tick').textContent=String(S.tick).padStart(5,'0');
+    document.querySelectorAll('[data-num]').forEach(e=>animateNum(e,cur(e.dataset.num),F[e.dataset.fmt],first));
+    document.querySelectorAll('[data-num-d]').forEach(e=>animateNum(e,HH[S.selH].cash,F[e.dataset.fmt],first));
+    document.querySelectorAll('[data-delta]').forEach(e=>{const k=e.dataset.delta;const v=cur(k),b=back(k,25);const d=v-b;const pct=b?Math.abs(d/b*100):0;const t=TILES[k]||{};const good=(t.upBad?d<0:d>0);const fmt=F[t.fmt||'dec3'];
+      e.className='delta '+(Math.abs(pct)<.05?'':good?'up':'down');e.title='vs tick '+(S.tick-25);e.textContent=(d>0?'▲ ':d<0?'▼ ':'— ')+(t.fmt==='pct1'||t.fmt==='dec1'||t.fmt==='score'?Math.abs(d).toFixed(1)+' pts':t.fmt==='int'?Math.abs(Math.round(d)):pct.toFixed(1)+'%')+(e.closest('.hero')?' vs t'+(S.tick-25):'')});
+    document.querySelectorAll('[data-tile]').forEach(e=>{const k=e.dataset.tile;const t=TILES[k];const tone=t.tone?t.tone(cur(k)):'';const prev=e.dataset.tone||'';e.classList.remove('warn','crit');if(tone)e.classList.add(tone);if(!first&&prev!==tone){e.classList.remove('flash');void e.offsetWidth;e.classList.add('flash')}e.dataset.tone=tone;
+      const sp=e.querySelector('[data-spark]');if(sp)drawSpark(sp,getH(k).slice(-24),tone||'acc')});
+    document.querySelectorAll('[data-tone="profit"]').forEach(e=>e.classList.toggle('good',cur('profit')>=0));
+    if(!first)document.querySelectorAll('[data-chart]').forEach(w=>drawChart(w,specFor(w.dataset.chart),false));
+    document.querySelectorAll('.ledger:not([data-static])').forEach(e=>e.innerHTML=e.dataset.hh!=null?hhLedger(HH[+e.dataset.hh]):ledgerHTML());
+    if(!first)document.querySelectorAll('[data-gauge="stress"]').forEach(s=>{const v=cur('stress');drawGauge(s,v,v>70?'crit':v>45?'warn':'good',false)});
+    const st=cur('stress');const sl=document.getElementById('stresslbl');if(sl)sl.textContent=(st>70?'Critical':st>45?'Elevated':'Nominal')+' · composite /100';const mf=document.querySelector('#stressmeter .fill');if(mf){mf.style.width=Math.min(100,st)+'%';mf.style.background=st>70?'var(--crit)':st>45?'var(--warn)':'var(--good)'}
+    const wb=document.getElementById('wealthbars');if(wb){const b=cur('bottom50'),m=cur('mid40'),t=cur('top10');wb.innerHTML='<div class="stack"><div style="width:'+b+'%;background:var(--ink4)"></div><div style="width:'+m+'%;background:var(--s1)"></div><div style="width:'+t+'%;background:var(--acc)"></div></div><div class="legend" style="margin-top:8px;justify-content:space-between"><span><i style="background:var(--ink4)"></i>Bottom 50% <b class="mono" style="color:var(--ink)">'+b.toFixed(1)+'%</b></span><span><i style="background:var(--s1)"></i>Middle 40% <b class="mono" style="color:var(--ink)">'+m.toFixed(1)+'%</b></span><span><i style="background:var(--acc)"></i>Top 10% <b class="mono" style="color:var(--ink)">'+t.toFixed(1)+'%</b></span></div>'}
+    const cs=document.getElementById('cmdsum');if(cs)cs.textContent='GDP '+F.money(cur('gdp'))+' this tick, unemployment '+F.pct1(cur('unemp'))+', fiscal balance '+F.moneyS(cur('profit'))+'.';
+    const fs=document.getElementById('finsum');if(fs)fs.textContent=(cur('profit')>=0?'Revenue is covering outlays this tick.':'Outlays exceed revenue this tick.')+' Treasury debt has been flat for 190 ticks.';
+    const tk=document.getElementById('ticker');if(tk){const items=[['GDP','gdp','money'],['Unemployment','unemp','pct1'],['Wage','wage','usd2'],['Happiness','happy','dec1'],['Fiscal','profit','moneyS'],['Gini','gini','dec3'],['Food','price.food','usd2'],['Housing','price.housing','usd2'],['Firms','firms','int'],['Tick time','tickms','ms']].map(x=>{const d=cur(x[1])-back(x[1],1);return '<span>'+x[0]+'<b>'+F[x[2]](cur(x[1]))+'</b> <span class="'+(d>=0?'up':'dn')+'">'+(d>=0?'▲':'▼')+'</span></span>'}).join('');tk.innerHTML=items+items}
+    const sg=document.getElementById('signals');if(sg)sg.innerHTML=sig(cur('unemp')>25?'warn':'good','Unemployment '+F.pct1(cur('unemp')),cur('unemp')>25?'Above the 25% threshold. Public works active since t202.':'Labour market pressure contained.','t'+S.tick)+sig(cur('profit')<0?'crit':'good','Fiscal balance '+F.moneyS(cur('profit')),cur('profit')<0?'Outlays exceed revenue this tick.':'Surplus for '+(S.tick-96)+' ticks since the wage-tax change.','t'+S.tick)+sig('ai','Assistant rejected at t240','Profit tax proposal exceeded the two-instrument window.','t240')+sig(cur('struggling')>=3?'warn':'good',Math.round(cur('struggling'))+' firms struggling','Cash below $2,000. Food sector carries most of it.','t'+S.tick);
+    const gp=document.getElementById('ginipill');if(gp){const g=cur('gini');gp.className='pill '+(g>.6?'crit':g>.45?'warn':'good');gp.innerHTML='<i></i>'+(g>.6?'High inequality':g>.45?'Elevated inequality':'Moderate inequality')}
+    document.getElementById('strip').innerHTML='<span>session <b>d9b78c2e</b></span><span class="sep"></span><span>compute <b>'+cur('tickms').toFixed(0)+' ms</b>/tick</span><span class="sep"></span><span>households <b>1,000</b></span><span class="sep"></span><span>firms <b>'+Math.round(cur('firms'))+'</b></span><span class="sep"></span><span>unemployment <b>'+F.pct1(cur('unemp'))+'</b></span><span class="sep"></span><span>policy <b>manual + assistant</b></span><span style="margin-left:auto">last change <b>t'+POL[POL.length-1].t+'</b> · '+POL[POL.length-1].label+'</span>';
+  }
+
+  // ---------- tick engine ----------
+  function step(){S.tick++;for(const k in GEN){const [,d,v,m]=GEN[k];const a=H[k];a.push(Math.max(m,a[a.length-1]+d+(rnd()-.5)*v));a.shift()}
+    HH.forEach(h=>{h.cash=Math.max(0,h.cash+(h.wage*.35-9)*(.5+rnd()));h.hist.cash.push(h.cash);h.hist.cash.shift();h.hist.wage.push(h.wage);h.hist.wage.shift()});
+    FIRMS.forEach(f=>{f.cash+=f.profit*(.6+rnd()*.8);f.hist.cash.push(f.cash);f.hist.cash.shift();f.hist.profit.push(f.profit*(.5+rnd()));f.hist.profit.shift()});
+    const added=[mkLog(S.tick)];if(rnd()<.45)added.push(mkLog(S.tick));LOGS.push(...added);if(LOGS.length>400)LOGS.splice(0,LOGS.length-400);
+    if(S.tick===280){POL.push({t:280,key:'benefit_level',label:'Benefit level: neutral → generous',prev:'Neutral',value:'Generous',by:'ai',ok:true,why:'Happiness below 30 for 60 ticks; the surplus can absorb higher transfers.'});LEVERS[1].items[0][2]='Generous';H.out.forEach((v,i)=>{if(i>H.out.length-2)H.out[i]+=1200});GEN.out[0]+=1200}
+    if(S.view==='logs'){const body=document.getElementById('logbody');if(body){added.filter(l=>S.logFilter==='All'||l.type===S.logFilter).forEach(l=>body.insertAdjacentHTML('beforeend',logRow(l,0,false)));const w=document.getElementById('logwrap');w.scrollTop=w.scrollHeight;const c=document.getElementById('evcount');if(c)c.textContent=LOGS.length}}}
+  setInterval(()=>{if(!S.running)return;step();refresh(false)},900);
+
+  // ---------- boot ----------
+  const q=new URLSearchParams(location.hash.slice(1));if(q.get('view'))S.view=q.get('view');if(q.get('theme'))S.theme=q.get('theme')==='paper'?'paper':'ember';S.logo=1;if(q.get('paused')){S.running=false;document.body.classList.add('paused')}
+  document.documentElement.dataset.theme=S.theme;renderMark();render();
+  window.addEventListener('resize',()=>mount(false));
+})();
+</script>
+</body>
+</html>

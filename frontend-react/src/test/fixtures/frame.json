@@ -1,0 +1,3079 @@
+{
+ "tick": 60,
+ "metrics": {
+  "unemployment": 4.0000000000000036,
+  "gdp": 0.005928836363054182,
+  "govDebt": 0,
+  "govProfit": 0.00035990908772288093,
+  "govRevenue": 0.0011841742439163032,
+  "govTransfers": 0.00012,
+  "govInvestments": 0.00075,
+  "govOwnedFirms": 4,
+  "activeLoans": 4,
+  "bondPurchases": 0.00075,
+  "policyChanges": [],
+  "latestGovernmentDecision": null,
+  "llmGovernment": {
+   "enabled": false,
+   "status": "disabled",
+   "provider": null,
+   "model": "microsoft/phi-4-mini-reasoning",
+   "snapshotTick": null,
+   "appliedTick": null,
+   "latestDecision": {},
+   "lastError": null,
+   "acceptedChangeCount": 0,
+   "rejectedChangeCount": 0
+  },
+  "governmentPolicy": {
+   "wage_tax_rate": 0.15,
+   "profit_tax_rate": 0.2,
+   "investment_tax_rate": 0.1,
+   "benefit_level": "neutral",
+   "public_works": "off",
+   "minimum_wage_policy": "neutral",
+   "sector_subsidy_target": "none",
+   "sector_subsidy_level": 0,
+   "infrastructure_spending": "none",
+   "technology_spending": "none",
+   "social_spending": "medium",
+   "price_stabilization_target": "none",
+   "price_stabilization_level": "off",
+   "rent_stabilization_level": "off",
+   "bailout_policy": "off",
+   "bailout_target": "none",
+   "bailout_budget": 0
+  },
+  "happiness": 70.51272964090714,
+  "avgWage": 44.77701667537297,
+  "avgExpectedWage": 44.466304001156146,
+  "avgExpectedWageUnemployed": 41.961664688848494,
+  "netWorth": 0.05502068769757233,
+  "giniCoefficient": 0.34642173101610574,
+  "top10Share": 31.06903605935521,
+  "bottom50Share": 28.40665039201325,
+  "tickComputeMs": 26.479874999495223,
+  "gdpHistory": [
+   {
+    "tick": 1,
+    "value": 0.004085278985109909
+   },
+   {
+    "tick": 25,
+    "value": 0.004846538780577739
+   },
+   {
+    "tick": 50,
+    "value": 0.006871514637971822
+   }
+  ],
+  "unemploymentHistory": [
+   {
+    "tick": 1,
+    "value": 38.0
+   },
+   {
+    "tick": 25,
+    "value": 1.0000000000000009
+   },
+   {
+    "tick": 50,
+    "value": 1.0000000000000009
+   }
+  ],
+  "wageHistory": [
+   {
+    "tick": 1,
+    "value": 42.62347599554595
+   },
+   {
+    "tick": 25,
+    "value": 43.56897826124168
+   },
+   {
+    "tick": 50,
+    "value": 44.52795027192413
+   }
+  ],
+  "medianWageHistory": [
+   {
+    "tick": 1,
+    "value": 42.42374977469444
+   },
+   {
+    "tick": 25,
+    "value": 42.86249989271164
+   },
+   {
+    "tick": 50,
+    "value": 43.13146306795338
+   }
+  ],
+  "happinessHistory": [
+   {
+    "tick": 1,
+    "value": 69.92649623185672
+   },
+   {
+    "tick": 25,
+    "value": 67.71843310722582
+   },
+   {
+    "tick": 50,
+    "value": 68.42523274309313
+   }
+  ],
+  "healthHistory": [
+   {
+    "tick": 1,
+    "value": 99.73147947535402
+   },
+   {
+    "tick": 25,
+    "value": 92.82763163299455
+   },
+   {
+    "tick": 50,
+    "value": 86.56760681872848
+   }
+  ],
+  "govProfitHistory": [
+   {
+    "tick": 1,
+    "value": 0.2852962481314166
+   },
+   {
+    "tick": 25,
+    "value": -0.004380726314033323
+   },
+   {
+    "tick": 50,
+    "value": -0.0011096115392315842
+   }
+  ],
+  "govDebtHistory": [
+   {
+    "tick": 1,
+    "value": 0
+   },
+   {
+    "tick": 25,
+    "value": 0
+   },
+   {
+    "tick": 50,
+    "value": 0
+   }
+  ],
+  "firmCountHistory": [
+   {
+    "tick": 1,
+    "value": 4
+   },
+   {
+    "tick": 25,
+    "value": 21
+   },
+   {
+    "tick": 50,
+    "value": 21
+   }
+  ],
+  "netWorthHistory": [
+   {
+    "tick": 1,
+    "value": 0.16494287584715298
+   },
+   {
+    "tick": 25,
+    "value": 0.187761881227136
+   },
+   {
+    "tick": 50,
+    "value": 0.06552342121759475
+   }
+  ],
+  "giniHistory": [
+   {
+    "tick": 1,
+    "value": 0.4583415201002985
+   },
+   {
+    "tick": 25,
+    "value": 0.6682436833449721
+   },
+   {
+    "tick": 50,
+    "value": 0.3409024366586848
+   }
+  ],
+  "top10ShareHistory": [
+   {
+    "tick": 1,
+    "value": 42.251685757861054
+   },
+   {
+    "tick": 25,
+    "value": 47.07684992761543
+   },
+   {
+    "tick": 50,
+    "value": 29.03241580030691
+   }
+  ],
+  "bottom50ShareHistory": [
+   {
+    "tick": 1,
+    "value": 21.383443702542085
+   },
+   {
+    "tick": 25,
+    "value": 6.973770795523508
+   },
+   {
+    "tick": 50,
+    "value": 28.265507165520766
+   }
+  ],
+  "priceHistory": {
+   "food": [
+    {
+     "tick": 1,
+     "value": 5.0
+    },
+    {
+     "tick": 25,
+     "value": 5.284241404349157
+    },
+    {
+     "tick": 50,
+     "value": 5.575802379509747
+    }
+   ],
+   "housing": [
+    {
+     "tick": 1,
+     "value": 5.0
+    },
+    {
+     "tick": 25,
+     "value": 25.42216313128101
+    },
+    {
+     "tick": 50,
+     "value": 25.42216313128101
+    }
+   ],
+   "services": [
+    {
+     "tick": 1,
+     "value": 6.724338656725759
+    },
+    {
+     "tick": 25,
+     "value": 13.04475682638007
+    },
+    {
+     "tick": 50,
+     "value": 18.9971957004361
+    }
+   ],
+   "healthcare": [
+    {
+     "tick": 1,
+     "value": 5.0
+    },
+    {
+     "tick": 25,
+     "value": 10.795454545454545
+    },
+    {
+     "tick": 50,
+     "value": 10.795454545454545
+    }
+   ]
+  },
+  "supplyHistory": {
+   "food": [
+    {
+     "tick": 1,
+     "value": 19522.261001847313
+    },
+    {
+     "tick": 25,
+     "value": 15171.158760713159
+    },
+    {
+     "tick": 50,
+     "value": 14974.3859907154
+    }
+   ],
+   "housing": [
+    {
+     "tick": 1,
+     "value": 100.0
+    },
+    {
+     "tick": 25,
+     "value": 100.0
+    },
+    {
+     "tick": 50,
+     "value": 100.0
+    }
+   ],
+   "services": [
+    {
+     "tick": 1,
+     "value": 0.0
+    },
+    {
+     "tick": 25,
+     "value": 0.0
+    },
+    {
+     "tick": 50,
+     "value": 0.0
+    }
+   ],
+   "healthcare": [
+    {
+     "tick": 1,
+     "value": 0.0
+    },
+    {
+     "tick": 25,
+     "value": 0.0
+    },
+    {
+     "tick": 50,
+     "value": 0.0
+    }
+   ]
+  },
+  "trackedSubjects": [
+   {
+    "id": 23,
+    "name": "Subject-23",
+    "age": 45,
+    "state": "WORKING",
+    "medicalStatus": "none",
+    "employer": "ServicesCo2",
+    "employerCategory": "Services",
+    "wage": 39.48749989271164,
+    "expectedWage": 39.48749988807205,
+    "reservationWage": 39.48391199452537,
+    "isEmployed": true,
+    "cash": 475.277259418202,
+    "netWorth": 475.277259418202,
+    "happiness": 0.8715005515794381,
+    "health": 0.8403528140444422,
+    "morale": 1.0,
+    "skills": 0.44155973157889733,
+    "medicalDebt": 0.0,
+    "unemploymentDuration": 0,
+    "canWork": true,
+    "ownsHousing": true,
+    "hasRental": true,
+    "metHousingNeed": true,
+    "housingSecurity": true,
+    "monthlyRent": 20.0,
+    "needs": {
+     "food": 0,
+     "housing": 1,
+     "healthcare": 0
+    },
+    "expectedWageReason": {
+     "mode": "EMPLOYED_ANCHOR",
+     "gapToCurrentWage": -4.6395882691285806e-09,
+     "wageExpectationAlpha": 0.34676548207833824,
+     "durationPressure": 0.0,
+     "cashPressure": 0.0,
+     "healthPressure": 0.0,
+     "decayFactor": 0.97,
+     "marketAnchorEstimate": 43.01960754394531,
+     "unemploymentDuration": 0,
+     "tags": [
+      "current_wage_anchor"
+     ]
+    },
+    "traits": {
+     "spendingTendency": 1.9513553955149954,
+     "frugality": 1.2798318603523615,
+     "savingTendency": 0.5392162506188186,
+     "qualityLavishness": 1.0574445511096087,
+     "priceSensitivity": 0.9340584637761632,
+     "skillGrowthRate": 0.0016973228125242476,
+     "healthDecayPerYear": 0.42049076276561426,
+     "healthcareSeekBasePct": 43.66227992185801,
+     "minFoodPerTick": 2.1191895040060866,
+     "minServicesPerTick": 0.9686255161754375
+    },
+    "history": {
+     "cash": [
+      {
+       "tick": 1,
+       "value": 636.8473540873314
+      },
+      {
+       "tick": 25,
+       "value": 220.06502122327302
+      },
+      {
+       "tick": 50,
+       "value": 586.0831587001583
+      }
+     ],
+     "wage": [
+      {
+       "tick": 1,
+       "value": 0.0
+      },
+      {
+       "tick": 25,
+       "value": 39.48749989271164
+      },
+      {
+       "tick": 50,
+       "value": 39.48749989271164
+      }
+     ],
+     "happiness": [
+      {
+       "tick": 1,
+       "value": 70.11207331072332
+      },
+      {
+       "tick": 25,
+       "value": 77.04686743238119
+      },
+      {
+       "tick": 50,
+       "value": 84.44653977274095
+      }
+     ],
+     "health": [
+      {
+       "tick": 1,
+       "value": 99.47157912864282
+      },
+      {
+       "tick": 25,
+       "value": 99.43224607441297
+      },
+      {
+       "tick": 50,
+       "value": 89.72484600871952
+      }
+     ],
+     "netWorth": [
+      {
+       "tick": 1,
+       "value": 636.8473540873314
+      },
+      {
+       "tick": 25,
+       "value": 220.06502122327302
+      },
+      {
+       "tick": 50,
+       "value": 586.0831587001583
+      }
+     ]
+    },
+    "recentEvents": []
+   },
+   {
+    "id": 89,
+    "name": "Subject-89",
+    "age": 31,
+    "state": "WORKING",
+    "medicalStatus": "none",
+    "employer": "FoodCo8",
+    "employerCategory": "Food",
+    "wage": 55.22668277277396,
+    "expectedWage": 55.2265795872967,
+    "reservationWage": 55.187450454125106,
+    "isEmployed": true,
+    "cash": 133.212185454396,
+    "netWorth": 133.212185454396,
+    "happiness": 0.2877368813209973,
+    "health": 0.618564780494146,
+    "morale": 1.0,
+    "skills": 0.8711821560647596,
+    "medicalDebt": 0.0,
+    "unemploymentDuration": 0,
+    "canWork": true,
+    "ownsHousing": true,
+    "hasRental": true,
+    "metHousingNeed": true,
+    "housingSecurity": true,
+    "monthlyRent": 20.0,
+    "needs": {
+     "food": 0,
+     "housing": 1,
+     "healthcare": 0
+    },
+    "expectedWageReason": {
+     "mode": "EMPLOYED_ANCHOR",
+     "gapToCurrentWage": -0.0001031854772648444,
+     "wageExpectationAlpha": 0.250620748709655,
+     "durationPressure": 0.0,
+     "cashPressure": 0.100181721818406,
+     "healthPressure": 0.040717609752926986,
+     "decayFactor": 0.829100668428667,
+     "marketAnchorEstimate": 48.06504440307617,
+     "unemploymentDuration": 0,
+     "tags": [
+      "current_wage_anchor",
+      "cash_stress_pressure",
+      "health_stress_pressure"
+     ]
+    },
+    "traits": {
+     "spendingTendency": 4.971208414080201,
+     "frugality": 0.7346798885502613,
+     "savingTendency": 0.11719507275073374,
+     "qualityLavishness": 0.9272548076877448,
+     "priceSensitivity": 0.9070538696111154,
+     "skillGrowthRate": 0.0005344203287024206,
+     "healthDecayPerYear": 0.48978653031809427,
+     "healthcareSeekBasePct": 19.03107903527241,
+     "minFoodPerTick": 2.252401770540481,
+     "minServicesPerTick": 1.3679935626277144
+    },
+    "history": {
+     "cash": [
+      {
+       "tick": 1,
+       "value": 1687.5184264672312
+      },
+      {
+       "tick": 25,
+       "value": 409.16196114010955
+      },
+      {
+       "tick": 50,
+       "value": 251.943917264277
+      }
+     ],
+     "wage": [
+      {
+       "tick": 1,
+       "value": 43.807500064373016
+      },
+      {
+       "tick": 25,
+       "value": 55.22668277277396
+      },
+      {
+       "tick": 50,
+       "value": 55.22668277277396
+      }
+     ],
+     "happiness": [
+      {
+       "tick": 1,
+       "value": 62.72693796974554
+      },
+      {
+       "tick": 25,
+       "value": 68.12604051284416
+      },
+      {
+       "tick": 50,
+       "value": 50.64529383899089
+      }
+     ],
+     "health": [
+      {
+       "tick": 1,
+       "value": 99.43486169578681
+      },
+      {
+       "tick": 25,
+       "value": 84.0501458510197
+      },
+      {
+       "tick": 50,
+       "value": 68.80154927817411
+      }
+     ],
+     "netWorth": [
+      {
+       "tick": 1,
+       "value": 1687.5184264672312
+      },
+      {
+       "tick": 25,
+       "value": 409.16196114010955
+      },
+      {
+       "tick": 50,
+       "value": 251.943917264277
+      }
+     ]
+    },
+    "recentEvents": []
+   },
+   {
+    "id": 99,
+    "name": "Subject-99",
+    "age": 41,
+    "state": "WORKING",
+    "medicalStatus": "doctor",
+    "employer": "BaselineHealthcare",
+    "employerCategory": "Healthcare",
+    "wage": 20.0,
+    "expectedWage": 20.0000000473921,
+    "reservationWage": 20.006044382247396,
+    "isEmployed": true,
+    "cash": 203.56365949070886,
+    "netWorth": 203.56365949070886,
+    "happiness": 0.7330892638077261,
+    "health": 1.0,
+    "morale": 1.0,
+    "skills": 0.9455110545108477,
+    "medicalDebt": 0.0,
+    "unemploymentDuration": 0,
+    "canWork": true,
+    "ownsHousing": true,
+    "hasRental": true,
+    "metHousingNeed": true,
+    "housingSecurity": true,
+    "monthlyRent": 20.0,
+    "needs": {
+     "food": 0,
+     "housing": 1,
+     "healthcare": 0
+    },
+    "expectedWageReason": {
+     "mode": "EMPLOYED_ANCHOR",
+     "gapToCurrentWage": 4.7392099133958254e-08,
+     "wageExpectationAlpha": 0.33019137710035384,
+     "durationPressure": 0.0,
+     "cashPressure": 0.0,
+     "healthPressure": 0.0,
+     "decayFactor": 0.97,
+     "marketAnchorEstimate": 48.06504440307617,
+     "unemploymentDuration": 0,
+     "tags": [
+      "current_wage_anchor",
+      "medical_track_wage_anchor"
+     ]
+    },
+    "traits": {
+     "spendingTendency": 3.101115547869906,
+     "frugality": 1.1440401666595608,
+     "savingTendency": 0.7346494828040506,
+     "qualityLavishness": 0.8227625162266443,
+     "priceSensitivity": 0.9911095530810105,
+     "skillGrowthRate": 0.001007041642424004,
+     "healthDecayPerYear": 0.1557230671003022,
+     "healthcareSeekBasePct": 27.366092655454192,
+     "minFoodPerTick": 1.8296492389633607,
+     "minServicesPerTick": 1.907481816346856
+    },
+    "history": {
+     "cash": [
+      {
+       "tick": 1,
+       "value": 1563.2724762810715
+      },
+      {
+       "tick": 25,
+       "value": 394.74735511397625
+      },
+      {
+       "tick": 50,
+       "value": 247.9419724955936
+      }
+     ],
+     "wage": [
+      {
+       "tick": 1,
+       "value": 47.43862696355705
+      },
+      {
+       "tick": 25,
+       "value": 20.0
+      },
+      {
+       "tick": 50,
+       "value": 20.0
+      }
+     ],
+     "happiness": [
+      {
+       "tick": 1,
+       "value": 62.176007954042134
+      },
+      {
+       "tick": 25,
+       "value": 65.95656252874572
+      },
+      {
+       "tick": 50,
+       "value": 71.42920947276008
+      }
+     ],
+     "health": [
+      {
+       "tick": 1,
+       "value": 100.0
+      },
+      {
+       "tick": 25,
+       "value": 100.0
+      },
+      {
+       "tick": 50,
+       "value": 100.0
+      }
+     ],
+     "netWorth": [
+      {
+       "tick": 1,
+       "value": 1563.2724762810715
+      },
+      {
+       "tick": 25,
+       "value": 394.74735511397625
+      },
+      {
+       "tick": 50,
+       "value": 247.9419724955936
+      }
+     ]
+    },
+    "recentEvents": []
+   },
+   {
+    "id": 31,
+    "name": "Subject-31",
+    "age": 53,
+    "state": "WORKING",
+    "medicalStatus": "none",
+    "employer": "ServicesCo4",
+    "employerCategory": "Services",
+    "wage": 40.33903837570777,
+    "expectedWage": 40.3388821991287,
+    "reservationWage": 40.236467067664115,
+    "isEmployed": true,
+    "cash": 250.42808927837243,
+    "netWorth": 250.42808927837243,
+    "happiness": 0.06455182546852861,
+    "health": 0.8594794387561486,
+    "morale": 1.0,
+    "skills": 0.5049329634288447,
+    "medicalDebt": 0.0,
+    "unemploymentDuration": 0,
+    "canWork": true,
+    "ownsHousing": true,
+    "hasRental": true,
+    "metHousingNeed": true,
+    "housingSecurity": true,
+    "monthlyRent": 20.0,
+    "needs": {
+     "food": 0,
+     "housing": 1,
+     "healthcare": 0
+    },
+    "expectedWageReason": {
+     "mode": "EMPLOYED_ANCHOR",
+     "gapToCurrentWage": -0.0001561765790754066,
+     "wageExpectationAlpha": 0.3354748195282783,
+     "durationPressure": 0.0,
+     "cashPressure": 0.0,
+     "healthPressure": 0.0,
+     "decayFactor": 0.97,
+     "marketAnchorEstimate": 43.01960754394531,
+     "unemploymentDuration": 0,
+     "tags": [
+      "current_wage_anchor"
+     ]
+    },
+    "traits": {
+     "spendingTendency": 2.609742903332655,
+     "frugality": 1.2305179440390523,
+     "savingTendency": 0.2017691573669679,
+     "qualityLavishness": 0.9182689647770078,
+     "priceSensitivity": 0.6592871045934147,
+     "skillGrowthRate": 0.0019990589428765995,
+     "healthDecayPerYear": 0.19089291940645312,
+     "healthcareSeekBasePct": 1.0681513748226878,
+     "minFoodPerTick": 1.573542182246538,
+     "minServicesPerTick": 0.6248079941725664
+    },
+    "history": {
+     "cash": [
+      {
+       "tick": 1,
+       "value": 766.7811660942576
+      },
+      {
+       "tick": 25,
+       "value": 138.38436037892012
+      },
+      {
+       "tick": 50,
+       "value": 251.00731812345967
+      }
+     ],
+     "wage": [
+      {
+       "tick": 1,
+       "value": 0.0
+      },
+      {
+       "tick": 25,
+       "value": 41.079913262437046
+      },
+      {
+       "tick": 50,
+       "value": 40.33903837570777
+      }
+     ],
+     "happiness": [
+      {
+       "tick": 1,
+       "value": 62.36127852746303
+      },
+      {
+       "tick": 25,
+       "value": 46.19814417795624
+      },
+      {
+       "tick": 50,
+       "value": 1.5000000000000009
+      }
+     ],
+     "health": [
+      {
+       "tick": 1,
+       "value": 99.7797389391464
+      },
+      {
+       "tick": 25,
+       "value": 93.97204240199778
+      },
+      {
+       "tick": 50,
+       "value": 88.23059537398508
+      }
+     ],
+     "netWorth": [
+      {
+       "tick": 1,
+       "value": 766.7811660942576
+      },
+      {
+       "tick": 25,
+       "value": 138.38436037892012
+      },
+      {
+       "tick": 50,
+       "value": 251.00731812345967
+      }
+     ]
+    },
+    "recentEvents": []
+   },
+   {
+    "id": 10,
+    "name": "Subject-10",
+    "age": 32,
+    "state": "WORKING",
+    "medicalStatus": "none",
+    "employer": "ServicesCo3",
+    "employerCategory": "Services",
+    "wage": 38.56499996781349,
+    "expectedWage": 38.5649739811183,
+    "reservationWage": 38.55980614143097,
+    "isEmployed": true,
+    "cash": 282.3306456788222,
+    "netWorth": 282.3306456788222,
+    "happiness": 0.6722841875157953,
+    "health": 0.9225731502773119,
+    "morale": 1.0,
+    "skills": 0.32655845924537497,
+    "medicalDebt": 0.0,
+    "unemploymentDuration": 0,
+    "canWork": true,
+    "ownsHousing": true,
+    "hasRental": true,
+    "metHousingNeed": true,
+    "housingSecurity": true,
+    "monthlyRent": 20.0,
+    "needs": {
+     "food": 0,
+     "housing": 1,
+     "healthcare": 0
+    },
+    "expectedWageReason": {
+     "mode": "EMPLOYED_ANCHOR",
+     "gapToCurrentWage": -2.598669519215946e-05,
+     "wageExpectationAlpha": 0.21793470609548501,
+     "durationPressure": 0.0,
+     "cashPressure": 0.0,
+     "healthPressure": 0.0,
+     "decayFactor": 0.97,
+     "marketAnchorEstimate": 40.3650016784668,
+     "unemploymentDuration": 0,
+     "tags": [
+      "current_wage_anchor"
+     ]
+    },
+    "traits": {
+     "spendingTendency": 0.40273248923788585,
+     "frugality": 1.210116441727249,
+     "savingTendency": 0.18446101877723692,
+     "qualityLavishness": 1.151822468999829,
+     "priceSensitivity": 1.2283055837752228,
+     "skillGrowthRate": 0.0011177638312365506,
+     "healthDecayPerYear": 0.09423727780783672,
+     "healthcareSeekBasePct": 5.249915012634868,
+     "minFoodPerTick": 2.075997422203431,
+     "minServicesPerTick": 1.3078979281873047
+    },
+    "history": {
+     "cash": [
+      {
+       "tick": 1,
+       "value": 487.5206526983099
+      },
+      {
+       "tick": 25,
+       "value": 191.76497556323122
+      },
+      {
+       "tick": 50,
+       "value": 315.6002876528677
+      }
+     ],
+     "wage": [
+      {
+       "tick": 1,
+       "value": 0.0
+      },
+      {
+       "tick": 25,
+       "value": 38.56499996781349
+      },
+      {
+       "tick": 50,
+       "value": 38.56499996781349
+      }
+     ],
+     "happiness": [
+      {
+       "tick": 1,
+       "value": 75.59787943375599
+      },
+      {
+       "tick": 25,
+       "value": 57.372528862455916
+      },
+      {
+       "tick": 50,
+       "value": 64.49724253648131
+      }
+     ],
+     "health": [
+      {
+       "tick": 1,
+       "value": 99.88095411344689
+      },
+      {
+       "tick": 25,
+       "value": 96.88615061929286
+      },
+      {
+       "tick": 50,
+       "value": 93.57262765902404
+      }
+     ],
+     "netWorth": [
+      {
+       "tick": 1,
+       "value": 487.5206526983099
+      },
+      {
+       "tick": 25,
+       "value": 191.76497556323122
+      },
+      {
+       "tick": 50,
+       "value": 315.6002876528677
+      }
+     ]
+    },
+    "recentEvents": []
+   },
+   {
+    "id": 73,
+    "name": "Subject-73",
+    "age": 55,
+    "state": "WORKING",
+    "medicalStatus": "none",
+    "employer": "ServicesCo5",
+    "employerCategory": "Services",
+    "wage": 43.85090246870305,
+    "expectedWage": 43.85090206625243,
+    "reservationWage": 43.840716299881564,
+    "isEmployed": true,
+    "cash": 354.5886883578618,
+    "netWorth": 354.5886883578618,
+    "happiness": 0.863897589182432,
+    "health": 0.9671231605676386,
+    "morale": 1.0,
+    "skills": 0.7665222522065112,
+    "medicalDebt": 0.0,
+    "unemploymentDuration": 0,
+    "canWork": true,
+    "ownsHousing": true,
+    "hasRental": true,
+    "metHousingNeed": true,
+    "housingSecurity": true,
+    "monthlyRent": 20.0,
+    "needs": {
+     "food": 0,
+     "housing": 1,
+     "healthcare": 0
+    },
+    "expectedWageReason": {
+     "mode": "EMPLOYED_ANCHOR",
+     "gapToCurrentWage": -4.0245061683208405e-07,
+     "wageExpectationAlpha": 0.325567057687504,
+     "durationPressure": 0.0,
+     "cashPressure": 0.0,
+     "healthPressure": 0.0,
+     "decayFactor": 0.97,
+     "marketAnchorEstimate": 48.06504440307617,
+     "unemploymentDuration": 0,
+     "tags": [
+      "current_wage_anchor"
+     ]
+    },
+    "traits": {
+     "spendingTendency": 4.124109500409654,
+     "frugality": 1.172078705818958,
+     "savingTendency": 0.4518857275264413,
+     "qualityLavishness": 1.2296274710051005,
+     "priceSensitivity": 0.9359572228531761,
+     "skillGrowthRate": 0.0014487625442887373,
+     "healthDecayPerYear": 0.03949287316220575,
+     "healthcareSeekBasePct": 29.39494399537498,
+     "minFoodPerTick": 2.29215075109596,
+     "minServicesPerTick": 1.2118246963421047
+    },
+    "history": {
+     "cash": [
+      {
+       "tick": 1,
+       "value": 1353.9124369953602
+      },
+      {
+       "tick": 25,
+       "value": 359.3488409682702
+      },
+      {
+       "tick": 50,
+       "value": 446.5037157218875
+      }
+     ],
+     "wage": [
+      {
+       "tick": 1,
+       "value": 42.72750002145767
+      },
+      {
+       "tick": 25,
+       "value": 43.85090246870305
+      },
+      {
+       "tick": 50,
+       "value": 43.85090246870305
+      }
+     ],
+     "happiness": [
+      {
+       "tick": 1,
+       "value": 73.8990569697627
+      },
+      {
+       "tick": 25,
+       "value": 77.27900113273655
+      },
+      {
+       "tick": 50,
+       "value": 83.91607323042493
+      }
+     ],
+     "health": [
+      {
+       "tick": 1,
+       "value": 99.95009252216424
+      },
+      {
+       "tick": 25,
+       "value": 98.59776070614019
+      },
+      {
+       "tick": 50,
+       "value": 97.25272553468184
+      }
+     ],
+     "netWorth": [
+      {
+       "tick": 1,
+       "value": 1353.9124369953602
+      },
+      {
+       "tick": 25,
+       "value": 359.3488409682702
+      },
+      {
+       "tick": 50,
+       "value": 446.5037157218875
+      }
+     ]
+    },
+    "recentEvents": []
+   },
+   {
+    "id": 38,
+    "name": "Subject-38",
+    "age": 60,
+    "state": "WORKING",
+    "medicalStatus": "none",
+    "employer": "ServicesCo5",
+    "employerCategory": "Services",
+    "wage": 51.78894236133649,
+    "expectedWage": 50.97503755278228,
+    "reservationWage": 48.120492308387576,
+    "isEmployed": true,
+    "cash": 240.00921860009115,
+    "netWorth": 240.00921860009115,
+    "happiness": 0.8785698131402514,
+    "health": 0.8887375603676295,
+    "morale": 1.0,
+    "skills": 0.5419700939911138,
+    "medicalDebt": 0.0,
+    "unemploymentDuration": 0,
+    "canWork": true,
+    "ownsHousing": true,
+    "hasRental": true,
+    "metHousingNeed": true,
+    "housingSecurity": true,
+    "monthlyRent": 20.0,
+    "needs": {
+     "food": 0,
+     "housing": 1,
+     "healthcare": 0
+    },
+    "expectedWageReason": {
+     "mode": "EMPLOYED_ANCHOR",
+     "gapToCurrentWage": -0.8139048085542058,
+     "wageExpectationAlpha": 0.19720338538779042,
+     "durationPressure": 0.0,
+     "cashPressure": 0.0,
+     "healthPressure": 0.0,
+     "decayFactor": 0.97,
+     "marketAnchorEstimate": 43.01960754394531,
+     "unemploymentDuration": 0,
+     "tags": [
+      "current_wage_anchor"
+     ]
+    },
+    "traits": {
+     "spendingTendency": 4.386763577848076,
+     "frugality": 1.2891467114881656,
+     "savingTendency": 0.6556907899626193,
+     "qualityLavishness": 0.901808095962188,
+     "priceSensitivity": 1.3585790737227839,
+     "skillGrowthRate": 0.0017886555213676243,
+     "healthDecayPerYear": 0.13791578918212336,
+     "healthcareSeekBasePct": 18.884322790578672,
+     "minFoodPerTick": 1.8602668792819026,
+     "minServicesPerTick": 0.5269291880918888
+    },
+    "history": {
+     "cash": [
+      {
+       "tick": 1,
+       "value": 812.0826605791157
+      },
+      {
+       "tick": 25,
+       "value": 284.0061710109177
+      },
+      {
+       "tick": 50,
+       "value": 280.4277115022279
+      }
+     ],
+     "wage": [
+      {
+       "tick": 1,
+       "value": 40.41000008583069
+      },
+      {
+       "tick": 25,
+       "value": 40.41000008583069
+      },
+      {
+       "tick": 50,
+       "value": 51.78894236133649
+      }
+     ],
+     "happiness": [
+      {
+       "tick": 1,
+       "value": 70.46990518646969
+      },
+      {
+       "tick": 25,
+       "value": 77.06183268305486
+      },
+      {
+       "tick": 50,
+       "value": 84.78508965474684
+      }
+     ],
+     "health": [
+      {
+       "tick": 1,
+       "value": 99.84086639709756
+      },
+      {
+       "tick": 25,
+       "value": 95.26340659151958
+      },
+      {
+       "tick": 50,
+       "value": 90.58245318800836
+      }
+     ],
+     "netWorth": [
+      {
+       "tick": 1,
+       "value": 812.0826605791157
+      },
+      {
+       "tick": 25,
+       "value": 284.0061710109177
+      },
+      {
+       "tick": 50,
+       "value": 280.4277115022279
+      }
+     ]
+    },
+    "recentEvents": []
+   },
+   {
+    "id": 67,
+    "name": "Subject-67",
+    "age": 49,
+    "state": "WORKING",
+    "medicalStatus": "none",
+    "employer": "ServicesCo5",
+    "employerCategory": "Services",
+    "wage": 43.43525395012663,
+    "expectedWage": 43.43493542837756,
+    "reservationWage": 43.41120383411436,
+    "isEmployed": true,
+    "cash": 477.71993216055444,
+    "netWorth": 477.71993216055444,
+    "happiness": 0.793418795702482,
+    "health": 0.8312631586891882,
+    "morale": 1.0,
+    "skills": 0.715559777065497,
+    "medicalDebt": 0.0,
+    "unemploymentDuration": 0,
+    "canWork": true,
+    "ownsHousing": true,
+    "hasRental": true,
+    "metHousingNeed": true,
+    "housingSecurity": true,
+    "monthlyRent": 20.0,
+    "needs": {
+     "food": 0,
+     "housing": 1,
+     "healthcare": 0
+    },
+    "expectedWageReason": {
+     "mode": "EMPLOYED_ANCHOR",
+     "gapToCurrentWage": -0.00031852174907243125,
+     "wageExpectationAlpha": 0.21650428819376563,
+     "durationPressure": 0.0,
+     "cashPressure": 0.0,
+     "healthPressure": 0.0,
+     "decayFactor": 0.97,
+     "marketAnchorEstimate": 48.06504440307617,
+     "unemploymentDuration": 0,
+     "tags": [
+      "current_wage_anchor"
+     ]
+    },
+    "traits": {
+     "spendingTendency": 0.19532741530263537,
+     "frugality": 0.8414024789585057,
+     "savingTendency": 0.7401874343907627,
+     "qualityLavishness": 0.9498461942827877,
+     "priceSensitivity": 0.7038584852548957,
+     "skillGrowthRate": 0.0008442001981575265,
+     "healthDecayPerYear": 0.22685625737781404,
+     "healthcareSeekBasePct": 1.3789201805291145,
+     "minFoodPerTick": 2.018762896112651,
+     "minServicesPerTick": 1.2985189496340914
+    },
+    "history": {
+     "cash": [
+      {
+       "tick": 1,
+       "value": 6620.783328669882
+      },
+      {
+       "tick": 25,
+       "value": 3282.2716581401824
+      },
+      {
+       "tick": 50,
+       "value": 594.5936389177144
+      }
+     ],
+     "wage": [
+      {
+       "tick": 1,
+       "value": 42.32249987125397
+      },
+      {
+       "tick": 25,
+       "value": 43.43525395012663
+      },
+      {
+       "tick": 50,
+       "value": 43.43525395012663
+      }
+     ],
+     "happiness": [
+      {
+       "tick": 1,
+       "value": 76.67947709023892
+      },
+      {
+       "tick": 25,
+       "value": 74.3563317667792
+      },
+      {
+       "tick": 50,
+       "value": 77.4949990271239
+      }
+     ],
+     "health": [
+      {
+       "tick": 1,
+       "value": 99.73824277994868
+      },
+      {
+       "tick": 25,
+       "value": 92.8579673554731
+      },
+      {
+       "tick": 50,
+       "value": 85.91180154696306
+      }
+     ],
+     "netWorth": [
+      {
+       "tick": 1,
+       "value": 6620.783328669882
+      },
+      {
+       "tick": 25,
+       "value": 3282.2716581401824
+      },
+      {
+       "tick": 50,
+       "value": 594.5936389177144
+      }
+     ]
+    },
+    "recentEvents": []
+   },
+   {
+    "id": 63,
+    "name": "Subject-63",
+    "age": 45,
+    "state": "WORKING",
+    "medicalStatus": "none",
+    "employer": "ServicesCo5",
+    "employerCategory": "Services",
+    "wage": 43.15815530477307,
+    "expectedWage": 43.124320272127925,
+    "reservationWage": 43.014584216207865,
+    "isEmployed": true,
+    "cash": 677.174342965423,
+    "netWorth": 677.174342965423,
+    "happiness": 0.8328615616284077,
+    "health": 0.9683893507907748,
+    "morale": 1.0,
+    "skills": 0.7044352333277293,
+    "medicalDebt": 0.0,
+    "unemploymentDuration": 0,
+    "canWork": true,
+    "ownsHousing": true,
+    "hasRental": true,
+    "metHousingNeed": true,
+    "housingSecurity": true,
+    "monthlyRent": 20.0,
+    "needs": {
+     "food": 0,
+     "housing": 1,
+     "healthcare": 0
+    },
+    "expectedWageReason": {
+     "mode": "EMPLOYED_ANCHOR",
+     "gapToCurrentWage": -0.033835032645143315,
+     "wageExpectationAlpha": 0.1287306182956595,
+     "durationPressure": 0.0,
+     "cashPressure": 0.0,
+     "healthPressure": 0.0,
+     "decayFactor": 0.97,
+     "marketAnchorEstimate": 48.06504440307617,
+     "unemploymentDuration": 0,
+     "tags": [
+      "current_wage_anchor"
+     ]
+    },
+    "traits": {
+     "spendingTendency": 3.3809689938755785,
+     "frugality": 1.095451544904046,
+     "savingTendency": 0.13376691445786845,
+     "qualityLavishness": 1.1997646441963052,
+     "priceSensitivity": 1.2718547283156312,
+     "skillGrowthRate": 0.0018752339006300202,
+     "healthDecayPerYear": 0.039661974738130885,
+     "healthcareSeekBasePct": 46.394651747247174,
+     "minFoodPerTick": 1.890137019193747,
+     "minServicesPerTick": 1.2544973594233344
+    },
+    "history": {
+     "cash": [
+      {
+       "tick": 1,
+       "value": 1320.4085678736376
+      },
+      {
+       "tick": 25,
+       "value": 393.51524126626845
+      },
+      {
+       "tick": 50,
+       "value": 883.926553462077
+      }
+     ],
+     "wage": [
+      {
+       "tick": 1,
+       "value": 42.05250012874603
+      },
+      {
+       "tick": 25,
+       "value": 43.15815530477307
+      },
+      {
+       "tick": 50,
+       "value": 43.15815530477307
+      }
+     ],
+     "happiness": [
+      {
+       "tick": 1,
+       "value": 70.40669472912438
+      },
+      {
+       "tick": 25,
+       "value": 73.9897980698697
+      },
+      {
+       "tick": 50,
+       "value": 80.74111245176466
+      }
+     ],
+     "health": [
+      {
+       "tick": 1,
+       "value": 99.95423618299446
+      },
+      {
+       "tick": 25,
+       "value": 98.68438677553367
+      },
+      {
+       "tick": 50,
+       "value": 97.36887810344793
+      }
+     ],
+     "netWorth": [
+      {
+       "tick": 1,
+       "value": 1320.4085678736376
+      },
+      {
+       "tick": 25,
+       "value": 393.51524126626845
+      },
+      {
+       "tick": 50,
+       "value": 883.926553462077
+      }
+     ]
+    },
+    "recentEvents": []
+   },
+   {
+    "id": 43,
+    "name": "Subject-43",
+    "age": 25,
+    "state": "WORKING",
+    "medicalStatus": "none",
+    "employer": "BaselineHousing",
+    "employerCategory": "Housing",
+    "wage": 40.70249980688095,
+    "expectedWage": 40.70248486763359,
+    "reservationWage": 40.6981017329821,
+    "isEmployed": true,
+    "cash": 484.27579185980727,
+    "netWorth": 484.27579185980727,
+    "happiness": 0.8280052450071398,
+    "health": 0.8802393046293074,
+    "morale": 1.0,
+    "skills": 0.5663737308932904,
+    "medicalDebt": 0.0,
+    "unemploymentDuration": 0,
+    "canWork": true,
+    "ownsHousing": true,
+    "hasRental": true,
+    "metHousingNeed": true,
+    "housingSecurity": true,
+    "monthlyRent": 20.0,
+    "needs": {
+     "food": 0,
+     "housing": 1,
+     "healthcare": 0
+    },
+    "expectedWageReason": {
+     "mode": "EMPLOYED_ANCHOR",
+     "gapToCurrentWage": -1.4939247357403929e-05,
+     "wageExpectationAlpha": 0.22368138751826105,
+     "durationPressure": 0.0,
+     "cashPressure": 0.0,
+     "healthPressure": 0.0,
+     "decayFactor": 0.97,
+     "marketAnchorEstimate": 43.01960754394531,
+     "unemploymentDuration": 0,
+     "tags": [
+      "current_wage_anchor"
+     ]
+    },
+    "traits": {
+     "spendingTendency": 3.2779260611630194,
+     "frugality": 1.228076395311618,
+     "savingTendency": 0.5978140114486369,
+     "qualityLavishness": 1.1855365398168234,
+     "priceSensitivity": 0.6220332949365469,
+     "skillGrowthRate": 0.0017669645949774636,
+     "healthDecayPerYear": 0.13844457767903837,
+     "healthcareSeekBasePct": 19.93650791925165,
+     "minFoodPerTick": 2.2790825936669497,
+     "minServicesPerTick": 0.7362279882276687
+    },
+    "history": {
+     "cash": [
+      {
+       "tick": 1,
+       "value": 959.5353504241644
+      },
+      {
+       "tick": 25,
+       "value": 4007.8346583846687
+      },
+      {
+       "tick": 50,
+       "value": 625.2823355411696
+      }
+     ],
+     "wage": [
+      {
+       "tick": 1,
+       "value": 40.70249980688095
+      },
+      {
+       "tick": 25,
+       "value": 40.70249980688095
+      },
+      {
+       "tick": 50,
+       "value": 40.70249980688095
+      }
+     ],
+     "happiness": [
+      {
+       "tick": 1,
+       "value": 73.45279230314858
+      },
+      {
+       "tick": 25,
+       "value": 76.59285939193595
+      },
+      {
+       "tick": 50,
+       "value": 80.63184622953672
+      }
+     ],
+     "health": [
+      {
+       "tick": 1,
+       "value": 99.81879845432235
+      },
+      {
+       "tick": 25,
+       "value": 94.98800678780908
+      },
+      {
+       "tick": 50,
+       "value": 90.01581888672395
+      }
+     ],
+     "netWorth": [
+      {
+       "tick": 1,
+       "value": 959.5353504241644
+      },
+      {
+       "tick": 25,
+       "value": 4007.8346583846687
+      },
+      {
+       "tick": 50,
+       "value": 625.2823355411696
+      }
+     ]
+    },
+    "recentEvents": []
+   },
+   {
+    "id": 93,
+    "name": "Subject-93",
+    "age": 35,
+    "state": "WORKING",
+    "medicalStatus": "none",
+    "employer": "FoodCo9",
+    "employerCategory": "Food",
+    "wage": 55.616105527831955,
+    "expectedWage": 55.6158623480047,
+    "reservationWage": 55.56250479725013,
+    "isEmployed": true,
+    "cash": 423.6847412733126,
+    "netWorth": 423.6847412733126,
+    "happiness": 0.9013881908697932,
+    "health": 0.9110178834376089,
+    "morale": 1.0,
+    "skills": 0.908088213356517,
+    "medicalDebt": 0.0,
+    "unemploymentDuration": 0,
+    "canWork": true,
+    "ownsHousing": true,
+    "hasRental": true,
+    "metHousingNeed": true,
+    "housingSecurity": true,
+    "monthlyRent": 20.0,
+    "needs": {
+     "food": 0,
+     "housing": 1,
+     "healthcare": 0
+    },
+    "expectedWageReason": {
+     "mode": "EMPLOYED_ANCHOR",
+     "gapToCurrentWage": -0.00024317982725818865,
+     "wageExpectationAlpha": 0.244143787959221,
+     "durationPressure": 0.0,
+     "cashPressure": 0.0,
+     "healthPressure": 0.0,
+     "decayFactor": 0.97,
+     "marketAnchorEstimate": 48.06504440307617,
+     "unemploymentDuration": 0,
+     "tags": [
+      "current_wage_anchor"
+     ]
+    },
+    "traits": {
+     "spendingTendency": 1.6676518507913147,
+     "frugality": 1.0471884150190487,
+     "savingTendency": 0.7669852416159038,
+     "qualityLavishness": 1.2442368059036488,
+     "priceSensitivity": 1.4155566035560991,
+     "skillGrowthRate": 0.0019865315865885674,
+     "healthDecayPerYear": 0.09863922020294044,
+     "healthcareSeekBasePct": 34.23042779800432,
+     "minFoodPerTick": 1.7031762057163182,
+     "minServicesPerTick": 1.7596851023068483
+    },
+    "history": {
+     "cash": [
+      {
+       "tick": 1,
+       "value": 1483.5257642602928
+      },
+      {
+       "tick": 25,
+       "value": 322.11414530458904
+      },
+      {
+       "tick": 50,
+       "value": 467.05326373779167
+      }
+     ],
+     "wage": [
+      {
+       "tick": 1,
+       "value": 44.07749980688095
+      },
+      {
+       "tick": 25,
+       "value": 55.616105527831955
+      },
+      {
+       "tick": 50,
+       "value": 55.616105527831955
+      }
+     ],
+     "happiness": [
+      {
+       "tick": 1,
+       "value": 76.38137404450308
+      },
+      {
+       "tick": 25,
+       "value": 80.9334907133267
+      },
+      {
+       "tick": 50,
+       "value": 87.72195015924909
+      }
+     ],
+     "health": [
+      {
+       "tick": 1,
+       "value": 99.88618551515044
+      },
+      {
+       "tick": 25,
+       "value": 96.8488951984913
+      },
+      {
+       "tick": 50,
+       "value": 93.89444889233621
+      }
+     ],
+     "netWorth": [
+      {
+       "tick": 1,
+       "value": 1483.5257642602928
+      },
+      {
+       "tick": 25,
+       "value": 322.11414530458904
+      },
+      {
+       "tick": 50,
+       "value": 467.05326373779167
+      }
+     ]
+    },
+    "recentEvents": []
+   },
+   {
+    "id": 57,
+    "name": "Subject-57",
+    "age": 39,
+    "state": "WORKING",
+    "medicalStatus": "none",
+    "employer": "ServicesCo1",
+    "employerCategory": "Services",
+    "wage": 41.64749997854233,
+    "expectedWage": 41.6474944732897,
+    "reservationWage": 41.64211964580582,
+    "isEmployed": true,
+    "cash": 515.273612479059,
+    "netWorth": 515.273612479059,
+    "happiness": 0.7173721915100926,
+    "health": 0.8191661601170979,
+    "morale": 1.0,
+    "skills": 0.6442275368830306,
+    "medicalDebt": 0.0,
+    "unemploymentDuration": 0,
+    "canWork": true,
+    "ownsHousing": true,
+    "hasRental": true,
+    "metHousingNeed": true,
+    "housingSecurity": true,
+    "monthlyRent": 20.0,
+    "needs": {
+     "food": 0,
+     "housing": 1,
+     "healthcare": 0
+    },
+    "expectedWageReason": {
+     "mode": "EMPLOYED_ANCHOR",
+     "gapToCurrentWage": -5.505252630655377e-06,
+     "wageExpectationAlpha": 0.2512464734716336,
+     "durationPressure": 0.0,
+     "cashPressure": 0.0,
+     "healthPressure": 0.0,
+     "decayFactor": 0.97,
+     "marketAnchorEstimate": 43.01960754394531,
+     "unemploymentDuration": 0,
+     "tags": [
+      "current_wage_anchor"
+     ]
+    },
+    "traits": {
+     "spendingTendency": 2.096200236217797,
+     "frugality": 0.9012535642506213,
+     "savingTendency": 0.4070933392576795,
+     "qualityLavishness": 1.166520225035519,
+     "priceSensitivity": 0.7175402284413668,
+     "skillGrowthRate": 0.0008635796016019965,
+     "healthDecayPerYear": 0.1839243067208269,
+     "healthcareSeekBasePct": 31.592362149782694,
+     "minFoodPerTick": 1.6638165394556044,
+     "minServicesPerTick": 0.6499192514090052
+    },
+    "history": {
+     "cash": [
+      {
+       "tick": 1,
+       "value": 1167.5679033029824
+      },
+      {
+       "tick": 25,
+       "value": 6395.340198525906
+      },
+      {
+       "tick": 50,
+       "value": 751.5622102219766
+      }
+     ],
+     "wage": [
+      {
+       "tick": 1,
+       "value": 41.64749997854233
+      },
+      {
+       "tick": 25,
+       "value": 41.64749997854233
+      },
+      {
+       "tick": 50,
+       "value": 41.64749997854233
+      }
+     ],
+     "happiness": [
+      {
+       "tick": 1,
+       "value": 63.48311118065089
+      },
+      {
+       "tick": 25,
+       "value": 65.70367686927821
+      },
+      {
+       "tick": 50,
+       "value": 69.70924510676276
+      }
+     ],
+     "health": [
+      {
+       "tick": 1,
+       "value": 99.76268158399549
+      },
+      {
+       "tick": 25,
+       "value": 90.70417048722679
+      },
+      {
+       "tick": 50,
+       "value": 84.43936469614633
+      }
+     ],
+     "netWorth": [
+      {
+       "tick": 1,
+       "value": 1167.5679033029824
+      },
+      {
+       "tick": 25,
+       "value": 6395.340198525906
+      },
+      {
+       "tick": 50,
+       "value": 751.5622102219766
+      }
+     ]
+    },
+    "recentEvents": []
+   }
+  ],
+  "trackedFirms": [
+   {
+    "id": 25,
+    "name": "ServicesProduct25",
+    "category": "Services",
+    "cash": 11529.668213290224,
+    "inventory": 0.0,
+    "employees": 1,
+    "doctorEmployees": 0,
+    "medicalEmployees": 0,
+    "visitsCompleted": 0.0,
+    "visitRevenue": 0.0,
+    "price": 7.110080823505268,
+    "wageOffer": 36.0,
+    "quality": 3.0533765243778452,
+    "lastRevenue": 19.4785721073172,
+    "lastProfit": -23.38392778539444,
+    "state": "SCALING",
+    "history": {
+     "cash": [
+      {
+       "tick": 25,
+       "value": 12220.31007756251
+      },
+      {
+       "tick": 50,
+       "value": 11734.741225861288
+      }
+     ],
+     "price": [
+      {
+       "tick": 25,
+       "value": 7.226166663923493
+      },
+      {
+       "tick": 50,
+       "value": 7.156685944046895
+      }
+     ],
+     "wageOffer": [
+      {
+       "tick": 25,
+       "value": 36.0
+      },
+      {
+       "tick": 50,
+       "value": 36.0
+      }
+     ],
+     "inventory": [
+      {
+       "tick": 25,
+       "value": 0.0
+      },
+      {
+       "tick": 50,
+       "value": 0.0
+      }
+     ],
+     "employees": [
+      {
+       "tick": 25,
+       "value": 1
+      },
+      {
+       "tick": 50,
+       "value": 1
+      }
+     ],
+     "profit": [
+      {
+       "tick": 25,
+       "value": -25.842037359242234
+      },
+      {
+       "tick": 50,
+       "value": -12.00950145458263
+      }
+     ],
+     "revenue": [
+      {
+       "tick": 25,
+       "value": 17.020462533469406
+      },
+      {
+       "tick": 50,
+       "value": 30.85299843812901
+      }
+     ],
+     "events": []
+    }
+   },
+   {
+    "id": 9,
+    "name": "FoodCo5",
+    "category": "Food",
+    "cash": 10997.555279707236,
+    "inventory": 14.002042024892663,
+    "employees": 1,
+    "doctorEmployees": 0,
+    "medicalEmployees": 0,
+    "visitsCompleted": 0.0,
+    "visitRevenue": 0.0,
+    "price": 5.096162547078727,
+    "wageOffer": 45.0,
+    "quality": 6.253262087719296,
+    "lastRevenue": 67.21471668644074,
+    "lastProfit": 14.179542385800438,
+    "state": "STABLE",
+    "history": {
+     "cash": [
+      {
+       "tick": 25,
+       "value": 10651.953437807982
+      },
+      {
+       "tick": 50,
+       "value": 10960.134767743371
+      }
+     ],
+     "price": [
+      {
+       "tick": 25,
+       "value": 5.096162547078727
+      },
+      {
+       "tick": 50,
+       "value": 5.096162547078727
+      }
+     ],
+     "wageOffer": [
+      {
+       "tick": 25,
+       "value": 45.0
+      },
+      {
+       "tick": 50,
+       "value": 45.0
+      }
+     ],
+     "inventory": [
+      {
+       "tick": 25,
+       "value": 26.551722632511044
+      },
+      {
+       "tick": 50,
+       "value": 14.504918992117576
+      }
+     ],
+     "employees": [
+      {
+       "tick": 25,
+       "value": 1
+      },
+      {
+       "tick": 50,
+       "value": 1
+      }
+     ],
+     "profit": [
+      {
+       "tick": 25,
+       "value": 36.58746127572798
+      },
+      {
+       "tick": 50,
+       "value": 20.535279475720223
+      }
+     ],
+     "revenue": [
+      {
+       "tick": 25,
+       "value": 94.92891720685672
+      },
+      {
+       "tick": 50,
+       "value": 75.07551683617082
+      }
+     ],
+     "events": []
+    }
+   },
+   {
+    "id": 11,
+    "name": "FoodCo7",
+    "category": "Food",
+    "cash": 10406.313625309698,
+    "inventory": 0.0,
+    "employees": 1,
+    "doctorEmployees": 0,
+    "medicalEmployees": 0,
+    "visitsCompleted": 0.0,
+    "visitRevenue": 0.0,
+    "price": 4.598218149050138,
+    "wageOffer": 47.25,
+    "quality": 7.218164487913488,
+    "lastRevenue": 176.31308070174057,
+    "lastProfit": 97.97088852766504,
+    "state": "STABLE",
+    "history": {
+     "cash": [
+      {
+       "tick": 25,
+       "value": 10478.071169583453
+      },
+      {
+       "tick": 50,
+       "value": 10503.428172450767
+      }
+     ],
+     "price": [
+      {
+       "tick": 25,
+       "value": 4.598218149050138
+      },
+      {
+       "tick": 50,
+       "value": 4.598218149050138
+      }
+     ],
+     "wageOffer": [
+      {
+       "tick": 25,
+       "value": 45.0
+      },
+      {
+       "tick": 50,
+       "value": 45.0
+      }
+     ],
+     "inventory": [
+      {
+       "tick": 25,
+       "value": 11.916707226759186
+      },
+      {
+       "tick": 50,
+       "value": 32.28765257396965
+      }
+     ],
+     "employees": [
+      {
+       "tick": 25,
+       "value": 2
+      },
+      {
+       "tick": 50,
+       "value": 1
+      }
+     ],
+     "profit": [
+      {
+       "tick": 25,
+       "value": 159.7903752593097
+      },
+      {
+       "tick": 50,
+       "value": 118.5397519071939
+      }
+     ],
+     "revenue": [
+      {
+       "tick": 25,
+       "value": 304.75315103647443
+      },
+      {
+       "tick": 50,
+       "value": 201.75273027283683
+      }
+     ],
+     "events": []
+    }
+   },
+   {
+    "id": 12,
+    "name": "FoodCo8",
+    "category": "Food",
+    "cash": 9773.248275285277,
+    "inventory": 0.0,
+    "employees": 2,
+    "doctorEmployees": 0,
+    "medicalEmployees": 0,
+    "visitsCompleted": 0.0,
+    "visitRevenue": 0.0,
+    "price": 3.738663185287964,
+    "wageOffer": 53.713430672487306,
+    "quality": 7.497546813292613,
+    "lastRevenue": 245.16934419087636,
+    "lastProfit": 108.85445005300095,
+    "state": "STABLE",
+    "history": {
+     "cash": [],
+     "price": [],
+     "wageOffer": [],
+     "inventory": [],
+     "employees": [],
+     "profit": [],
+     "revenue": [],
+     "events": []
+    }
+   },
+   {
+    "id": 8,
+    "name": "FoodCo4",
+    "category": "Food",
+    "cash": 9661.059179976148,
+    "inventory": 3.2677898026238417,
+    "employees": 1,
+    "doctorEmployees": 0,
+    "medicalEmployees": 0,
+    "visitsCompleted": 0.0,
+    "visitRevenue": 0.0,
+    "price": 6.769035150647787,
+    "wageOffer": 45.0,
+    "quality": 5.891043108513405,
+    "lastRevenue": 36.42241608683599,
+    "lastProfit": -11.764362625207411,
+    "state": "STABLE",
+    "history": {
+     "cash": [
+      {
+       "tick": 25,
+       "value": 10297.134847095505
+      },
+      {
+       "tick": 50,
+       "value": 9780.954146796385
+      }
+     ],
+     "price": [
+      {
+       "tick": 25,
+       "value": 4.8743915068602695
+      },
+      {
+       "tick": 50,
+       "value": 7.2923787983724235
+      }
+     ],
+     "wageOffer": [
+      {
+       "tick": 25,
+       "value": 45.0
+      },
+      {
+       "tick": 50,
+       "value": 45.0
+      }
+     ],
+     "inventory": [
+      {
+       "tick": 25,
+       "value": 13.821315276622487
+      },
+      {
+       "tick": 50,
+       "value": 2.4638230854325824
+      }
+     ],
+     "employees": [
+      {
+       "tick": 25,
+       "value": 1
+      },
+      {
+       "tick": 50,
+       "value": 1
+      }
+     ],
+     "profit": [
+      {
+       "tick": 25,
+       "value": 21.648743317640275
+      },
+      {
+       "tick": 50,
+       "value": -9.010525464192995
+      }
+     ],
+     "revenue": [
+      {
+       "tick": 25,
+       "value": 74.96202795617515
+      },
+      {
+       "tick": 50,
+       "value": 39.176253247850404
+      }
+     ],
+     "events": []
+    }
+   },
+   {
+    "id": 2,
+    "name": "BaselineHousing",
+    "category": "Housing",
+    "cash": 51237.09202111609,
+    "inventory": 0.0,
+    "employees": 6,
+    "doctorEmployees": 0,
+    "medicalEmployees": 0,
+    "visitsCompleted": 0.0,
+    "visitRevenue": 0.0,
+    "price": 25.42216313128101,
+    "wageOffer": 36.0,
+    "quality": 2.9747299386600035,
+    "lastRevenue": 0.0,
+    "lastProfit": -242.28000001609325,
+    "state": "STABLE",
+    "history": {
+     "cash": [
+      {
+       "tick": 1,
+       "value": 11748.987746389612
+      },
+      {
+       "tick": 25,
+       "value": 36495.71984016212
+      },
+      {
+       "tick": 50,
+       "value": 46847.789708791366
+      }
+     ],
+     "price": [
+      {
+       "tick": 1,
+       "value": 5.0
+      },
+      {
+       "tick": 25,
+       "value": 25.42216313128101
+      },
+      {
+       "tick": 50,
+       "value": 25.42216313128101
+      }
+     ],
+     "wageOffer": [
+      {
+       "tick": 1,
+       "value": 36.0
+      },
+      {
+       "tick": 25,
+       "value": 36.0
+      },
+      {
+       "tick": 50,
+       "value": 36.0
+      }
+     ],
+     "inventory": [
+      {
+       "tick": 1,
+       "value": 0.0
+      },
+      {
+       "tick": 25,
+       "value": 0.0
+      },
+      {
+       "tick": 50,
+       "value": 0.0
+      }
+     ],
+     "employees": [
+      {
+       "tick": 1,
+       "value": 5
+      },
+      {
+       "tick": 25,
+       "value": 6
+      },
+      {
+       "tick": 50,
+       "value": 6
+      }
+     ],
+     "profit": [
+      {
+       "tick": 1,
+       "value": -204.1875
+      },
+      {
+       "tick": 25,
+       "value": -242.28000001609325
+      },
+      {
+       "tick": 50,
+       "value": -242.28000001609325
+      }
+     ],
+     "revenue": [
+      {
+       "tick": 1,
+       "value": 0.0
+      },
+      {
+       "tick": 25,
+       "value": 0.0
+      },
+      {
+       "tick": 50,
+       "value": 0.0
+      }
+     ],
+     "events": []
+    }
+   },
+   {
+    "id": 4,
+    "name": "BaselineHealthcare",
+    "category": "Healthcare",
+    "cash": 7988.775623294582,
+    "inventory": 0.0,
+    "employees": 2,
+    "doctorEmployees": 2,
+    "medicalEmployees": 2,
+    "visitsCompleted": 0.0,
+    "visitRevenue": 0.0,
+    "price": 10.795454545454545,
+    "wageOffer": 20.0,
+    "quality": 2.9519691087110482,
+    "lastRevenue": 0.0,
+    "lastProfit": -40.0,
+    "state": "STABLE",
+    "history": {
+     "cash": [
+      {
+       "tick": 1,
+       "value": 9898.80948819032
+      },
+      {
+       "tick": 25,
+       "value": 9065.968579099408
+      },
+      {
+       "tick": 50,
+       "value": 8227.900397281226
+      }
+     ],
+     "price": [
+      {
+       "tick": 1,
+       "value": 5.0
+      },
+      {
+       "tick": 25,
+       "value": 10.795454545454545
+      },
+      {
+       "tick": 50,
+       "value": 10.795454545454545
+      }
+     ],
+     "wageOffer": [
+      {
+       "tick": 1,
+       "value": 20.0
+      },
+      {
+       "tick": 25,
+       "value": 20.0
+      },
+      {
+       "tick": 50,
+       "value": 20.0
+      }
+     ],
+     "inventory": [
+      {
+       "tick": 1,
+       "value": 0.0
+      },
+      {
+       "tick": 25,
+       "value": 0.0
+      },
+      {
+       "tick": 50,
+       "value": 0.0
+      }
+     ],
+     "employees": [
+      {
+       "tick": 1,
+       "value": 2
+      },
+      {
+       "tick": 25,
+       "value": 2
+      },
+      {
+       "tick": 50,
+       "value": 2
+      }
+     ],
+     "profit": [
+      {
+       "tick": 1,
+       "value": -101.1905118096798
+      },
+      {
+       "tick": 25,
+       "value": -29.204545454545453
+      },
+      {
+       "tick": 50,
+       "value": -29.204545454545453
+      }
+     ],
+     "revenue": [
+      {
+       "tick": 1,
+       "value": 0.0
+      },
+      {
+       "tick": 25,
+       "value": 10.795454545454545
+      },
+      {
+       "tick": 50,
+       "value": 10.795454545454545
+      }
+     ],
+     "events": []
+    }
+   }
+  ]
+ },
+ "logs": [
+  {
+   "tick": 60,
+   "type": "SYS",
+   "txt": "Tick 60 completed in 0.03s (26 ms)."
+  }
+ ],
+ "firm_stats": {
+  "total_firms": 21,
+  "total_employees": 96,
+  "total_doctors": 2,
+  "total_medical_workers": 2,
+  "avg_employees": 4.571428571428571,
+  "avg_price": 11.262089620978854,
+  "avg_wage_offer": 41.9247522607289,
+  "avg_inventory": 711.0689386327534,
+  "avg_quality": 5.599897087341329,
+  "mean_cash": 7659.484417913739,
+  "median_cash": 6891.0309035348055,
+  "struggling_firms": 2,
+  "categories": [
+   {
+    "category": "Food",
+    "firm_count": 11,
+    "avg_cash": 6116.790474252376,
+    "avg_price": 5.438927441818939,
+    "avg_inventory": 1357.495246480711,
+    "avg_quality": 6.2706829321401605,
+    "avg_wage": 47.868406506638735,
+    "total_employees": 21,
+    "doctor_employees": 0,
+    "medical_employees": 0,
+    "visit_revenue": 0.0,
+    "visits_completed": 0.0
+   },
+   {
+    "category": "Services",
+    "firm_count": 8,
+    "avg_cash": 4292.326239375216,
+    "avg_price": 17.557257812976506,
+    "avg_inventory": 0.0,
+    "avg_quality": 5.336703441656886,
+    "avg_wage": 37.2334157377851,
+    "total_employees": 67,
+    "doctor_employees": 0,
+    "medical_employees": 0,
+    "visit_revenue": 0.0,
+    "visits_completed": 0.0
+   },
+   {
+    "category": "Housing",
+    "firm_count": 1,
+    "avg_cash": 51237.09202111609,
+    "avg_price": 25.42216313128101,
+    "avg_inventory": 0.0,
+    "avg_quality": 2.9747299386600035,
+    "avg_wage": 36.0,
+    "total_employees": 6,
+    "doctor_employees": 0,
+    "medical_employees": 0,
+    "visit_revenue": 0.0,
+    "visits_completed": 0.0
+   },
+   {
+    "category": "Healthcare",
+    "firm_count": 1,
+    "avg_cash": 7988.775623294582,
+    "avg_price": 10.795454545454545,
+    "avg_inventory": 0.0,
+    "avg_quality": 2.9519691087110482,
+    "avg_wage": 20.0,
+    "total_employees": 2,
+    "doctor_employees": 2,
+    "medical_employees": 2,
+    "visit_revenue": 0.0,
+    "visits_completed": 0.0
+   }
+  ],
+  "top_cash": [
+   {
+    "id": 2,
+    "name": "BaselineHousing",
+    "category": "Housing",
+    "cash": 51237.09202111609,
+    "price": 25.42216313128101,
+    "wageOffer": 36.0,
+    "inventory": 0.0,
+    "quality": 2.9747299386600035,
+    "employees": 6,
+    "doctorEmployees": 0,
+    "medicalEmployees": 0,
+    "visitsCompleted": 0.0,
+    "visitRevenue": 0.0,
+    "lastRevenue": 0.0,
+    "lastProfit": -242.28000001609325,
+    "state": "ACTIVE"
+   },
+   {
+    "id": 25,
+    "name": "ServicesProduct25",
+    "category": "Services",
+    "cash": 11529.668213290224,
+    "price": 7.110080823505268,
+    "wageOffer": 36.0,
+    "inventory": 0.0,
+    "quality": 3.0533765243778452,
+    "employees": 1,
+    "doctorEmployees": 0,
+    "medicalEmployees": 0,
+    "visitsCompleted": 0.0,
+    "visitRevenue": 0.0,
+    "lastRevenue": 19.4785721073172,
+    "lastProfit": -23.38392778539444,
+    "state": "ACTIVE"
+   },
+   {
+    "id": 9,
+    "name": "FoodCo5",
+    "category": "Food",
+    "cash": 10997.555279707236,
+    "price": 5.096162547078727,
+    "wageOffer": 45.0,
+    "inventory": 14.002042024892663,
+    "quality": 6.253262087719296,
+    "employees": 1,
+    "doctorEmployees": 0,
+    "medicalEmployees": 0,
+    "visitsCompleted": 0.0,
+    "visitRevenue": 0.0,
+    "lastRevenue": 67.21471668644074,
+    "lastProfit": 14.179542385800438,
+    "state": "ACTIVE"
+   },
+   {
+    "id": 11,
+    "name": "FoodCo7",
+    "category": "Food",
+    "cash": 10406.313625309698,
+    "price": 4.598218149050138,
+    "wageOffer": 47.25,
+    "inventory": 0.0,
+    "quality": 7.218164487913488,
+    "employees": 1,
+    "doctorEmployees": 0,
+    "medicalEmployees": 0,
+    "visitsCompleted": 0.0,
+    "visitRevenue": 0.0,
+    "lastRevenue": 176.31308070174057,
+    "lastProfit": 97.97088852766504,
+    "state": "ACTIVE"
+   },
+   {
+    "id": 12,
+    "name": "FoodCo8",
+    "category": "Food",
+    "cash": 9773.248275285277,
+    "price": 3.738663185287964,
+    "wageOffer": 53.713430672487306,
+    "inventory": 0.0,
+    "quality": 7.497546813292613,
+    "employees": 2,
+    "doctorEmployees": 0,
+    "medicalEmployees": 0,
+    "visitsCompleted": 0.0,
+    "visitRevenue": 0.0,
+    "lastRevenue": 245.16934419087636,
+    "lastProfit": 108.85445005300095,
+    "state": "ACTIVE"
+   },
+   {
+    "id": 8,
+    "name": "FoodCo4",
+    "category": "Food",
+    "cash": 9661.059179976148,
+    "price": 6.769035150647787,
+    "wageOffer": 45.0,
+    "inventory": 3.2677898026238417,
+    "quality": 5.891043108513405,
+    "employees": 1,
+    "doctorEmployees": 0,
+    "medicalEmployees": 0,
+    "visitsCompleted": 0.0,
+    "visitRevenue": 0.0,
+    "lastRevenue": 36.42241608683599,
+    "lastProfit": -11.764362625207411,
+    "state": "ACTIVE"
+   },
+   {
+    "id": 5,
+    "name": "FoodCo1",
+    "category": "Food",
+    "cash": 9512.702657251559,
+    "price": 5.940949206057604,
+    "wageOffer": 45.0,
+    "inventory": 1.2628599253595043,
+    "quality": 5.049287048311598,
+    "employees": 1,
+    "doctorEmployees": 0,
+    "medicalEmployees": 0,
+    "visitsCompleted": 0.0,
+    "visitRevenue": 0.0,
+    "lastRevenue": 14.450894591948918,
+    "lastProfit": -37.44622049762348,
+    "state": "ACTIVE"
+   },
+   {
+    "id": 6,
+    "name": "FoodCo2",
+    "category": "Food",
+    "cash": 9257.938748320275,
+    "price": 6.165488706420564,
+    "wageOffer": 45.0,
+    "inventory": 1.5370925645006688,
+    "quality": 5.305277007474267,
+    "employees": 1,
+    "doctorEmployees": 0,
+    "medicalEmployees": 0,
+    "visitsCompleted": 0.0,
+    "visitRevenue": 0.0,
+    "lastRevenue": 18.616340235554617,
+    "lastProfit": -33.19639993448405,
+    "state": "ACTIVE"
+   },
+   {
+    "id": 10,
+    "name": "FoodCo6",
+    "category": "Food",
+    "cash": 8164.938127836203,
+    "price": 5.5535938767965005,
+    "wageOffer": 45.0,
+    "inventory": 11.884325901320423,
+    "quality": 6.6574466964117915,
+    "employees": 1,
+    "doctorEmployees": 0,
+    "medicalEmployees": 0,
+    "visitsCompleted": 0.0,
+    "visitRevenue": 0.0,
+    "lastRevenue": 97.43933727167853,
+    "lastProfit": 38.549005243011855,
+    "state": "ACTIVE"
+   },
+   {
+    "id": 4,
+    "name": "BaselineHealthcare",
+    "category": "Healthcare",
+    "cash": 7988.775623294582,
+    "price": 10.795454545454545,
+    "wageOffer": 20.0,
+    "inventory": 0.0,
+    "quality": 2.9519691087110482,
+    "employees": 2,
+    "doctorEmployees": 2,
+    "medicalEmployees": 2,
+    "visitsCompleted": 0.0,
+    "visitRevenue": 0.0,
+    "lastRevenue": 0.0,
+    "lastProfit": -40.0,
+    "state": "ACTIVE"
+   },
+   {
+    "id": 7,
+    "name": "FoodCo3",
+    "category": "Food",
+    "cash": 6891.0309035348055,
+    "price": 8.08394990107012,
+    "wageOffer": 45.0,
+    "inventory": 2.5193046062570854,
+    "quality": 5.711800278300062,
+    "employees": 1,
+    "doctorEmployees": 0,
+    "medicalEmployees": 0,
+    "visitsCompleted": 0.0,
+    "visitRevenue": 0.0,
+    "lastRevenue": 25.73014343319316,
+    "lastProfit": -22.42851030567233,
+    "state": "ACTIVE"
+   },
+   {
+    "id": 20,
+    "name": "ServicesCo6",
+    "category": "Services",
+    "cash": 6158.5128000010345,
+    "price": 44.62144774749761,
+    "wageOffer": 39.86732590228081,
+    "inventory": 0.0,
+    "quality": 7.627491100107798,
+    "employees": 16,
+    "doctorEmployees": 0,
+    "medicalEmployees": 0,
+    "visitsCompleted": 0.0,
+    "visitRevenue": 0.0,
+    "lastRevenue": 1817.1509919105554,
+    "lastProfit": 868.1046644871748,
+    "state": "ACTIVE"
+   }
+  ],
+  "top_employers": [
+   {
+    "id": 19,
+    "name": "ServicesCo5",
+    "category": "Services",
+    "cash": 3700.3883231917403,
+    "price": 15.679210055668234,
+    "wageOffer": 42.0,
+    "inventory": 0.0,
+    "quality": 6.673661305043933,
+    "employees": 16,
+    "doctorEmployees": 0,
+    "medicalEmployees": 0,
+    "visitsCompleted": 0.0,
+    "visitRevenue": 0.0,
+    "lastRevenue": 854.4912838859166,
+    "lastProfit": 108.9098403608134,
+    "state": "ACTIVE"
+   },
+   {
+    "id": 20,
+    "name": "ServicesCo6",
+    "category": "Services",
+    "cash": 6158.5128000010345,
+    "price": 44.62144774749761,
+    "wageOffer": 39.86732590228081,
+    "inventory": 0.0,
+    "quality": 7.627491100107798,
+    "employees": 16,
+    "doctorEmployees": 0,
+    "medicalEmployees": 0,
+    "visitsCompleted": 0.0,
+    "visitRevenue": 0.0,
+    "lastRevenue": 1817.1509919105554,
+    "lastProfit": 868.1046644871748,
+    "state": "ACTIVE"
+   },
+   {
+    "id": 18,
+    "name": "ServicesCo4",
+    "category": "Services",
+    "cash": 3064.2499209629937,
+    "price": 12.864791292644753,
+    "wageOffer": 36.0,
+    "inventory": 0.0,
+    "quality": 6.128419759915156,
+    "employees": 14,
+    "doctorEmployees": 0,
+    "medicalEmployees": 0,
+    "visitsCompleted": 0.0,
+    "visitRevenue": 0.0,
+    "lastRevenue": 476.1257354622653,
+    "lastProfit": -100.81234114967538,
+    "state": "ACTIVE"
+   },
+   {
+    "id": 2,
+    "name": "BaselineHousing",
+    "category": "Housing",
+    "cash": 51237.09202111609,
+    "price": 25.42216313128101,
+    "wageOffer": 36.0,
+    "inventory": 0.0,
+    "quality": 2.9747299386600035,
+    "employees": 6,
+    "doctorEmployees": 0,
+    "medicalEmployees": 0,
+    "visitsCompleted": 0.0,
+    "visitRevenue": 0.0,
+    "lastRevenue": 0.0,
+    "lastProfit": -242.28000001609325,
+    "state": "ACTIVE"
+   },
+   {
+    "id": 16,
+    "name": "ServicesCo2",
+    "category": "Services",
+    "cash": 4883.081628261619,
+    "price": 24.37972616379648,
+    "wageOffer": 36.0,
+    "inventory": 0.0,
+    "quality": 5.333692985701199,
+    "employees": 6,
+    "doctorEmployees": 0,
+    "medicalEmployees": 0,
+    "visitsCompleted": 0.0,
+    "visitRevenue": 0.0,
+    "lastRevenue": 177.3007184997941,
+    "lastProfit": -58.76769139344353,
+    "state": "ACTIVE"
+   },
+   {
+    "id": 17,
+    "name": "ServicesCo3",
+    "category": "Services",
+    "cash": 1273.6456366833136,
+    "price": 16.965521671486947,
+    "wageOffer": 36.0,
+    "inventory": 0.0,
+    "quality": 5.724921563660328,
+    "employees": 6,
+    "doctorEmployees": 0,
+    "medicalEmployees": 0,
+    "visitsCompleted": 0.0,
+    "visitRevenue": 0.0,
+    "lastRevenue": 268.01389187634464,
+    "lastProfit": 25.918735353714965,
+    "state": "ACTIVE"
+   },
+   {
+    "id": 13,
+    "name": "FoodCo9",
+    "category": "Food",
+    "cash": 1764.6384729507952,
+    "price": 5.1006930324571,
+    "wageOffer": 57.810578674770305,
+    "inventory": 0.014126716135876904,
+    "quality": 8.334359791548481,
+    "employees": 5,
+    "doctorEmployees": 0,
+    "medicalEmployees": 0,
+    "visitsCompleted": 0.0,
+    "visitRevenue": 0.0,
+    "lastRevenue": 889.9605021967849,
+    "lastProfit": 474.39713355784335,
+    "state": "ACTIVE"
+   },
+   {
+    "id": 15,
+    "name": "ServicesCo1",
+    "category": "Services",
+    "cash": 4727.614761484382,
+    "price": 10.556592418340493,
+    "wageOffer": 36.0,
+    "inventory": 0.0,
+    "quality": 5.113765782547118,
+    "employees": 5,
+    "doctorEmployees": 0,
+    "medicalEmployees": 0,
+    "visitsCompleted": 0.0,
+    "visitRevenue": 0.0,
+    "lastRevenue": 180.56283271210864,
+    "lastProfit": -21.537359617041346,
+    "state": "ACTIVE"
+   },
+   {
+    "id": 14,
+    "name": "FoodCo10",
+    "category": "Food",
+    "cash": 3234.295402814661,
+    "price": 3.78144810514183,
+    "wageOffer": 61.77846222576851,
+    "inventory": 22.896713635074647,
+    "quality": 7.990888200521622,
+    "employees": 4,
+    "doctorEmployees": 0,
+    "medicalEmployees": 0,
+    "visitsCompleted": 0.0,
+    "visitRevenue": 0.0,
+    "lastRevenue": 532.2751494961276,
+    "lastProfit": 239.40458274027222,
+    "state": "ACTIVE"
+   },
+   {
+    "id": 1,
+    "name": "BaselineFood",
+    "category": "Food",
+    "cash": -12379.025456210515,
+    "price": 5.0,
+    "wageOffer": 36.0,
+    "inventory": 14875.063456111655,
+    "quality": 3.0684367335351412,
+    "employees": 3,
+    "doctorEmployees": 0,
+    "medicalEmployees": 0,
+    "visitsCompleted": 0.0,
+    "visitRevenue": 0.0,
+    "lastRevenue": 2.0541744537304716,
+    "lastProfit": -130.78582599688065,
+    "state": "BURN"
+   },
+   {
+    "id": 3,
+    "name": "BaselineServices",
+    "category": "Services",
+    "cash": -998.5513688735807,
+    "price": 8.28069233087225,
+    "wageOffer": 36.0,
+    "inventory": 0.0,
+    "quality": 3.0382985119017114,
+    "employees": 3,
+    "doctorEmployees": 0,
+    "medicalEmployees": 0,
+    "visitsCompleted": 0.0,
+    "visitRevenue": 0.0,
+    "lastRevenue": 30.066237254967564,
+    "lastProfit": -91.63626255191339,
+    "state": "ACTIVE"
+   },
+   {
+    "id": 4,
+    "name": "BaselineHealthcare",
+    "category": "Healthcare",
+    "cash": 7988.775623294582,
+    "price": 10.795454545454545,
+    "wageOffer": 20.0,
+    "inventory": 0.0,
+    "quality": 2.9519691087110482,
+    "employees": 2,
+    "doctorEmployees": 2,
+    "medicalEmployees": 2,
+    "visitsCompleted": 0.0,
+    "visitRevenue": 0.0,
+    "lastRevenue": 0.0,
+    "lastProfit": -40.0,
+    "state": "ACTIVE"
+   }
+  ]
+ }
+}

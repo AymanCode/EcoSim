@@ -1,5 +1,10 @@
+@import './theme/tokens.css';
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
-/* ... other styles if any ... */
+@layer base {
+  body {
+    line-height: 1.45;
+  }
+}

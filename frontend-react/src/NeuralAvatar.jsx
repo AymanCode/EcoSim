@@ -1,250 +1,198 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef } from 'react'
 
-const NeuralAvatar = ({
-    active = true,
-    mood = 'neutral',
-    variant = 'human'
-}) => {
-    const containerRef = useRef(null);
-    const canvasRef = useRef(null);
+// Point-cloud figure of one household. It reads its colours from the theme
+// tokens, fits itself to whatever box it is given, and keeps the old props:
+// `active` pauses the rotation, `mood` picks the node colour.
 
-    useEffect(() => {
-        const container = containerRef.current;
-        const canvas = canvasRef.current;
-        if (!container || !canvas) return;
+const MOOD_TOKEN = { happy: '--good', distressed: '--crit', neutral: '--acc' }
+const FOV = 4
+const CAMERA = 3
+const S_MAX = FOV / (FOV + CAMERA - 1) // nearest possible perspective scale
 
-        let ctx = canvas.getContext('2d');
-        let rect = container.getBoundingClientRect();
-        const dpr = window.devicePixelRatio || 1;
+function readToken(name, fallback) {
+  if (typeof getComputedStyle !== 'function') return fallback
+  const v = getComputedStyle(document.documentElement).getPropertyValue(name).trim()
+  return v || fallback
+}
 
-        const handleResize = () => {
-            rect = container.getBoundingClientRect();
-            if (rect.width === 0 || rect.height === 0) return;
-            canvas.width = rect.width * dpr;
-            canvas.height = rect.height * dpr;
+function withAlpha(color, alpha) {
+  const m = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(color)
+  if (!m) return color
+  let h = m[1]
+  if (h.length === 3) h = h.split('').map((c) => c + c).join('')
+  const r = parseInt(h.slice(0, 2), 16)
+  const g = parseInt(h.slice(2, 4), 16)
+  const b = parseInt(h.slice(4, 6), 16)
+  return `rgba(${r},${g},${b},${alpha})`
+}
 
-            // Re-apply scale after changing width/height
-            ctx = canvas.getContext('2d');
-            ctx.scale(dpr, dpr);
-        };
+// Small deterministic generator so the figure is identical on every mount.
+function mulberry32(seed) {
+  let a = seed >>> 0
+  return () => {
+    a = (a + 0x6d2b79f5) >>> 0
+    let t = a
+    t = Math.imul(t ^ (t >>> 15), t | 1)
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61)
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296
+  }
+}
 
-        const resizeObserver = new ResizeObserver(() => {
-            handleResize();
-        });
-        resizeObserver.observe(container);
-        handleResize();
+function buildFigure(seed = 7) {
+  const rnd = mulberry32(seed)
+  const pts = []
+  const add = (x, y, z, tag) => pts.push({ x, y, z, tag })
+  for (let i = 0; i < 26; i++) {
+    const th = rnd() * Math.PI * 2
+    const ph = Math.acos(2 * rnd() - 1)
+    add(14 * Math.sin(ph) * Math.cos(th), 14 * Math.sin(ph) * Math.sin(th) - 65, 14 * Math.cos(ph), 'head')
+  }
+  for (let i = 0; i < 48; i++) {
+    const th = rnd() * Math.PI * 2
+    const y = rnd() * 65 - 45
+    const rr = (12 + y / 10) * Math.sqrt(rnd())
+    add(rr * Math.cos(th), y, rr * Math.sin(th), 'body')
+  }
+  ;[-22, 22].forEach((x) => {
+    for (let y = -45; y < 15; y += 6) add(x + (rnd() * 4 - 2), y, rnd() * 6 - 3, 'limb')
+  })
+  ;[-10, 10].forEach((x) => {
+    for (let y = 20; y < 90; y += 7) add(x + (rnd() * 4 - 2), y, rnd() * 6 - 3, 'limb')
+  })
+  // Normalise: centre vertically and scale so y spans [-1, 1].
+  let yMin = Infinity
+  let yMax = -Infinity
+  pts.forEach((p) => {
+    yMin = Math.min(yMin, p.y)
+    yMax = Math.max(yMax, p.y)
+  })
+  const cy = (yMin + yMax) / 2
+  const half = (yMax - yMin) / 2
+  let rMax = 0
+  pts.forEach((p) => {
+    p.x /= half
+    p.y = (p.y - cy) / half
+    p.z /= half
+    rMax = Math.max(rMax, Math.hypot(p.x, p.z))
+  })
+  const linkRadius = 16 / half
+  const links = []
+  for (let i = 0; i < pts.length; i++) {
+    for (let j = i + 1; j < pts.length; j++) {
+      const a = pts[i]
+      const b = pts[j]
+      if (Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z) < linkRadius) links.push([i, j])
+    }
+  }
+  return { pts, links, rMax }
+}
 
-        let animationFrameId;
+export default function NeuralAvatar({ active = true, mood = 'neutral' }) {
+  const hostRef = useRef(null)
+  const canvasRef = useRef(null)
 
-        const buildHumanGeometry = () => {
-            const points = [];
-            const addPoint = (x, y, z, tag) => points.push({ x, y, z, tag });
-            const S = 6.5;
+  useEffect(() => {
+    const host = hostRef.current
+    const canvas = canvasRef.current
+    if (!host || !canvas) return undefined
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return undefined
 
-            for (let i = 0; i < 25; i++) {
-                const theta = Math.random() * Math.PI * 2;
-                const phi = Math.random() * Math.PI;
-                const r = 14 * S;
-                addPoint(
-                    r * Math.sin(phi) * Math.cos(theta),
-                    r * Math.sin(phi) * Math.sin(theta) - (65 * S),
-                    r * Math.cos(phi),
-                    'head'
-                );
-            }
+    const { pts, links, rMax } = buildFigure()
+    const reduceMotion = typeof window.matchMedia === 'function' && window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    const spin = active && !reduceMotion
+    let w = 0
+    let h = 0
+    let angle = 0.6
+    let raf = 0
 
-            for (let i = 0; i < 45; i++) {
-                const theta = Math.random() * Math.PI * 2;
-                const y = ((Math.random() * 65) - 45) * S;
-                const radiusAtHeight = (12 * S) + (y / 10);
-                const r = Math.random() * radiusAtHeight;
-                addPoint(r * Math.cos(theta), y, r * Math.sin(theta), 'body');
-            }
+    const paint = () => {
+      const node = readToken(MOOD_TOKEN[mood] || '--acc', '#FF6B1A')
+      return {
+        node,
+        head: readToken('--ink', '#F5F6F7'),
+        link: withAlpha(readToken('--ink4', '#5B626C'), 0.38),
+      }
+    }
+    let colors = paint()
 
-            [-22 * S, 22 * S].forEach(xOffset => {
-                for (let y = -45 * S; y < 15 * S; y += 6 * S) {
-                    addPoint(xOffset + (Math.random() * 4 - 2) * S, y, (Math.random() * 6 - 3) * S, 'arm');
-                }
-            });
+    const size = () => {
+      const r = host.getBoundingClientRect()
+      w = r.width
+      h = r.height
+      if (!w || !h) return
+      const dpr = window.devicePixelRatio || 1
+      canvas.width = Math.round(w * dpr)
+      canvas.height = Math.round(h * dpr)
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
+    }
 
-            [-10 * S, 10 * S].forEach(xOffset => {
-                for (let y = 20 * S; y < 90 * S; y += 7 * S) {
-                    addPoint(xOffset + (Math.random() * 4 - 2) * S, y, (Math.random() * 6 - 3) * S, 'leg');
-                }
-            });
+    const draw = (t) => {
+      if (!w || !h) return
+      ctx.clearRect(0, 0, w, h)
+      const pad = 10
+      // Fit: the nearest point projects at S_MAX, so this scale keeps the whole
+      // figure inside the box at every rotation angle.
+      const k = Math.min((w / 2 - pad) / (rMax * S_MAX), (h / 2 - pad) / S_MAX)
+      const cos = Math.cos(angle)
+      const sin = Math.sin(angle)
+      const proj = pts.map((p) => {
+        const x = p.x * cos - p.z * sin
+        const z = p.x * sin + p.z * cos
+        const s = FOV / (FOV + CAMERA + z)
+        return { x: w / 2 + x * s * k, y: h / 2 + p.y * s * k, near: (s - 0.5) / (S_MAX - 0.5), tag: p.tag }
+      })
+      ctx.lineWidth = 1
+      ctx.strokeStyle = colors.link
+      ctx.beginPath()
+      links.forEach(([i, j]) => {
+        ctx.moveTo(proj[i].x, proj[i].y)
+        ctx.lineTo(proj[j].x, proj[j].y)
+      })
+      ctx.stroke()
+      proj.forEach((p, i) => {
+        const near = Math.max(0, Math.min(1, p.near))
+        const shimmer = spin ? 0.1 * Math.sin(t / 900 + i) : 0
+        ctx.globalAlpha = Math.max(0.25, Math.min(1, 0.45 + 0.5 * near + shimmer))
+        ctx.fillStyle = p.tag === 'head' ? colors.head : colors.node
+        ctx.beginPath()
+        ctx.arc(p.x, p.y, 1 + 1.4 * near, 0, Math.PI * 2)
+        ctx.fill()
+      })
+      ctx.globalAlpha = 1
+    }
 
-            return {
-                points,
-                connectionRadius: 16 * S,
-                rotationSpeed: 0.008,
-                palette: {
-                    link: 'rgba(167, 139, 250, 0.14)',
-                    happy: 'rgba(110, 231, 183, 0.20)',
-                    nodePrimary: '#FBBF24',
-                    nodeAccent: '#F8DFA6'
-                }
-            };
-        };
+    const loop = (t) => {
+      angle += 0.006
+      draw(t)
+      raf = requestAnimationFrame(loop)
+    }
 
-        const buildBuildingGeometry = () => {
-            const points = [];
-            const addPoint = (x, y, z, tag) => points.push({ x, y, z, tag });
-            const heightSpan = 320;
-            const floors = 45;
-            const baseWidth = 80;
-            const baseDepth = 50;
+    const ro = new ResizeObserver(() => {
+      size()
+      draw(performance.now())
+    })
+    ro.observe(host)
+    size()
+    const mo = new MutationObserver(() => {
+      colors = paint()
+      draw(performance.now())
+    })
+    mo.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] })
 
-            for (let f = 0; f <= floors; f++) {
-                const t = f / floors;
-                const width = baseWidth * (1 - t * 0.4);
-                const depth = baseDepth * (1 - t * 0.3);
-                const y = (t - 0.5) * heightSpan;
+    if (spin) raf = requestAnimationFrame(loop)
+    else draw(performance.now())
 
-                const corners = [
-                    [width, y, depth],
-                    [-width, y, depth],
-                    [-width, y, -depth],
-                    [width, y, -depth]
-                ];
+    return () => {
+      cancelAnimationFrame(raf)
+      ro.disconnect()
+      mo.disconnect()
+    }
+  }, [active, mood])
 
-                corners.forEach(([x, yPos, z]) => addPoint(x, yPos, z, 'frame'));
-
-                for (let w = 0; w < 6; w++) {
-                    const offsetY = y + (Math.random() - 0.5) * (heightSpan / floors);
-                    const offsetX = (Math.random() * 2 - 1) * width * 0.85;
-                    addPoint(offsetX, offsetY, depth + 4, 'window');
-                    addPoint(offsetX, offsetY, -depth - 4, 'window');
-                }
-
-                for (let w = 0; w < 4; w++) {
-                    const offsetY = y + (Math.random() - 0.5) * (heightSpan / floors);
-                    const offsetZ = (Math.random() * 2 - 1) * depth * 0.85;
-                    addPoint(width + 4, offsetY, offsetZ, 'window');
-                    addPoint(-width - 4, offsetY, offsetZ, 'window');
-                }
-            }
-
-            return {
-                points,
-                connectionRadius: 40,
-                rotationSpeed: 0.004,
-                palette: {
-                    link: 'rgba(251, 191, 36, 0.18)',
-                    happy: 'rgba(110, 231, 183, 0.20)',
-                    nodePrimary: '#FBBF24',
-                    nodeAccent: '#F8DFA6'
-                }
-            };
-        };
-
-        const geometry = variant === 'building' ? buildBuildingGeometry() : buildHumanGeometry();
-        const { points, connectionRadius, rotationSpeed, palette } = geometry;
-
-        const connections = [];
-        points.forEach((p1, i) => {
-            points.forEach((p2, j) => {
-                if (i === j) return;
-                const dist = Math.sqrt(
-                    Math.pow(p1.x - p2.x, 2) +
-                    Math.pow(p1.y - p2.y, 2) +
-                    Math.pow(p1.z - p2.z, 2)
-                );
-                if (dist < connectionRadius) {
-                    connections.push([i, j]);
-                }
-            });
-        });
-
-        let angle = 0;
-
-        const render = () => {
-            if (!active) return;
-
-            // Clear with slight trail effect (optional, currently full clear)
-            ctx.clearRect(0, 0, rect.width, rect.height);
-
-            const centerX = rect.width / 2;
-            const centerY = rect.height / 2;
-
-            angle += rotationSpeed;
-            const cos = Math.cos(angle);
-            const sin = Math.sin(angle);
-
-            // --- 3. PROJECTION LOOP ---
-            const projected = points.map(p => {
-                // Rotate around Y-axis
-                const x = p.x * cos - p.z * sin;
-                const z = p.x * sin + p.z * cos;
-                const y = p.y; // Y stays same
-
-                // Simple Perspective Projection
-                const fov = 350;
-                const scale = fov / (fov + z + 200); // Camera distance
-
-                return {
-                    x: x * scale + centerX,
-                    y: y * scale + centerY,
-                    scale: scale,
-                    tag: p.tag
-                };
-            });
-
-            // --- 4. DRAWING ---
-
-            // Draw Connections (Synapses) first
-            ctx.lineWidth = 1;
-            ctx.strokeStyle = mood === 'happy' ? palette.happy : palette.link;
-
-            connections.forEach(([i, j]) => {
-                const p1 = projected[i];
-                const p2 = projected[j];
-
-                // Optimization: Only draw if points are large enough (close to camera)
-                if (p1.scale > 0.4 && p2.scale > 0.4) {
-                    ctx.beginPath();
-                    ctx.moveTo(p1.x, p1.y);
-                    ctx.lineTo(p2.x, p2.y);
-                    ctx.stroke();
-                }
-            });
-
-            // Draw Nodes (Neurons)
-            projected.forEach(p => {
-                const size = Math.max(0.5, 2.5 * p.scale);
-                ctx.beginPath();
-                ctx.arc(p.x, p.y, size, 0, Math.PI * 2);
-
-                // Flicker effect for neural activity
-                const alpha = 0.35 + Math.random() * 0.5;
-
-                ctx.fillStyle = (p.tag === 'head' || p.tag === 'window')
-                    ? palette.nodeAccent
-                    : palette.nodePrimary;
-                ctx.globalAlpha = alpha;
-                ctx.shadowBlur = p.tag === 'window' ? 10 : 0;
-                ctx.shadowColor = palette.nodeAccent;
-
-                ctx.fill();
-                ctx.globalAlpha = 1;
-                ctx.shadowBlur = 0;
-            });
-
-            animationFrameId = requestAnimationFrame(render);
-        };
-
-        render();
-
-        return () => {
-            cancelAnimationFrame(animationFrameId);
-            resizeObserver.disconnect();
-        };
-    }, [active, mood, variant]);
-
-    return (
-        <div ref={containerRef} className="w-full h-full absolute inset-0">
-            <canvas ref={canvasRef} className="block w-full h-full" />
-        </div>
-    );
-};
-
-export default NeuralAvatar;
+  return (
+    <div ref={hostRef} className="w-full h-full absolute inset-0">
+      <canvas ref={canvasRef} className="block w-full h-full" />
+    </div>
+  )
+}
