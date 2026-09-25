@@ -41,6 +41,7 @@ from policy_schema import ORDERED_LEVERS, VALID_LEVERS, normalize_current_policy
 from policy_vectors import PolicyVectorError, validate_lever_value, validate_policy_vector
 from experiments import ExperimentError, ExperimentRegistry  # noqa: F401
 from frame_events import TickEventCollector
+from frame_projection import build_curated_metrics, build_firm_list
 from utils.category_utils import get_good_category_capitalized
 from tools.runners.run_large_simulation import (
     create_large_economy,
@@ -429,6 +430,7 @@ class SimulationManager:
         self.event_collector = TickEventCollector()
         self.last_events: List[Dict[str, Any]] = []
         self.last_event_counts: Dict[str, int] = {}
+        self.cached_econ_tick: int = 0
         self.metrics_stride = 5
         self.policy_changes = []
         # Every policy record since the last tick's event collection; policy_changes keeps only five.
@@ -2465,6 +2467,7 @@ class SimulationManager:
                     self.cached_econ_metrics = econ_metrics
                     self.cached_stats = stats
                     self.cached_firm_stats = firm_stats
+                    self.cached_econ_tick = self.tick
                 else:
                     econ_metrics = self.cached_econ_metrics or {}
                     stats = self.cached_stats or {}
@@ -2812,6 +2815,20 @@ class SimulationManager:
                         "history": self.firm_histories.get(fid, {})
                     })
 
+                projection_resumed = time.perf_counter()
+                # One payment snapshot per tick serves both metrics.payment and the curated
+                # bank-default count; econ_metrics["payment"] is stride-cached.
+                from payment_reporting import payment_snapshot
+                payment_stats = payment_snapshot(self.economy)
+                curated_metrics = build_curated_metrics(
+                    economy=self.economy,
+                    econ_metrics={**econ_metrics, "payment": payment_stats},
+                    tick=self.tick,
+                    wealth_as_of_tick=self.cached_econ_tick,
+                )
+                firm_rows = build_firm_list(self.economy)
+                projection_ms += (time.perf_counter() - projection_resumed) * 1000.0
+
                 # Update history at startup and then every history_stride ticks.
                 if sample_history:
                     self.gdp_history.append({"tick": self.tick, "value": gdp / 1000000.0})
@@ -2927,8 +2944,6 @@ class SimulationManager:
                 }]
                 
                 # Construct state update
-                from payment_reporting import payment_snapshot
-                payment_stats = payment_snapshot(self.economy)
                 state = {
                     "tick": self.tick,
                     "metrics": {
@@ -2984,6 +2999,8 @@ class SimulationManager:
                     "eventCounts": self.last_event_counts,
                     "firmsClosed": self.event_collector.closed_archive(self.tick),
                     "projectionMs": projection_ms,
+                    "curated": curated_metrics,
+                    "firms": firm_rows,
                 }
                 
                 # Send update
@@ -3651,6 +3668,11 @@ async def websocket_endpoint(websocket: WebSocket):
                 if dropped:
                     logger.warning("RESET discarded %d queued CONFIG action(s) session=%s", dropped, session_id)
                 session_manager.tick = 0
+                # Cached metrics carry pre-RESET tick numbers; the first resumed tick recomputes them.
+                session_manager.cached_stats = None
+                session_manager.cached_econ_metrics = None
+                session_manager.cached_firm_stats = None
+                session_manager.cached_econ_tick = 0
                 if session_manager.economy is not None:
                     session_manager.event_collector.reset(session_manager.economy)
                 session_manager.last_events = []

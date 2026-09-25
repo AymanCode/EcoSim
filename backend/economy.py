@@ -7719,6 +7719,10 @@ class Economy:
                 metrics["max_wage"] = 0.0
                 metrics["wage_floor_binding_share"] = 0.0
 
+            food_spend = [float(getattr(h, "last_food_spend", 0.0) or 0.0) for h in self.households]
+            metrics["household_food_spend_total"] = float(sum(food_spend))
+            metrics["household_food_spend_mean"] = float(sum(food_spend) / len(food_spend)) if food_spend else 0.0
+
             # Household cash/wealth
             household_cash = [h.cash_balance for h in self.households]
             metrics["total_household_cash"] = sum(household_cash)

@@ -57,10 +57,41 @@ All keys of the previous frame are unchanged. Added at the top level, every tick
   `careCompleted`, `firmsOpened`, `firmsClosed`, `loanDefaults`, `policyChanges`, `shocks`, `regime`),
   plus `detailed` (events sent) and `dropped` (events over the cap).
 - `firmsClosed`: firms closed in the last 52 ticks, each `{"id", "name", "sector", "closedTick", "lastStaff"}`.
-- `projectionMs`: milliseconds the server spent building this tick's events.
+- `projectionMs`: milliseconds the server spent building this tick's events, `curated`, `firms` and the
+  payment snapshot that `metrics.payment` also carries.
+- `curated`: newcomer-facing figures, each computed fresh this tick from the economy unless noted:
+  - `householdsTotal`: number of households.
+  - `peopleOutOfWorkPer100`: households able to work with no employer, per 100 households able to work;
+    `0.0` when nobody can work.
+  - `typicalWeeklyPay`: median wage of employed households, currency per tick; `0.0` when nobody is employed.
+  - `foodSpendPerHousehold`: mean food spend per household this tick (goods-market receipts), currency.
+  - `priceFood`, `priceHousing`, `priceServices`, `priceHealthcare`: mean posted price of that sector's firms,
+    currency per unit; `null` when the sector has no firm.
+  - `townHallCash`: government cash balance, currency, negative when in debt.
+  - `homelessHouseholds`: households without housing, from the housing diagnostics; `0.0` when absent.
+  - `careDenials`: healthcare visits denied as unaffordable this tick, from the health diagnostics; `null`
+    when the diagnostics are absent or do not report it.
+  - `firmsOpen`: operating firms; `firmsStruggling`, `firmsGrowing`, `firmsSteady`: those firms counted by
+    `state` (see `firms`).
+  - `bankActiveLoans`: the bank's active loans, a count; `null` without a bank.
+  - `bankDefaultAmountThisTick`: currency the bank wrote off this tick; `null` without a bank.
+  - `bankDefaultsTotal`: defaulted loan claims so far, a count, the same value as
+    `metrics.payment.loans.defaults_total`; `null` under the legacy payment sequence.
+  - `publicWorksJobs`: workers employed by public-works firms, a count.
+  - `gini`, `wealthP10`, `wealthP50`, `wealthP90`: Gini coefficient of household cash and its 10th, 50th and
+    90th percentiles (currency). Stride-cached: recomputed every 5 ticks, on the first tick after SETUP and
+    on LLM-decision ticks; `wealthAsOfTick` is the tick they were computed on. `null` when the economy has
+    no households.
+- `firms`: every operating firm, richest first (`cash` descending), every tick. Each is `{"id", "name",
+  "sector", "cash", "staff", "price", "lastRevenue", "lastProfit", "state", "isBaseline"}`: `name` is the
+  firm's good name, `cash` and this tick's `lastRevenue`/`lastProfit` are currency, `staff` is the employee
+  count, `price` the posted price, `isBaseline` is `true` for government baseline firms. `state` is
+  `struggling` (cash at or below zero, burn or survival mode, or more than two ticks at zero cash), else
+  `growing` (hires planned), else `steady`.
 
 A legacy `RESET` also restarts event collection: the closed-firm list empties and earlier policy
-changes and defaults are not reported again.
+changes and defaults are not reported again. It also clears the stride-cached figures, so the first tick
+after it recomputes them and `curated.wealthAsOfTick` restarts at `1`.
 
 Added inside `metrics`:
 
