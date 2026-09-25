@@ -154,6 +154,21 @@ export function formatMetric(key, value) {
   return format(value)
 }
 
+// Tight labels for chart axes and end labels: big sums of money go short
+// ("$1.3m"), everything else reads as formatMetric.
+export function formatMetricShort(key, value) {
+  if (!isNumber(value)) return NOT_MEASURED
+  if (METRICS[key]?.format === 'money' && Math.abs(value) >= 1e4) return formatMoneyShort(value)
+  return formatMetric(key, value)
+}
+
+// The numbers the story chart can show, and the four stat cards beside it.
+export const STORY_METRICS = ['peopleOutOfWorkPer100', 'typicalWeeklyPay', 'foodSpendPerHousehold', 'gini', 'townHallCash']
+export const STAT_METRICS = ['peopleOutOfWorkPer100', 'typicalWeeklyPay', 'foodSpendPerHousehold', 'gini']
+
+// Town colours, in arm order (the spec's town A to D tokens).
+export const TOWN_COLORS = ['#2E6FE0', '#E0762C', '#199E70', '#9085E9']
+
 // Percent with at most one decimal: 0.2 -> "20%", 0.225 -> "22.5%".
 function percent(rate) {
   const value = Number(rate)
@@ -421,6 +436,39 @@ export const COPY = {
     subtitle: 'newest first',
     when: (week, town) => `${week}, ${town}`,
     empty: 'Nothing has happened yet.',
+  },
+  chart: {
+    chips: 'Chart a different number',
+    weeksAhead: 'the weeks ahead',
+    year: n => `Year ${n}`,
+    week: n => `Week ${n}`,
+    endLabel: (town, value) => `${town}  ${value}`,
+    tableCaption: name => `${name}, every 13 weeks`,
+    weekColumn: 'Week',
+  },
+  horizon: {
+    region: 'Timeline',
+    play: 'Play',
+    pause: 'Pause',
+    again: 'Play again',
+    scrub: 'Week of the run',
+    speed: 'Speed',
+    speedValue: speed => `${speed}×`,
+    speedLabel: speed => `Play at ${speed}× speed`,
+    length: horizon => {
+      const weeks = Math.max(0, Math.round(Number(horizon) || 0))
+      if (weeks >= 52 && weeks % 52 === 0) return `of ${counted(weeks / 52, 'year')}`
+      return `of ${counted(weeks, 'week')}`
+    },
+    year: n => `Year ${n}`,
+  },
+  app: {
+    brand: 'EcoSim',
+    townLabel: index => `Town ${String.fromCharCode(65 + index)}`,
+    classic: 'Classic dashboard',
+    loading: 'Loading the demo towns…',
+    missing: 'Demo data missing: run the recorder commands in docs/superpowers/plans/2026-09-25-frontend-redesign-phase2-slice1.md',
+    detail: reason => `Details: ${reason}`,
   },
   howTo: {
     title: 'How to read this',

@@ -212,6 +212,72 @@ export function eventSentence(event, names = {}) {
   }
 }
 
+// Several events of one kind in the same week read as one counted sentence.
+// Counts go by distinct household or business where the events name one.
+const COUNTED = {
+  firm_opened: n => `${n} new businesses opened.`,
+  firm_closed: n => `${n} businesses closed.`,
+  hired: n => `${n} people found work.`,
+  laid_off: n => `${n} people lost their jobs.`,
+  care_denied: n => `${n} people couldn't afford a doctor.`,
+  care_completed: n => `${n} people saw a doctor.`,
+  loan_default: n => `${n} loans went unpaid.`,
+}
+
+const COUNTED_REGIMES = {
+  eviction: n => `${n} households lost their home.`,
+  failed_hiring: n => `${n} businesses couldn't fill their open jobs.`,
+  firm_distress_enter: n => `${n} businesses are struggling to pay their bills.`,
+  firm_distress_exit: n => `${n} businesses are back on their feet.`,
+  firm_bankrupt: n => `${n} businesses went bankrupt.`,
+}
+
+const SHORTAGES = {
+  shortage_regime_enter: goods => `The town started running short of ${goods}.`,
+  shortage_regime_exit: goods => `The shortages of ${goods} eased.`,
+}
+
+function distinctCount(events) {
+  const who = (event, i) => (known(event.householdId) ? `h${event.householdId}` : known(event.firmId) ? `f${event.firmId}` : `e${i}`)
+  return new Set(events.map(who)).size
+}
+
+export function eventGroupSentence(events, names = {}) {
+  const list = (events ?? []).filter(Boolean)
+  if (list.length <= 1) return eventSentence(list[0], names)
+  const [first] = list
+  if (first.type === 'regime' && SHORTAGES[first.text]) {
+    const goods = [...new Set(list.map(event => SECTOR_NOUNS[event.sector] ?? (event.sector ? String(event.sector).toLowerCase() : null)).filter(Boolean))]
+    return goods.length > 1 ? SHORTAGES[first.text](joinPhrases(goods)) : eventSentence(first, names)
+  }
+  const n = distinctCount(list)
+  if (n <= 1) return eventSentence(first, names)
+  const counted = first.type === 'regime' ? COUNTED_REGIMES[first.text] : COUNTED[first.type]
+  if (counted) return counted(n)
+  if (first.type === 'policy_changed' || first.type === 'shock') return eventSentence(first, names)
+  return `${eventSentence(first, names).replace(/\.$/, '')}, ${n} times.`
+}
+
+// The question the header asks about an experiment.
+export function experimentQuestion(arms) {
+  if (!arms?.length) return ''
+  if (arms.length === 1) return `What happens in ${arms[0].label}?`
+  const policy = describePolicy(arms[1].setup?.initial_policy)
+  if (policy === NO_CHANGES) return `What happens when ${arms.length === 2 ? 'two' : 'several'} towns keep the same rules?`
+  return `What happens with ${policy}?`
+}
+
+// A policy marker's label on the story chart, as short lines.
+export function policyMarkerLabel(arm, change) {
+  return [`${arm?.label ?? 'The town'} switched to`, describePolicy({ [change.policy]: change.value })]
+}
+
+// The story chart's opening note for matched towns.
+export function startNote(armCount) {
+  if (armCount < 2) return null
+  return armCount === 2 ? 'Both towns start from the same place' : 'All the towns start from the same place'
+}
+
 const weeks = n => `${n} week${n === 1 ? '' : 's'}`
 
 // What a household card says when nothing has happened to it lately.

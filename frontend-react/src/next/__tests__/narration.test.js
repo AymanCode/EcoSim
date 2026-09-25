@@ -1,5 +1,7 @@
 import { describe, expect, test } from 'vitest'
-import { weekLabel, leadSentence, verdict, eventSentence, householdStateSentence } from '../narration.js'
+import {
+  weekLabel, leadSentence, verdict, eventSentence, eventGroupSentence, householdStateSentence, experimentQuestion, policyMarkerLabel,
+} from '../narration.js'
 import { householdName } from '../names.js'
 import { fixtureArm, TOWN_A, TOWN_B } from './fixture.js'
 
@@ -121,5 +123,56 @@ describe('householdStateSentence', () => {
     expect(householdStateSentence({ ...base, isEmployed: false })).toBe('Just started looking for work.')
     expect(householdStateSentence({ ...base, housingSecurity: false })).toBe('Has no home right now.')
     expect(householdStateSentence({ ...base, isEmployed: false, canWork: false })).toBe('Not working right now.')
+  })
+})
+
+describe('eventGroupSentence', () => {
+  const regime = (code, extra = {}) => ({ id: `${code}:${extra.firmId ?? extra.sector ?? 0}`, tick: 8, type: 'regime', text: code, ...extra })
+
+  test('one event reads like eventSentence', () => {
+    const event = regime('failed_hiring', { firmId: 1, firmName: 'FoodCo1' })
+    expect(eventGroupSentence([event])).toBe(eventSentence(event))
+  })
+
+  test('repeats become one counted sentence', () => {
+    const events = [1, 2, 3].map(firmId => regime('failed_hiring', { firmId, firmName: `FoodCo${firmId}` }))
+    expect(eventGroupSentence(events)).toBe("3 businesses couldn't fill their open jobs.")
+    const hires = [4, 5].map(householdId => ({ id: `h${householdId}`, tick: 1, type: 'hired', householdId, firmId: 1, firmName: 'BaselineFood', text: null }))
+    expect(eventGroupSentence(hires)).toBe('2 people found work.')
+    const opened = [1, 2, 3, 4].map(firmId => ({ id: `o${firmId}`, tick: 11, type: 'firm_opened', firmId, firmName: `FoodCo${firmId}`, text: null }))
+    expect(eventGroupSentence(opened)).toBe('4 new businesses opened.')
+  })
+
+  test('counts each business once', () => {
+    const events = [regime('failed_hiring', { firmId: 1, firmName: 'FoodCo1' }), regime('failed_hiring', { firmId: 1, firmName: 'FoodCo1' })]
+    expect(eventGroupSentence(events)).toBe(eventSentence(events[0]))
+  })
+
+  test('shortages name every good', () => {
+    const events = [regime('shortage_regime_enter', { sector: 'Food' }), regime('shortage_regime_enter', { sector: 'Housing' })]
+    expect(eventGroupSentence(events)).toBe('The town started running short of food and housing.')
+  })
+
+  test('an unknown code gets a count', () => {
+    expect(eventGroupSentence([regime('odd_thing'), regime('odd_thing')])).toBe('Odd thing, 2 times.')
+  })
+})
+
+describe('experimentQuestion', () => {
+  test('asks about the second town\'s policy', () => {
+    expect(experimentQuestion([fixtureArm(TOWN_A), townB({ policy: { minimum_wage_policy: 'high' } })]))
+      .toBe('What happens with a higher minimum wage?')
+  })
+
+  test('two towns on the same rules, and one town', () => {
+    expect(experimentQuestion([fixtureArm(TOWN_A), townB()])).toBe('What happens when two towns keep the same rules?')
+    expect(experimentQuestion([fixtureArm(TOWN_A)])).toBe('What happens in Town A?')
+  })
+})
+
+describe('policyMarkerLabel', () => {
+  test('names the town and the new rule in two short lines', () => {
+    expect(policyMarkerLabel(fixtureArm(TOWN_B), { tick: 7, policy: 'benefit_level', value: 'high' }))
+      .toEqual(['Town B switched to', 'more help for people out of work'])
   })
 })
