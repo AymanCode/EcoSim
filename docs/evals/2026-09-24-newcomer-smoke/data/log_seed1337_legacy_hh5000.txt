@@ -1,0 +1,30 @@
+[create] 5000 households, 5 firms/cat in 0.10s
+[progress] tick 10/260 elapsed=4.7s pace=0.472s/tick projected_total=122.7s
+[progress] tick 20/260 elapsed=9.6s pace=0.482s/tick projected_total=125.2s
+[progress] tick 30/260 elapsed=15.0s pace=0.500s/tick projected_total=130.0s
+[progress] tick 40/260 elapsed=20.8s pace=0.520s/tick projected_total=135.2s
+[progress] tick 50/260 elapsed=27.0s pace=0.540s/tick projected_total=140.4s
+[progress] tick 60/260 elapsed=33.2s pace=0.554s/tick projected_total=143.9s
+[progress] tick 70/260 elapsed=39.7s pace=0.567s/tick projected_total=147.5s
+[progress] tick 80/260 elapsed=46.0s pace=0.575s/tick projected_total=149.6s
+[progress] tick 90/260 elapsed=52.6s pace=0.584s/tick projected_total=151.8s
+[progress] tick 100/260 elapsed=59.0s pace=0.590s/tick projected_total=153.3s
+[progress] tick 110/260 elapsed=65.5s pace=0.596s/tick projected_total=154.9s
+[progress] tick 120/260 elapsed=72.2s pace=0.602s/tick projected_total=156.4s
+[progress] tick 130/260 elapsed=79.1s pace=0.608s/tick projected_total=158.1s
+[progress] tick 140/260 elapsed=85.7s pace=0.612s/tick projected_total=159.2s
+[progress] tick 150/260 elapsed=92.7s pace=0.618s/tick projected_total=160.7s
+[progress] tick 160/260 elapsed=99.3s pace=0.620s/tick projected_total=161.3s
+[progress] tick 170/260 elapsed=106.1s pace=0.624s/tick projected_total=162.3s
+[progress] tick 180/260 elapsed=112.7s pace=0.626s/tick projected_total=162.8s
+[progress] tick 190/260 elapsed=119.6s pace=0.630s/tick projected_total=163.7s
+[progress] tick 200/260 elapsed=126.4s pace=0.632s/tick projected_total=164.3s
+[progress] tick 210/260 elapsed=133.8s pace=0.637s/tick projected_total=165.6s
+[progress] tick 220/260 elapsed=141.6s pace=0.644s/tick projected_total=167.4s
+[progress] tick 230/260 elapsed=149.2s pace=0.649s/tick projected_total=168.6s
+[progress] tick 240/260 elapsed=156.1s pace=0.650s/tick projected_total=169.1s
+[progress] tick 250/260 elapsed=163.3s pace=0.653s/tick projected_total=169.8s
+[progress] tick 260/260 elapsed=170.1s pace=0.654s/tick projected_total=170.1s
+
+[summary] ticks_completed=260/260 aborted=False step_elapsed=170.1s create_elapsed=0.1s -> baseline_seed1337_hh5000_full.csv
+Meta written to /private/tmp/claude-501/-Users-aymanislam-EcoSim-v-2-EcoSim/0f2476eb-808d-404f-b86b-1875450ee45d/scratchpad/smoke-sweep/run_meta_hh5000.csv

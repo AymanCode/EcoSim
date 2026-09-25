@@ -1,0 +1,26 @@
+[run] baseline (seed 7) starting...
+[done] baseline (seed 7) in 31.0s -> baseline_seed7.csv
+[run] min_wage_high (seed 7) starting...
+[done] min_wage_high (seed 7) in 32.4s -> min_wage_high_seed7.csv
+[run] benefit_high (seed 7) starting...
+[done] benefit_high (seed 7) in 32.3s -> benefit_high_seed7.csv
+[run] wage_tax_high (seed 7) starting...
+[done] wage_tax_high (seed 7) in 39.2s -> wage_tax_high_seed7.csv
+[run] profit_tax_high (seed 7) starting...
+[done] profit_tax_high (seed 7) in 32.5s -> profit_tax_high_seed7.csv
+[run] subsidy_food_25 (seed 7) starting...
+[done] subsidy_food_25 (seed 7) in 32.6s -> subsidy_food_25_seed7.csv
+[run] public_works_on (seed 7) starting...
+[done] public_works_on (seed 7) in 32.7s -> public_works_on_seed7.csv
+
+[summary] total wall clock: 233.1s
+         arm_id  seed  elapsed_seconds payment_sequence  households  ticks  firms_per_category status  rows                                                                                                                                          out_path
+       baseline     7        30.990717           legacy        1000    260                   5     ok   260        /private/tmp/claude-501/-Users-aymanislam-EcoSim-v-2-EcoSim/0f2476eb-808d-404f-b86b-1875450ee45d/scratchpad/smoke-sweep/baseline_seed7.csv
+  min_wage_high     7        32.386458           legacy        1000    260                   5     ok   260   /private/tmp/claude-501/-Users-aymanislam-EcoSim-v-2-EcoSim/0f2476eb-808d-404f-b86b-1875450ee45d/scratchpad/smoke-sweep/min_wage_high_seed7.csv
+   benefit_high     7        32.315051           legacy        1000    260                   5     ok   260    /private/tmp/claude-501/-Users-aymanislam-EcoSim-v-2-EcoSim/0f2476eb-808d-404f-b86b-1875450ee45d/scratchpad/smoke-sweep/benefit_high_seed7.csv
+  wage_tax_high     7        39.178928           legacy        1000    260                   5     ok   260   /private/tmp/claude-501/-Users-aymanislam-EcoSim-v-2-EcoSim/0f2476eb-808d-404f-b86b-1875450ee45d/scratchpad/smoke-sweep/wage_tax_high_seed7.csv
+profit_tax_high     7        32.548628           legacy        1000    260                   5     ok   260 /private/tmp/claude-501/-Users-aymanislam-EcoSim-v-2-EcoSim/0f2476eb-808d-404f-b86b-1875450ee45d/scratchpad/smoke-sweep/profit_tax_high_seed7.csv
+subsidy_food_25     7        32.646358           legacy        1000    260                   5     ok   260 /private/tmp/claude-501/-Users-aymanislam-EcoSim-v-2-EcoSim/0f2476eb-808d-404f-b86b-1875450ee45d/scratchpad/smoke-sweep/subsidy_food_25_seed7.csv
+public_works_on     7        32.726844           legacy        1000    260                   5     ok   260 /private/tmp/claude-501/-Users-aymanislam-EcoSim-v-2-EcoSim/0f2476eb-808d-404f-b86b-1875450ee45d/scratchpad/smoke-sweep/public_works_on_seed7.csv
+
+Meta written to /private/tmp/claude-501/-Users-aymanislam-EcoSim-v-2-EcoSim/0f2476eb-808d-404f-b86b-1875450ee45d/scratchpad/smoke-sweep/run_meta_seeds7.csv

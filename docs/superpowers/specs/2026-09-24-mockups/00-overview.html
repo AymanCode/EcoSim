@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>EcoSim redesign at a glance</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,600;12..96,700&family=Instrument+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root{--page:#F3F5F7;--panel:#fff;--panel2:#EEF1F4;--ink:#17202B;--ink2:#3D4753;--ink3:#6E7A87;--ink4:#9AA5B1;--line:#E3E7EB;--line2:#CFD6DD;
+ --a:#2E6FE0;--b:#E0762C;--ai:#6D4AE0;--work:#2E9E6B;--look:#C98A1B;--home:#D64A5E;--disp:'Bricolage Grotesque';--body:'Instrument Sans'}
+*{box-sizing:border-box}html,body{margin:0;background:var(--page)}
+body{font-family:var(--body),system-ui,sans-serif;color:var(--ink2);font-size:14px;line-height:1.45;-webkit-font-smoothing:antialiased}
+h1,h2,h3{font-family:var(--disp);color:var(--ink);margin:0;font-weight:600;letter-spacing:-.01em}
+.wrap{max-width:1240px;margin:0 auto;padding:30px 32px 60px}
+h1{font-size:30px;line-height:1.15;letter-spacing:-.02em}
+.sub{color:var(--ink3);font-size:15px;margin-top:6px;max-width:820px}
+.sec{margin-top:30px}
+.sec h2{font-size:18px;margin-bottom:4px}
+.sec .why{color:var(--ink3);font-size:13.5px;margin-bottom:12px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:16px 18px}
+svg{display:block;width:100%;height:auto}
+.legend{display:flex;gap:18px;font-size:12.5px;color:var(--ink3);margin-top:10px;flex-wrap:wrap}
+.legend span{display:inline-flex;align-items:center;gap:6px}.legend i{width:12px;height:12px;border-radius:3px;display:inline-block;border:1px solid var(--line2)}
+.two{display:grid;grid-template-columns:1fr 1fr;gap:18px}
+.dec{display:grid;grid-template-columns:1fr 1fr;gap:18px}
+.opt{border:1px solid var(--line);border-radius:12px;padding:12px 14px;background:var(--page)}
+.opt.rec{border-color:var(--ink);box-shadow:0 0 0 3px var(--panel2)}
+.opt h3{font-size:14px}
+.opt .tag{display:inline-block;font-size:11px;font-weight:600;color:#fff;background:var(--ink);border-radius:999px;padding:1px 8px;margin-left:8px;vertical-align:middle}
+.nums{display:flex;gap:16px;margin-top:8px}
+.nums div b{display:block;font-family:var(--disp);font-size:20px;color:var(--ink);line-height:1.05}
+.nums div small{font-size:11.5px;color:var(--ink3)}
+.opt p{margin:8px 0 0;font-size:12.5px;color:var(--ink3);line-height:1.4}
+.chips{display:flex;gap:8px;flex-wrap:wrap;margin-top:6px}
+.chip{border:1px solid var(--line2);border-radius:999px;padding:3px 10px;font-size:12.5px;color:var(--ink2);background:var(--panel)}
+.chip.go{border-color:var(--work);color:#1E7A4F;background:#E4F4EC}.chip.hold{border-color:var(--line2);color:var(--ink3)}
+.phases{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
+.ph{border:1px solid var(--line);border-radius:12px;padding:12px 14px;background:var(--panel)}
+.ph .n{font-family:var(--disp);font-size:12px;font-weight:700;color:var(--ink4)}
+.ph h3{font-size:15px;margin:2px 0 6px}
+.ph ul{margin:0;padding-left:16px;font-size:12.5px;color:var(--ink2)}
+.ph li{margin:2px 0}
+.ph .gate{margin-top:8px;font-size:12px;color:var(--ink3);border-top:1px solid var(--line);padding-top:6px}
+.ask{background:var(--ink);color:#fff;border-radius:14px;padding:16px 20px;font-family:var(--disp);font-size:17px;line-height:1.4;margin-top:30px}
+.ask span{color:#F5B98E}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>EcoSim redesign, on one page</h1>
+  <div class="sub">A newcomer picks a question, two identical towns run side by side, and the screen tells the story in plain words with pictures. Below: how it fits together, what the backend has to add, and the two decisions that are yours.</div>
+
+  <div class="sec">
+    <h2>1. What happens when someone uses it</h2>
+    <div class="why">One experiment, one to four towns, a fixed number of years, then a verdict.</div>
+    <div class="card">
+      <svg viewBox="0 0 1180 250" role="img" aria-label="Flow from set up to saved experiments">
+        <defs><marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0 0L10 5L0 10z" fill="#9AA5B1"/></marker></defs>
+        <g font-family="Instrument Sans" font-size="13">
+          <!-- setup -->
+          <rect x="10" y="60" width="190" height="130" rx="12" fill="#fff" stroke="#CFD6DD"/>
+          <text x="105" y="86" text-anchor="middle" font-family="Bricolage Grotesque" font-weight="600" font-size="15" fill="#17202B">Set up</text>
+          <text x="105" y="110" text-anchor="middle" fill="#3D4753">What do you want to find out?</text>
+          <text x="105" y="132" text-anchor="middle" fill="#6E7A87">Compare policies</text>
+          <text x="105" y="150" text-anchor="middle" fill="#6E7A87">Test an AI mayor</text>
+          <text x="105" y="168" text-anchor="middle" fill="#6E7A87">Just play</text>
+          <line x1="200" y1="125" x2="238" y2="125" stroke="#9AA5B1" stroke-width="1.5" marker-end="url(#ar)"/>
+          <!-- experiment -->
+          <rect x="240" y="60" width="200" height="130" rx="12" fill="#fff" stroke="#CFD6DD"/>
+          <text x="340" y="86" text-anchor="middle" font-family="Bricolage Grotesque" font-weight="600" font-size="15" fill="#17202B">One experiment</text>
+          <text x="340" y="110" text-anchor="middle" fill="#3D4753">same seed, same world</text>
+          <text x="340" y="132" text-anchor="middle" fill="#6E7A87">5 years by default</text>
+          <text x="340" y="150" text-anchor="middle" fill="#6E7A87">1,000 households each by default,</text>
+          <text x="340" y="168" text-anchor="middle" fill="#6E7A87">up to 10,000 shared</text>
+          <line x1="440" y1="100" x2="478" y2="82" stroke="#9AA5B1" stroke-width="1.5" marker-end="url(#ar)"/>
+          <line x1="440" y1="150" x2="478" y2="168" stroke="#9AA5B1" stroke-width="1.5" marker-end="url(#ar)"/>
+          <!-- towns -->
+          <rect x="480" y="48" width="180" height="64" rx="12" fill="#fff" stroke="#2E6FE0" stroke-width="2"/>
+          <text x="570" y="74" text-anchor="middle" font-family="Bricolage Grotesque" font-weight="600" font-size="14" fill="#17202B">Town A</text>
+          <text x="570" y="94" text-anchor="middle" fill="#6E7A87">its own live simulation</text>
+          <rect x="480" y="138" width="180" height="64" rx="12" fill="#fff" stroke="#E0762C" stroke-width="2"/>
+          <text x="570" y="164" text-anchor="middle" font-family="Bricolage Grotesque" font-weight="600" font-size="14" fill="#17202B">Town B</text>
+          <text x="570" y="184" text-anchor="middle" fill="#6E7A87">one policy different</text>
+          <text x="570" y="228" text-anchor="middle" fill="#9AA5B1" font-size="12">up to four towns, kept within 3 weeks of each other</text>
+          <line x1="660" y1="80" x2="698" y2="105" stroke="#9AA5B1" stroke-width="1.5" marker-end="url(#ar)"/>
+          <line x1="660" y1="170" x2="698" y2="145" stroke="#9AA5B1" stroke-width="1.5" marker-end="url(#ar)"/>
+          <!-- run screen -->
+          <rect x="700" y="60" width="250" height="130" rx="12" fill="#fff" stroke="#CFD6DD"/>
+          <text x="825" y="86" text-anchor="middle" font-family="Bricolage Grotesque" font-weight="600" font-size="15" fill="#17202B">Run screen</text>
+          <text x="825" y="110" text-anchor="middle" fill="#3D4753">two matching columns</text>
+          <text x="825" y="132" text-anchor="middle" fill="#6E7A87">town drawing, businesses, households</text>
+          <text x="825" y="150" text-anchor="middle" fill="#6E7A87">one story chart, verdict, four stats</text>
+          <text x="825" y="168" text-anchor="middle" fill="#6E7A87">what's happening feed</text>
+          <line x1="950" y1="125" x2="988" y2="125" stroke="#9AA5B1" stroke-width="1.5" marker-end="url(#ar)"/>
+          <!-- finish -->
+          <rect x="990" y="60" width="180" height="130" rx="12" fill="#fff" stroke="#CFD6DD" stroke-dasharray="0"/>
+          <text x="1080" y="86" text-anchor="middle" font-family="Bricolage Grotesque" font-weight="600" font-size="15" fill="#17202B">Year 5</text>
+          <text x="1080" y="110" text-anchor="middle" fill="#3D4753">verdict settles</text>
+          <text x="1080" y="132" text-anchor="middle" fill="#6E7A87">extend a year, or</text>
+          <text x="1080" y="150" text-anchor="middle" fill="#6E7A87">save and compare later</text>
+          <text x="1080" y="172" text-anchor="middle" fill="#9AA5B1" font-size="12">(saving is phase 4)</text>
+        </g>
+      </svg>
+    </div>
+  </div>
+
+  <div class="sec two">
+    <div>
+      <h2>2. What the backend has to add</h2>
+      <div class="why">Per week, per town. Grey exists, blue is widened, orange is new.</div>
+      <div class="card">
+        <svg viewBox="0 0 580 330" role="img" aria-label="Data flow from backend to browser">
+          <g font-family="Instrument Sans" font-size="12.5">
+            <rect x="10" y="10" width="170" height="310" rx="12" fill="#F3F5F7" stroke="#E3E7EB"/>
+            <text x="95" y="34" text-anchor="middle" font-family="Bricolage Grotesque" font-weight="600" font-size="14" fill="#17202B">Backend, each week</text>
+            <rect x="24" y="50" width="142" height="40" rx="8" fill="#fff" stroke="#CFD6DD"/><text x="95" y="68" text-anchor="middle" fill="#3D4753">simulate one week</text><text x="95" y="83" text-anchor="middle" fill="#9AA5B1" font-size="11">exists</text>
+            <rect x="24" y="100" width="142" height="40" rx="8" fill="#fff" stroke="#CFD6DD"/><text x="95" y="118" text-anchor="middle" fill="#3D4753">150 metrics computed</text><text x="95" y="133" text-anchor="middle" fill="#9AA5B1" font-size="11">exists, 3 sent today</text>
+            <rect x="24" y="150" width="142" height="40" rx="8" fill="#fff" stroke="#CFD6DD"/><text x="95" y="168" text-anchor="middle" fill="#3D4753">events in memory</text><text x="95" y="183" text-anchor="middle" fill="#9AA5B1" font-size="11">exists, never sent</text>
+            <rect x="24" y="200" width="142" height="40" rx="8" fill="#fff" stroke="#CFD6DD"/><text x="95" y="218" text-anchor="middle" fill="#3D4753">12 households, 12 firms</text><text x="95" y="233" text-anchor="middle" fill="#9AA5B1" font-size="11">exists</text>
+            <rect x="24" y="250" width="142" height="40" rx="8" fill="#fff" stroke="#CFD6DD"/><text x="95" y="268" text-anchor="middle" fill="#3D4753">latest AI decision</text><text x="95" y="283" text-anchor="middle" fill="#9AA5B1" font-size="11">exists</text>
+
+            <line x1="180" y1="165" x2="212" y2="165" stroke="#9AA5B1" stroke-width="1.5" marker-end="url(#ar)"/>
+
+            <rect x="214" y="10" width="190" height="310" rx="12" fill="#fff" stroke="#E3E7EB"/>
+            <text x="309" y="34" text-anchor="middle" font-family="Bricolage Grotesque" font-weight="600" font-size="14" fill="#17202B">The frame we send</text>
+            <rect x="226" y="50" width="166" height="36" rx="8" fill="#E8F0FC" stroke="#2E6FE0"/><text x="309" y="73" text-anchor="middle" fill="#17202B">about 30 friendly metrics</text>
+            <rect x="226" y="92" width="166" height="36" rx="8" fill="#FDEEE3" stroke="#E0762C"/><text x="309" y="115" text-anchor="middle" fill="#17202B">event stream</text>
+            <rect x="226" y="134" width="166" height="36" rx="8" fill="#E8F0FC" stroke="#2E6FE0"/><text x="309" y="157" text-anchor="middle" fill="#17202B">all firms + closed archive</text>
+            <rect x="226" y="176" width="166" height="36" rx="8" fill="#E8F0FC" stroke="#2E6FE0"/><text x="309" y="199" text-anchor="middle" fill="#17202B">40 households, reshuffle</text>
+            <rect x="226" y="218" width="166" height="36" rx="8" fill="#FDEEE3" stroke="#E0762C"/><text x="309" y="241" text-anchor="middle" fill="#17202B">AI decisions + true values</text>
+            <rect x="226" y="260" width="166" height="36" rx="8" fill="#FDEEE3" stroke="#E0762C"/><text x="309" y="283" text-anchor="middle" fill="#17202B">experiment id, horizon, finish</text>
+
+            <line x1="404" y1="165" x2="436" y2="165" stroke="#9AA5B1" stroke-width="1.5" marker-end="url(#ar)"/>
+
+            <rect x="438" y="10" width="132" height="310" rx="12" fill="#F3F5F7" stroke="#E3E7EB"/>
+            <text x="504" y="34" text-anchor="middle" font-family="Bricolage Grotesque" font-weight="600" font-size="14" fill="#17202B">Browser</text>
+            <rect x="450" y="50" width="108" height="60" rx="8" fill="#fff" stroke="#CFD6DD"/><text x="504" y="74" text-anchor="middle" fill="#3D4753">one store per</text><text x="504" y="90" text-anchor="middle" fill="#3D4753">experiment</text>
+            <rect x="450" y="120" width="108" height="60" rx="8" fill="#fff" stroke="#CFD6DD"/><text x="504" y="144" text-anchor="middle" fill="#3D4753">series per metric,</text><text x="504" y="160" text-anchor="middle" fill="#3D4753">raw frames dropped</text>
+            <rect x="450" y="190" width="108" height="60" rx="8" fill="#fff" stroke="#CFD6DD"/><text x="504" y="214" text-anchor="middle" fill="#3D4753">sentences from</text><text x="504" y="230" text-anchor="middle" fill="#3D4753">templates</text>
+            <rect x="450" y="260" width="108" height="48" rx="8" fill="#fff" stroke="#CFD6DD"/><text x="504" y="289" text-anchor="middle" fill="#3D4753">screens</text>
+          </g>
+        </svg>
+        <div class="legend"><span><i style="background:#fff"></i>exists today</span><span><i style="background:#E8F0FC;border-color:#2E6FE0"></i>widened</span><span><i style="background:#FDEEE3;border-color:#E0762C"></i>new</span></div>
+      </div>
+    </div>
+    <div>
+      <h2>3. The screens</h2>
+      <div class="why">Seven screens become two, plus two overlays. You've seen all of them as mockups.</div>
+      <div class="card">
+        <svg viewBox="0 0 580 330" role="img" aria-label="Screen map">
+          <g font-family="Instrument Sans" font-size="12.5">
+            <rect x="20" y="20" width="150" height="70" rx="12" fill="#fff" stroke="#CFD6DD"/>
+            <text x="95" y="48" text-anchor="middle" font-family="Bricolage Grotesque" font-weight="600" font-size="14" fill="#17202B">Set up</text>
+            <text x="95" y="68" text-anchor="middle" fill="#6E7A87">question cards, towns, world</text>
+            <line x1="170" y1="55" x2="212" y2="55" stroke="#9AA5B1" stroke-width="1.5" marker-end="url(#ar)"/>
+            <rect x="214" y="20" width="200" height="70" rx="12" fill="#fff" stroke="#CFD6DD"/>
+            <text x="314" y="48" text-anchor="middle" font-family="Bricolage Grotesque" font-weight="600" font-size="14" fill="#17202B">Run</text>
+            <text x="314" y="68" text-anchor="middle" fill="#6E7A87">compare, AI mayor, or play</text>
+            <line x1="414" y1="55" x2="456" y2="55" stroke="#9AA5B1" stroke-width="1.5" stroke-dasharray="4 3" marker-end="url(#ar)"/>
+            <rect x="458" y="20" width="102" height="70" rx="12" fill="#fff" stroke="#CFD6DD" stroke-dasharray="4 3"/>
+            <text x="509" y="48" text-anchor="middle" font-family="Bricolage Grotesque" font-weight="600" font-size="14" fill="#9AA5B1">Saved</text>
+            <text x="509" y="68" text-anchor="middle" fill="#9AA5B1">phase 4</text>
+
+            <line x1="270" y1="90" x2="270" y2="128" stroke="#9AA5B1" stroke-width="1.5" marker-end="url(#ar)"/>
+            <line x1="360" y1="90" x2="360" y2="128" stroke="#9AA5B1" stroke-width="1.5" marker-end="url(#ar)"/>
+            <rect x="180" y="130" width="170" height="52" rx="10" fill="#F3F5F7" stroke="#CFD6DD"/>
+            <text x="265" y="152" text-anchor="middle" fill="#17202B" font-weight="600">Town hall drawer</text>
+            <text x="265" y="170" text-anchor="middle" fill="#6E7A87">levers, a sentence each</text>
+            <rect x="360" y="130" width="190" height="52" rx="10" fill="#F3F5F7" stroke="#CFD6DD"/>
+            <text x="455" y="152" text-anchor="middle" fill="#17202B" font-weight="600">Show me all the numbers</text>
+            <text x="455" y="170" text-anchor="middle" fill="#6E7A87">the analyst grid, for the curious</text>
+
+            <text x="20" y="220" font-family="Bricolage Grotesque" font-weight="600" font-size="13" fill="#17202B">Inside Run, top to bottom</text>
+            <g fill="#3D4753">
+              <rect x="20" y="232" width="255" height="22" rx="6" fill="#E8F0FC"/><text x="30" y="247">Town A drawing, businesses, households</text>
+              <rect x="285" y="232" width="255" height="22" rx="6" fill="#FDEEE3"/><text x="295" y="247">Town B drawing, businesses, households</text>
+              <rect x="20" y="260" width="520" height="22" rx="6" fill="#F3F5F7"/><text x="30" y="275">AI mayor only: decision strip and the open decision card</text>
+              <rect x="20" y="288" width="330" height="22" rx="6" fill="#F3F5F7"/><text x="30" y="303">story chart with the empty future</text>
+              <rect x="360" y="288" width="180" height="22" rx="6" fill="#17202B"/><text x="370" y="303" fill="#fff">verdict, four stats</text>
+            </g>
+          </g>
+        </svg>
+      </div>
+    </div>
+  </div>
+
+  <div class="sec">
+    <h2>4. Two decisions that are yours</h2>
+    <div class="why">Everything else in the spec follows from things you already said yes to.</div>
+    <div class="dec">
+      <div class="card">
+        <h3 style="font-size:16px">A. Which world does an untouched town run in?</h3>
+        <p style="margin:4px 0 12px;color:var(--ink3);font-size:13px">Every option ends year five as a depression. Pick the interim default; calibrating the baseline is a backend job before newcomers see it.</p>
+        <div class="opt rec"><h3>Legacy rules, 1,000 households<span class="tag">recommended for now</span></h3>
+          <div class="nums"><div><b>37%</b><small>out of work, year 5</small></div><div><b>−$357K</b><small>town hall cash</small></div><div><b>0.40</b><small>distress</small></div><div><b>31 s</b><small>per town</small></div></div>
+          <p>Fastest, most motion, and the setting the checked-in sweep validated. Baseline is bleak.</p></div>
+        <div class="opt" style="margin-top:10px"><h3>Your new income-first rules, 1,000 households</h3>
+          <div class="nums"><div><b>39%</b><small>out of work</small></div><div><b>+$60K</b><small>town hall cash</small></div><div><b>0.60</b><small>distress</small></div><div><b>40 s</b><small>per town</small></div></div>
+          <p>Solvent town hall, zero bankruptcies, but households suffer more and homelessness persists. Policy cards become dramatic.</p></div>
+        <div class="opt" style="margin-top:10px"><h3>Legacy rules, 5,000 households</h3>
+          <div class="nums"><div><b>23%</b><small>out of work</small></div><div><b>−$399K</b><small>of $13.5M</small></div><div><b>0.42</b><small>distress</small></div><div><b>170 s</b><small>per town</small></div></div>
+          <p>Healthiest headline and 150 firms of churn to browse, at three minutes a town.</p></div>
+      </div>
+      <div class="card">
+        <h3 style="font-size:16px">B. Sign off on the direction</h3>
+        <p style="margin:4px 0 12px;color:var(--ink3);font-size:13px">What you'd be approving, in five lines.</p>
+        <ul style="margin:0;padding-left:18px;font-size:13.5px;color:var(--ink2);line-height:1.6">
+          <li>Newcomer first. Friendly names, a sentence and a picture for every number. The analyst grid behind a link.</li>
+          <li>Two identical towns as the unit of everything. One to four of them, live, 1,000 households each by default, up to 10,000 shared.</li>
+          <li>The Run screen and Set up as mocked up. Businesses and households are first-class.</li>
+          <li>AI mayor mode judges the model: what it saw, asked, was allowed, said, and what happened.</li>
+          <li>Backend widening first, then screens, then AI, then saving.</li>
+        </ul>
+        <h3 style="font-size:14px;margin-top:16px">Question cards at launch</h3>
+        <div class="chips"><span class="chip go">Raise the minimum wage</span><span class="chip go">Generous benefits</span><span class="chip hold">Wages vs profits tax, hold</span><span class="chip hold">Food subsidy, hold</span><span class="chip hold">Public works, hold</span></div>
+        <p style="margin:8px 0 0;font-size:12.5px;color:var(--ink3)">Held cards stay available as presets inside "Build my own" until the smoke runner shows them separating.</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="sec">
+    <h2>5. Phases</h2>
+    <div class="why">Each phase ships something usable. Opus 5.5 builds, I review.</div>
+    <div class="phases">
+      <div class="ph"><div class="n">PHASE 1</div><h3>Backend widening</h3><ul><li>experiment record and cap</li><li>presets applied at start</li><li>horizon, finish, extend</li><li>about 30 metrics, events, all firms</li><li>40-household sample</li><li>record a run to a file</li></ul><div class="gate">Gate: frame under 60 KB, two towns at 1,000 households within budget</div></div>
+      <div class="ph"><div class="n">PHASE 2</div><h3>Set up + Run</h3><ul><li>question cards</li><li>two-column Run screen</li><li>single-town play</li><li>Town hall drawer</li><li>all the numbers</li><li>replay from a recording</li></ul><div class="gate">Needs your world decision (A) and the wider seed check</div></div>
+      <div class="ph"><div class="n">PHASE 3</div><h3>AI mayor</h3><ul><li>decision history</li><li>true values beside the fog</li><li>full reasoning stored as its own field</li><li>provider-offline handling</li><li>the AI screen</li></ul><div class="gate">Needs a reachable model provider</div></div>
+      <div class="ph"><div class="n">PHASE 4</div><h3>Saved</h3><ul><li>runs tagged by experiment</li><li>compare saved towns</li><li>AI vs AI on one seed</li></ul><div class="gate">Needs the warehouse on and proxied</div></div>
+    </div>
+  </div>
+
+  <div class="ask">To move on I need two answers: <span>A</span>, which world is the interim default, and <span>B</span>, yes to the direction or what to change. The spec is the reference, not required reading.</div>
+</div>
+</body>
+</html>

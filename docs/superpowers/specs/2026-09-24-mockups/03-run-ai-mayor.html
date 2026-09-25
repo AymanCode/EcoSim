@@ -1,0 +1,267 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>EcoSim AI mayor</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,600;12..96,700&family=Instrument+Sans:ital,wght@0,400;0,500;0,600;1,400&display=swap" rel="stylesheet">
+<style>
+:root{--page:#F3F5F7;--panel:#FFFFFF;--panel2:#EEF1F4;--ink:#17202B;--ink2:#3D4753;--ink3:#6E7A87;--ink4:#9AA5B1;--line:#E3E7EB;--line2:#CFD6DD;
+  --ai:#6D4AE0;--ctl:#E0762C;--work:#2E9E6B;--look:#C98A1B;--home:#D64A5E;--slate:#B6BFC9;--slate2:#8B96A2;--ok:#1E7A4F;--okbg:#E4F4EC;--cap:#8A5A0C;--capbg:#FBF0DC;--no:#A22F41;--nobg:#FBE5E8;
+  --disp:'Bricolage Grotesque';--body:'Instrument Sans'}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--page)}
+body{font-family:var(--body),system-ui,sans-serif;color:var(--ink2);font-size:14px;line-height:1.5;-webkit-font-smoothing:antialiased}
+h1,h2,h3,h4{font-family:var(--disp),var(--body),sans-serif;color:var(--ink);margin:0;font-weight:600;letter-spacing:-.01em}
+button{font:inherit;cursor:pointer}
+.appbar{display:flex;align-items:center;gap:22px;padding:14px 32px;border-bottom:1px solid var(--line);background:var(--panel);position:sticky;top:0;z-index:4}
+.brand{font-family:var(--disp);font-weight:700;font-size:18px;color:var(--ink);letter-spacing:-.02em}
+.appnav{display:flex;gap:4px}.appnav a{color:var(--ink3);text-decoration:none;font-weight:500;padding:6px 12px;border-radius:8px;font-size:14px}.appnav a.on{color:var(--ink);background:var(--panel2)}
+.sp{flex:1}
+.clock{display:flex;align-items:center;gap:10px;color:var(--ink2);font-size:14px}.clock i{width:8px;height:8px;border-radius:50%;background:var(--work);display:inline-block}
+.clock .bar{width:160px;height:6px;border-radius:3px;background:var(--panel2);position:relative;overflow:hidden}.clock .bar b{position:absolute;left:0;top:0;bottom:0;width:55%;background:var(--ink3);border-radius:3px}
+.abtn{border:1px solid var(--line2);background:var(--panel);color:var(--ink);border-radius:8px;padding:7px 12px;font-weight:500;font-size:13px}.abtn.link{border-color:transparent;color:var(--ink3);text-decoration:underline;text-underline-offset:3px}
+.modechip{border:1px solid var(--line2);border-radius:999px;padding:3px 10px;font-size:12px;font-weight:600;color:var(--ai);background:#F1EDFC}
+
+.wrap{max-width:1340px;margin:0 auto;padding:26px 32px 80px}
+.lead{font-family:var(--disp);font-size:24px;line-height:1.25;color:var(--ink);font-weight:600;letter-spacing:-.015em;max-width:1040px}
+.lead .ai{color:var(--ai)}.lead .ctl{color:var(--ctl)}
+.cols{display:grid;grid-template-columns:1fr 1fr;gap:22px;margin-top:22px}
+.colhead{display:flex;align-items:baseline;gap:10px;margin-bottom:8px}.colhead i{width:12px;height:12px;border-radius:4px;display:inline-block;transform:translateY(1px)}.colhead h2{font-size:20px}.colhead span{color:var(--ink3);font-size:13.5px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:16px 18px;min-width:0}
+.card h3{font-size:16px}.card .cs{color:var(--ink3);font-size:13px;margin-top:2px}
+svg.town{width:100%;height:auto;display:block;margin-top:6px}
+.legend{display:flex;gap:16px;font-size:12.5px;color:var(--ink3);margin-top:8px;flex-wrap:wrap}.legend span{display:inline-flex;align-items:center;gap:6px}.legend i{width:10px;height:10px;border-radius:3px;display:inline-block}
+.facts{display:flex;gap:24px;margin-top:10px;padding-top:10px;border-top:1px solid var(--line)}.fact .v{font-family:var(--disp);font-size:20px;font-weight:600;color:var(--ink);line-height:1.1}.fact .k{font-size:12.5px;color:var(--ink3);margin-top:2px}
+
+/* decisions */
+.sect{margin-top:30px}
+.sect h2{font-size:20px}.sect .ss{color:var(--ink3);font-size:14px;margin-top:2px;max-width:900px}
+.strip{position:relative;margin-top:16px;padding-top:26px}
+.strip .rail{position:absolute;left:0;right:0;top:10px;height:4px;border-radius:2px;background:var(--panel2)}
+.strip .rail b{position:absolute;left:0;top:0;bottom:0;width:55%;background:var(--ink4);border-radius:2px}
+.strip .yr{position:absolute;top:-8px;font-size:11.5px;color:var(--ink4);transform:translateX(-50%)}
+.dcards{display:grid;grid-template-columns:repeat(5,1fr);gap:12px}
+.dc{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:12px 14px;cursor:pointer;position:relative}
+.dc::before{content:'';position:absolute;left:18px;top:-22px;width:12px;height:12px;border-radius:50%;background:var(--ai);border:3px solid var(--page)}
+.dc.on{border-color:var(--ai);box-shadow:0 0 0 3px #EEE9FB}
+.dc .n{font-family:var(--disp);font-weight:700;font-size:13px;color:var(--ai)}
+.dc .w{font-size:12px;color:var(--ink4)}
+.dc .t{font-weight:600;color:var(--ink);margin-top:4px;font-size:14px;line-height:1.3}
+.dc .st{margin-top:8px;display:flex;justify-content:space-between;align-items:center;gap:6px}
+.tag{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:600;padding:2px 8px;border-radius:999px;white-space:nowrap}
+.tag.ok{background:var(--okbg);color:var(--ok)}.tag.cap{background:var(--capbg);color:var(--cap)}.tag.no{background:var(--nobg);color:var(--no)}
+.dc .ms{font-size:11.5px;color:var(--ink4)}
+.detail{margin-top:14px;background:var(--panel);border:1px solid var(--ai);border-radius:14px;padding:18px 20px}
+.detail .dh{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap}
+.detail .dh h3{font-size:18px}.detail .dh span{color:var(--ink3);font-size:13.5px}
+.dgrid{display:grid;grid-template-columns:1.1fr 1.2fr 1.4fr 1fr;gap:22px;margin-top:14px}
+.dgrid h4{font-size:13.5px;color:var(--ink);margin-bottom:8px}
+.saw{list-style:none;margin:0;padding:0}
+.saw li{display:flex;justify-content:space-between;gap:10px;padding:6px 0;border-bottom:1px solid var(--line);font-size:13px}
+.saw li:last-child{border-bottom:0}
+.saw b{color:var(--ink);font-weight:600;white-space:nowrap}
+.saw small{color:var(--ink4);font-size:11.5px;display:block}
+.note{font-size:12px;color:var(--ink3);margin-top:8px;line-height:1.4}
+.ask{list-style:none;margin:0;padding:0}
+.ask li{padding:7px 0;border-bottom:1px solid var(--line);font-size:13px}
+.ask li:last-child{border-bottom:0}
+.ask .row{display:flex;justify-content:space-between;align-items:center;gap:8px}
+.ask .k{color:var(--ink);font-weight:600}
+.ask .why{font-size:12px;color:var(--ink3);margin-top:2px}
+.quote{border-left:3px solid var(--ai);padding:2px 0 2px 12px;font-size:13.5px;line-height:1.5;color:var(--ink2);font-style:italic}
+.quote+.more{display:inline-block;margin-top:8px;font-size:13px;color:var(--ink3);text-decoration:underline;text-underline-offset:3px}
+.check{margin-top:10px;font-size:12.5px;color:var(--ink3);line-height:1.45}
+.check b{color:var(--ink)}
+.after .pair{display:flex;gap:14px;align-items:baseline}
+.after .big{font-family:var(--disp);font-size:22px;font-weight:600;color:var(--ink)}
+.after .big span{color:var(--ink4);font-size:14px;font-weight:500;margin:0 4px}
+.after .k{font-size:12.5px;color:var(--ink3)}
+.after .vs{margin-top:10px;padding-top:10px;border-top:1px solid var(--line);font-size:12.5px;color:var(--ink3)}
+.after .vs b{color:var(--ink)}
+
+/* story + report */
+.story{display:grid;grid-template-columns:3fr 2fr;gap:22px;margin-top:30px}
+.chart{position:relative;width:100%;margin-top:8px}.chart svg{display:block;width:100%;height:100%;overflow:visible}
+.ax text{font-family:var(--body);font-size:12px;fill:var(--ink4)}.ax line{stroke:var(--line);stroke-width:1}
+.ann{font-family:var(--body);font-size:12.5px;fill:var(--ink2)}.ann.b{font-weight:600;fill:var(--ink)}
+.endl{font-family:var(--disp);font-size:13px;font-weight:600}
+.mk text{font-family:var(--disp);font-size:11px;font-weight:700;fill:#fff}
+.report h3{font-size:16px}
+.rgrid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px 14px;margin-top:10px}
+.rg .v{font-family:var(--disp);font-size:22px;font-weight:600;color:var(--ink);line-height:1.05}
+.rg .k{font-size:12px;color:var(--ink3);margin-top:2px;line-height:1.3}
+.stats{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:14px}
+.stat{background:var(--page);border:1px solid var(--line);border-radius:12px;padding:10px 12px}
+.stat h4{font-size:13px}
+.stat .pair{display:flex;gap:14px;margin-top:4px;align-items:flex-end}
+.stat .pv b{font-family:var(--disp);font-size:18px;font-weight:600;color:var(--ink);line-height:1.05;display:flex;align-items:center;gap:6px;white-space:nowrap}
+.stat .pv b i{width:9px;height:9px;border-radius:3px;display:inline-block}
+.stat .pv small{font-size:11px;color:var(--ink3);display:block;margin-top:2px}
+.stat .mini{height:30px;margin-top:6px}
+.verdict{background:var(--ink);color:#fff;border-radius:14px;padding:16px 18px;font-family:var(--disp);font-size:17px;line-height:1.35;font-weight:500;margin-top:14px}
+.verdict span{color:#C9B8FF}
+.band{margin-top:26px;border:1px dashed var(--line2);border-radius:14px;padding:14px 18px;color:var(--ink3);font-size:13.5px;display:flex;justify-content:space-between;align-items:center;gap:14px}
+.band b{color:var(--ink)}
+.feedwrap{margin-top:28px;display:grid;grid-template-columns:1fr 1fr;gap:22px}
+.feed{padding:0;margin:8px 0 0;list-style:none}
+.feed li{display:grid;grid-template-columns:14px 1fr;gap:12px;padding:9px 0;border-bottom:1px solid var(--line);font-size:13.5px;line-height:1.45}.feed li:last-child{border-bottom:0}
+.feed i{width:10px;height:10px;border-radius:3px;margin-top:5px;display:inline-block}.feed .w{color:var(--ink4);font-size:12px;display:block}.feed b{color:var(--ink);font-weight:600}
+.sect3 h3{font-size:16px}.sect3 h3 span{color:var(--ink3);font-weight:500;font-size:13.5px;margin-left:8px}
+</style>
+</head>
+<body>
+<header class="appbar"><div class="brand">EcoSim</div><nav class="appnav"><a class="on">Run</a><a>Set up</a><a>Saved</a></nav><span class="modechip">AI mayor test</span><div class="sp"></div>
+  <div class="clock"><i></i>Year 3, week 38 <div class="bar"><b></b></div><span style="color:var(--ink4)">of 5 years</span></div>
+  <button class="abtn">Pause</button><button class="abtn link">Show me all the numbers</button></header>
+
+<div class="wrap">
+  <div class="lead"><span class="ai">Town A</span> is run by an AI mayor, Llama 3.3 70B on Groq. <span class="ctl">Town B</span> is the same town with its policy frozen. Three years in, the AI has made five decisions. Fewer people are out of work in Town A, but the town hall owes half as much again.</div>
+
+  <div class="cols" id="cols"></div>
+
+  <div class="sect">
+    <h2>The AI mayor's decisions</h2>
+    <div class="ss">Every 26 weeks the AI gets a report on the town and may change up to two things. It never sees individual people or firms, only town-wide numbers, a couple of weeks old and slightly rounded. Code checks every request: it caps big moves and rejects anything outside the rules.</div>
+    <div class="strip">
+      <div class="rail"><b></b></div>
+      <div class="yr" style="left:20%">Year 1</div><div class="yr" style="left:40%">Year 2</div><div class="yr" style="left:60%">Year 3</div><div class="yr" style="left:80%">Year 4</div><div class="yr" style="left:100%">Year 5</div>
+      <div class="dcards" id="dcards"></div>
+    </div>
+    <div class="detail">
+      <div class="dh"><h3>Decision 4</h3><span>Year 2, week 41. It read a report from week 39, thought for 7 seconds, and its changes took effect in week 42.</span></div>
+      <div class="dgrid">
+        <div><h4>What it saw</h4>
+          <ul class="saw">
+            <li><span>People out of work<small>real number that week: 9 in 100</small></span><b>10 in 100</b></li>
+            <li><span>Typical weekly pay</span><b>$2,150</b></li>
+            <li><span>Town hall debt</span><b>$101M</b></li>
+            <li><span>Prices, yearly rise<small>real: 3.4%</small></span><b>3%</b></li>
+            <li><span>Firms struggling</span><b>2 of 23</b></li>
+          </ul>
+          <div class="note">The report is two weeks old and rounded on purpose, like the statistics a real government gets.</div>
+        </div>
+        <div><h4>What it asked for, and what code allowed</h4>
+          <ul class="ask">
+            <li><div class="row"><span class="k">Help for people out of work: Normal to High</span><span class="tag ok">Applied</span></div></li>
+            <li><div class="row"><span class="k">Tax on wages: 15% to 22%</span><span class="tag cap">Capped at 20%</span></div><div class="why">Rule: a tax may move at most 5 points per decision.</div></li>
+            <li><div class="row"><span class="k">Public works: On</span><span class="tag no">Rejected</span></div><div class="why">Rule: at most two changes per decision. This was the third.</div></li>
+          </ul>
+        </div>
+        <div><h4>Why, in its own words</h4>
+          <div class="quote">Unemployment has held near 10% for two quarters while firm cash looks healthy, so demand is the weak side. Raising benefits protects spending, and a wage-tax increase funds it without touching prices.</div>
+          <a class="more">Read all 640 words</a>
+          <div class="check"><b>Evidence check:</b> 3 of 4 claims matched the data. Firm cash was not healthy: 2 firms were already struggling and Harbor Grocers joined them a month later.</div>
+        </div>
+        <div class="after"><h4>What happened in the next 12 weeks</h4>
+          <div class="pair"><div><div class="big">10 <span>to</span> 8</div><div class="k">in 100 out of work</div></div></div>
+          <div class="pair" style="margin-top:8px"><div><div class="big">+$9M</div><div class="k">town hall debt</div></div><div><div class="big">+$0.04</div><div class="k">a week of groceries</div></div></div>
+          <div class="vs">In Town B over the same weeks, people out of work stayed at <b>10 in 100</b> and debt rose <b>$2M</b>.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="story">
+    <div class="card"><h3>People out of work</h3><div class="cs">Out of every 100 working-age people, how many want a job and can't find one. Numbered dots are the AI's decisions.</div><div class="chart" style="height:320px" id="chart"></div></div>
+    <div class="card report">
+      <h3>Report card</h3>
+      <div class="rgrid">
+        <div class="rg"><div class="v">5</div><div class="k">decisions in 3 years</div></div>
+        <div class="rg"><div class="v">9</div><div class="k">changes asked for</div></div>
+        <div class="rg"><div class="v">6 / 2 / 1</div><div class="k">applied / capped / rejected</div></div>
+        <div class="rg"><div class="v">7 s</div><div class="k">average thinking time</div></div>
+        <div class="rg"><div class="v">1 wk</div><div class="k">from report to action</div></div>
+        <div class="rg"><div class="v">3 of 5</div><div class="k">decisions whose reasons matched the data</div></div>
+      </div>
+      <div class="stats" id="stats"></div>
+      <div class="verdict">The AI cut the number of people out of work by <span>a fifth</span>, mostly by raising benefits, and paid for it with <span>debt</span>. It never touched the minimum wage. Would you re-elect it?</div>
+    </div>
+  </div>
+
+  <div class="band"><div><b>Businesses and households</b> for both towns sit here, exactly as on the policy screen: richest firms first, four random households each, click to follow.</div><span>collapsed in this mockup</span></div>
+
+  <div class="feedwrap">
+    <div class="sect3"><h3>What's happening <span>newest first</span></h3><ul class="feed" id="feed"></ul></div>
+    <div class="sect3"><h3>How to read this <span>for first-timers</span></h3>
+      <ul class="feed">
+        <li><i style="background:var(--ink4)"></i><div>The two towns are identical until the AI's first decision in week 15. Every difference after that is something the AI caused.</div></li>
+        <li><i style="background:var(--ink4)"></i><div>The AI is an advisor with a rulebook, not a dictator. It proposes, code checks. <b>Capped</b> means it asked for more than the rules allow. <b>Rejected</b> means the request broke a rule.</div></li>
+        <li><i style="background:var(--ink4)"></i><div>The <b>evidence check</b> compares what the AI said about the town with what was actually true, so you can tell good reasoning from lucky guesses.</div></li>
+        <li><i style="background:var(--ink4)"></i><div>Save this run and try another model on the same town to compare mayors.</div></li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+<script>
+const T_NOW=143,T_MAX=260;
+const ARMS=[{n:'Town A',sub:'AI mayor',c:'var(--ai)'},{n:'Town B',sub:'policy frozen',c:'var(--ctl)'}];
+const DEC=[{t:15,w:'Year 1, week 15',s:'Raised help for people out of work to High',st:'ok',ms:'5 s'},{t:41,w:'Year 1, week 41',s:'Raised the tax on profits to 25%',st:'ok',ms:'6 s'},{t:67,w:'Year 2, week 15',s:'Asked to bail out Corner Bakery',st:'no',ms:'9 s'},{t:93,w:'Year 2, week 41',s:'Benefits up, wage tax up, public works',st:'cap',ms:'7 s'},{t:119,w:'Year 3, week 15',s:'Subsidised food firms by 25%',st:'ok',ms:'8 s'}];
+function rng(seed){let s=seed>>>0;return()=>{s+=0x6D2B79F5;let t=Math.imul(s^(s>>>15),1|s);t^=t+Math.imul(t^(t>>>7),61|t);return((t^(t>>>14))>>>0)/4294967296;};}
+function noise(seed,n,step){const r=rng(seed);let v=0;const o=[];for(let i=0;i<n;i++){v=v*0.86+(r()-0.5)*step;o.push(v);}return o;}
+function ramp(t,a,b){if(t<=a)return 0;if(t>=b)return 1;const u=(t-a)/(b-a);return u*u*(3-2*u);}
+function series(seed,base,effA,nz){const sh=noise(seed,T_NOW+1,1),ob=noise(seed*9+3,T_NOW+1,1);
+  return [Array.from({length:T_NOW+1},(_,t)=>base(t)+effA(t)+sh[t]*nz+ob[t]*nz*0.5*ramp(t,15,60)), Array.from({length:T_NOW+1},(_,t)=>base(t)+sh[t]*nz)];}
+const aiU=t=>-0.6*ramp(t,16,40)-0.4*ramp(t,42,70)-0.9*ramp(t,94,120)-0.5*ramp(t,120,143);
+const U=series(1,t=>12-2.2*ramp(t,0,60)+0.3*Math.sin(t/16),aiU,0.9);
+const W=series(3,t=>1900+240*ramp(t,0,140),t=>40*ramp(t,16,80),22);
+const F=series(10,t=>4.2+0.5*ramp(t,0,143),t=>0.05*ramp(t,120,143),0.05);
+const D=series(5,t=>40+46*ramp(t,0,143),t=>6*ramp(t,16,60)+9*ramp(t,42,80)+18*ramp(t,94,120)+13*ramp(t,120,143),1.2);
+const NS='http://www.w3.org/2000/svg';const el=(n,a,txt)=>{const e=document.createElementNS(NS,n);for(const k in a)e.setAttribute(k,a[k]);if(txt!=null)e.textContent=txt;return e;};
+
+function townSVG({color,looking,homeless,firms}){
+  const W=560,H=300;const svg=el('svg',{viewBox:`0 0 ${W} ${H}`,class:'town'});
+  svg.appendChild(el('rect',{x:0,y:0,width:W,height:H,rx:10,fill:'var(--panel2)'}));
+  const civic=(x,label,hall)=>{const g=el('g',{});g.appendChild(el('rect',{x,y:34,width:74,height:32,fill:'#fff',stroke:'var(--slate2)','stroke-width':1.2}));g.appendChild(el('path',{d:`M${x-4} 34 L${x+37} 15 L${x+78} 34 Z`,fill:'#fff',stroke:'var(--slate2)','stroke-width':1.2}));
+    for(let i=0;i<4;i++)g.appendChild(el('rect',{x:x+9+i*17,y:40,width:5,height:26,fill:'var(--slate)'}));if(hall)g.appendChild(el('rect',{x:x+35,y:5,width:3,height:12,fill:color}));
+    g.appendChild(el('text',{x:x+37,y:80,'text-anchor':'middle',style:'font-size:11.5px;fill:var(--ink3);font-family:var(--body)'},label));svg.appendChild(g);};
+  civic(200,'Town hall',true);civic(300,'Bank',false);
+  let x=26;firms.forEach(f=>{const h=24+f.h*26,w=30,y=142-h;const g=el('g',{});
+    if(f.s==='closed'){g.appendChild(el('rect',{x,y,width:w,height:h,fill:'none',stroke:'var(--slate)','stroke-dasharray':'3 3'}));g.appendChild(el('path',{d:`M${x+9} ${y+h/2-6} l12 12 M${x+21} ${y+h/2-6} l-12 12`,stroke:'var(--slate2)','stroke-width':1.5}));}
+    else{g.appendChild(el('rect',{x,y,width:w,height:h,fill:'var(--slate)',stroke:f.s==='strug'?'var(--look)':'none','stroke-width':2}));g.appendChild(el('rect',{x,y,width:w,height:6,fill:'var(--slate2)'}));
+      for(let r=0;r<Math.floor((h-12)/12);r++)for(let c=0;c<3;c++)g.appendChild(el('rect',{x:x+5+c*9,y:y+11+r*12,width:4,height:5,fill:'#fff',opacity:.85}));
+      if(f.s==='strug'){g.appendChild(el('circle',{cx:x+w,cy:y,r:7,fill:'var(--look)'}));g.appendChild(el('text',{x:x+w,y:y+3.5,'text-anchor':'middle',style:'font-size:10px;font-weight:700;fill:#fff;font-family:var(--body)'},'!'));}}
+    svg.appendChild(g);x+=w+12;});
+  svg.appendChild(el('line',{x1:16,x2:W-16,y1:143,y2:143,stroke:'var(--slate)'}));svg.appendChild(el('text',{x:26,y:158,style:'font-size:11.5px;fill:var(--ink3);font-family:var(--body)'},'Main street'));
+  const r=rng(7+looking+homeless*13);const st=[];for(let i=0;i<100;i++)st.push(i<homeless?'home':i<homeless+looking?'look':'work');for(let i=99;i>0;i--){const j=Math.floor(r()*(i+1));[st[i],st[j]]=[st[j],st[i]];}
+  const cols=20,cw=(W-40)/cols,ch=26,oy=176;
+  st.forEach((s,i)=>{const cx=20+(i%cols)*cw+cw/2+(r()-0.5)*3,cy=oy+Math.floor(i/cols)*ch+(r()-0.5)*3;const fill=s==='work'?'var(--work)':s==='look'?'var(--look)':'var(--home)';const g=el('g',{});
+    g.appendChild(el('rect',{x:cx-7,y:cy,width:14,height:11,rx:1.5,fill}));g.appendChild(el('path',{d:`M${cx-9} ${cy} L${cx} ${cy-7} L${cx+9} ${cy} Z`,fill}));
+    if(s==='home')g.appendChild(el('rect',{x:cx-7,y:cy,width:14,height:11,fill:'none',stroke:'#fff','stroke-width':1.2,'stroke-dasharray':'2 2'}));svg.appendChild(g);});
+  return svg;}
+const TOWNS=[{i:0,homeless:1,firms:[{h:.5},{h:.9},{h:.3,s:'strug'},{h:.7},{h:.4},{h:1},{h:.6},{h:.2,s:'closed'},{h:.8},{h:.5},{h:.35,s:'strug'},{h:.65},{h:.3}],nf:'23 firms',fs:'2 struggling, 1 closed'},
+             {i:1,homeless:2,firms:[{h:.5},{h:.9},{h:.3,s:'strug'},{h:.7},{h:.4},{h:1,s:'strug'},{h:.6},{h:.2,s:'closed'},{h:.8},{h:.5},{h:.35,s:'strug'},{h:.65},{h:.3,s:'closed'}],nf:'23 firms',fs:'3 struggling, 2 closed'}];
+TOWNS.forEach(t=>{const a=ARMS[t.i],look=Math.round(U[t.i][T_NOW]);const d=document.createElement('div');
+  d.innerHTML=`<div class="colhead"><i style="background:${a.c}"></i><h2>${a.n}</h2><span>${a.sub}</span></div><div class="card"><div class="slot"></div>
+  <div class="legend"><span><i style="background:var(--work)"></i>working</span><span><i style="background:var(--look)"></i>looking for work</span><span><i style="background:var(--home)"></i>lost their home</span><span style="color:var(--ink4)">each house is 20 households</span></div>
+  <div class="facts"><div class="fact"><div class="v">${look} in 100</div><div class="k">out of work</div></div><div class="fact"><div class="v">$${Math.round(W[t.i][T_NOW]).toLocaleString()}</div><div class="k">typical weekly pay</div></div><div class="fact"><div class="v">$${Math.round(D[t.i][T_NOW])}M</div><div class="k">town hall debt</div></div><div class="fact"><div class="v">${t.nf}</div><div class="k">${t.fs}</div></div></div></div>`;
+  d.querySelector('.slot').appendChild(townSVG({color:a.c,looking:look,homeless:t.homeless,firms:t.firms}));document.getElementById('cols').appendChild(d);});
+
+document.getElementById('dcards').innerHTML=DEC.map((d,i)=>`<div class="dc ${i===3?'on':''}"><div class="n">Decision ${i+1}</div><div class="w">${d.w}</div><div class="t">${d.s}</div><div class="st"><span class="tag ${d.st}">${{ok:'Applied',cap:'Partly applied',no:'Rejected'}[d.st]}</span><span class="ms">${d.ms}</span></div></div>`).join('');
+
+function storyChart(host){const W=host.clientWidth,H=host.clientHeight,padL=44,padR=150,padT=30,padB=28,ymin=4,ymax=14;
+  const x=t=>padL+(t/T_MAX)*(W-padL-padR),y=v=>padT+(1-(v-ymin)/(ymax-ymin))*(H-padT-padB);
+  const svg=el('svg',{viewBox:`0 0 ${W} ${H}`});const ax=el('g',{class:'ax'});svg.appendChild(ax);
+  [6,9,12].forEach(v=>{ax.appendChild(el('line',{x1:padL,x2:W-padR,y1:y(v),y2:y(v)}));ax.appendChild(el('text',{x:padL-8,y:y(v)+4,'text-anchor':'end'},v+' in 100'));});
+  for(let yr=1;yr<=5;yr++)ax.appendChild(el('text',{x:x(yr*52),y:H-8,'text-anchor':'middle'},'Year '+yr));
+  svg.appendChild(el('rect',{x:x(T_NOW),y:padT-10,width:x(T_MAX)-x(T_NOW),height:H-padT-padB+10,fill:'var(--panel2)',opacity:.6}));
+  svg.appendChild(el('text',{x:x(T_NOW)+8,y:H-padB-8,style:'font-size:12px;fill:var(--ink4);font-family:var(--body)'},'the next two years'));
+  U.forEach((arr,i)=>{let d='';arr.forEach((v,t)=>{d+=(t?'L':'M')+x(t).toFixed(1)+' '+y(v).toFixed(1)+' ';});svg.appendChild(el('path',{d,fill:'none',stroke:ARMS[i].c,'stroke-width':2.5,'stroke-linejoin':'round','stroke-linecap':'round'}));});
+  svg.appendChild(el('text',{x:x(4),y:padT-8,class:'ann b'},'Identical until the first decision'));
+  DEC.forEach((d,i)=>{const g=el('g',{class:'mk'});const cx=x(d.t),cy=y(U[0][d.t]);g.appendChild(el('circle',{cx,cy,r:9,fill:i===3?'var(--ai)':'#fff',stroke:'var(--ai)','stroke-width':2}));g.appendChild(el('text',{x:cx,y:cy+4,'text-anchor':'middle',fill:i===3?'#fff':'var(--ai)',style:i===3?'':'fill:var(--ai)'},String(i+1)));svg.appendChild(g);});
+  const labs=U.map((arr,i)=>({i,yy:y(arr[T_NOW]),v:arr[T_NOW]})).sort((a,b)=>a.yy-b.yy);if(labs[1].yy-labs[0].yy<20)labs[1].yy=labs[0].yy+20;
+  labs.forEach(l=>{svg.appendChild(el('circle',{cx:x(T_NOW),cy:y(U[l.i][T_NOW]),r:5,fill:ARMS[l.i].c,stroke:'#fff','stroke-width':2}));svg.appendChild(el('text',{x:x(T_NOW)+12,y:l.yy+4,class:'endl',fill:ARMS[l.i].c},ARMS[l.i].n+'  '+Math.round(l.v)+' in 100'));});
+  host.innerHTML='';host.appendChild(svg);}
+function mini(host,S){const W=host.clientWidth,H=host.clientHeight,all=S.flat(),mn=Math.min(...all),mx=Math.max(...all);const x=t=>t/T_NOW*(W-4)+2,y=v=>4+(1-(v-mn)/(mx-mn||1))*(H-8);
+  const svg=el('svg',{viewBox:`0 0 ${W} ${H}`});S.forEach((arr,i)=>{let d='';arr.forEach((v,t)=>{d+=(t?'L':'M')+x(t).toFixed(1)+' '+y(v).toFixed(1)+' ';});svg.appendChild(el('path',{d,fill:'none',stroke:ARMS[i].c,'stroke-width':2}));});host.innerHTML='';host.appendChild(svg);}
+const STATS=[{t:'People out of work',S:U,f:v=>Math.round(v)+' in 100'},{t:'Typical weekly pay',S:W,f:v=>'$'+Math.round(v).toLocaleString()},{t:'A week of groceries',S:F,f:v=>'$'+v.toFixed(2)},{t:'Town hall debt',S:D,f:v=>'$'+Math.round(v)+'M'}];
+document.getElementById('stats').innerHTML=STATS.map((s,k)=>`<div class="stat"><h4>${s.t}</h4><div class="pair">${ARMS.map((a,i)=>`<div class="pv"><b><i style="background:${a.c}"></i>${s.f(s.S[i][T_NOW])}</b><small>${a.n}</small></div>`).join('')}</div><div class="mini" data-k="${k}"></div></div>`).join('');
+const FEED=[['ai','Year 3, week 15, Town A','<b>The AI mayor subsidised food firms by 25%.</b> Its reason: grocery prices were rising faster than pay.'],['a','Year 3, week 9, Town A','Corner Bakery hired 3 people with the subsidy money.'],['b','Year 3, week 5, Town B','Fresh Foods Co. closed. 41 people lost their jobs.'],['ai','Year 2, week 41, Town A','<b>The AI mayor raised benefits to High</b> and the wage tax to 20%. Its public works request was rejected.'],['ai','Year 2, week 15, Town A','The AI asked to <b>bail out Corner Bakery</b>. Rejected: bailouts were switched off in the rules.'],['x','Year 1, week 15, both towns','The AI made its first decision. Up to here the towns are identical.']];
+document.getElementById('feed').innerHTML=FEED.map(([w,when,txt])=>`<li><i style="background:${w==='ai'?'var(--ai)':w==='a'?'var(--ai)':w==='b'?'var(--ctl)':'var(--ink4)'};${w==='a'?'opacity:.45':''}"></i><div><span class="w">${when}</span>${txt}</div></li>`).join('');
+function draw(){storyChart(document.getElementById('chart'));document.querySelectorAll('.mini').forEach(m=>mini(m,STATS[+m.dataset.k].S));}
+draw();let rt;window.addEventListener('resize',()=>{clearTimeout(rt);rt=setTimeout(draw,120);});
+</script>
+</body>
+</html>

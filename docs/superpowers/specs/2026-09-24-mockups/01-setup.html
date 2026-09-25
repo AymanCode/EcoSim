@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>EcoSim Set up</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,600;12..96,700&family=Instrument+Sans:ital,wght@0,400;0,500;0,600;1,400&display=swap" rel="stylesheet">
+<style>
+:root{--page:#F3F5F7;--panel:#FFFFFF;--panel2:#EEF1F4;--ink:#17202B;--ink2:#3D4753;--ink3:#6E7A87;--ink4:#9AA5B1;--line:#E3E7EB;--line2:#CFD6DD;
+  --a:#2E6FE0;--b:#E0762C;--ai:#6D4AE0;--work:#2E9E6B;--look:#C98A1B;--home:#D64A5E;--slate:#B6BFC9;--slate2:#8B96A2;--disp:'Bricolage Grotesque';--body:'Instrument Sans'}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--page)}
+body{font-family:var(--body),system-ui,sans-serif;color:var(--ink2);font-size:14px;line-height:1.5;-webkit-font-smoothing:antialiased}
+h1,h2,h3,h4{font-family:var(--disp),var(--body),sans-serif;color:var(--ink);margin:0;font-weight:600;letter-spacing:-.01em}
+button{font:inherit;cursor:pointer}
+.appbar{display:flex;align-items:center;gap:22px;padding:14px 32px;border-bottom:1px solid var(--line);background:var(--panel)}
+.brand{font-family:var(--disp);font-weight:700;font-size:18px;color:var(--ink);letter-spacing:-.02em}
+.appnav{display:flex;gap:4px}.appnav a{color:var(--ink3);text-decoration:none;font-weight:500;padding:6px 12px;border-radius:8px;font-size:14px}.appnav a.on{color:var(--ink);background:var(--panel2)}
+.sp{flex:1}
+.abtn{border:1px solid var(--line2);background:var(--panel);color:var(--ink);border-radius:8px;padding:7px 12px;font-weight:500;font-size:13px}
+.wrap{max-width:1100px;margin:0 auto;padding:34px 32px 80px}
+h1.lead{font-size:32px;line-height:1.15;letter-spacing:-.02em}
+.sub{color:var(--ink3);font-size:15px;margin-top:6px;max-width:720px}
+.step{margin-top:30px}
+.step h2{font-size:15px;color:var(--ink3);font-weight:600;margin-bottom:10px}
+.step h2 b{color:var(--ink);font-weight:600;margin-right:8px}
+.modes{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
+.mode{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:18px 18px 16px;text-align:left;display:flex;flex-direction:column;gap:8px;position:relative}
+.mode.on{border-color:var(--ink);box-shadow:0 0 0 3px var(--panel2)}
+.mode .ic{width:40px;height:40px;border-radius:10px;display:flex;align-items:center;justify-content:center}
+.mode .ic svg{width:22px;height:22px;stroke:#fff;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.mode h3{font-size:17px}
+.mode p{margin:0;color:var(--ink3);font-size:13.5px;line-height:1.45}
+.mode .pick{position:absolute;top:14px;right:14px;width:18px;height:18px;border-radius:50%;border:2px solid var(--line2)}
+.mode.on .pick{border-color:var(--ink);background:var(--ink)}
+.mode.on .pick::after{content:'';position:absolute;left:5px;top:2px;width:4px;height:8px;border:solid #fff;border-width:0 2px 2px 0;transform:rotate(45deg)}
+.qs{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
+.q{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px 16px;text-align:left;display:flex;flex-direction:column;gap:6px}
+.q.on{border-color:var(--ink);box-shadow:0 0 0 3px var(--panel2)}
+.q h4{font-size:15px;line-height:1.3}
+.q .arms{display:flex;gap:10px;flex-wrap:wrap;font-size:12.5px;color:var(--ink3)}
+.q .arms span{display:inline-flex;align-items:center;gap:6px}
+.q .arms i{width:9px;height:9px;border-radius:3px;display:inline-block}
+.q p{margin:0;font-size:12.5px;color:var(--ink3);line-height:1.4}
+.q.custom{border-style:dashed;justify-content:center;align-items:center;color:var(--ink3);gap:4px}
+.q.custom h4{color:var(--ink2)}
+.towns{display:flex;gap:12px;align-items:stretch}
+.tw{flex:1;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:12px 14px;display:flex;gap:12px;align-items:center}
+.tw i{width:14px;height:14px;border-radius:4px;display:inline-block;flex:none}
+.tw .n{font-weight:600;color:var(--ink)}
+.tw .r{font-size:12.5px;color:var(--ink3)}
+.tw .edit{margin-left:auto;font-size:12.5px;color:var(--ink3);text-decoration:underline;text-underline-offset:3px}
+.tw.add{border-style:dashed;justify-content:center;color:var(--ink3);flex:0 0 190px;flex-direction:column;gap:2px;text-align:center}
+.tw.add b{color:var(--ink2);font-weight:600}
+.tw.add small{font-size:11.5px}
+.world{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
+.f{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:12px 14px}
+.f .k{font-weight:600;color:var(--ink);font-size:14px;display:flex;justify-content:space-between;align-items:center}
+.f .k .v{font-family:var(--disp);font-size:16px}
+.f .d{font-size:12.5px;color:var(--ink3);margin-top:4px;line-height:1.4}
+.seg{display:flex;gap:4px;margin-top:8px}
+.seg button{flex:1;border:1px solid var(--line2);background:var(--panel);color:var(--ink2);border-radius:8px;padding:6px 0;font-size:13px}
+.seg button.on{background:var(--ink);color:#fff;border-color:var(--ink)}
+.range{margin-top:10px;height:6px;border-radius:3px;background:var(--panel2);position:relative}
+.range b{position:absolute;left:0;top:0;bottom:0;width:20%;background:var(--ink);border-radius:3px}
+.range i{position:absolute;top:-5px;left:20%;width:16px;height:16px;border-radius:50%;background:var(--ink);border:3px solid #fff;transform:translateX(-8px);box-shadow:0 0 0 1px var(--line2)}
+.range .cap{position:absolute;right:0;top:-18px;font-size:11px;color:var(--ink4)}
+.toggle{display:flex;align-items:center;gap:10px;margin-top:8px}
+.toggle .sw{width:36px;height:20px;border-radius:999px;background:var(--ink);position:relative;flex:none}
+.toggle .sw::after{content:'';position:absolute;top:3px;right:3px;width:14px;height:14px;border-radius:50%;background:#fff}
+.toggle span{font-size:13px;color:var(--ink2)}
+.go{margin-top:30px;display:flex;align-items:center;gap:18px}
+.go button{border:0;background:var(--ink);color:#fff;border-radius:12px;padding:14px 22px;font-family:var(--disp);font-weight:600;font-size:17px}
+.go .est{color:var(--ink3);font-size:13.5px;line-height:1.4}
+.go .est b{color:var(--ink);font-weight:600}
+.dice{border:1px solid var(--line2);background:var(--panel);border-radius:8px;padding:2px 8px;font-size:12px;color:var(--ink3)}
+</style>
+</head>
+<body>
+<header class="appbar"><div class="brand">EcoSim</div><nav class="appnav"><a>Run</a><a class="on">Set up</a><a>Saved</a></nav><div class="sp"></div><button class="abtn">What is EcoSim?</button></header>
+<div class="wrap">
+  <h1 class="lead">What do you want to find out?</h1>
+  <div class="sub">EcoSim runs a small town of households, firms, a bank and a town hall, one week at a time. Set up a question, press start, and watch it play out.</div>
+
+  <div class="step"><h2><b>1</b>Pick a kind of experiment</h2>
+    <div class="modes">
+      <button class="mode on"><span class="pick"></span><div class="ic" style="background:var(--a)"><svg viewBox="0 0 24 24"><path d="M4 18h16M6 18V9M12 18V5M18 18v-7"/></svg></div><h3>Compare policies</h3><p>Run the same town two to four times with different rules and watch where they part ways.</p></button>
+      <button class="mode"><span class="pick"></span><div class="ic" style="background:var(--ai)"><svg viewBox="0 0 24 24"><rect x="4" y="7" width="16" height="12" rx="3"/><path d="M12 3v4M9 13h.01M15 13h.01"/></svg></div><h3>Test an AI mayor</h3><p>Let a language model run the town hall and see how it does against a town where nothing changes.</p></button>
+      <button class="mode"><span class="pick"></span><div class="ic" style="background:var(--work)"><svg viewBox="0 0 24 24"><path d="M5 12h14M12 5v14"/></svg></div><h3>Just play</h3><p>One town, every lever, no comparison. Change things while it runs and see what happens.</p></button>
+    </div>
+  </div>
+
+  <div class="step"><h2><b>2</b>Choose a question</h2>
+    <div class="qs">
+      <button class="q on"><h4>What happens if we raise the minimum wage?</h4><div class="arms"><span><i style="background:var(--a)"></i>No changes</span><span><i style="background:var(--b)"></i>Minimum wage: High</span></div><p>Higher pay for the lowest earners, higher costs for firms. Which wins?</p></button>
+      <button class="q"><h4>Do generous benefits keep people out of work?</h4><div class="arms"><span><i style="background:var(--a)"></i>No changes</span><span><i style="background:var(--b)"></i>Benefits: High</span></div><p>More money for people without a job. Does it help them or make work less tempting?</p></button>
+      <button class="q"><h4>Tax wages or tax profits?</h4><div class="arms"><span><i style="background:var(--a)"></i>Wage tax: 30%</span><span><i style="background:var(--b)"></i>Profit tax: 35%</span></div><p>Two ways to fill the town hall's coffers, two different sets of losers.</p></button>
+      <button class="q"><h4>Can subsidising food keep groceries cheap?</h4><div class="arms"><span><i style="background:var(--a)"></i>No changes</span><span><i style="background:var(--b)"></i>Food subsidy: 25%</span></div><p>The town hall pays part of every food firm's costs. Do prices fall, or do the firms pocket it?</p></button>
+      <button class="q"><h4>Does public works spending create jobs?</h4><div class="arms"><span><i style="background:var(--a)"></i>No changes</span><span><i style="background:var(--b)"></i>Public works: On</span></div><p>The town hall hires people directly. Fewer people out of work, but at what cost?</p></button>
+      <button class="q custom"><h4>Build my own</h4><span style="font-size:12.5px">Pick every lever for every town</span></button>
+    </div>
+  </div>
+
+  <div class="step"><h2><b>3</b>Your towns</h2>
+    <div class="towns">
+      <div class="tw"><i style="background:var(--a)"></i><div><div class="n">Town A</div><div class="r">No changes. The control.</div></div><span class="edit">Edit levers</span></div>
+      <div class="tw"><i style="background:var(--b)"></i><div><div class="n">Town B</div><div class="r">Minimum wage: High. Everything else the same.</div></div><span class="edit">Edit levers</span></div>
+      <div class="tw add"><b>Add a town</b><small>up to 4. Each town gets an equal share of 10,000 households.</small></div>
+    </div>
+  </div>
+
+  <div class="step"><h2><b>4</b>The world <span style="font-weight:500;color:var(--ink4)">these are shared by every town, so the comparison is fair</span></h2>
+    <div class="world">
+      <div class="f"><div class="k">Households per town <span class="v">1,000</span></div><div class="range"><span class="cap">up to 5,000 with 2 towns</span><b></b><i></i></div><div class="d">More households, more realistic, slower. 1,000 runs five years in about a minute.</div></div>
+      <div class="f"><div class="k">How long <span class="v">5 years</span></div><div class="seg"><button>1</button><button>2</button><button class="on">5</button><button>10</button></div><div class="d">You can add a year at the end if it's getting interesting.</div></div>
+      <div class="f"><div class="k">Seed <span class="v">1337 <button class="dice">roll</button></span></div><div class="d">The same seed always builds the same town with the same people. Change it for a different town, keep it to repeat an experiment.</div></div>
+      <div class="f"><div class="k">Money rules</div><div class="toggle"><span class="sw"></span><span>New settlement rules on</span></div><div class="d">Every dollar has an owner and a source: wages, rent, loans and care are settled in order each week.</div></div>
+    </div>
+  </div>
+
+  <div class="go"><button>Start the experiment</button><div class="est">Two towns, 1,000 households each, five years. <b>About a minute.</b><br>You can pause, change levers, or stop early at any time.</div></div>
+</div>
+</body>
+</html>

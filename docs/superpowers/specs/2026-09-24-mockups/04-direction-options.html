@@ -1,0 +1,373 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>EcoSim directions</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,600;12..96,700&family=Instrument+Sans:ital,wght@0,400;0,500;0,600;1,400&display=swap" rel="stylesheet">
+<style>
+:root{--page:#F3F5F7;--panel:#FFFFFF;--panel2:#EEF1F4;--ink:#17202B;--ink2:#3D4753;--ink3:#6E7A87;--ink4:#9AA5B1;--line:#E3E7EB;--line2:#CFD6DD;
+  --a:#2E6FE0;--b:#E0762C;--work:#2E9E6B;--look:#C98A1B;--home:#D64A5E;--slate:#B6BFC9;--slate2:#8B96A2;--closed:#D5DBE1;
+  --disp:'Bricolage Grotesque';--body:'Instrument Sans'}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--page)}
+body{font-family:var(--body),system-ui,sans-serif;color:var(--ink2);font-size:14px;line-height:1.5;-webkit-font-smoothing:antialiased}
+h1,h2,h3,h4{font-family:var(--disp),var(--body),sans-serif;color:var(--ink);margin:0;font-weight:600;letter-spacing:-.01em}
+button{font:inherit;cursor:pointer}
+.num{font-variant-numeric:tabular-nums}
+
+/* switcher (mockup chrome, not part of the product) */
+.switch{background:#17202B;color:#D6DCE3;padding:14px 28px 12px;position:sticky;top:0;z-index:5}
+.switch .row{display:flex;align-items:center;gap:18px;flex-wrap:wrap}
+.switch .t{font-family:var(--disp);font-size:15px;font-weight:600;color:#fff}
+.tabs{display:flex;gap:6px}
+.tabs button{border:1px solid rgba(255,255,255,.18);background:transparent;color:#C6CED8;border-radius:999px;padding:6px 14px;font-size:13px;font-weight:500}
+.tabs button.on{background:#fff;color:#17202B;border-color:#fff}
+.switch .d{font-size:13px;color:#AEB8C4;margin-top:8px;max-width:900px}
+.pick{margin-left:auto;border:0;background:#E0762C;color:#fff;border-radius:8px;padding:8px 14px;font-weight:600;font-size:13px}
+.pick.sel{background:#2E9E6B}
+
+/* app shell */
+.screen{min-height:calc(100vh - 80px);padding-bottom:60px}
+.appbar{display:flex;align-items:center;gap:22px;padding:14px 32px;border-bottom:1px solid var(--line);background:var(--panel)}
+.brand{font-family:var(--disp);font-weight:700;font-size:18px;color:var(--ink);letter-spacing:-.02em}
+.appnav{display:flex;gap:4px}
+.appnav a{color:var(--ink3);text-decoration:none;font-weight:500;padding:6px 12px;border-radius:8px;font-size:14px}
+.appnav a.on{color:var(--ink);background:var(--panel2)}
+.appbar .sp{flex:1}
+.clock{display:flex;align-items:center;gap:10px;color:var(--ink2);font-size:14px}
+.clock i{width:8px;height:8px;border-radius:50%;background:var(--work);display:inline-block}
+.clock .bar{width:160px;height:6px;border-radius:3px;background:var(--panel2);position:relative;overflow:hidden}
+.clock .bar b{position:absolute;left:0;top:0;bottom:0;width:55%;background:var(--ink3);border-radius:3px}
+.abtn{border:1px solid var(--line2);background:var(--panel);color:var(--ink);border-radius:8px;padding:7px 12px;font-weight:500;font-size:13px}
+.abtn.link{border-color:transparent;color:var(--ink3);text-decoration:underline;text-underline-offset:3px}
+
+.wrap{max-width:1320px;margin:0 auto;padding:26px 32px 0}
+.lead{font-family:var(--disp);font-size:24px;line-height:1.25;color:var(--ink);font-weight:600;letter-spacing:-.015em;max-width:980px}
+.lead .a{color:var(--a)}.lead .b{color:var(--b)}
+.sub{color:var(--ink3);margin-top:6px;font-size:14px;max-width:760px}
+
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:22px;margin-top:22px}
+.grid31{display:grid;grid-template-columns:2fr 1fr;gap:22px;margin-top:22px}
+.grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:18px;margin-top:22px}
+
+/* town card */
+.town{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:16px 18px 14px;min-width:0}
+.town .th{display:flex;align-items:baseline;gap:10px;margin-bottom:6px}
+.town .th i{width:12px;height:12px;border-radius:4px;display:inline-block;flex:none;transform:translateY(1px)}
+.town .th h3{font-size:18px}
+.town .th span{color:var(--ink3);font-size:13px}
+.town svg{width:100%;height:auto;display:block}
+.town .facts{display:flex;gap:22px;margin-top:10px;padding-top:10px;border-top:1px solid var(--line)}
+.fact .v{font-family:var(--disp);font-size:20px;font-weight:600;color:var(--ink);line-height:1.1}
+.fact .k{font-size:12.5px;color:var(--ink3);margin-top:2px}
+.legend{display:flex;gap:16px;font-size:12.5px;color:var(--ink3);margin-top:8px;flex-wrap:wrap}
+.legend span{display:inline-flex;align-items:center;gap:6px}
+.legend i{width:10px;height:10px;border-radius:3px;display:inline-block}
+
+/* chart card */
+.card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:16px 18px;min-width:0;display:flex;flex-direction:column}
+.card h3{font-size:17px}
+.card .cs{color:var(--ink3);font-size:13px;margin-top:2px}
+.chart{position:relative;width:100%;margin-top:8px}
+.chart svg{display:block;width:100%;height:100%;overflow:visible}
+.ax text{font-family:var(--body);font-size:12px;fill:var(--ink4)}
+.ax line{stroke:var(--line);stroke-width:1}
+.ann{font-family:var(--body);font-size:12.5px;fill:var(--ink2)}
+.ann.b{font-weight:600;fill:var(--ink)}
+.endl{font-family:var(--disp);font-size:13px;font-weight:600;fill:var(--ink)}
+
+/* levers */
+.hall h3{font-size:17px}
+.hall .who{display:inline-flex;align-items:center;gap:8px;margin-top:4px;color:var(--ink3);font-size:13px}
+.hall .who i{width:10px;height:10px;border-radius:3px;display:inline-block}
+.lever{margin-top:16px}
+.lever .lk{font-weight:600;color:var(--ink);font-size:14px}
+.seg{display:flex;gap:4px;margin-top:6px}
+.seg button{flex:1;border:1px solid var(--line2);background:var(--panel);color:var(--ink2);border-radius:8px;padding:6px 0;font-size:13px}
+.seg button.on{background:var(--ink);color:#fff;border-color:var(--ink)}
+.lever .ld{font-size:12.5px;color:var(--ink3);margin-top:6px;line-height:1.45}
+.hall .go{margin-top:18px;width:100%;border:0;background:var(--ink);color:#fff;border-radius:10px;padding:10px;font-weight:600;font-size:14px}
+.hall .more{display:block;text-align:center;margin-top:10px;font-size:13px;color:var(--ink3)}
+
+/* families */
+.fam{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:14px 16px;display:flex;gap:14px;align-items:flex-start}
+.fam .av{width:44px;height:44px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-family:var(--disp);font-weight:700;font-size:17px;color:#fff;flex:none}
+.fam .n{font-weight:600;color:var(--ink);display:flex;align-items:center;gap:8px}
+.fam .n i{width:9px;height:9px;border-radius:3px;display:inline-block}
+.fam .s{font-size:13.5px;color:var(--ink2);margin-top:2px;line-height:1.45}
+.sect{margin-top:26px}
+.sect h3{font-size:16px;margin-bottom:10px}
+.sect h3 span{color:var(--ink3);font-weight:500;font-size:14px;margin-left:8px}
+
+/* feed */
+.feed{padding:0;margin:0;list-style:none}
+.feed li{display:grid;grid-template-columns:14px 1fr;gap:12px;padding:10px 0;border-bottom:1px solid var(--line);font-size:13.5px;line-height:1.45}
+.feed li:last-child{border-bottom:0}
+.feed i{width:10px;height:10px;border-radius:3px;margin-top:5px;display:inline-block}
+.feed .w{color:var(--ink4);font-size:12px;display:block}
+.feed b{color:var(--ink);font-weight:600}
+
+/* stat cards */
+.stat{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:14px 16px}
+.stat h4{font-size:15px}
+.stat .pair{display:flex;gap:22px;margin-top:8px;align-items:flex-end}
+.stat .pv{display:flex;flex-direction:column}
+.stat .pv b{font-family:var(--disp);font-size:24px;font-weight:600;color:var(--ink);line-height:1.05;display:flex;align-items:center;gap:7px;white-space:nowrap}
+#dir-c .stat .pv b{font-size:20px}
+#dir-c .stat .pair{gap:16px}
+.stat .pv b i{width:10px;height:10px;border-radius:3px;display:inline-block}
+.stat .pv small{font-size:12px;color:var(--ink3);margin-top:3px}
+.stat .def{font-size:12.5px;color:var(--ink3);margin-top:10px;line-height:1.45}
+.stat .mini{height:44px;margin-top:8px}
+
+.verdict{background:var(--ink);color:#fff;border-radius:14px;padding:18px 20px;font-family:var(--disp);font-size:18px;line-height:1.35;font-weight:500}
+.verdict span{color:#F5B98E}
+.toggle{display:inline-flex;border:1px solid var(--line2);border-radius:999px;padding:3px;gap:2px;background:var(--panel)}
+.toggle button{border:0;background:transparent;border-radius:999px;padding:4px 12px;font-size:13px;color:var(--ink3);display:inline-flex;align-items:center;gap:6px}
+.toggle button.on{background:var(--ink);color:#fff}
+.toggle i{width:8px;height:8px;border-radius:2px;display:inline-block}
+</style>
+</head>
+<body>
+
+<div class="switch">
+  <div class="row">
+    <div class="t">Three directions for the Run screen. Same two towns, same moment, same data.</div>
+    <div class="tabs">
+      <button class="on" data-dir="a">A. Two towns</button>
+      <button data-dir="b">B. The story</button>
+      <button data-dir="c">C. Town and story</button>
+    </div>
+    <button class="pick" id="pick">Pick this one</button>
+  </div>
+  <div class="d" id="desc"></div>
+</div>
+
+<!-- ============ A. TWO TOWNS ============ -->
+<section class="screen" id="dir-a">
+  <div class="appbar"><div class="brand">EcoSim</div><nav class="appnav"><a class="on">Run</a><a>Set up</a><a>Saved</a></nav><div class="sp"></div>
+    <div class="clock"><i></i>Year 3, week 38 <div class="bar"><b></b></div><span style="color:var(--ink4)">of 5 years</span></div>
+    <button class="abtn">Pause</button><button class="abtn link">Show me the numbers</button></div>
+  <div class="wrap">
+    <div class="lead">Two towns started identical. <span class="b">Town B</span> raised its minimum wage. Three years in, fewer people there are out of work and pay is higher, but three shops have closed.</div>
+    <div class="grid2">
+      <div class="town" id="townA"></div>
+      <div class="town" id="townB"></div>
+    </div>
+    <div class="grid31">
+      <div class="card"><h3>People out of work</h3><div class="cs">Out of every 100 working-age people, how many want a job and can't find one.</div><div class="chart" style="height:260px" id="chartA"></div></div>
+      <div class="card hall">
+        <h3>Town hall</h3><div class="who">Changing policy for <i style="background:var(--b)"></i><b style="color:var(--ink)">Town B</b></div>
+        <div class="lever"><div class="lk">Minimum wage</div><div class="seg"><button>Low</button><button>Normal</button><button class="on">High</button></div><div class="ld">The lowest weekly pay a firm can offer. Higher pay helps workers but raises costs for shops.</div></div>
+        <div class="lever"><div class="lk">Help for people out of work</div><div class="seg"><button>Low</button><button class="on">Normal</button><button>High</button></div><div class="ld">Weekly payments to people without a job, paid by the town hall.</div></div>
+        <div class="lever"><div class="lk">Tax on wages</div><div class="seg"><button>10%</button><button>15%</button><button class="on">20%</button></div><div class="ld">Taken from every paycheck. It funds the payments above.</div></div>
+        <div class="lever"><div class="lk">Public works</div><div class="seg"><button class="on">Off</button><button>On</button></div><div class="ld">The town hall hires people directly for building projects.</div></div>
+        <button class="go">Change Town B's policy</button><span class="more">More levers</span>
+      </div>
+    </div>
+    <div class="sect"><h3>Follow a family <span>Three real households from the simulation</span></h3><div class="grid3" style="margin-top:0" id="famA"></div></div>
+  </div>
+</section>
+
+<!-- ============ B. THE STORY ============ -->
+<section class="screen" id="dir-b" hidden>
+  <div class="appbar"><div class="brand">EcoSim</div><nav class="appnav"><a class="on">Run</a><a>Set up</a><a>Saved</a></nav><div class="sp"></div>
+    <div class="clock"><i></i>Year 3, week 38 <div class="bar"><b></b></div><span style="color:var(--ink4)">of 5 years</span></div>
+    <button class="abtn">Pause</button><button class="abtn link">Show me the numbers</button></div>
+  <div class="wrap">
+    <h1 class="lead" style="font-size:30px;max-width:1000px">A higher minimum wage cut the number of people out of work by a quarter. It also closed three shops.</h1>
+    <div class="sub">Two identical towns, one difference, five years. <span style="color:var(--a);font-weight:600">Town A</span> changed nothing. <span style="color:var(--b);font-weight:600">Town B</span> raised its minimum wage. We're three years in.</div>
+    <div class="grid31">
+      <div class="card"><h3>People out of work</h3><div class="cs">Out of every 100 working-age people, how many want a job and can't find one.</div><div class="chart" style="height:380px" id="chartB"></div></div>
+      <div>
+        <h3 style="font-size:16px;margin-bottom:6px">What's happening</h3>
+        <ul class="feed" id="feedB"></ul>
+      </div>
+    </div>
+    <div class="grid3" id="statsB"></div>
+    <div class="sect"><h3>Follow a family <span>Three real households from the simulation</span></h3><div class="grid3" style="margin-top:0" id="famB"></div></div>
+  </div>
+</section>
+
+<!-- ============ C. TOWN AND STORY ============ -->
+<section class="screen" id="dir-c" hidden>
+  <div class="appbar"><div class="brand">EcoSim</div><nav class="appnav"><a class="on">Run</a><a>Set up</a><a>Saved</a></nav><div class="sp"></div>
+    <div class="clock"><i></i>Year 3, week 38 <div class="bar"><b></b></div><span style="color:var(--ink4)">of 5 years</span></div>
+    <button class="abtn">Pause</button><button class="abtn link">Show me the numbers</button></div>
+  <div class="wrap">
+    <div class="lead">Three years in, <span class="b">Town B</span>'s higher minimum wage means fewer people out of work and higher pay. Three shops have closed.</div>
+    <div class="grid2">
+      <div class="town" id="townC"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px"><h3 style="font-size:18px">The town</h3><div class="toggle"><button><i style="background:var(--a)"></i>Town A</button><button class="on"><i style="background:var(--b)"></i>Town B</button></div></div><div id="townCsvg"></div></div>
+      <div class="card"><h3>People out of work</h3><div class="cs">Out of every 100 working-age people, how many want a job and can't find one.</div><div class="chart" style="height:300px" id="chartC"></div></div>
+    </div>
+    <div class="grid31">
+      <div>
+        <div class="verdict">So far: <span>fewer people out of work</span> and <span>higher pay</span> in Town B, but groceries cost a little more and three shops closed. Would you keep the higher minimum wage?</div>
+        <div class="grid3" id="statsC"></div>
+      </div>
+      <div><h3 style="font-size:16px;margin-bottom:6px">What's happening</h3><ul class="feed" id="feedC"></ul></div>
+    </div>
+    <div class="sect"><h3>Follow a family <span>Three real households from the simulation</span></h3><div class="grid3" style="margin-top:0" id="famC"></div></div>
+  </div>
+</section>
+
+<script>
+const DESC={
+  a:'Picture first. Each town is a live drawing of the economy: every house is 20 working-age households coloured by whether they work, every building a firm sized by its staff. Two towns side by side is the comparison. One chart, one set of levers with a sentence each.',
+  b:'Chart first, like a good newspaper explainer. One big annotated chart carries the argument, a plain-language feed on the right says what just happened, three friendly numbers with definitions below. No town drawing.',
+  c:'Both. The town for one arm at a time with a toggle, the annotated chart beside it, then a verdict in plain words with a question, three numbers, and the feed.'
+};
+const T_NOW=143,T_MAX=260;
+const ARMS=[{n:'Town A',sub:'no changes',c:'var(--a)'},{n:'Town B',sub:'higher minimum wage',c:'var(--b)'}];
+function rng(seed){let s=seed>>>0;return()=>{s+=0x6D2B79F5;let t=Math.imul(s^(s>>>15),1|s);t^=t+Math.imul(t^(t>>>7),61|t);return((t^(t>>>14))>>>0)/4294967296;};}
+function noise(seed,n,step){const r=rng(seed);let v=0;const o=[];for(let i=0;i<n;i++){v=v*0.86+(r()-0.5)*step;o.push(v);}return o;}
+function ramp(t,a,b){if(t<=a)return 0;if(t>=b)return 1;const u=(t-a)/(b-a);return u*u*(3-2*u);}
+function series(seed,base,effB,nz){const sh=noise(seed,T_NOW+1,1),ob=noise(seed*9+3,T_NOW+1,1);
+  return [Array.from({length:T_NOW+1},(_,t)=>base(t)+sh[t]*nz), Array.from({length:T_NOW+1},(_,t)=>base(t)+effB(t)+sh[t]*nz+ob[t]*nz*0.5*ramp(t,10,60))];}
+const U=series(1,t=>12-2.8*ramp(t,0,60)+0.3*Math.sin(t/16),t=>-2.4*ramp(t,25,95),0.9);
+const W=series(3,t=>1900+240*ramp(t,0,140),t=>270*ramp(t,5,60),22);
+const F=series(10,t=>4.2+0.5*ramp(t,0,143),t=>0.16*ramp(t,20,110),0.05);
+
+/* ---------- town drawing ---------- */
+function town(host,{name,sub,color,looking,homeless,firms,facts,showHead=true}){
+  const W=560,H=330,NS='http://www.w3.org/2000/svg';
+  const el=(n,a,txt)=>{const e=document.createElementNS(NS,n);for(const k in a)e.setAttribute(k,a[k]);if(txt!=null)e.textContent=txt;return e;};
+  const svg=el('svg',{viewBox:`0 0 ${W} ${H}`});
+  // ground
+  svg.appendChild(el('rect',{x:0,y:0,width:W,height:H,rx:10,fill:'var(--panel2)'}));
+  // town hall + bank
+  const civic=(x,label,kind)=>{const g=el('g',{});
+    g.appendChild(el('rect',{x:x,y:38,width:74,height:34,fill:'#fff',stroke:'var(--slate2)','stroke-width':1.2}));
+    g.appendChild(el('path',{d:`M${x-4} 38 L${x+37} 18 L${x+78} 38 Z`,fill:'#fff',stroke:'var(--slate2)','stroke-width':1.2}));
+    for(let i=0;i<4;i++)g.appendChild(el('rect',{x:x+9+i*17,y:44,width:5,height:28,fill:'var(--slate)'}));
+    if(kind==='hall')g.appendChild(el('rect',{x:x+35,y:8,width:3,height:12,fill:color}));
+    g.appendChild(el('text',{x:x+37,y:86,'text-anchor':'middle',class:'ax'},'')).textContent=label;
+    g.lastChild.setAttribute('style','font-size:11.5px;fill:var(--ink3);font-family:var(--body)');
+    svg.appendChild(g);};
+  civic(200,'Town hall','hall'); civic(300,'Bank','bank');
+  // main street
+  let x=26; firms.forEach((f,i)=>{const h=26+f.h*26,w=30; const y=150-h;
+    const g=el('g',{});
+    if(f.s==='closed'){g.appendChild(el('rect',{x,y,width:w,height:h,fill:'none',stroke:'var(--slate)','stroke-dasharray':'3 3'}));
+      g.appendChild(el('path',{d:`M${x+9} ${y+h/2-6} l12 12 M${x+21} ${y+h/2-6} l-12 12`,stroke:'var(--slate2)','stroke-width':1.5}));}
+    else{g.appendChild(el('rect',{x,y,width:w,height:h,fill:'var(--slate)',stroke:f.s==='struggling'?'var(--look)':'none','stroke-width':2}));
+      g.appendChild(el('rect',{x,y,width:w,height:6,fill:'var(--slate2)'}));
+      for(let r=0;r<Math.floor((h-12)/12);r++)for(let c=0;c<3;c++)g.appendChild(el('rect',{x:x+5+c*9,y:y+11+r*12,width:4,height:5,fill:'#fff',opacity:.85}));
+      if(f.s==='struggling'){g.appendChild(el('circle',{cx:x+w,cy:y,r:7,fill:'var(--look)'}));g.appendChild(el('text',{x:x+w,y:y+3.5,'text-anchor':'middle',style:'font-size:10px;font-weight:700;fill:#fff;font-family:var(--body)'},'!'));}}
+    svg.appendChild(g); x+=w+12; });
+  svg.appendChild(el('line',{x1:16,x2:W-16,y1:151,y2:151,stroke:'var(--slate)','stroke-width':1}));
+  svg.appendChild(el('text',{x:26,y:166,style:'font-size:11.5px;fill:var(--ink3);font-family:var(--body)'},'Main street. Each building is a firm, taller means more staff.'));
+  // houses 10 x 10
+  const r=rng(7+looking+homeless*13); const status=[]; for(let i=0;i<100;i++)status.push(i<homeless?'home':i<homeless+looking?'look':'work');
+  for(let i=99;i>0;i--){const j=Math.floor(r()*(i+1));[status[i],status[j]]=[status[j],status[i]];}
+  const cols=20,rows=5,cw=(W-40)/cols,ch=26,oy=182;
+  status.forEach((s,i)=>{const cx=20+(i%cols)*cw+cw/2+(r()-0.5)*3,cy=oy+Math.floor(i/cols)*ch+(r()-0.5)*3;
+    const fill=s==='work'?'var(--work)':s==='look'?'var(--look)':'var(--home)';
+    const g=el('g',{});
+    g.appendChild(el('rect',{x:cx-7,y:cy,width:14,height:11,rx:1.5,fill}));
+    g.appendChild(el('path',{d:`M${cx-9} ${cy} L${cx} ${cy-7} L${cx+9} ${cy} Z`,fill}));
+    if(s==='home'){g.setAttribute('opacity','.95');g.appendChild(el('rect',{x:cx-7,y:cy,width:14,height:11,fill:'none',stroke:'#fff','stroke-width':1.2,'stroke-dasharray':'2 2'}));}
+    svg.appendChild(g);});
+  const head=showHead?`<div class="th"><i style="background:${color}"></i><h3>${name}</h3><span>${sub}</span></div>`:'';
+  host.insertAdjacentHTML('beforeend',head);
+  host.appendChild(svg);
+  host.insertAdjacentHTML('beforeend',`<div class="legend"><span><i style="background:var(--work)"></i>working</span><span><i style="background:var(--look)"></i>looking for work</span><span><i style="background:var(--home)"></i>lost their home</span><span style="color:var(--ink4)">each house is 20 households</span></div>
+  <div class="facts">${facts.map(f=>`<div class="fact"><div class="v">${f[0]}</div><div class="k">${f[1]}</div></div>`).join('')}</div>`);
+}
+const firmsA=[{h:.5},{h:.9},{h:.3,s:'struggling'},{h:.7},{h:.4},{h:1,s:'struggling'},{h:.6},{h:.2,s:'closed'},{h:.8},{h:.5},{h:.35,s:'struggling'},{h:.65},{h:.3,s:'closed'}];
+const firmsB=[{h:.5},{h:.9},{h:.3,s:'closed'},{h:.75},{h:.4,s:'struggling'},{h:1,s:'struggling'},{h:.6},{h:.2,s:'closed'},{h:.8},{h:.5,s:'struggling'},{h:.35,s:'closed'},{h:.7},{h:.3,s:'struggling'}];
+const factsA=[[Math.round(U[0][T_NOW])+' in 100','out of work'],['$'+Math.round(W[0][T_NOW]).toLocaleString(),'typical weekly pay'],['23 firms','3 struggling, 2 closed']];
+const factsB=[[Math.round(U[1][T_NOW])+' in 100','out of work'],['$'+Math.round(W[1][T_NOW]).toLocaleString(),'typical weekly pay'],['22 firms','4 struggling, 3 closed']];
+town(document.getElementById('townA'),{name:'Town A',sub:'no changes',color:'var(--a)',looking:Math.round(U[0][T_NOW]),homeless:2,firms:firmsA,facts:factsA});
+town(document.getElementById('townB'),{name:'Town B',sub:'higher minimum wage',color:'var(--b)',looking:Math.round(U[1][T_NOW]),homeless:1,firms:firmsB,facts:factsB});
+town(document.getElementById('townCsvg'),{name:'Town B',sub:'',color:'var(--b)',looking:Math.round(U[1][T_NOW]),homeless:1,firms:firmsB,facts:factsB,showHead:false});
+
+/* ---------- story chart ---------- */
+function storyChart(host,{big=false}={}){
+  const W=host.clientWidth,H=host.clientHeight,NS='http://www.w3.org/2000/svg';
+  const el=(n,a,txt)=>{const e=document.createElementNS(NS,n);for(const k in a)e.setAttribute(k,a[k]);if(txt!=null)e.textContent=txt;return e;};
+  const padL=44,padR=150,padT=big?40:30,padB=28;
+  const ymin=4,ymax=14; const x=t=>padL+(t/T_MAX)*(W-padL-padR), y=v=>padT+(1-(v-ymin)/(ymax-ymin))*(H-padT-padB);
+  const svg=el('svg',{viewBox:`0 0 ${W} ${H}`});
+  const ax=el('g',{class:'ax'});svg.appendChild(ax);
+  [6,9,12].forEach(v=>{ax.appendChild(el('line',{x1:padL,x2:W-padR,y1:y(v),y2:y(v)}));ax.appendChild(el('text',{x:padL-8,y:y(v)+4,'text-anchor':'end'},v+' in 100'));});
+  for(let yr=1;yr<=5;yr++){ax.appendChild(el('text',{x:x(yr*52),y:H-8,'text-anchor':'middle'},'Year '+yr));}
+  // future shading
+  svg.appendChild(el('rect',{x:x(T_NOW),y:padT-10,width:x(T_MAX)-x(T_NOW),height:H-padT-padB+10,fill:'var(--panel2)',opacity:.6}));
+  svg.appendChild(el('text',{x:x(T_NOW)+8,y:H-padB-8,class:'ax',style:'font-size:12px;fill:var(--ink4)'},'the next two years'));
+  // identical region
+  svg.appendChild(el('path',{d:`M${x(10)} ${y(U[0][10])-14} l0 -${big?10:6}`,stroke:'var(--ink4)'}));
+  U.forEach((arr,i)=>{let d='';arr.forEach((v,t)=>{d+=(t?'L':'M')+x(t).toFixed(1)+' '+y(v).toFixed(1)+' ';});
+    svg.appendChild(el('path',{d,fill:'none',stroke:ARMS[i].c,'stroke-width':2.5,'stroke-linejoin':'round','stroke-linecap':'round'}));});
+  // marker at 96
+  svg.appendChild(el('line',{x1:x(96),x2:x(96),y1:y(U[1][96])+6,y2:H-padB,stroke:'var(--b)','stroke-dasharray':'3 3'}));
+  svg.appendChild(el('path',{d:`M${x(96)-5} ${H-padB} L${x(96)+5} ${H-padB} L${x(96)} ${H-padB+6} Z`,fill:'var(--b)'}));
+  // annotations
+  const ann=(tx,ty,lines,bold)=>{lines.forEach((l,i)=>svg.appendChild(el('text',{x:tx,y:ty+i*16,class:'ann'+(bold&&i===0?' b':'')},l)));};
+  ann(x(4),padT-8,['Both towns start identical'],true);
+  ann(x(14),H-padB-38,['Town B’s higher minimum wage','starts to show'],true);
+  svg.appendChild(el('line',{x1:x(62),x2:x(74),y1:H-padB-36,y2:y(U[1][74])+8,stroke:'var(--ink4)'}));
+  ann(x(96)+8,padT+6,['Town B raised','its wage tax to 20%'],false);
+  svg.appendChild(el('line',{x1:x(96),x2:x(96),y1:padT+26,y2:y(U[1][96])-8,stroke:'var(--b)','stroke-dasharray':'3 3'}));
+  // end labels
+  const labs=U.map((arr,i)=>({i,yy:y(arr[T_NOW]),v:arr[T_NOW]})).sort((a,b)=>a.yy-b.yy);
+  if(labs[1].yy-labs[0].yy<20)labs[1].yy=labs[0].yy+20;
+  labs.forEach(l=>{svg.appendChild(el('circle',{cx:x(T_NOW),cy:y(U[l.i][T_NOW]),r:5,fill:ARMS[l.i].c,stroke:'#fff','stroke-width':2}));
+    svg.appendChild(el('text',{x:x(T_NOW)+12,y:l.yy+4,class:'endl',fill:ARMS[l.i].c},ARMS[l.i].n+'  '+Math.round(l.v)+' in 100'));});
+  host.innerHTML='';host.appendChild(svg);
+}
+
+/* ---------- feed / stats / families ---------- */
+const FEED=[
+  ['b','Year 3, week 38','<b>Fresh Foods Co. closed.</b> 41 people lost their jobs. Its costs rose faster than its prices.'],
+  ['a','Year 3, week 35','Grocery prices rose for the fourth week in a row.'],
+  ['b','Year 2, week 44','The town hall <b>raised the tax on wages</b> from 15% to 20% to cover benefits.'],
+  ['b','Year 2, week 20','Typical weekly pay passed <b>$2,300</b>, a year after the minimum wage went up.'],
+  ['x','Year 2, week 3','The bank tightened lending in both towns after six loan defaults.'],
+  ['x','Year 1, week 10','Warm-up finished. Up to here the towns are identical.'],
+];
+const feedHTML=FEED.map(([w,when,txt])=>`<li><i style="background:${w==='a'?'var(--a)':w==='b'?'var(--b)':'var(--ink4)'}"></i><div><span class="w">${when}${w==='x'?', both towns':w==='a'?', Town A':', Town B'}</span>${txt}</div></li>`).join('');
+document.getElementById('feedB').innerHTML=feedHTML;document.getElementById('feedC').innerHTML=feedHTML;
+
+function mini(host,S,fmt){const W=host.clientWidth,H=host.clientHeight,NS='http://www.w3.org/2000/svg';
+  const all=S.flat(),mn=Math.min(...all),mx=Math.max(...all);const x=t=>t/T_NOW*(W-4)+2,y=v=>4+(1-(v-mn)/(mx-mn||1))*(H-8);
+  const svg=document.createElementNS(NS,'svg');svg.setAttribute('viewBox',`0 0 ${W} ${H}`);
+  S.forEach((arr,i)=>{let d='';arr.forEach((v,t)=>{d+=(t?'L':'M')+x(t).toFixed(1)+' '+y(v).toFixed(1)+' ';});const p=document.createElementNS(NS,'path');p.setAttribute('d',d);p.setAttribute('fill','none');p.setAttribute('stroke',ARMS[i].c);p.setAttribute('stroke-width','2');svg.appendChild(p);});
+  host.appendChild(svg);}
+const STATS=[
+  {t:'People out of work',S:U,f:v=>Math.round(v)+' in 100',def:'Working-age people who want a job and can’t find one. Lower is better.'},
+  {t:'Typical weekly pay',S:W,f:v=>'$'+Math.round(v).toLocaleString(),def:'What the middle earner takes home each week before tax.'},
+  {t:'A week of groceries',S:F,f:v=>'$'+v.toFixed(2),def:'Average price of one person’s food for a week. It rose a little faster in Town B.'},
+];
+function stats(id){const h=document.getElementById(id);h.innerHTML=STATS.map((s,k)=>`<div class="stat"><h4>${s.t}</h4><div class="pair">${ARMS.map((a,i)=>`<div class="pv"><b><i style="background:${a.c}"></i>${s.f(s.S[i][T_NOW])}</b><small>${a.n}</small></div>`).join('')}</div><div class="mini" data-k="${k}"></div><div class="def">${s.def}</div></div>`).join('');
+}
+stats('statsB');stats('statsC');
+const FAM=[
+  ['P','var(--b)','Priya, 34','Nurse at Riverside Clinic in Town B. Her pay went up 12% this year and she paid off a medical loan.','var(--b)'],
+  ['M','var(--b)','Marcus, 52','Worked at Fresh Foods in Town B until it closed three weeks ago. Looking for work, on benefits.','var(--b)'],
+  ['L','var(--a)','Lena, 27','Cafe worker in Town A. Hours cut in the spring. Three weeks behind on rent.','var(--a)'],
+];
+const famHTML=FAM.map(f=>`<div class="fam"><div class="av" style="background:${f[1]}">${f[0]}</div><div><div class="n">${f[2]}<i style="background:${f[4]}"></i></div><div class="s">${f[3]}</div></div></div>`).join('');
+['famA','famB','famC'].forEach(id=>document.getElementById(id).innerHTML=famHTML);
+
+/* ---------- switcher ---------- */
+let cur='a';
+function show(d){cur=d;document.querySelectorAll('.tabs button').forEach(b=>b.classList.toggle('on',b.dataset.dir===d));
+  ['a','b','c'].forEach(k=>document.getElementById('dir-'+k).hidden=(k!==d));
+  document.getElementById('desc').textContent=DESC[d];
+  const p=document.getElementById('pick');p.textContent='Pick '+d.toUpperCase();p.classList.remove('sel');p.dataset.choice=d;
+  requestAnimationFrame(()=>{const sec=document.getElementById('dir-'+d);
+    if(d==='a')storyChart(document.getElementById('chartA'));
+    if(d==='b')storyChart(document.getElementById('chartB'),{big:true});
+    if(d==='c')storyChart(document.getElementById('chartC'));
+    sec.querySelectorAll('.mini').forEach(m=>{m.innerHTML='';mini(m,STATS[+m.dataset.k].S);});});
+  window.scrollTo(0,0);}
+document.querySelectorAll('.tabs button').forEach(b=>b.addEventListener('click',()=>show(b.dataset.dir)));
+document.getElementById('pick').addEventListener('click',e=>{e.target.classList.add('sel');e.target.textContent='Picked '+cur.toUpperCase();if(typeof toggleSelect==='function'){try{toggleSelect(e.target);}catch(_){}}});
+show('a');
+let rt;window.addEventListener('resize',()=>{clearTimeout(rt);rt=setTimeout(()=>show(cur),120);});
+</script>
+</body>
+</html>

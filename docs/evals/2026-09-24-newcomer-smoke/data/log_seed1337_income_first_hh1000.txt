@@ -1,0 +1,17 @@
+[run] baseline (seed 1337, income_first) starting...
+[done] baseline (seed 1337, income_first) in 39.8s -> baseline_seed1337_incomefirst.csv
+       payment coverage t0='<no coverage key>' final='settled_tick_and_live_claims'
+[run] benefit_high (seed 1337, income_first) starting...
+[done] benefit_high (seed 1337, income_first) in 39.0s -> benefit_high_seed1337_incomefirst.csv
+       payment coverage t0='<no coverage key>' final='settled_tick_and_live_claims'
+[run] min_wage_high (seed 1337, income_first) starting...
+[done] min_wage_high (seed 1337, income_first) in 39.8s -> min_wage_high_seed1337_incomefirst.csv
+       payment coverage t0='<no coverage key>' final='settled_tick_and_live_claims'
+
+[summary] total wall clock: 118.8s
+       arm_id  seed  elapsed_seconds payment_sequence_requested payment_sequence_effective payment_t0_coverage       payment_final_coverage                                                     payment_final_scenario  households  ticks  firms_per_category status  rows                                                                                                                                                       out_path
+     baseline  1337        39.814663               income_first               income_first   <no coverage key> settled_tick_and_live_claims {'timing': 'income_first', 'care': 'patient_pay', 'assistance': 'reserve'}        1000    260                   5     ok   260      /private/tmp/claude-501/-Users-aymanislam-EcoSim-v-2-EcoSim/0f2476eb-808d-404f-b86b-1875450ee45d/scratchpad/smoke-sweep/baseline_seed1337_incomefirst.csv
+ benefit_high  1337        39.019282               income_first               income_first   <no coverage key> settled_tick_and_live_claims {'timing': 'income_first', 'care': 'patient_pay', 'assistance': 'reserve'}        1000    260                   5     ok   260  /private/tmp/claude-501/-Users-aymanislam-EcoSim-v-2-EcoSim/0f2476eb-808d-404f-b86b-1875450ee45d/scratchpad/smoke-sweep/benefit_high_seed1337_incomefirst.csv
+min_wage_high  1337        39.835931               income_first               income_first   <no coverage key> settled_tick_and_live_claims {'timing': 'income_first', 'care': 'patient_pay', 'assistance': 'reserve'}        1000    260                   5     ok   260 /private/tmp/claude-501/-Users-aymanislam-EcoSim-v-2-EcoSim/0f2476eb-808d-404f-b86b-1875450ee45d/scratchpad/smoke-sweep/min_wage_high_seed1337_incomefirst.csv
+
+Meta written to /private/tmp/claude-501/-Users-aymanislam-EcoSim-v-2-EcoSim/0f2476eb-808d-404f-b86b-1875450ee45d/scratchpad/smoke-sweep/run_meta_incomefirst.csv

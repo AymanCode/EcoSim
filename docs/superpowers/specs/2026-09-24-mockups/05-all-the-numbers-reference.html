@@ -1,0 +1,401 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="ember">
+<head>
+<meta charset="utf-8">
+<title>EcoSim Run view</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600;700&family=Barlow+Semi+Condensed:wght@500;600;700&display=swap" rel="stylesheet">
+<style>
+:root[data-theme="ember"]{--page:#08090B;--panel:#111316;--panel2:#171A1F;--panel3:#1F232A;--line:rgba(255,255,255,.08);--line2:rgba(255,255,255,.15);
+  --ink:#F5F6F7;--ink2:#C2C7CF;--ink3:#8A919C;--ink4:#5B626C;--acc:#FF6B1A;--acc-ink:#1A0A00;--acc-soft:rgba(255,107,26,.14);
+  --good:#34D399;--warn:#FFB020;--crit:#E0245E;--ai:#C084FC;--s1:#3987e5;--s2:#199e70;--s3:#9085e9;--s4:#d55181;--grid:#20242B;
+  --font:'Barlow';--font-num:'Barlow Semi Condensed'}
+*{box-sizing:border-box}
+html,body{height:100%;margin:0;background:var(--page)}
+body{color:var(--ink2);font-family:var(--font),system-ui,sans-serif;font-size:13px;line-height:1.45;-webkit-font-smoothing:antialiased}
+.num{font-family:var(--font-num),var(--font),sans-serif;font-weight:600;font-variant-numeric:tabular-nums}
+button{font:inherit;cursor:pointer}
+
+.app{display:flex;height:100vh;min-width:1180px}
+
+/* rail */
+.rail{width:76px;border-right:1px solid var(--line);display:flex;flex-direction:column;align-items:center;padding-top:14px;gap:4px;background:var(--panel);flex:none}
+.mark{width:34px;height:34px;border-radius:8px;background:var(--acc);color:var(--acc-ink);display:flex;align-items:center;justify-content:center;font-weight:700;font-size:15px;margin-bottom:14px;font-family:var(--font-num)}
+.nav{width:64px;height:52px;border-radius:5px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;color:var(--ink4);font-size:11px;font-weight:600;position:relative;border:0;background:transparent}
+.nav svg{width:18px;height:18px;stroke:currentColor;fill:none;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
+.nav.on{color:var(--acc);background:var(--acc-soft)}
+.nav.on::before{content:'';position:absolute;left:-6px;top:14px;bottom:14px;width:3px;border-radius:3px;background:var(--acc)}
+.nav.later{opacity:.45}
+.nav .soon{font-size:9px;color:var(--ink4);font-weight:500}
+
+/* main */
+.main{flex:1;display:flex;flex-direction:column;min-width:0}
+.topbar{height:56px;border-bottom:1px solid var(--line);display:flex;align-items:center;padding:0 20px;gap:16px;background:var(--panel);flex:none}
+.title{display:flex;flex-direction:column;min-width:0}
+.title h1{font-size:15px;font-weight:600;color:var(--ink);margin:0;line-height:1.2;letter-spacing:-.01em}
+.title .meta{font-size:11.5px;color:var(--ink3);margin-top:2px}
+.title .meta b{color:var(--ink2);font-weight:500}
+.modechip{border:1px solid var(--line2);border-radius:999px;padding:3px 10px;font-size:11px;font-weight:600;color:var(--ink2);background:var(--panel2);white-space:nowrap}
+.spacer{flex:1}
+.state{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--ink2);white-space:nowrap;margin-right:6px}
+.state i{width:7px;height:7px;border-radius:50%;background:var(--good);animation:blink 1.4s ease-in-out infinite}
+@keyframes blink{50%{opacity:.3}}
+.state .num{color:var(--ink);font-size:15px}
+.btn{border:1px solid var(--line2);background:var(--panel2);color:var(--ink2);border-radius:5px;padding:7px 12px;font-size:12px;font-weight:600;display:inline-flex;align-items:center;gap:6px}
+.btn.primary{border-color:transparent;background:var(--acc);color:var(--acc-ink)}
+.btn.quiet{background:transparent;border-color:transparent;color:var(--ink3)}
+
+/* horizon bar */
+.horizon{border-bottom:1px solid var(--line);background:var(--panel);padding:10px 20px 8px;flex:none}
+.hz{position:relative;height:38px}
+.hz .track{position:absolute;left:0;right:0;top:14px;height:6px;border-radius:3px;background:var(--panel3)}
+.hz .done{position:absolute;left:0;top:14px;height:6px;border-radius:3px 0 0 3px;background:var(--ink4)}
+.hz .year{position:absolute;top:24px;font-size:10.5px;color:var(--ink4);transform:translateX(-50%)}
+.hz .year::before{content:'';position:absolute;left:50%;top:-11px;width:1px;height:8px;background:var(--line2)}
+.hz .edge{position:absolute;top:11px;width:2px;height:12px;border-radius:1px}
+.hz .cursor{position:absolute;top:5px;width:1px;height:24px;background:var(--acc)}
+.hz .cursor::after{content:'';position:absolute;left:-5px;top:-6px;width:11px;height:11px;border-radius:50%;background:var(--acc);border:2px solid var(--panel)}
+.hz .cursor .lab{position:absolute;top:-24px;left:8px;white-space:nowrap;font-size:11px;color:var(--ink);font-weight:600}
+.hz .cursor .lab span{color:var(--ink3);font-weight:500}
+.hz .mk{position:absolute;top:1px;width:0;height:0;border-left:4px solid transparent;border-right:4px solid transparent;border-top:6px solid;transform:translateX(-4px)}
+.hzfoot{display:flex;justify-content:space-between;align-items:center;margin-top:2px;font-size:11px;color:var(--ink4)}
+.hzfoot .arms{display:flex;gap:14px}
+.hzfoot .arms span{display:inline-flex;align-items:center;gap:6px;color:var(--ink3)}
+.hzfoot .arms i{width:10px;height:3px;border-radius:2px;display:inline-block}
+
+/* view */
+.view{flex:1;overflow:auto;padding:16px 20px 60px;scrollbar-width:thin;scrollbar-color:var(--panel3) transparent}
+.top{display:grid;grid-template-columns:minmax(0,1fr) 440px;gap:16px;align-items:stretch}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:12px 14px;min-width:0;display:flex;flex-direction:column}
+.phead{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:6px}
+.phead h2{font-size:13px;font-weight:600;color:var(--ink);margin:0}
+.phead .sub{font-size:11.5px;color:var(--ink3)}
+.chips{display:flex;gap:4px;flex-wrap:wrap}
+.chip{font-size:11px;font-weight:600;border:1px solid var(--line);border-radius:999px;padding:3px 9px;color:var(--ink3);background:transparent}
+.chip.on{border-color:color-mix(in srgb,var(--acc) 45%,transparent);color:var(--ink);background:var(--acc-soft)}
+.hero .chart{height:300px}
+.chart{position:relative;width:100%}
+.chart svg{display:block;width:100%;height:100%;overflow:visible}
+
+/* scoreboard */
+.score table{width:100%;border-collapse:collapse;font-size:12px}
+.score th{text-align:right;font-size:11.5px;font-weight:600;color:var(--ink);padding:2px 6px 8px;border-bottom:1px solid var(--line2);white-space:nowrap;vertical-align:bottom}
+.score th:first-child{text-align:left;color:var(--ink3);font-weight:500}
+.score th .arm{display:inline-flex;flex-direction:column;align-items:flex-end;gap:2px}
+.score th .arm b{display:inline-flex;align-items:center;gap:6px;font-weight:600}
+.score th .arm i{width:10px;height:10px;border-radius:2px;display:inline-block}
+.score th .arm small{font-weight:500;color:var(--ink4);font-size:10.5px}
+.score td{padding:7px 6px;border-bottom:1px solid var(--line);vertical-align:top;text-align:right}
+.score td:first-child{text-align:left;color:var(--ink3);padding-top:9px}
+.score tr:last-child td{border-bottom:0}
+.score .v{font-size:16px;color:var(--ink);line-height:1.1}
+.score .d{font-size:10.5px;color:var(--ink4);margin-top:2px;font-family:var(--font-num);font-variant-numeric:tabular-nums}
+.score .d.ref{color:var(--ink4);font-style:normal}
+.score .note{font-size:11px;color:var(--ink4);margin-top:auto;padding-top:8px}
+
+/* groups of small multiples */
+.groups{margin-top:18px;display:flex;flex-direction:column;gap:16px}
+.group{border-top:1px solid var(--line2);padding-top:8px}
+.ghead{display:flex;align-items:baseline;gap:12px;margin-bottom:6px}
+.ghead h3{font-size:13px;font-weight:600;color:var(--ink);margin:0}
+.ghead .sub{font-size:11.5px;color:var(--ink4)}
+.smgrid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px 16px}
+.sm{min-width:0}
+.sm .smhead{display:flex;flex-direction:column;gap:1px;margin-bottom:3px}
+.sm .smhead h4{font-size:12px;font-weight:600;color:var(--ink2);margin:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.sm .vals{display:flex;gap:10px;font-size:11.5px;color:var(--ink);white-space:nowrap;font-family:var(--font-num);font-variant-numeric:tabular-nums}
+.sm .vals span{display:inline-flex;align-items:center;gap:4px}
+.sm .vals i{width:7px;height:7px;border-radius:50%;display:inline-block}
+.sm .chart{height:84px}
+
+/* drawer */
+.drawer{width:300px;border-left:1px solid var(--line);background:var(--panel);display:flex;flex-direction:column;flex:none}
+.dhead{padding:14px 16px 10px;border-bottom:1px solid var(--line)}
+.dhead h2{font-size:13px;font-weight:600;color:var(--ink);margin:0 0 8px}
+.armsel{display:flex;gap:6px}
+.armsel button{flex:1;border:1px solid var(--line);background:transparent;color:var(--ink3);border-radius:5px;padding:6px 4px;font-size:11.5px;font-weight:600;display:flex;align-items:center;justify-content:center;gap:6px}
+.armsel button i{width:8px;height:8px;border-radius:2px;display:inline-block}
+.armsel button.on{color:var(--ink);border-color:var(--line2);background:var(--panel2)}
+.dbody{flex:1;overflow:auto;padding:6px 16px 16px}
+.lgroup{font-size:11px;font-weight:600;color:var(--ink4);margin:14px 0 6px}
+.lever{display:flex;justify-content:space-between;align-items:center;padding:7px 0;border-bottom:1px solid var(--line);gap:10px}
+.lever .k{font-size:12px;color:var(--ink2)}
+.lever .v{font-size:12px;color:var(--ink);font-weight:600;font-family:var(--font-num);white-space:nowrap}
+.lever.changed .v{color:var(--acc)}
+.lever.changed .k::after{content:' changed';font-size:10px;color:var(--acc);font-weight:600}
+.dfoot{padding:12px 16px;border-top:1px solid var(--line);display:flex;flex-direction:column;gap:8px}
+.dfoot .hint{font-size:11px;color:var(--ink4)}
+.dfoot .btn{justify-content:center}
+
+/* svg text */
+.axis text{font-family:var(--font-num),sans-serif;font-size:10.5px;font-weight:500;fill:var(--ink4)}
+.axis line{stroke:var(--grid);stroke-width:1}
+.endlab{font-family:var(--font),sans-serif;font-size:11.5px;font-weight:600;fill:var(--ink)}
+.endval{font-family:var(--font-num),sans-serif;font-size:12px;font-weight:600;fill:var(--ink2)}
+.tip{font-family:var(--font-num),sans-serif;font-size:11px;font-weight:500;fill:var(--ink2)}
+.tip.h{fill:var(--ink);font-weight:600;font-family:var(--font)}
+.mklab{font-family:var(--font),sans-serif;font-size:10.5px;font-weight:600}
+</style>
+</head>
+<body>
+<div class="app">
+  <nav class="rail">
+    <div class="mark">E</div>
+    <button class="nav"><svg viewBox="0 0 24 24"><path d="M4 6h16M4 12h10M4 18h6"/><circle cx="18" cy="16" r="3"/></svg>Setup</button>
+    <button class="nav on"><svg viewBox="0 0 24 24"><path d="M3 17l5-6 4 3 5-8 4 5"/></svg>Run</button>
+    <button class="nav"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/></svg>World</button>
+    <button class="nav"><svg viewBox="0 0 24 24"><path d="M5 5v14M5 8h6M5 13h10M5 18h8"/></svg>Events</button>
+    <button class="nav later"><svg viewBox="0 0 24 24"><path d="M4 7h16v12H4zM4 7l2-3h12l2 3"/></svg>Saved<span class="soon">later</span></button>
+  </nav>
+
+  <div class="main">
+    <header class="topbar">
+      <div class="title">
+        <h1>Minimum wage vs benefits</h1>
+        <div class="meta">Seed <b>1337</b>, three arms, <b>2,000</b> households each, income-first payments, five-year horizon</div>
+      </div>
+      <span class="modechip">Policy comparison</span>
+      <div class="spacer"></div>
+      <div class="state"><i></i>Running <span class="num">143</span><span style="color:var(--ink4)">of 260</span></div>
+      <button class="btn">Pause</button>
+      <button class="btn">Step</button>
+      <button class="btn">Extend a year</button>
+      <button class="btn quiet">Reset</button>
+    </header>
+
+    <div class="horizon">
+      <div class="hz" id="hz"></div>
+      <div class="hzfoot">
+        <div class="arms" id="hzarms"></div>
+        <div>Drag the marker to scrub. Every chart follows it.</div>
+      </div>
+    </div>
+
+    <div class="view">
+      <section class="top">
+        <div class="panel hero">
+          <div class="phead">
+            <div><h2>Unemployment rate</h2><div class="sub">Share of working-age households without a job. Whole horizon shown, the future is empty until it happens.</div></div>
+            <div class="chips">
+              <span class="chip on">Unemployment</span><span class="chip">GDP</span><span class="chip">Median wage</span><span class="chip">Gini</span><span class="chip">Government debt</span><span class="chip">Happiness</span>
+            </div>
+          </div>
+          <div class="chart" id="hero"></div>
+        </div>
+
+        <div class="panel score">
+          <div class="phead"><h2>At tick 142</h2><span class="sub">Year 3, week 38. All arms 2,000 households.</span></div>
+          <table id="score"></table>
+          <div class="note">Each arm keeps its colour everywhere on this screen. Click a column to select that arm in the levers panel.</div>
+        </div>
+      </section>
+
+      <section class="groups" id="groups"></section>
+    </div>
+  </div>
+
+  <aside class="drawer">
+    <div class="dhead">
+      <h2>Levers</h2>
+      <div class="armsel">
+        <button><i style="background:var(--s1)"></i>Baseline</button>
+        <button><i style="background:var(--s2)"></i>Min wage</button>
+        <button class="on"><i style="background:var(--s3)"></i>Benefits</button>
+      </div>
+    </div>
+    <div class="dbody">
+      <div class="lgroup">Taxes</div>
+      <div class="lever changed"><span class="k">Wage tax</span><span class="v">20%</span></div>
+      <div class="lever"><span class="k">Profit tax</span><span class="v">25%</span></div>
+      <div class="lever"><span class="k">Wealth tax</span><span class="v">Off</span></div>
+      <div class="lgroup">Transfers</div>
+      <div class="lever"><span class="k">Benefit level</span><span class="v">High</span></div>
+      <div class="lever"><span class="k">Public works</span><span class="v">Off</span></div>
+      <div class="lever"><span class="k">Sector subsidy</span><span class="v">None</span></div>
+      <div class="lever"><span class="k">Social spending</span><span class="v">Neutral</span></div>
+      <div class="lgroup">Labour</div>
+      <div class="lever"><span class="k">Minimum wage</span><span class="v">Neutral</span></div>
+      <div class="lever"><span class="k">Infrastructure spending</span><span class="v">Neutral</span></div>
+      <div class="lever"><span class="k">Technology spending</span><span class="v">Neutral</span></div>
+      <div class="lgroup">Markets</div>
+      <div class="lever"><span class="k">Price stabilisation</span><span class="v">Off</span></div>
+      <div class="lever"><span class="k">Rent stabilisation</span><span class="v">Off</span></div>
+      <div class="lgroup">Stabilisers</div>
+      <div class="lever"><span class="k">Bailout policy</span><span class="v">Off</span></div>
+      <div class="lever"><span class="k">Bailout budget</span><span class="v">$0</span></div>
+    </div>
+    <div class="dfoot">
+      <div class="hint">Wage tax changed at tick 96. Every change becomes a marker on this arm's lines and a before/after anchor in Events.</div>
+      <button class="btn primary">Apply to High benefits</button>
+    </div>
+  </aside>
+</div>
+
+<script>
+const T_NOW = 143, T_MAX = 260, CURSOR = 142;
+const ARMS = [
+  {id:'A', name:'Baseline', short:'Baseline', color:'var(--s1)', edge:143},
+  {id:'B', name:'High minimum wage', short:'Min wage', color:'var(--s2)', edge:142},
+  {id:'C', name:'High benefits', short:'Benefits', color:'var(--s3)', edge:143},
+];
+const MARKERS = [{arm:2, t:96, label:'Wage tax 15% to 20%'}];
+
+function rng(seed){ let s=seed>>>0; return ()=>{ s+=0x6D2B79F5; let t=Math.imul(s^(s>>>15),1|s); t^=t+Math.imul(t^(t>>>7),61|t); return ((t^(t>>>14))>>>0)/4294967296; }; }
+function noise(seed,n,step){ const r=rng(seed); let v=0; const o=[]; for(let i=0;i<n;i++){ v=v*0.86+(r()-0.5)*step; o.push(v);} return o; }
+function ramp(t,a,b){ if(t<=a) return 0; if(t>=b) return 1; const u=(t-a)/(b-a); return u*u*(3-2*u); }
+function series(seed, base, eff, nz, armNz){
+  const shared = noise(seed, T_NOW+1, 1);
+  return ARMS.map((a,i)=>{ const own = noise(seed*7+i+1, T_NOW+1, 1);
+    return Array.from({length:T_NOW+1},(_,t)=> base(t)+eff[i](t)+shared[t]*nz+own[t]*(armNz||nz*0.5)*ramp(t,10,60)); });
+}
+const z=t=>0;
+const M = {
+  unemployment:{ label:'Unemployment', fmt:v=>v.toFixed(1)+'%', d:'pt', s:series(1, t=>12-2.6*ramp(t,0,60)+0.35*Math.sin(t/16), [z, t=>-1.6*ramp(t,30,100), t=>1.5*ramp(t,40,120)], 1.1) },
+  gdp:{ label:'GDP', fmt:v=>'$'+Math.round(v)+'M', d:'%', s:series(2, t=>380+32*ramp(t,0,140), [z, t=>-14*ramp(t,20,110), t=>-7*ramp(t,30,120)], 5) },
+  medianWage:{ label:'Median wage', fmt:v=>'$'+Math.round(v).toLocaleString(), d:'%', s:series(3, t=>1900+240*ramp(t,0,140), [z, t=>270*ramp(t,5,60), t=>40*ramp(t,30,120)], 22) },
+  gini:{ label:'Gini', fmt:v=>v.toFixed(2), d:'abs', s:series(4, t=>0.44-0.03*ramp(t,0,140), [z, t=>-0.03*ramp(t,20,110), t=>-0.04*ramp(t,20,110)], 0.005) },
+  govDebt:{ label:'Government debt', fmt:v=>'$'+Math.round(v)+'M', d:'%', s:series(5, t=>40+46*ramp(t,0,143), [z, t=>5*ramp(t,20,143), t=>46*ramp(t,10,143)], 1.2) },
+  happiness:{ label:'Happiness', fmt:v=>Math.round(v)+'', d:'pt', s:series(6, t=>55+6*ramp(t,0,140), [z, t=>5*ramp(t,30,120), t=>3*ramp(t,20,100)], 0.9) },
+  laborShare:{ label:'Labour share of revenue', fmt:v=>v.toFixed(1)+'%', s:series(7, t=>58+2*ramp(t,0,140), [z, t=>3*ramp(t,10,80), t=>0.5*ramp(t,20,100)], 0.6) },
+  vacancies:{ label:'Open vacancies', fmt:v=>Math.round(v)+'', s:series(8, t=>120-30*ramp(t,0,70), [z, t=>-10*ramp(t,20,90), t=>22*ramp(t,40,120)], 6) },
+  lfp:{ label:'Labour force participation', fmt:v=>v.toFixed(1)+'%', s:series(9, t=>71+1*ramp(t,0,100), [z, t=>0.8*ramp(t,20,100), t=>-2.4*ramp(t,30,120)], 0.5) },
+  pFood:{ label:'Food price', fmt:v=>'$'+v.toFixed(2), s:series(10, t=>4.2+0.5*ramp(t,0,143), [z, t=>0.14*ramp(t,20,110), t=>0.05*ramp(t,20,110)], 0.06) },
+  pHousing:{ label:'Housing price', fmt:v=>'$'+Math.round(v), s:series(11, t=>820+90*ramp(t,0,143), [z, t=>26*ramp(t,20,120), t=>18*ramp(t,20,120)], 9) },
+  pServices:{ label:'Services price', fmt:v=>'$'+v.toFixed(1), s:series(12, t=>18+2.4*ramp(t,0,143), [z, t=>0.9*ramp(t,20,110), t=>0.2*ramp(t,20,110)], 0.35) },
+  pHealth:{ label:'Healthcare price', fmt:v=>'$'+Math.round(v), s:series(13, t=>140+18*ramp(t,0,143), [z, t=>6*ramp(t,20,110), t=>-4*ramp(t,30,120)], 3) },
+  medWealth:{ label:'Median household wealth', fmt:v=>'$'+Math.round(v).toLocaleString(), s:series(14, t=>6200+900*ramp(t,0,143), [z, t=>700*ramp(t,20,120), t=>350*ramp(t,20,120)], 90) },
+  top10:{ label:'Top 10% wealth share', fmt:v=>v.toFixed(1)+'%', s:series(15, t=>38-1.5*ramp(t,0,143), [z, t=>-1.8*ramp(t,20,120), t=>-2.4*ramp(t,20,120)], 0.35) },
+  p10:{ label:'Bottom decile wealth', fmt:v=>'$'+Math.round(v).toLocaleString(), s:series(16, t=>400+60*ramp(t,0,143), [z, t=>180*ramp(t,20,110), t=>260*ramp(t,15,90)], 18) },
+  firms:{ label:'Firms', fmt:v=>Math.round(v)+'', s:series(17, t=>20+3*ramp(t,0,143), [z, t=>-1.2*ramp(t,30,120), t=>-0.6*ramp(t,30,120)], 0.5) },
+  distressed:{ label:'Firms in distress', fmt:v=>Math.round(v)+'', s:series(18, t=>3+1*Math.sin(t/20), [z, t=>1.4*ramp(t,20,90), t=>0.6*ramp(t,20,90)], 0.7) },
+  exits:{ label:'Firm exits, cumulative', fmt:v=>Math.round(v)+'', s:series(19, t=>0+7*ramp(t,10,143), [z, t=>2.5*ramp(t,40,143), t=>1*ramp(t,40,143)], 0.15) },
+  loans:{ label:'Active loans', fmt:v=>Math.round(v)+'', s:series(20, t=>180+120*ramp(t,0,143), [z, t=>-20*ramp(t,20,120), t=>35*ramp(t,20,120)], 8) },
+  defaults:{ label:'Loan defaults, cumulative', fmt:v=>Math.round(v)+'', s:series(21, t=>0+22*ramp(t,15,143), [z, t=>-5*ramp(t,40,143), t=>-8*ramp(t,30,143)], 0.6) },
+  reserves:{ label:'Bank reserve ratio', fmt:v=>v.toFixed(1)+'%', s:series(22, t=>14-3*ramp(t,0,143), [z, t=>0.6*ramp(t,20,120), t=>-1.4*ramp(t,20,120)], 0.35) },
+  homeless:{ label:'Homeless households', fmt:v=>Math.round(v)+'', s:series(23, t=>60-15*ramp(t,0,80), [z, t=>-12*ramp(t,20,100), t=>-21*ramp(t,15,90)], 3) },
+  careDenials:{ label:'Care denials per tick', fmt:v=>Math.round(v)+'', s:series(24, t=>14-3*ramp(t,0,100), [z, t=>-3*ramp(t,20,100), t=>-6*ramp(t,15,90)], 1.6) },
+  evictions:{ label:'Evictions per tick', fmt:v=>v.toFixed(1), s:series(25, t=>3.2-0.6*ramp(t,0,100), [z, t=>-0.8*ramp(t,20,100), t=>-1.4*ramp(t,15,90)], 0.5) },
+  arrears:{ label:'Households in rent arrears', fmt:v=>Math.round(v)+'', s:series(26, t=>110-20*ramp(t,0,100), [z, t=>-22*ramp(t,20,100), t=>-38*ramp(t,15,90)], 5) },
+};
+
+const GROUPS = [
+  {title:'Labour', sub:'Who works, for what', keys:['unemployment','medianWage','laborShare','lfp']},
+  {title:'Prices', sub:'Mean sector price per unit', keys:['pFood','pHousing','pServices','pHealth']},
+  {title:'Inequality', sub:'Cash plus goods at sector prices', keys:['gini','medWealth','p10','top10']},
+  {title:'Firms', sub:'Entry, exit and stress', keys:['firms','distressed','exits','vacancies']},
+  {title:'Credit', sub:'The bank and its book', keys:['loans','defaults','reserves','govDebt']},
+  {title:'Wellbeing and payments', sub:'From the payment book, income-first sequence', keys:['happiness','homeless','careDenials','evictions']},
+];
+
+function fmtTick(t){ return 'Year '+(Math.floor(t/52)+1)+', week '+(t%52); }
+
+function drawChart(host, metric, opts={}){
+  const hero = !!opts.hero;
+  const W = host.clientWidth, H = host.clientHeight;
+  const padL = hero?46:38, padR = hero?168:8, padT = hero?26:6, padB = hero?24:6;
+  const all = metric.s.flat();
+  let ymin = Math.min(...all), ymax = Math.max(...all);
+  const span = (ymax-ymin)||1; ymin -= span*0.12; ymax += span*0.12;
+  const x = t => padL + (t/T_MAX)*(W-padL-padR);
+  const y = v => padT + (1-(v-ymin)/(ymax-ymin))*(H-padT-padB);
+  const NS='http://www.w3.org/2000/svg';
+  const svg = document.createElementNS(NS,'svg'); svg.setAttribute('viewBox',`0 0 ${W} ${H}`);
+  const el=(n,a,txt)=>{const e=document.createElementNS(NS,n); for(const k in a) e.setAttribute(k,a[k]); if(txt!=null) e.textContent=txt; return e;};
+  const axis = el('g',{class:'axis'}); svg.appendChild(axis);
+  const nTicks = hero?4:2;
+  for(let i=0;i<=nTicks;i++){ const v = ymin+(ymax-ymin)*i/nTicks; const yy=y(v);
+    axis.appendChild(el('line',{x1:padL,x2:W-padR,y1:yy,y2:yy}));
+    if(hero || i===0 || i===nTicks) axis.appendChild(el('text',{x:padL-6,y:yy+3.5,'text-anchor':'end'}, metric.fmt(v)));
+  }
+  for(let yr=1;yr<=5;yr++){ const xx=x(yr*52);
+    axis.appendChild(el('line',{x1:xx,x2:xx,y1:H-padB,y2:H-padB+(hero?5:3)}));
+    if(hero) axis.appendChild(el('text',{x:xx,y:H-4,'text-anchor':'middle'},'Year '+yr));
+  }
+  // live edge
+  axis.appendChild(el('line',{x1:x(T_NOW),x2:x(T_NOW),y1:padT-2,y2:H-padB,stroke:'var(--line2)','stroke-dasharray':'2 3'}));
+  // lines
+  metric.s.forEach((arr,i)=>{
+    let d=''; arr.forEach((v,t)=>{ d+=(t?'L':'M')+x(t).toFixed(1)+' '+y(v).toFixed(1)+' '; });
+    svg.appendChild(el('path',{d,fill:'none',stroke:ARMS[i].color,'stroke-width':hero?2:1.5,'stroke-linejoin':'round','stroke-linecap':'round'}));
+  });
+  // markers
+  MARKERS.forEach(m=>{ const xx=x(m.t); const c=ARMS[m.arm].color;
+    svg.appendChild(el('line',{x1:xx,x2:xx,y1:hero?padT+8:padT,y2:H-padB,stroke:c,'stroke-width':1,'stroke-opacity':.55}));
+    svg.appendChild(el('path',{d:`M${xx-4} ${H-padB+1} L${xx+4} ${H-padB+1} L${xx} ${H-padB+7} Z`,fill:c}));
+    if(hero) svg.appendChild(el('text',{x:xx+5,y:padT+16,class:'mklab',fill:c}, m.label));
+  });
+  // cursor
+  const cx=x(CURSOR);
+  svg.appendChild(el('line',{x1:cx,x2:cx,y1:padT-2,y2:H-padB,stroke:'var(--acc)','stroke-width':1}));
+  metric.s.forEach((arr,i)=>{ svg.appendChild(el('circle',{cx,cy:y(arr[CURSOR]),r:hero?4:3,fill:ARMS[i].color,stroke:'var(--panel)','stroke-width':2})); });
+  if(hero){
+    // end labels, de-collided
+    const labs = metric.s.map((arr,i)=>({i,yy:y(arr[T_NOW]),v:arr[T_NOW]})).sort((a,b)=>a.yy-b.yy);
+    for(let k=1;k<labs.length;k++){ if(labs[k].yy-labs[k-1].yy<18) labs[k].yy=labs[k-1].yy+18; }
+    labs.forEach(l=>{ const lx=x(T_NOW)+10;
+      svg.appendChild(el('line',{x1:x(T_NOW)+2,x2:lx-3,y1:y(metric.s[l.i][T_NOW]),y2:l.yy,stroke:ARMS[l.i].color,'stroke-width':1,'stroke-opacity':.6}));
+      svg.appendChild(el('text',{x:lx,y:l.yy+4,class:'endlab'}, ARMS[l.i].name));
+      svg.appendChild(el('text',{x:lx+ (ARMS[l.i].name.length*6.3)+8,y:l.yy+4,class:'endval'}, metric.fmt(l.v)));
+    });
+    // cursor tooltip
+    const th=20+metric.s.length*16, tx=cx+14;
+    const cands=[padT+6, H-padB-th-8];
+    const overlap=(y0)=>labs.reduce((acc,l)=>acc+Math.max(0,Math.min(y0+th,l.yy+10)-Math.max(y0,l.yy-10)),0);
+    const ty=cands.sort((a,b)=>overlap(a)-overlap(b))[0];
+    const g=el('g',{}); svg.appendChild(g);
+    g.appendChild(el('rect',{x:tx,y:ty,width:150,height:th,rx:4,fill:'var(--panel3)',stroke:'var(--line2)'}));
+    g.appendChild(el('text',{x:tx+10,y:ty+14,class:'tip h'},'Tick '+CURSOR+', '+fmtTick(CURSOR)));
+    metric.s.forEach((arr,i)=>{ g.appendChild(el('circle',{cx:tx+14,cy:ty+28+i*16,r:3.5,fill:ARMS[i].color}));
+      g.appendChild(el('text',{x:tx+22,y:ty+32+i*16,class:'tip'}, ARMS[i].short+'  '+metric.fmt(arr[CURSOR]))); });
+  }
+  host.innerHTML=''; host.appendChild(svg);
+}
+
+function delta(metric, v, ref){
+  if(metric.d==='pt'){ const d=v-ref; return (d>0?'+':'')+d.toFixed(1)+' pt'; }
+  if(metric.d==='abs'){ const d=v-ref; return (d>0?'+':'')+d.toFixed(2); }
+  const d=(v-ref)/ref*100; return (d>0?'+':'')+d.toFixed(1)+'%';
+}
+
+function build(){
+  // horizon bar
+  const hz=document.getElementById('hz'); hz.innerHTML='';
+  const pct=t=>(t/T_MAX*100)+'%';
+  hz.insertAdjacentHTML('beforeend',`<div class="track"></div><div class="done" style="width:${pct(T_NOW)}"></div>`);
+  for(let yr=1;yr<=5;yr++) hz.insertAdjacentHTML('beforeend',`<div class="year" style="left:${pct(yr*52)}">Year ${yr}</div>`);
+  ARMS.forEach((a,i)=>hz.insertAdjacentHTML('beforeend',`<div class="edge" style="left:${pct(a.edge)};background:${a.color};transform:translateX(${(i-1)*3}px)"></div>`));
+  MARKERS.forEach(m=>hz.insertAdjacentHTML('beforeend',`<div class="mk" style="left:${pct(m.t)};border-top-color:${ARMS[m.arm].color}"></div>`));
+  hz.insertAdjacentHTML('beforeend',`<div class="cursor" style="left:${pct(CURSOR)}"><div class="lab">Tick ${CURSOR} <span>${fmtTick(CURSOR)}</span></div></div>`);
+  document.getElementById('hzarms').innerHTML = ARMS.map(a=>`<span><i style="background:${a.color}"></i>${a.name}</span>`).join('') + `<span style="color:var(--ink4)">Triangles are policy changes</span>`;
+
+  // hero
+  drawChart(document.getElementById('hero'), M.unemployment, {hero:true});
+
+  // scoreboard
+  const rows=['gdp','unemployment','medianWage','gini','govDebt','happiness'];
+  let html='<thead><tr><th>Metric</th>'+ARMS.map((a,i)=>`<th><span class="arm"><b><i style="background:${a.color}"></i>${a.short}</b><small>${i?'vs Baseline':'reference'}</small></span></th>`).join('')+'</tr></thead><tbody>';
+  rows.forEach(k=>{ html+=`<tr><td>${M[k].label}</td>`;
+    ARMS.forEach((a,i)=>{ const v=M[k].s[i][CURSOR], ref=M[k].s[0][CURSOR];
+      html+=`<td><div class="v num">${M[k].fmt(v)}</div><div class="d">${i?delta(M[k],v,ref):''}</div></td>`; });
+    html+='</tr>'; });
+  document.getElementById('score').innerHTML=html+'</tbody>';
+
+  // groups
+  const g=document.getElementById('groups'); g.innerHTML='';
+  GROUPS.forEach(gr=>{
+    const sec=document.createElement('div'); sec.className='group';
+    sec.innerHTML=`<div class="ghead"><h3>${gr.title}</h3><span class="sub">${gr.sub}</span></div><div class="smgrid"></div>`;
+    const grid=sec.querySelector('.smgrid');
+    gr.keys.forEach(k=>{ const m=M[k]; const d=document.createElement('div'); d.className='sm';
+      d.innerHTML=`<div class="smhead"><h4>${m.label}</h4><div class="vals">${ARMS.map((a,i)=>`<span><i style="background:${a.color}"></i>${m.fmt(m.s[i][CURSOR])}</span>`).join('')}</div></div><div class="chart"></div>`;
+      grid.appendChild(d); });
+    g.appendChild(sec);
+  });
+  document.querySelectorAll('.sm').forEach((d,idx)=>{ const key=GROUPS.flatMap(x=>x.keys)[idx]; drawChart(d.querySelector('.chart'), M[key]); });
+}
+build();
+let rt; window.addEventListener('resize',()=>{clearTimeout(rt); rt=setTimeout(build,120);});
+</script>
+</body>
+</html>

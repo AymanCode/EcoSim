@@ -13,6 +13,7 @@ The backend contains the simulation engine, FastAPI/WebSocket server, warehouse 
 | [`policy_schema.py`](policy_schema.py) | Canonical government policy action space used by UI and LLM paths |
 | [`data/`](data/README.md) | SQLite/PostgreSQL/Timescale warehouse managers, schemas, migrations, data tests |
 | [`tools/`](tools/README.md) | LLM runners, benchmark CLIs, diagnostics, analysis, sample generation |
+| [`tools/benchmarks/run_newcomer_smoke.py`](tools/benchmarks/run_newcomer_smoke.py) | Newcomer-scale policy-arm smoke runs; evidence in [`docs/evals/2026-09-24-newcomer-smoke/`](../docs/evals/2026-09-24-newcomer-smoke/README.md) |
 | [`tests_contracts/`](tests_contracts/README.md) | Contract-style simulation regression tests |
 | [`tests_server/`](tests_server) | FastAPI/WebSocket and warehouse API tests |
 

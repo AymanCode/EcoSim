@@ -118,3 +118,6 @@ benchmarks/results/_logs/
 
 # Brainstorm companion mockups
 .superpowers/
+
+# Keep checked-in evaluation evidence despite the data/ rule above
+!docs/evals/**/data/

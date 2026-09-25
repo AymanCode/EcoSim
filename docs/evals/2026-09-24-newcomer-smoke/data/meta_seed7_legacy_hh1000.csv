@@ -1,0 +1,8 @@
+arm_id,seed,elapsed_seconds,payment_sequence,households,ticks,firms_per_category,status,rows,out_path
+baseline,7,30.990716667030938,legacy,1000,260,5,ok,260,/private/tmp/claude-501/-Users-aymanislam-EcoSim-v-2-EcoSim/0f2476eb-808d-404f-b86b-1875450ee45d/scratchpad/smoke-sweep/baseline_seed7.csv
+min_wage_high,7,32.38645841693506,legacy,1000,260,5,ok,260,/private/tmp/claude-501/-Users-aymanislam-EcoSim-v-2-EcoSim/0f2476eb-808d-404f-b86b-1875450ee45d/scratchpad/smoke-sweep/min_wage_high_seed7.csv
+benefit_high,7,32.3150514169829,legacy,1000,260,5,ok,260,/private/tmp/claude-501/-Users-aymanislam-EcoSim-v-2-EcoSim/0f2476eb-808d-404f-b86b-1875450ee45d/scratchpad/smoke-sweep/benefit_high_seed7.csv
+wage_tax_high,7,39.17892820900306,legacy,1000,260,5,ok,260,/private/tmp/claude-501/-Users-aymanislam-EcoSim-v-2-EcoSim/0f2476eb-808d-404f-b86b-1875450ee45d/scratchpad/smoke-sweep/wage_tax_high_seed7.csv
+profit_tax_high,7,32.54862820904236,legacy,1000,260,5,ok,260,/private/tmp/claude-501/-Users-aymanislam-EcoSim-v-2-EcoSim/0f2476eb-808d-404f-b86b-1875450ee45d/scratchpad/smoke-sweep/profit_tax_high_seed7.csv
+subsidy_food_25,7,32.64635783305857,legacy,1000,260,5,ok,260,/private/tmp/claude-501/-Users-aymanislam-EcoSim-v-2-EcoSim/0f2476eb-808d-404f-b86b-1875450ee45d/scratchpad/smoke-sweep/subsidy_food_25_seed7.csv
+public_works_on,7,32.72684441704769,legacy,1000,260,5,ok,260,/private/tmp/claude-501/-Users-aymanislam-EcoSim-v-2-EcoSim/0f2476eb-808d-404f-b86b-1875450ee45d/scratchpad/smoke-sweep/public_works_on_seed7.csv

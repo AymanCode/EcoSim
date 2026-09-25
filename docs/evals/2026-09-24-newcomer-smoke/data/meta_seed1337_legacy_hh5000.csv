@@ -1,0 +1,2 @@
+households,ticks_requested,ticks_completed,firms_per_category,seed,payment_sequence,create_elapsed_seconds,step_elapsed_seconds,aborted,abort_reason,rows,out_path
+5000,260,260,5,1337,legacy,0.09921741602011025,170.120893000043,False,,260,/private/tmp/claude-501/-Users-aymanislam-EcoSim-v-2-EcoSim/0f2476eb-808d-404f-b86b-1875450ee45d/scratchpad/smoke-sweep/baseline_seed1337_hh5000_full.csv
