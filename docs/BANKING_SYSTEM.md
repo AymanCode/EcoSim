@@ -67,6 +67,21 @@ The current code supports several bank-integrated credit paths.
 
 Loan terms use simple repayment logic over tick-based terms. This is deliberate; the goal is economic feedback, not amortization fidelity.
 
+For loans in `BankAgent.active_loans`, `govt_backed` means the treasury funded
+the principal. Repayments credit that treasury, including interest; ordinary
+bank-funded repayments credit bank reserves. The bank charges no servicing
+fee. Partial receipts recognize a proportional share of contractual interest,
+and treasury interest does not fund bank deposit interest. Portfolio totals
+include both funding sources; `loan_loss_provision` records only bank-owned
+write-offs, with treasury write-offs in `government_loan_writeoffs`.
+
+Registered household medical loans use the bank collector as their sole
+servicer. Household debt mirrors the registered claim; the scalar medical
+payment helper skips these loans. The separate unregistered legacy fallback
+retains its existing payment-to-treasury rule and incomplete origination
+accounting. See the [concrete package](ECONOMIC_CONCRETE_PACKAGE.md) for exact
+conventions, field ownership and verification.
+
 ## Credit Scores
 
 The bank keeps separate firm and household credit-score maps, initialized around a neutral score for new borrowers.
@@ -96,11 +111,15 @@ Banking touches multiple parts of the tick:
 - consumption loans can be offered after household consumption planning
 - deposit withdrawals can happen before market clearing
 - healthcare can use deposits or medical loans when cash is insufficient
-- loan repayments run after firms and households have income from wages and sales
+- registered loan repayments run after firm sales settlement, before household wage and transfer settlement
 - deposit sweeps and interest run after household income, taxes, purchases, and transfers
 - credit scores and settled loans update near the end of the fiscal section
 
-This ordering is important. Repayments occur after wages and sales so the bank does not drain borrowers before they receive same-tick income.
+The collector uses household cash available at phase 9.5; same-tick household
+wages and transfers arrive afterward in phase 10. W01/W02 preserve this timing.
+The unregistered medical fallback runs during household settlement after those
+incomes arrive. These are distinct existing contracts, not duplicate charges
+on one registered loan.
 
 ## Government Boundary
 
@@ -122,7 +141,9 @@ The bank remains responsible for:
 - credit scores
 - reserve-limited ordinary lending
 
-Some paths use government cash or guarantees as a backstop, but the bank does not set policy and the government does not replace ordinary deposit accounting.
+Some paths use government cash as a backstop. The `govt_backed` servicing flag
+does not represent a separately modeled contingent guarantee. The bank does not
+set fiscal policy and the government does not replace ordinary deposit accounting.
 
 ## Observability
 

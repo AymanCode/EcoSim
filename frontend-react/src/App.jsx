@@ -147,6 +147,9 @@ export default function EcoSimUI() {
     wage_tax: 0.15,
     profit_tax: 0.20,
     enable_llm_government: false,
+    payment_sequence: 'income_first',
+    payment_care_mode: 'patient_pay',
+    payment_assistance: 'reserve',
     disable_stabilizers: false,
     disabled_agents: []
   });
@@ -471,6 +474,7 @@ export default function EcoSimUI() {
   };
 
   const handleSetupChange = (key, value) => {
+    if (isInitialized && ['payment_sequence', 'payment_care_mode', 'payment_assistance'].includes(key)) return;
     setSetupConfig(prev => {
       const next = { ...prev, [key]: value };
       if (key === 'disable_stabilizers' && value === false) {

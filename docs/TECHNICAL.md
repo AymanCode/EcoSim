@@ -163,20 +163,21 @@ ECOSIM_UNEMPLOYED_CLAMP_TICKS=8
 Stable backend:
 
 ```bash
-python -m pip install -c backend/requirements.lock -e ".[dev,ml]"
-python -m pytest backend/tests_contracts backend/tests_server -q -m "not llm and not research"
+python -m pip install -c backend/requirements.lock -e ".[test,ml]"
+python -m pytest
 ```
 
-Warehouse/API:
+Focused warehouse/API check (already included above):
 
 ```bash
 python -m pytest backend/data/tests backend/tests_server/test_server_api.py -q
 ```
 
-LLM and research-marked contracts:
+Focused mocked LLM tests and optional research contracts:
 
 ```bash
-python -m pytest backend/tests_contracts -q -m "llm or research"
+python -m pytest -m llm
+python -m pytest -m research
 ```
 
 Frontend:
@@ -188,6 +189,8 @@ npm run lint
 npm run test
 npm run build
 ```
+
+CI also builds and starts Docker Compose and runs the small Nginx/WebSocket/SQLite startup probe. The full browser evidence harness remains separate. See [testing guide](testing/README.md) for details.
 
 ## File Structure
 

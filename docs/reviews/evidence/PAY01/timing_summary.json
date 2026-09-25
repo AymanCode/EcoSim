@@ -1,0 +1,149 @@
+{
+  "scope": "early 1000-household check only; 10000-household and integrated cumulative budget not verified",
+  "runs": [
+    {
+      "mode": "normal",
+      "pair": 1,
+      "variant": "baseline",
+      "median_ms": 89.68549999999999,
+      "p95_ms": 125.454,
+      "peak_rss_mb": 73.34375,
+      "final_firms": 36,
+      "phases": {
+        "warmup": 10,
+        "private_firm_ramp": 90
+      },
+      "raw_path": "timing/normal/1/baseline/2026-09-21-211020-sim/raw.json"
+    },
+    {
+      "mode": "normal",
+      "pair": 1,
+      "variant": "candidate",
+      "median_ms": 90.66,
+      "p95_ms": 126.981,
+      "peak_rss_mb": 74.359375,
+      "final_firms": 30,
+      "phases": {
+        "warmup": 10,
+        "private_firm_ramp": 37,
+        "full_private_market": 53
+      },
+      "raw_path": "timing/normal/1/candidate/2026-09-21-211029-sim/raw.json"
+    },
+    {
+      "mode": "normal",
+      "pair": 2,
+      "variant": "baseline",
+      "median_ms": 90.3785,
+      "p95_ms": 128.299,
+      "peak_rss_mb": 74.8125,
+      "final_firms": 36,
+      "phases": {
+        "warmup": 10,
+        "private_firm_ramp": 90
+      },
+      "raw_path": "timing/normal/2/baseline/2026-09-21-211048-sim/raw.json"
+    },
+    {
+      "mode": "normal",
+      "pair": 2,
+      "variant": "candidate",
+      "median_ms": 90.0215,
+      "p95_ms": 126.907,
+      "peak_rss_mb": 75.03125,
+      "final_firms": 30,
+      "phases": {
+        "warmup": 10,
+        "private_firm_ramp": 37,
+        "full_private_market": 53
+      },
+      "raw_path": "timing/normal/2/candidate/2026-09-21-211038-sim/raw.json"
+    },
+    {
+      "mode": "performance",
+      "pair": 1,
+      "variant": "baseline",
+      "median_ms": 35.846999999999994,
+      "p95_ms": 126.462,
+      "peak_rss_mb": 73.65625,
+      "final_firms": 35,
+      "phases": {
+        "warmup": 10,
+        "private_firm_ramp": 79,
+        "full_private_market": 11
+      },
+      "raw_path": "timing/performance/1/baseline/2026-09-21-211057-sim/raw.json"
+    },
+    {
+      "mode": "performance",
+      "pair": 1,
+      "variant": "candidate",
+      "median_ms": 34.0385,
+      "p95_ms": 121.859,
+      "peak_rss_mb": 73.921875,
+      "final_firms": 30,
+      "phases": {
+        "warmup": 10,
+        "private_firm_ramp": 39,
+        "full_private_market": 51
+      },
+      "raw_path": "timing/performance/1/candidate/2026-09-21-211102-sim/raw.json"
+    },
+    {
+      "mode": "performance",
+      "pair": 2,
+      "variant": "baseline",
+      "median_ms": 36.2685,
+      "p95_ms": 126.374,
+      "peak_rss_mb": 75.296875,
+      "final_firms": 35,
+      "phases": {
+        "warmup": 10,
+        "private_firm_ramp": 79,
+        "full_private_market": 11
+      },
+      "raw_path": "timing/performance/2/baseline/2026-09-21-211111-sim/raw.json"
+    },
+    {
+      "mode": "performance",
+      "pair": 2,
+      "variant": "candidate",
+      "median_ms": 34.2145,
+      "p95_ms": 123.432,
+      "peak_rss_mb": 74.984375,
+      "final_firms": 30,
+      "phases": {
+        "warmup": 10,
+        "private_firm_ramp": 39,
+        "full_private_market": 51
+      },
+      "raw_path": "timing/performance/2/candidate/2026-09-21-211107-sim/raw.json"
+    }
+  ],
+  "pairs": [
+    {
+      "mode": "normal",
+      "pair": 1,
+      "median_change_percent": 1.0865747528864933,
+      "p95_change_percent": 1.2171792051269836
+    },
+    {
+      "mode": "normal",
+      "pair": 2,
+      "median_change_percent": -0.3950054493048638,
+      "p95_change_percent": -1.0849655881963294
+    },
+    {
+      "mode": "performance",
+      "pair": 1,
+      "median_change_percent": -5.045052584595632,
+      "p95_change_percent": -3.6398285651025652
+    },
+    {
+      "mode": "performance",
+      "pair": 2,
+      "median_change_percent": -5.6633166521912965,
+      "p95_change_percent": -2.3280105084906633
+    }
+  ]
+}

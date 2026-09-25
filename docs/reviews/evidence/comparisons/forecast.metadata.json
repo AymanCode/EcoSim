@@ -1,0 +1,17 @@
+{
+  "arms": [
+    "baseline"
+  ],
+  "dropped_manifest_columns": [],
+  "elapsed_seconds": 0.4352,
+  "evidence_file": "delivery-forecast.evidence.json",
+  "firms_per_category": 2,
+  "horizon": 8,
+  "households": 100,
+  "rows": 24,
+  "seeds": [
+    42,
+    43
+  ],
+  "ticks": 12
+}

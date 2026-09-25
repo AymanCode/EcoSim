@@ -1,0 +1,41 @@
+{
+  "audited_commit": "4f693890b5f133c2c6c1dcbec9b1ec91ced97b46",
+  "verified_at_utc": "2026-09-21T20:28:25.985368+00:00",
+  "command": "PYTHONPATH=backend python3 -B docs/reviews/verify_fable_findings.py",
+  "probe_sha256": "06c9a9c50a6063987d99d672f60d33ddf0c2fe1328aa675498159f04a08bd42d",
+  "results": [
+    {
+      "evidence": "E06",
+      "borrower_cash_decrease": 11.0,
+      "bank_cash_change": 0.0,
+      "government_cash_change": 0.0,
+      "loan_remaining": 99.00000000000001
+    },
+    {
+      "evidence": "E07",
+      "original_loan_remaining": 543.4,
+      "scheduled_bank_payment": 10.450000000000045,
+      "additional_treasury_payment": 1.5,
+      "bank_loan_remaining": 532.9499999999999,
+      "household_loan_remaining": 531.4499999999999
+    },
+    {
+      "evidence": "E08",
+      "surplus_payout_by_starting_treasury_cash": {
+        "55000": 0.0,
+        "60000": 0.0,
+        "65000": 1800.0
+      }
+    },
+    {
+      "evidence": "E09",
+      "baseline_firms": 4,
+      "baseline_firms_with_household_owners": 4
+    },
+    {
+      "evidence": "E10",
+      "current_price": 100.0,
+      "planned_next_price": 102.0
+    }
+  ]
+}

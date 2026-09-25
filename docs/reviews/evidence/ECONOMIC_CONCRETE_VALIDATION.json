@@ -1,0 +1,59 @@
+{
+  "completed_at": "2026-09-21T21:26:22.968999+00:00",
+  "scope": [
+    "W01",
+    "W02",
+    "W03",
+    "W04",
+    "W05"
+  ],
+  "status": "complete",
+  "baseline_commit": "4f693890b5f133c2c6c1dcbec9b1ec91ced97b46",
+  "tests": {
+    "passed": 358,
+    "expected_failure": 1,
+    "research_deselected": 8,
+    "junit": {
+      "name": "pytest",
+      "errors": "0",
+      "failures": "0",
+      "skipped": "1",
+      "tests": "359",
+      "time": "4.715",
+      "timestamp": "2026-09-21T14:22:23.270648-07:00",
+      "hostname": "Mac.attlocal.net"
+    }
+  },
+  "frontend": {
+    "config_tests_passed": 2,
+    "build": "passed",
+    "chrome_controls_notice": "visually verified; backend offline"
+  },
+  "lint": "passed: backend, policy_forecasting, docs/reviews Python scripts",
+  "frozen_forecasting_config": "byte-identical to HEAD",
+  "snapshot_manifest_ast": "unchanged",
+  "benchmark_comparison_completed_runs": 8,
+  "parallel_forecasting_completed_runs": 2,
+  "forecast_rows": 24,
+  "performance_report": "docs/reviews/evidence/ECONOMIC_CONCRETE_PERFORMANCE.json",
+  "design_review": {
+    "model": "claude-fable-5-1",
+    "report": "docs/reviews/ECONOMIC_DESIGN_FABLE_PROPOSALS.md",
+    "audit": "docs/reviews/ECONOMIC_DESIGN_COORDINATOR_AUDIT.md",
+    "future_work_implemented": false
+  },
+  "limitations": [
+    "Legacy unregistered medical loan origination still lacks a funding counterparty (W06).",
+    "No full stock-flow reconciliation, economic calibration, intervention branching or institutional redesign claimed.",
+    "Timing budget met as observed point estimates; variability and workload differences limit attribution.",
+    "Generated OpenWiki refresh due; approved CLI unavailable."
+  ],
+  "source_sha256": {
+    "backend/agents.py": "9d3d17ea01d35344df3fe693db3aa336540d530439ed7a7b2f5a010485ae73f1",
+    "backend/economy.py": "c0d95448181fd016ca4527be7f80897b5bb71f26432fffa6ccb83f5b83278092",
+    "backend/run_evidence.py": "fc9ab98f6ada6b97f3df63956e9ca49d120e36233d250a94dd1c441f6483d126",
+    "backend/tools/benchmarks/run_policy_sweep.py": "713f63588dc4f24d47356e76f986704bbf0e9523b773cdd2aeefa257dda61115",
+    "policy_forecasting/sweep/wrapper.py": "9b8e3645685d8c1cd331113994c3cbca99a64f0b984cad172a980ef556e817a7",
+    "frontend-react/src/screens/Config.jsx": "2fb2fa558d684ff1a2a6150975b7d864fa6475709d2bde21199ae78c49dfd350"
+  }
+}

@@ -161,8 +161,14 @@ def test_contract_openrouter_provider_retries_429_rate_limit():
     assert result == "{\"changes\": {\"benefit_level\": \"high\"}}"
 
 
-def test_contract_openrouter_provider_retries_empty_content():
+def test_contract_openrouter_provider_retries_empty_content(monkeypatch):
     requests = []
+    waits = []
+
+    async def record_sleep(seconds):
+        waits.append(seconds)
+
+    monkeypatch.setattr("tools.llm.llm_provider.asyncio.sleep", record_sleep)
 
     def handler(request: httpx.Request) -> httpx.Response:
         requests.append(request)
@@ -177,6 +183,7 @@ def test_contract_openrouter_provider_retries_empty_content():
         api_key="test-key",
         model="inclusionai/ring-2.6-1t:free",
         max_retries=0,
+        max_retry_wait_seconds=120,
     )
     provider.empty_response_retries = 1
     provider._client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
@@ -186,6 +193,7 @@ def test_contract_openrouter_provider_retries_empty_content():
         asyncio.run(provider.close())
 
     assert len(requests) == 2
+    assert waits == [2.0]
     assert result == "{\"changes\": {\"benefit_level\": \"high\"}}"
 
 

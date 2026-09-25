@@ -126,6 +126,51 @@ export default function Config({
           />
         </Panel>
 
+        <Panel className="s4">
+          <SectionTitle title="Payment scenario" meta="set at launch" />
+          <Select
+            label="Payment timing"
+            value={setupConfig.payment_sequence ?? 'income_first'}
+            options={[
+              { value: 'income_first', label: 'Income before bills' },
+              { value: 'income_late', label: 'Income after bills — comparison' },
+              { value: 'legacy', label: 'Legacy sequence' },
+            ]}
+            onChange={(v) => { if (!isInitialized && !isInitializing) onSetupChange?.('payment_sequence', v) }}
+            disabled={isInitialized || isInitializing}
+            description="Choose when paid income becomes available for this run."
+          />
+          <Select
+            label="Care funding"
+            value={setupConfig.payment_care_mode ?? 'patient_pay'}
+            options={[
+              { value: 'patient_pay', label: 'Patient pays' },
+              { value: 'covered', label: 'Publicly covered, funding limited' },
+            ]}
+            onChange={(v) => { if (!isInitialized && !isInitializing) onSetupChange?.('payment_care_mode', v) }}
+            disabled={isInitialized || isInitializing}
+            description="Covered visits require available public care funds."
+          />
+          <Select
+            label="Use of receipts"
+            value={setupConfig.payment_assistance ?? 'reserve'}
+            options={[
+              { value: 'reserve', label: 'Reserve' },
+              { value: 'care', label: 'Care' },
+              { value: 'rent', label: 'Rent relief' },
+              { value: 'mixed', label: 'Care and rent' },
+            ]}
+            onChange={(v) => { if (!isInitialized && !isInitializing) onSetupChange?.('payment_assistance', v) }}
+            disabled={isInitialized || isInitializing}
+            description="Direct a limited share of prior tax receipts."
+          />
+          {isInitialized && (
+            <p className="text-muted" style={{ fontSize: 12, marginTop: 12 }}>
+              These settings are locked for this run. Start a new run to change them.
+            </p>
+          )}
+        </Panel>
+
         {/* Opening policy */}
         <Panel className="s4">
           <SectionTitle title="Opening policy" meta="adjustable while running" />
@@ -178,6 +223,11 @@ export default function Config({
             onChange={(v) => onConfigChange?.('benefitLevel', v)}
             description="Transfers income to unemployed households."
           />
+          <p className="text-muted" style={{ fontSize: 12, marginTop: 12 }}>
+            Inflation target: inactive. The saved target does not change prices or
+            trigger a monetary policy response. Observed price changes are outcomes
+            of the simulation.
+          </p>
         </Panel>
 
         {/* Policy assistant + Preflight */}

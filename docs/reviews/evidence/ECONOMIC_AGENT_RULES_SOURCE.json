@@ -1,0 +1,307 @@
+{
+  "schema_version": 1,
+  "rules_version": "1.1",
+  "verified_at_utc": "2026-09-21T22:40:49.828813+00:00",
+  "source_commit": "4f693890b5f133c2c6c1dcbec9b1ec91ced97b46",
+  "source_description": "Working tree including completed W01-W05; commit alone does not capture existing local changes.",
+  "origin_main": {
+    "commit": "4f693890b5f133c2c6c1dcbec9b1ec91ced97b46",
+    "live_verified_equal_during_this_review": true,
+    "method": "git ls-remote origin refs/heads/main compared with local HEAD and origin/main"
+  },
+  "evidence_type": "Source inspection and documentation verification; no new economic simulation or policy-effect experiment.",
+  "sources": {
+    "backend/economy.py": {
+      "sha256": "c0d95448181fd016ca4527be7f80897b5bb71f26432fffa6ccb83f5b83278092",
+      "symbols": {
+        "Economy.step": {
+          "start_line": 1406,
+          "end_line": 2148
+        },
+        "Economy._batch_plan_consumption": {
+          "start_line": 736,
+          "end_line": 1043
+        },
+        "Economy._batch_apply_household_updates": {
+          "start_line": 1123,
+          "end_line": 1395
+        },
+        "Economy._run_labor_matching": {
+          "start_line": 2759,
+          "end_line": 2814
+        },
+        "Economy._sync_firm_employee_rosters": {
+          "start_line": 3624,
+          "end_line": 3702
+        },
+        "Economy._clear_goods_market": {
+          "start_line": 3771,
+          "end_line": 3963
+        },
+        "Economy._build_firm_tax_snapshots": {
+          "start_line": 4360,
+          "end_line": 4409
+        },
+        "Economy._enqueue_healthcare_requests": {
+          "start_line": 6169,
+          "end_line": 6194
+        },
+        "Economy._prioritize_healthcare_queue": {
+          "start_line": 6196,
+          "end_line": 6217
+        },
+        "Economy._process_healthcare_services": {
+          "start_line": 6243,
+          "end_line": 6422
+        },
+        "Economy._collect_bank_loan_repayments": {
+          "start_line": 6511,
+          "end_line": 6598
+        },
+        "Economy._process_bank_deposits": {
+          "start_line": 6600,
+          "end_line": 6678
+        },
+        "Economy._update_statistics": {
+          "start_line": 6827,
+          "end_line": 6864
+        },
+        "Economy.get_economic_metrics": {
+          "start_line": 6905,
+          "end_line": 7323
+        },
+        "Economy.apply_sector_subsidy_payment": {
+          "start_line": 1049,
+          "end_line": 1079
+        },
+        "Economy._collect_misc_revenue": {
+          "start_line": 6080,
+          "end_line": 6098
+        },
+        "Economy._initialize_misc_firm_beneficiaries": {
+          "start_line": 6022,
+          "end_line": 6029
+        },
+        "Economy._misc_firm_add_beneficiary": {
+          "start_line": 6031,
+          "end_line": 6052
+        },
+        "Economy._misc_firm_redistribute_revenue": {
+          "start_line": 6054,
+          "end_line": 6078
+        },
+        "Economy._recycle_capital_investment": {
+          "start_line": 5371,
+          "end_line": 5387
+        },
+        "Economy._withdraw_deposits_for_planned_consumption": {
+          "start_line": 3736,
+          "end_line": 3769
+        }
+      }
+    },
+    "backend/agents.py": {
+      "sha256": "9d3d17ea01d35344df3fe693db3aa336540d530439ed7a7b2f5a010485ae73f1",
+      "symbols": {
+        "HouseholdAgent._initialize_personality_preferences": {
+          "start_line": 408,
+          "end_line": 597
+        },
+        "HouseholdAgent.plan_labor_supply": {
+          "start_line": 1306,
+          "end_line": 1449
+        },
+        "FirmAgent.set_personality": {
+          "start_line": 2795,
+          "end_line": 2885
+        },
+        "FirmAgent.plan_pricing": {
+          "start_line": 4476,
+          "end_line": 4837
+        },
+        "FirmAgent.plan_wage": {
+          "start_line": 4839,
+          "end_line": 5142
+        },
+        "FirmAgent.apply_rd_and_quality_update": {
+          "start_line": 5644,
+          "end_line": 5691
+        },
+        "BankAgent.originate_loan": {
+          "start_line": 5975,
+          "end_line": 6017
+        },
+        "GovernmentAgent.set_lever": {
+          "start_line": 6460,
+          "end_line": 6516
+        },
+        "GovernmentAgent.plan_transfers": {
+          "start_line": 6802,
+          "end_line": 6875
+        },
+        "GovernmentAgent.plan_taxes": {
+          "start_line": 6877,
+          "end_line": 7008
+        },
+        "GovernmentAgent.adjust_policies": {
+          "start_line": 7046,
+          "end_line": 7073
+        },
+        "HouseholdAgent._plan_category_purchases": {
+          "start_line": 964,
+          "end_line": 1210
+        },
+        "HouseholdAgent.should_request_healthcare_service": {
+          "start_line": 1756,
+          "end_line": 1792
+        }
+      }
+    },
+    "backend/config.py": {
+      "sha256": "eb97bc817fe698ede3b4b0e796866a1bd3c7c853f5345218d42817646051ae1f",
+      "symbols": {
+        "TimeConfig": {
+          "start_line": 17,
+          "end_line": 20
+        }
+      }
+    },
+    "backend/tools/runners/run_large_simulation.py": {
+      "sha256": "737ec4bbb4682cd679cff97c66d1c913f982385f838eb2efa5ada57e374f3f59",
+      "symbols": {
+        "create_large_economy": {
+          "start_line": 38,
+          "end_line": 285
+        }
+      }
+    },
+    "backend/server.py": {
+      "sha256": "cec957675ab665ba67a7657edf174c4364a04e67b43016abd84fb73e630768f0",
+      "symbols": {
+        "SimulationManager._apply_llm_decision_at_boundary": {
+          "start_line": 1522,
+          "end_line": 1605
+        },
+        "SimulationManager._run_loop_scoped": {
+          "start_line": 2055,
+          "end_line": 2632
+        },
+        "SimulationManager._normalize_runtime_policy_updates": {
+          "start_line": 2663,
+          "end_line": 2714
+        },
+        "SimulationManager.update_config": {
+          "start_line": 2797,
+          "end_line": 2813
+        },
+        "SimulationManager._apply_config_updates": {
+          "start_line": 2716,
+          "end_line": 2795
+        }
+      }
+    },
+    "backend/policy_schema.py": {
+      "sha256": "8126d06615aab24690b448a296a6b49fd444d7c1c6ac9aace2f9f00448f02dce",
+      "symbols": {}
+    },
+    "backend/run_evidence.py": {
+      "sha256": "fc9ab98f6ada6b97f3df63956e9ca49d120e36233d250a94dd1c441f6483d126",
+      "symbols": {}
+    },
+    "backend/tests_contracts/test_loan_settlement.py": {
+      "sha256": "71b9bd39be97c000b8466031ca2f9ef7ed0a5ab655c3fa55864696701edfa130",
+      "symbols": {}
+    },
+    "backend/tools/llm/run_household_llm_tester.py": {
+      "sha256": "7eacbe917c63da6a8b986f0b711bf20b0f0a6779cbfcffcdb26215e6a7c4cb08",
+      "symbols": {}
+    },
+    "backend/tools/llm/llm_firm.py": {
+      "sha256": "e109d9b5a4a5c0cb62ce87661af330dbebc067485ba239a63e19526d45944ab8",
+      "symbols": {}
+    },
+    "backend/tools/llm/run_llm_firm_test.py": {
+      "sha256": "9b6424a2f9173454111c93f013607733012a238311915cd62382b63b15808b66",
+      "symbols": {}
+    },
+    "backend/tools/benchmarks/run_sim_bench.py": {
+      "sha256": "af2c16561d4e94b063dfb7fc277e4f74608e968762bd64df55465d8a43d8fd41",
+      "symbols": {}
+    },
+    "backend/tools/benchmarks/regression_snapshot.py": {
+      "sha256": "06368cf199bc3e377ed62a6345bc34be64a73c2d81a103120dfcd63e690ea5f3",
+      "symbols": {}
+    }
+  },
+  "preservation_check": {
+    "tracked_before_count": 198,
+    "changed_count": 0,
+    "scope": "Python/JavaScript/TypeScript sources under backend, policy_forecasting and frontend-react/src, plus three original Fable reports."
+  },
+  "documentation_before_sha256": {
+    "AGENTS.md": "a644526af6bbaeb39406f756172621f79dfabe25bc64bd4fd5afbd3b28f370dc",
+    "CLAUDE.md": "a644526af6bbaeb39406f756172621f79dfabe25bc64bd4fd5afbd3b28f370dc",
+    "docs/README.md": "57683233f9a5f620503612504bdc1cb31d32df62ae4c101b544ebfba3b244e23",
+    "docs/ECONOMIC_AGENT_WORKING_CONTRACT.md": "fa7300e8599f07d0f3b2659ca7fa27a26d875c238f2f5e8975fe6edfb6627c36",
+    "docs/ECONOMIC_AGENT_PROPOSAL_TEMPLATE.md": "760e3cf97467631daffdca74bb51055922cedfa8b98f1f72a6abdb2dafbaa04e",
+    "docs/ECONOMIC_WORK_READINESS.md": "6861896749f4d4d7c0fca6a364ce8e2f7820607a4f9bba2c0c20ed275823aa16",
+    "docs/reviews/ECONOMIC_BEHAVIOR_AND_DELEGATION_REVIEW.md": "ef50410f1333dce7ab9858f0f19b10039366f7ea09c9b2f1aa05b6f81bf0be18"
+  },
+  "later_review_correction": {
+    "path": "docs/reviews/ECONOMIC_BEHAVIOR_AND_DELEGATION_REVIEW.md",
+    "finding": "Property-tax debit and aggregate treasury-credit consumers exist in Economy.step phases 9 and 11; missing firm snapshot inputs remain the source issue. Earlier Fable/run artifacts are historical and preserved."
+  },
+  "verification_limits": [
+    "Source citations and call order are not an executed full-economy reconciliation proof.",
+    "The baseline is a working tree, not a clean committed release.",
+    "No new trait-response, policy-effect or performance experiment was run for these documentation rules."
+  ],
+  "documentation_after_sha256": {
+    "AGENTS.md": "f2586657a2a65cc80aeff83195260a1452dd705d810616d508e8057e855fcb9c",
+    "CLAUDE.md": "f2586657a2a65cc80aeff83195260a1452dd705d810616d508e8057e855fcb9c",
+    "docs/README.md": "db0d218189d20590b4a845f7a6d775abf107c4fa44305140139f6648931df96d",
+    "docs/ECONOMIC_AGENT_RULES.md": "8990f32d972ecef56f64abda137bfc31069aa36039b4ee9d9d2156e46d358dce",
+    "docs/ECONOMIC_AGENT_PROPOSAL_TEMPLATE.md": "eb1dc76f548f62220c11727d6ada29f1506761b27dd4b4985ccb69ed02f0a772",
+    "docs/ECONOMIC_AGENT_WORKING_CONTRACT.md": "d23abe3e535d475ea78229484abb7c1c6b4108dd88b919474878d09dad756548",
+    "docs/ECONOMIC_WORK_READINESS.md": "2bd6671595cebaa5c36aeacc79cd54b5c5c9b07ae46638cc4a996b46937e749f",
+    "docs/reviews/ECONOMIC_BEHAVIOR_AND_DELEGATION_REVIEW.md": "ec331b5db9436f69d4328bcc7dc5b59cf2ae1db517f24e8725b699c152c3da75",
+    "docs/reviews/ECONOMIC_AGENT_RULES_REVIEW.md": "81aebf5bdb643c268ed95ac09beddc7dbd36ca76903dda8879d959478d830ea5"
+  },
+  "documentation_checks": {
+    "relative_file_links_checked": 114,
+    "heading_anchors_checked": 8,
+    "broken_links": [],
+    "binding_rule_count": 12,
+    "market_rule_count": 7,
+    "limitation_count": 8,
+    "agent_instruction_files_identical": true,
+    "fable_findings_disposed": 10,
+    "reviewed_input_version": "1.0",
+    "active_version": "1.1",
+    "fable_report_preserved": true
+  },
+  "wiki_refresh": {
+    "status": "pending_external_transfer_approval",
+    "local_tool": "OpenWiki v0.3.0",
+    "initial_attempt": "Sandbox denied access to OpenWiki runtime directory before generation.",
+    "escalated_attempt": "Automatic approval review rejected execution because the configured external LLM/provider could receive repository documentation or source-derived content without explicit authorization for that transfer.",
+    "generated_pages_hand_edited": false
+  },
+  "document_inspection": {
+    "markdown_source_read_back": true,
+    "gfm_tables_parsed": 5,
+    "gfm_sections_parsed": 8,
+    "local_file_viewer_request": "queued",
+    "browser_preview": "File URL blocked by browser security policy; no workaround attempted.",
+    "scope": "Markdown content, references and structure checked; browser rendering not visually inspected."
+  },
+  "fable_audit": {
+    "report": "docs/reviews/ECONOMIC_AGENT_RULES_FABLE_AUDIT.md",
+    "report_sha256": "37586a3fa1ffa1b70d5958eb3e7c06d86462fe2db72985f0be3546d680a2f5b3",
+    "run_manifest": "docs/reviews/ECONOMIC_AGENT_RULES_FABLE_RUN.json",
+    "disposition": "docs/reviews/ECONOMIC_AGENT_RULES_REVIEW.md",
+    "model": "claude-fable-5-1",
+    "reviewed_version": "1.0",
+    "corrected_version": "1.1"
+  }
+}

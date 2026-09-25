@@ -1,0 +1,24 @@
+{
+  "head": "4f693890b5f133c2c6c1dcbec9b1ec91ced97b46",
+  "full_suite": {
+    "passed": 346,
+    "deselected": 8,
+    "xfailed": 1,
+    "seconds": 5.25,
+    "command": ".venv/bin/python -m pytest --durations=5"
+  },
+  "independent_probe": {
+    "script": "probe_tick_wages.py",
+    "households": 60,
+    "ticks_per_mode": 55,
+    "normal": {
+      "mirror_mismatches": 2478,
+      "earned_receipt_mismatches": 34
+    },
+    "performance": {
+      "mirror_mismatches": 2390,
+      "earned_receipt_mismatches": 26
+    }
+  },
+  "claim": "executed baseline diagnostics; no real-world economic inference"
+}

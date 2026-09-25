@@ -1,0 +1,372 @@
+{
+  "source": "/private/var/folders/tl/vy03rfvj6sv8vz76qyw1stb00000gn/T/ecosim-full-implementation-p6npb1rc/candidate",
+  "scenario": "income_first",
+  "households": 1000,
+  "seed": 43,
+  "mode": "normal",
+  "median_ms": 106.0394995,
+  "p95_ms": 136.2991856,
+  "peak_rss_mb": 81.578125,
+  "ticks": [
+    {
+      "tick": 0,
+      "ms": 113.686625,
+      "firms": 4,
+      "employees": 575,
+      "care_queue": 0,
+      "bank_loans": 0,
+      "wage_claims": 500
+    },
+    {
+      "tick": 1,
+      "ms": 68.846,
+      "firms": 4,
+      "employees": 1000,
+      "care_queue": 0,
+      "bank_loans": 1,
+      "wage_claims": 925
+    },
+    {
+      "tick": 2,
+      "ms": 67.582667,
+      "firms": 4,
+      "employees": 1000,
+      "care_queue": 0,
+      "bank_loans": 1,
+      "wage_claims": 925
+    },
+    {
+      "tick": 3,
+      "ms": 66.871709,
+      "firms": 4,
+      "employees": 1000,
+      "care_queue": 0,
+      "bank_loans": 1,
+      "wage_claims": 925
+    },
+    {
+      "tick": 4,
+      "ms": 88.162958,
+      "firms": 4,
+      "employees": 1000,
+      "care_queue": 0,
+      "bank_loans": 1,
+      "wage_claims": 925
+    },
+    {
+      "tick": 5,
+      "ms": 68.390417,
+      "firms": 15,
+      "employees": 541,
+      "care_queue": 0,
+      "bank_loans": 1,
+      "wage_claims": 925
+    },
+    {
+      "tick": 6,
+      "ms": 67.480291,
+      "firms": 25,
+      "employees": 591,
+      "care_queue": 0,
+      "bank_loans": 1,
+      "wage_claims": 925
+    },
+    {
+      "tick": 7,
+      "ms": 69.203417,
+      "firms": 35,
+      "employees": 883,
+      "care_queue": 0,
+      "bank_loans": 1,
+      "wage_claims": 925
+    },
+    {
+      "tick": 8,
+      "ms": 99.179834,
+      "firms": 36,
+      "employees": 941,
+      "care_queue": 0,
+      "bank_loans": 1,
+      "wage_claims": 925
+    },
+    {
+      "tick": 9,
+      "ms": 73.235916,
+      "firms": 36,
+      "employees": 922,
+      "care_queue": 0,
+      "bank_loans": 1,
+      "wage_claims": 925
+    },
+    {
+      "tick": 10,
+      "ms": 73.314542,
+      "firms": 36,
+      "employees": 931,
+      "care_queue": 0,
+      "bank_loans": 1,
+      "wage_claims": 925
+    },
+    {
+      "tick": 11,
+      "ms": 72.61375,
+      "firms": 36,
+      "employees": 918,
+      "care_queue": 0,
+      "bank_loans": 1,
+      "wage_claims": 925
+    },
+    {
+      "tick": 12,
+      "ms": 111.393792,
+      "firms": 36,
+      "employees": 907,
+      "care_queue": 0,
+      "bank_loans": 1,
+      "wage_claims": 925
+    },
+    {
+      "tick": 13,
+      "ms": 79.386959,
+      "firms": 36,
+      "employees": 938,
+      "care_queue": 0,
+      "bank_loans": 1,
+      "wage_claims": 925
+    },
+    {
+      "tick": 14,
+      "ms": 79.540167,
+      "firms": 36,
+      "employees": 923,
+      "care_queue": 0,
+      "bank_loans": 3,
+      "wage_claims": 925
+    },
+    {
+      "tick": 15,
+      "ms": 81.178417,
+      "firms": 36,
+      "employees": 932,
+      "care_queue": 0,
+      "bank_loans": 3,
+      "wage_claims": 925
+    },
+    {
+      "tick": 16,
+      "ms": 114.253291,
+      "firms": 36,
+      "employees": 928,
+      "care_queue": 0,
+      "bank_loans": 3,
+      "wage_claims": 925
+    },
+    {
+      "tick": 17,
+      "ms": 86.140041,
+      "firms": 36,
+      "employees": 941,
+      "care_queue": 0,
+      "bank_loans": 4,
+      "wage_claims": 925
+    },
+    {
+      "tick": 18,
+      "ms": 85.45075,
+      "firms": 36,
+      "employees": 948,
+      "care_queue": 0,
+      "bank_loans": 4,
+      "wage_claims": 925
+    },
+    {
+      "tick": 19,
+      "ms": 85.597042,
+      "firms": 36,
+      "employees": 951,
+      "care_queue": 0,
+      "bank_loans": 4,
+      "wage_claims": 925
+    },
+    {
+      "tick": 20,
+      "ms": 120.783334,
+      "firms": 36,
+      "employees": 955,
+      "care_queue": 0,
+      "bank_loans": 5,
+      "wage_claims": 925
+    },
+    {
+      "tick": 21,
+      "ms": 92.390834,
+      "firms": 36,
+      "employees": 973,
+      "care_queue": 0,
+      "bank_loans": 6,
+      "wage_claims": 925
+    },
+    {
+      "tick": 22,
+      "ms": 94.463166,
+      "firms": 36,
+      "employees": 969,
+      "care_queue": 0,
+      "bank_loans": 7,
+      "wage_claims": 925
+    },
+    {
+      "tick": 23,
+      "ms": 94.670625,
+      "firms": 36,
+      "employees": 973,
+      "care_queue": 0,
+      "bank_loans": 8,
+      "wage_claims": 925
+    },
+    {
+      "tick": 24,
+      "ms": 131.672417,
+      "firms": 36,
+      "employees": 944,
+      "care_queue": 0,
+      "bank_loans": 8,
+      "wage_claims": 925
+    },
+    {
+      "tick": 25,
+      "ms": 106.537208,
+      "firms": 36,
+      "employees": 965,
+      "care_queue": 0,
+      "bank_loans": 9,
+      "wage_claims": 925
+    },
+    {
+      "tick": 26,
+      "ms": 100.938041,
+      "firms": 36,
+      "employees": 980,
+      "care_queue": 0,
+      "bank_loans": 10,
+      "wage_claims": 945
+    },
+    {
+      "tick": 27,
+      "ms": 99.92575,
+      "firms": 36,
+      "employees": 986,
+      "care_queue": 0,
+      "bank_loans": 11,
+      "wage_claims": 945
+    },
+    {
+      "tick": 28,
+      "ms": 132.989125,
+      "firms": 36,
+      "employees": 934,
+      "care_queue": 0,
+      "bank_loans": 11,
+      "wage_claims": 945
+    },
+    {
+      "tick": 29,
+      "ms": 105.367417,
+      "firms": 36,
+      "employees": 982,
+      "care_queue": 0,
+      "bank_loans": 12,
+      "wage_claims": 945
+    },
+    {
+      "tick": 30,
+      "ms": 105.541791,
+      "firms": 36,
+      "employees": 966,
+      "care_queue": 0,
+      "bank_loans": 13,
+      "wage_claims": 945
+    },
+    {
+      "tick": 31,
+      "ms": 106.826958,
+      "firms": 36,
+      "employees": 979,
+      "care_queue": 0,
+      "bank_loans": 18,
+      "wage_claims": 945
+    },
+    {
+      "tick": 32,
+      "ms": 139.007417,
+      "firms": 36,
+      "employees": 978,
+      "care_queue": 0,
+      "bank_loans": 24,
+      "wage_claims": 952
+    },
+    {
+      "tick": 33,
+      "ms": 112.198167,
+      "firms": 36,
+      "employees": 948,
+      "care_queue": 0,
+      "bank_loans": 28,
+      "wage_claims": 965
+    },
+    {
+      "tick": 34,
+      "ms": 112.757583,
+      "firms": 36,
+      "employees": 912,
+      "care_queue": 0,
+      "bank_loans": 31,
+      "wage_claims": 974
+    },
+    {
+      "tick": 35,
+      "ms": 118.110167,
+      "firms": 36,
+      "employees": 929,
+      "care_queue": 0,
+      "bank_loans": 33,
+      "wage_claims": 978
+    },
+    {
+      "tick": 36,
+      "ms": 145.10275,
+      "firms": 36,
+      "employees": 925,
+      "care_queue": 0,
+      "bank_loans": 35,
+      "wage_claims": 982
+    },
+    {
+      "tick": 37,
+      "ms": 117.350417,
+      "firms": 36,
+      "employees": 893,
+      "care_queue": 0,
+      "bank_loans": 35,
+      "wage_claims": 986
+    },
+    {
+      "tick": 38,
+      "ms": 117.592875,
+      "firms": 36,
+      "employees": 862,
+      "care_queue": 0,
+      "bank_loans": 40,
+      "wage_claims": 992
+    },
+    {
+      "tick": 39,
+      "ms": 119.100375,
+      "firms": 36,
+      "employees": 972,
+      "care_queue": 0,
+      "bank_loans": 43,
+      "wage_claims": 1025
+    }
+  ]
+}

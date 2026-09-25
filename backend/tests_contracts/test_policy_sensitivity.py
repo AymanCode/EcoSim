@@ -5,14 +5,10 @@ correct effect on its primary observable over a 52-tick sweep.
 """
 
 import math
-import random
 from typing import Any, Dict, List
 
-import numpy as np
 import pytest
 
-from agents import GovernmentAgent
-from config import CONFIG
 from economy import Economy
 
 
@@ -39,10 +35,10 @@ def _run_ticks(economy: Economy, ticks: int) -> Dict[str, Any]:
 
 
 def _get_metric(metrics: Dict[str, Any], key: str) -> float:
-    val = metrics.get(key, 0.0)
-    if isinstance(val, (int, float)):
-        return float(val)
-    return 0.0
+    # A renamed or missing metric must fail, not turn the sweep into 0 >= 0.
+    val = metrics[key]
+    assert isinstance(val, (int, float)) and math.isfinite(val), f"Invalid metric {key}: {val!r}"
+    return float(val)
 
 
 # ---------------------------------------------------------------------------

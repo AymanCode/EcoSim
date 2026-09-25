@@ -1,0 +1,146 @@
+{
+  "purpose": "Measure existing initialized diversity with equal stated starting inputs.",
+  "seed": 42,
+  "source_sha256": {
+    "backend/agents.py": "9d3d17ea01d35344df3fe693db3aa336540d530439ed7a7b2f5a010485ae73f1",
+    "backend/config.py": "eb97bc817fe698ede3b4b0e796866a1bd3c7c853f5345218d42817646051ae1f"
+  },
+  "household_constructor": {
+    "household_id": "1..1000",
+    "skills_level": 0.5,
+    "age": 30,
+    "cash_balance": 1000.0,
+    "other_fields": "current constructor defaults"
+  },
+  "firm_constructor": {
+    "firm_id": "1..100",
+    "good_name": "ProbeFood<id>",
+    "good_category": "Food",
+    "cash_balance": 40000.0,
+    "inventory_units": 500.0,
+    "personality": "moderate",
+    "is_baseline": false,
+    "other_fields": "current constructor defaults"
+  },
+  "households": {
+    "count": 1000,
+    "distinct_selected_trait_profiles": 1000,
+    "same_seed_and_id_reproduces_selected_traits": true,
+    "fields": {
+      "spending_tendency": {
+        "distinct_values": 1000,
+        "minimum": 0.10019456243268136,
+        "maximum": 4.998377673898755
+      },
+      "saving_tendency": {
+        "distinct_values": 1000,
+        "minimum": 0.0001484777925178538,
+        "maximum": 0.9982429336511536
+      },
+      "savings_drawdown_rate": {
+        "distinct_values": 1000,
+        "minimum": 0.010001481080385169,
+        "maximum": 0.04817507566843535
+      },
+      "price_sensitivity": {
+        "distinct_values": 1000,
+        "minimum": 0.6000423582524087,
+        "maximum": 1.498806318307197
+      },
+      "price_expectation_alpha": {
+        "distinct_values": 1000,
+        "minimum": 0.20001070613767838,
+        "maximum": 0.4499190975851513
+      },
+      "wage_expectation_alpha": {
+        "distinct_values": 1000,
+        "minimum": 0.12009905873484819,
+        "maximum": 0.3493729158350917
+      },
+      "job_switch_threshold": {
+        "distinct_values": 1000,
+        "minimum": 0.10006209150885155,
+        "maximum": 0.24955622175174608
+      },
+      "health_decay_rate": {
+        "distinct_values": 1000,
+        "minimum": 0.00038739645112333934,
+        "maximum": 0.013453552350117606
+      }
+    }
+  },
+  "firms": {
+    "count": 100,
+    "distinct_selected_trait_profiles": 100,
+    "same_seed_and_id_reproduces_selected_traits": true,
+    "fields": {
+      "risk_tolerance": {
+        "distinct_values": 100,
+        "minimum": 0.4003072402682341,
+        "maximum": 0.5966634114602923
+      },
+      "price_adjustment_rate": {
+        "distinct_values": 100,
+        "minimum": 0.04022077961474083,
+        "maximum": 0.06955804181698128
+      },
+      "wage_adjustment_rate": {
+        "distinct_values": 100,
+        "minimum": 0.0804003590126757,
+        "maximum": 0.11998102881681007
+      },
+      "rd_spending_rate": {
+        "distinct_values": 100,
+        "minimum": 0.0400891421868126,
+        "maximum": 0.06983382586895917
+      },
+      "units_per_worker": {
+        "distinct_values": 100,
+        "minimum": 19.07438458450254,
+        "maximum": 21.97065347251538
+      },
+      "sales_expectation_alpha": {
+        "distinct_values": 100,
+        "minimum": 0.20051410200063666,
+        "maximum": 0.3972369096069533
+      },
+      "target_inventory_weeks": {
+        "distinct_values": 100,
+        "minimum": 1.5042215875255418,
+        "maximum": 2.998851401775015
+      }
+    }
+  },
+  "isolated_rd_method_probe": {
+    "method": "FirmAgent.apply_rd_and_quality_update",
+    "starting_firm": "Two deep copies of firm 1 from the stated constructor",
+    "cases": [
+      {
+        "rd_spending_rate": 0.0,
+        "net_profit": 100.0,
+        "revenue": 1000.0,
+        "survival_mode": false,
+        "actual_rd_spending": 100.0,
+        "cash_change": -100.0,
+        "quality_after": 5.020150416423932
+      },
+      {
+        "rd_spending_rate": 0.25,
+        "net_profit": 100.0,
+        "revenue": 1000.0,
+        "survival_mode": false,
+        "actual_rd_spending": 100.0,
+        "cash_change": -100.0,
+        "quality_after": 5.020150416423932
+      }
+    ],
+    "same_spending_despite_changed_field": true
+  },
+  "limits": [
+    "No economy ticks, policy comparisons, market clearing, or model calls are executed.",
+    "A distinct parameter profile does not establish distinct behavior or empirical realism.",
+    "Selected traits and populations only; not a proof of global uniqueness or full-state replay.",
+    "Firm sample covers one non-baseline Food personality; it is not all firm categories.",
+    "The R&D probe exercises one isolated method and does not estimate economic effects."
+  ]
+}

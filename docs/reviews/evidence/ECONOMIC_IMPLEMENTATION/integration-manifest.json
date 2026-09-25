@@ -1,0 +1,481 @@
+{
+  "at": "2026-09-22T21:34:33.297218+00:00",
+  "root": "/Users/aymanislam/EcoSim_v_2/EcoSim",
+  "baseline_commit": "4f693890b5f133c2c6c1dcbec9b1ec91ced97b46",
+  "protected_baseline_files_checked": 435,
+  "changes": [
+    {
+      "path": "backend/agents.py",
+      "before": "9d3d17ea01d35344df3fe693db3aa336540d530439ed7a7b2f5a010485ae73f1",
+      "after": "357b32d884e04df8af43af6011247fb5d1631b382030b978df5c982486c6a982"
+    },
+    {
+      "path": "backend/config.py",
+      "before": "eb97bc817fe698ede3b4b0e796866a1bd3c7c853f5345218d42817646051ae1f",
+      "after": "19309a6d38200ebafa22dcb2f02f0fb85444cd9ced2c35a9747bb23c973de9f3"
+    },
+    {
+      "path": "backend/economy.py",
+      "before": "11d6d2268b1fea5946cd178ecc8f5ae79d4ffc277e1bb7a69fa81044aeafa4a4",
+      "after": "2253e86c19237be796e505a7808d5fd8f404a7d47707f0ae6127af55c10e3928"
+    },
+    {
+      "path": "backend/payment_behavior.py",
+      "before": null,
+      "after": "433e9aa9a7f0f171abebd2eb8f372a39eed656577e0eaca46daf02a68969c9ce"
+    },
+    {
+      "path": "backend/payment_government.py",
+      "before": null,
+      "after": "883ef3c336e1f7fe7f2b94cc69f1a1cf3ec3c031701df5008ae495fd5ac7e11f"
+    },
+    {
+      "path": "backend/payment_loans.py",
+      "before": null,
+      "after": "8bf509d35608dd294a431d1a3b51c304d4ccf38e9ff906ac3031cdae2dea38c1"
+    },
+    {
+      "path": "backend/payment_projects.py",
+      "before": null,
+      "after": "6b127d6f2eb6ff476a96e602d68cc50aa42f7509cd19e3ba9a88f0989a1ebe5d"
+    },
+    {
+      "path": "backend/payment_reporting.py",
+      "before": null,
+      "after": "bbb2776e8d91915cc54394800beb8264a81d01b19c9d71af0106d15c41a14f70"
+    },
+    {
+      "path": "backend/payment_sectors.py",
+      "before": null,
+      "after": "9008234a623b02ccb37054810243b35c194c175c9514ba47db83a5db6743beb6"
+    },
+    {
+      "path": "backend/payments.py",
+      "before": null,
+      "after": "b29118b1f611edcac760e03e8a47c95119b6f1aee311ccc1a573e9e5b80c5fb1"
+    },
+    {
+      "path": "backend/run_evidence.py",
+      "before": "fc9ab98f6ada6b97f3df63956e9ca49d120e36233d250a94dd1c441f6483d126",
+      "after": "55cce8ec19e66751ad79bfd614838098740a781e3ee225a500a2f8aa04b44bee"
+    },
+    {
+      "path": "backend/server.py",
+      "before": "cec957675ab665ba67a7657edf174c4364a04e67b43016abd84fb73e630768f0",
+      "after": "13ccf44d048d7dedc4e64a26efa44d3198b12a29fa0df79a290a23628858f4da"
+    },
+    {
+      "path": "backend/tests_contracts/test_payment_acceptance.py",
+      "before": null,
+      "after": "6ddb75cfb03e3769d11afeda1c42c4c06bb0eeeac66311cea62abca1f49f83c6"
+    },
+    {
+      "path": "backend/tests_contracts/test_payment_behavior.py",
+      "before": null,
+      "after": "8739ee911fd978d223462685aa136f80ea786c6c6cd50962012a8fa6d7d185fe"
+    },
+    {
+      "path": "backend/tests_contracts/test_payment_core.py",
+      "before": null,
+      "after": "92f7d6221d8b551b856c9b97a903849be10ab740cb499b908174e3ea37686b15"
+    },
+    {
+      "path": "backend/tests_contracts/test_payment_government.py",
+      "before": null,
+      "after": "f726a45810d90474336134ce8696e99a80d6cb14d46b3fe966cce3f2ba06e28c"
+    },
+    {
+      "path": "backend/tests_contracts/test_payment_loans.py",
+      "before": null,
+      "after": "c3103c9cf7c117c49488eb9431f00b1123ac152e4533caf7a7b0cdc089f9a98a"
+    },
+    {
+      "path": "backend/tests_contracts/test_payment_projects.py",
+      "before": null,
+      "after": "99ed143c4fde51603993498124742337bc4e1bd887d7a9bdf318604fc47964c3"
+    },
+    {
+      "path": "backend/tests_contracts/test_payment_reporting.py",
+      "before": null,
+      "after": "37b7a4c37228bd46a769ddd6f0b50363cd3590ae8687ff48aac91bc44beecc94"
+    },
+    {
+      "path": "backend/tests_contracts/test_payment_sectors.py",
+      "before": null,
+      "after": "0854cb51aaddc714d0477d1924789ea933793a66038292a11422cee9e630eafa"
+    },
+    {
+      "path": "backend/tests_server/test_payment_scenarios.py",
+      "before": null,
+      "after": "0ffc87e33e86472e783cecf4daa77c612383219bb98c065eee6f999718713b10"
+    },
+    {
+      "path": "docs/ECONOMIC_AGENT_RULES.md",
+      "before": "8990f32d972ecef56f64abda137bfc31069aa36039b4ee9d9d2156e46d358dce",
+      "after": "71b45f69f536765936d99f269374e078e17d84ef8c28dca15af2ea682152919e"
+    },
+    {
+      "path": "docs/ECONOMIC_IMPLEMENTATION_EXECUTION.md",
+      "before": null,
+      "after": "048e1270bf6ca0ecfeb7723094feebdccfc8e3e253fd61737ebfe99f4899ba1d"
+    },
+    {
+      "path": "docs/ECONOMIC_IMPLEMENTATION_PLAN.md",
+      "before": "5edf4091c1c13d76de799c322929f27d6ffe3429820b23a0e04abaca7a900795",
+      "after": "28644b8513a32ab8c687d33742f04a424441eec59e558e85c575f0a917370d20"
+    },
+    {
+      "path": "docs/ECONOMIC_WORK_READINESS.md",
+      "before": "22615b6d1329156f3135fbb5aea2476774b164db8ce3af4317f9156c874fe038",
+      "after": "fe35aa7d8178862c0224972035d779ab7a9ddcfac1d0ea72c7d50f09da16d1ff"
+    },
+    {
+      "path": "docs/reviews/ECONOMIC_IMPLEMENTATION_FABLE_COMPOSED.md",
+      "before": null,
+      "after": "96038129db79229da33a21f42f216d49758d62f45aa88f288866a620c649804d"
+    },
+    {
+      "path": "docs/reviews/ECONOMIC_IMPLEMENTATION_FABLE_FOUNDATION.md",
+      "before": null,
+      "after": "85597ea8d007e6da2d8fdcdcad1a2f53d2b6e61c9a37d0266c41222a7369616c"
+    },
+    {
+      "path": "docs/reviews/ECONOMIC_IMPLEMENTATION_REVIEW.md",
+      "before": null,
+      "after": "5e2888fb2d2cc38b5bc012a0958e30cdb2aa3099211047e695d5d947f9c1c02e"
+    },
+    {
+      "path": "docs/reviews/benchmark_economic_implementation.py",
+      "before": null,
+      "after": "56186d33960a41230461ff70029d6284eeeeb7ec735d646aeda55d2f4cbc207c"
+    },
+    {
+      "path": "docs/reviews/evidence/ECONOMIC_IMPLEMENTATION/fable-composed-manifest.json",
+      "before": null,
+      "after": "7e872b03b7e2de8ddb9db814ea0589814c7ab6e659526d56d4d4e2d6eb71d676"
+    },
+    {
+      "path": "docs/reviews/evidence/ECONOMIC_IMPLEMENTATION/fable-foundation-manifest.json",
+      "before": null,
+      "after": "aa17f4538282f01a7cadea27943d158fe6c5b3210bdb770d243055a72cf0f6c8"
+    },
+    {
+      "path": "docs/reviews/run_economic_comparisons.py",
+      "before": null,
+      "after": "e2ad680d10b4eeb24ccab44e6c5b7b4a46f68da6abe35b88c9b14409e429b34c"
+    },
+    {
+      "path": "frontend-react/src/App.jsx",
+      "before": "cdcb1f6fe0f83e3446d3c7d18230336af59006e83ef04bf10b9116d659f936b0",
+      "after": "587d5061dd3fc4508f0491aac43c0919f6e1dbf04b5f0d5cdf75d782df38f222"
+    },
+    {
+      "path": "frontend-react/src/screens/Config.jsx",
+      "before": "2fb2fa558d684ff1a2a6150975b7d864fa6475709d2bde21199ae78c49dfd350",
+      "after": "092314093abceb9147b800f37c15a10dbd1f80541ee75edea80a7657496d6ae9"
+    },
+    {
+      "path": "frontend-react/src/screens/PaymentScenario.test.jsx",
+      "before": null,
+      "after": "cd1e7f09469412ad83d94bb9d8b78bf895c03db48421382cc65debdc46347478"
+    },
+    {
+      "path": "frontend-react/src/ui/Inputs.jsx",
+      "before": "1977a17081c52a815d0ba08a12723c5f87ebaf9804af532cc7695e25cc527a50",
+      "after": "d63204c608eede16a6e761d8179f92454d5a7e266c2f3875129a7e0a9633088b"
+    },
+    {
+      "path": "docs/README.md",
+      "before": "ed31bd668cf86c2250854c4a5e3f3106833a483d70f03568390ebfe70fc8c503",
+      "after": "2aec4ef48c785bb4707453e4555692e09d6279d6eed12c3e54a1b3238c868ad1"
+    },
+    {
+      "path": "docs/reviews/evidence/ECONOMIC_IMPLEMENTATION/backend-pytest.txt",
+      "before": null,
+      "after": "38319225feddb7cf86b2071aec81a10c6b58a30b418d62901c04a3664229534f"
+    },
+    {
+      "path": "docs/reviews/evidence/ECONOMIC_IMPLEMENTATION/natural-project-smoke.json",
+      "before": "bbc2bced8e2d78a564550b451088fb3ab86637e2a1c38870a758c174b3ac32f0",
+      "after": "2044b63dcbcb46ed78b6105ff31de1b708ffc16de61b17bb75ae17dead0b71d5"
+    },
+    {
+      "path": "docs/reviews/evidence/ECONOMIC_IMPLEMENTATION/timing/manifest.json",
+      "before": null,
+      "after": "4e8092be68098244187b01f2da50943dce70bf4d13793b27390da99c0f1e6838"
+    },
+    {
+      "path": "docs/reviews/evidence/ECONOMIC_IMPLEMENTATION/timing/r0-1000-normal-s42-baseline-legacy.json",
+      "before": null,
+      "after": "f4ffcc04f1f92ec9b80bd4f854c4eb8e3ef9975d06618d6fd80fdd7a7e294dc3"
+    },
+    {
+      "path": "docs/reviews/evidence/ECONOMIC_IMPLEMENTATION/timing/r0-1000-normal-s42-candidate-income_first.json",
+      "before": null,
+      "after": "f57563a0a7934ec3c8ebcdbf3cd29005cd0cad181e9f113f04796ef763d05820"
+    },
+    {
+      "path": "docs/reviews/evidence/ECONOMIC_IMPLEMENTATION/timing/r0-1000-normal-s42-candidate-legacy.json",
+      "before": null,
+      "after": "661536a5469cdd22081a1db66b76e1ef5bbe34dca04e1c36585c57b9f482124f"
+    },
+    {
+      "path": "docs/reviews/evidence/ECONOMIC_IMPLEMENTATION/timing/r0-1000-normal-s43-baseline-legacy.json",
+      "before": null,
+      "after": "36b0e69567768f95a1503add67bf0e22a5430ef762980280419effdd61f7f2dc"
+    },
+    {
+      "path": "docs/reviews/evidence/ECONOMIC_IMPLEMENTATION/timing/r0-1000-normal-s43-candidate-income_first.json",
+      "before": null,
+      "after": "b35ca3742ff4a1a2422dca142d6136b1cd8b9b08efea79e397a034520d8e3da5"
+    },
+    {
+      "path": "docs/reviews/evidence/ECONOMIC_IMPLEMENTATION/timing/r0-1000-normal-s43-candidate-legacy.json",
+      "before": null,
+      "after": "6fa83df84c6c411f87a0a157d588012dae0b84bff1723c68269c5c6b1ab17ac5"
+    },
+    {
+      "path": "docs/reviews/evidence/ECONOMIC_IMPLEMENTATION/timing/r0-1000-performance-s42-baseline-legacy.json",
+      "before": null,
+      "after": "74d87c78e2835e4856c206b405ee39698ca6d2f98bb45d3e260efdb70be20a8e"
+    },
+    {
+      "path": "docs/reviews/evidence/ECONOMIC_IMPLEMENTATION/timing/r0-1000-performance-s42-candidate-income_first.json",
+      "before": null,
+      "after": "7e45a0da860dd43dda512d28993ffa92cae22239b70ac4191702790149eae295"
+    },
+    {
+      "path": "docs/reviews/evidence/ECONOMIC_IMPLEMENTATION/timing/r0-1000-performance-s42-candidate-legacy.json",
+      "before": null,
+      "after": "018b1f587f22e5143ddd5b7561a63b6b7bdbb194a8a96d9ddffc97bb1b9c780b"
+    },
+    {
+      "path": "docs/reviews/evidence/ECONOMIC_IMPLEMENTATION/timing/r0-1000-performance-s43-baseline-legacy.json",
+      "before": null,
+      "after": "df9fbb7c2ae2311780a0256025524d876b0e80a984143298f5a98aa57142cf70"
+    },
+    {
+      "path": "docs/reviews/evidence/ECONOMIC_IMPLEMENTATION/timing/r0-1000-performance-s43-candidate-income_first.json",
+      "before": null,
+      "after": "a46e2a4a79191e71f321429e09ef66f36cbd3607920a55e769110c41a1f0c595"
+    },
+    {
+      "path": "docs/reviews/evidence/ECONOMIC_IMPLEMENTATION/timing/r0-1000-performance-s43-candidate-legacy.json",
+      "before": null,
+      "after": "a9cf3b540b9af390a954def9c76b9a998a57a02c075764f333873aab09ad0689"
+    },
+    {
+      "path": "docs/reviews/evidence/ECONOMIC_IMPLEMENTATION/timing/r0-10000-normal-s42-baseline-legacy.json",
+      "before": null,
+      "after": "c4b2e0f1f4dcb5f90079255bbb372e6bf81a23c42b11aa7271727e4f62391ed6"
+    },
+    {
+      "path": "docs/reviews/evidence/ECONOMIC_IMPLEMENTATION/timing/r0-10000-normal-s42-candidate-income_first.json",
+      "before": null,
+      "after": "ea98c5a10a659c9f01ebac5125cd0d5922a11f7232c06682ffcf8e8f7f3f056f"
+    },
+    {
+      "path": "docs/reviews/evidence/ECONOMIC_IMPLEMENTATION/timing/r0-10000-normal-s42-candidate-legacy.json",
+      "before": null,
+      "after": "1b4f7586bff1b53eeccb6c3e332e27ed47d652d01443b69c9b60042b6c5ddce3"
+    },
+    {
+      "path": "docs/reviews/evidence/ECONOMIC_IMPLEMENTATION/timing/r0-10000-normal-s43-baseline-legacy.json",
+      "before": null,
+      "after": "49b0d9e386575dc9d6e7fb6d16b29de17767c84d93c065eaf0d468ea8a292013"
+    },
+    {
+      "path": "docs/reviews/evidence/ECONOMIC_IMPLEMENTATION/timing/r0-10000-normal-s43-candidate-income_first.json",
+      "before": null,
+      "after": "2f63c2a216dd52dcd68faae325b2030428e1fddf091b2b0c8fd5205bfa8cb141"
+    },
+    {
+      "path": "docs/reviews/evidence/ECONOMIC_IMPLEMENTATION/timing/r0-10000-normal-s43-candidate-legacy.json",
+      "before": null,
+      "after": "9ffcff45235b72417f11e44c13b895af8c638495d9dd85fd8beddc4f60862951"
+    },
+    {
+      "path": "docs/reviews/evidence/ECONOMIC_IMPLEMENTATION/timing/r0-10000-performance-s42-baseline-legacy.json",
+      "before": null,
+      "after": "1d74a4eecc730687210d25a07e1d0391a100b25b928181933e64c9a36b5ce005"
+    },
+    {
+      "path": "docs/reviews/evidence/ECONOMIC_IMPLEMENTATION/timing/r0-10000-performance-s42-candidate-income_first.json",
+      "before": null,
+      "after": "8ca73b37686463f3ef9996aee67a08f643ac953aec506d329087435b3e7653aa"
+    },
+    {
+      "path": "docs/reviews/evidence/ECONOMIC_IMPLEMENTATION/timing/r0-10000-performance-s42-candidate-legacy.json",
+      "before": null,
+      "after": "f4b60b53c4bde07bd095159090dde5a8cd15cd9d7e614817ae9b57d576a43fca"
+    },
+    {
+      "path": "docs/reviews/evidence/ECONOMIC_IMPLEMENTATION/timing/r0-10000-performance-s43-baseline-legacy.json",
+      "before": null,
+      "after": "806c173701a622f1243e40c0d411d17f8b8ef687910c34003ddcb0b0854f0cc1"
+    },
+    {
+      "path": "docs/reviews/evidence/ECONOMIC_IMPLEMENTATION/timing/r0-10000-performance-s43-candidate-income_first.json",
+      "before": null,
+      "after": "85985e739c66e6a5981747e845e23f5e689f7b8ef26a2f7aa6495d24d4eb9a1c"
+    },
+    {
+      "path": "docs/reviews/evidence/ECONOMIC_IMPLEMENTATION/timing/r0-10000-performance-s43-candidate-legacy.json",
+      "before": null,
+      "after": "526dc38e1094c07494223c8e00654a7c955f9700948f4f280eebdcc6f956d136"
+    },
+    {
+      "path": "docs/reviews/evidence/ECONOMIC_IMPLEMENTATION/timing/r1-1000-normal-s42-baseline-legacy.json",
+      "before": null,
+      "after": "9f7054607d8261478bb2186bfe9d4c64c770317e32cd4c351ad4614d488aab37"
+    },
+    {
+      "path": "docs/reviews/evidence/ECONOMIC_IMPLEMENTATION/timing/r1-1000-normal-s42-candidate-income_first.json",
+      "before": null,
+      "after": "245ae123a92087fc76ce46dd6028243fbed0f8d110a397c2e6f5923ae330c0d0"
+    },
+    {
+      "path": "docs/reviews/evidence/ECONOMIC_IMPLEMENTATION/timing/r1-1000-normal-s42-candidate-legacy.json",
+      "before": null,
+      "after": "df7304988d9af1947435a80b3b25d5ea738f8a0cfb28ca495186e28942d21f58"
+    },
+    {
+      "path": "docs/reviews/evidence/ECONOMIC_IMPLEMENTATION/timing/r1-1000-normal-s43-baseline-legacy.json",
+      "before": null,
+      "after": "865f46f7c7b85ea515b00aa580eaad1ab4292d421bdd4e76989a41f916b22d20"
+    },
+    {
+      "path": "docs/reviews/evidence/ECONOMIC_IMPLEMENTATION/timing/r1-1000-normal-s43-candidate-income_first.json",
+      "before": null,
+      "after": "5f14295a55037a731f014f67a1882fda20121fd0b1a07f738c18bbccdd5bf3f1"
+    },
+    {
+      "path": "docs/reviews/evidence/ECONOMIC_IMPLEMENTATION/timing/r1-1000-normal-s43-candidate-legacy.json",
+      "before": null,
+      "after": "7dfd81ace9e7946a66101dce86c248aaf93fb3e4d91ae828df10c182684542bf"
+    },
+    {
+      "path": "docs/reviews/evidence/ECONOMIC_IMPLEMENTATION/timing/r1-1000-performance-s42-baseline-legacy.json",
+      "before": null,
+      "after": "758482e5eebb6f177a9aacbbe545f4f914e6f56e20590a41c7ae331391a4ee90"
+    },
+    {
+      "path": "docs/reviews/evidence/ECONOMIC_IMPLEMENTATION/timing/r1-1000-performance-s42-candidate-income_first.json",
+      "before": null,
+      "after": "7fe81012bd46fad5874efe53c165ffabcde3a744ef401f19760e6c23e4c1fb0f"
+    },
+    {
+      "path": "docs/reviews/evidence/ECONOMIC_IMPLEMENTATION/timing/r1-1000-performance-s42-candidate-legacy.json",
+      "before": null,
+      "after": "21d2ae010b496eb00bc397bc173912ad8d9c5f12dbe0e561cbcc683d56c0e71f"
+    },
+    {
+      "path": "docs/reviews/evidence/ECONOMIC_IMPLEMENTATION/timing/r1-1000-performance-s43-baseline-legacy.json",
+      "before": null,
+      "after": "22e28d71d22e745af6bc54d92a5e27ea3fb9a14a9fba5429c55540bad126c59a"
+    },
+    {
+      "path": "docs/reviews/evidence/ECONOMIC_IMPLEMENTATION/timing/r1-1000-performance-s43-candidate-income_first.json",
+      "before": null,
+      "after": "2825fe3bb4fe30c2f7f1e17ef16d5d4573894b77d207432ea9a1293822e8cc28"
+    },
+    {
+      "path": "docs/reviews/evidence/ECONOMIC_IMPLEMENTATION/timing/r1-1000-performance-s43-candidate-legacy.json",
+      "before": null,
+      "after": "c548320289e26c4f768753dc7292f44be74d83f4c8aa4ca281475353bdb3e9c5"
+    },
+    {
+      "path": "docs/reviews/evidence/ECONOMIC_IMPLEMENTATION/timing/r1-10000-normal-s42-baseline-legacy.json",
+      "before": null,
+      "after": "1ca3df161e72a9b9135fc3af8c884a1191f3114e3536879b4b9cb93226169828"
+    },
+    {
+      "path": "docs/reviews/evidence/ECONOMIC_IMPLEMENTATION/timing/r1-10000-normal-s42-candidate-income_first.json",
+      "before": null,
+      "after": "941150ca9fed41c9c7f854b3214fe6ad52b26a7a8c74ea0e8471e83ae0d2232a"
+    },
+    {
+      "path": "docs/reviews/evidence/ECONOMIC_IMPLEMENTATION/timing/r1-10000-normal-s42-candidate-legacy.json",
+      "before": null,
+      "after": "2bb854147abf3e0d4675bcc799f0f2c13263e27187a18c6b52411799b286f00f"
+    },
+    {
+      "path": "docs/reviews/evidence/ECONOMIC_IMPLEMENTATION/timing/r1-10000-normal-s43-baseline-legacy.json",
+      "before": null,
+      "after": "29fada7a8aedb8e2852764988c32238ddc82c128909a997c82dd640f9a9be749"
+    },
+    {
+      "path": "docs/reviews/evidence/ECONOMIC_IMPLEMENTATION/timing/r1-10000-normal-s43-candidate-income_first.json",
+      "before": null,
+      "after": "e632571173dc3ac65ac3c00fbf770335223229f267619a23d46a14153ee8892f"
+    },
+    {
+      "path": "docs/reviews/evidence/ECONOMIC_IMPLEMENTATION/timing/r1-10000-normal-s43-candidate-legacy.json",
+      "before": null,
+      "after": "67bc2c6a88fb1019f5bff388bb0e5243c9f063326c0958c40e839f1f8fb30b11"
+    },
+    {
+      "path": "docs/reviews/evidence/ECONOMIC_IMPLEMENTATION/timing/r1-10000-performance-s42-baseline-legacy.json",
+      "before": null,
+      "after": "93a30a5e07ed51a14f84647abff8cfb64c515e72c9cf11c999e7ebf285537f9a"
+    },
+    {
+      "path": "docs/reviews/evidence/ECONOMIC_IMPLEMENTATION/timing/r1-10000-performance-s42-candidate-income_first.json",
+      "before": null,
+      "after": "665dfe8505a51620933f1ec2044e2869117c902f6f970af863fa2ebcc9619d5e"
+    },
+    {
+      "path": "docs/reviews/evidence/ECONOMIC_IMPLEMENTATION/timing/r1-10000-performance-s42-candidate-legacy.json",
+      "before": null,
+      "after": "b6e1dc74c811ef2a13b4b11696b98bbf5e0b017f820be5f7188a0d8bf7b9a1c7"
+    },
+    {
+      "path": "docs/reviews/evidence/ECONOMIC_IMPLEMENTATION/timing/r1-10000-performance-s43-baseline-legacy.json",
+      "before": null,
+      "after": "133e19cb03fcdf60009119db78309416cca547b48476c16c170ff0b701036dc5"
+    },
+    {
+      "path": "docs/reviews/evidence/ECONOMIC_IMPLEMENTATION/timing/r1-10000-performance-s43-candidate-income_first.json",
+      "before": null,
+      "after": "58871077720274b930f1e0f7780e5c391154bc617a6904de9ede78d41f1a42df"
+    },
+    {
+      "path": "docs/reviews/evidence/ECONOMIC_IMPLEMENTATION/timing/r1-10000-performance-s43-candidate-legacy.json",
+      "before": null,
+      "after": "ba4e89fac6d5d887454f4b29e681eca288b97c2bee42d992bcd556f5963dc096"
+    },
+    {
+      "path": "docs/reviews/evidence/ECONOMIC_IMPLEMENTATION/timing/summary.json",
+      "before": null,
+      "after": "6c5a280e862bfd0a360b7f6f1aadfbb08adf21570c6f2ae49d5da07c641ce54b"
+    },
+    {
+      "path": "openwiki/backend/tick-lifecycle.md",
+      "before": "7a4d006cb8dddd2622eec6aa21464da41548912af3c9c9643ee111ee1630bcb9",
+      "after": "e0bf64646ba79cba0ebf814378aa4a117d4dede8e7d83073d44dd60fa1590669"
+    },
+    {
+      "path": "openwiki/backend/public-institutions.md",
+      "before": "8aec63fd94eb9594340194f07c718103b0d0d3360e141741010723e2cc2b7a85",
+      "after": "24c7790a4220f01fc7c01a87d0e39353dd89492975cf4dd43a6f61ad767b5a3b"
+    },
+    {
+      "path": "openwiki/where-to-change-what.md",
+      "before": "ed59719146d1837bf074f0b40bd8f81856098b975a8a75e4c91857e417044d48",
+      "after": "e6dc944e9bb017e6feaf6b9aa90de14341bfcfc9946146e04c9d7e89e2272724"
+    }
+  ],
+  "note": "Initial integration; final docs/wiki/evidence follow after timing.",
+  "backend_matches_benchmark_source": true,
+  "frontend_matches_verified_candidate": true,
+  "phase": "functional implementation and evidence integrated; new-scenario performance target not met",
+  "wiki_refreshed": true,
+  "verification": {
+    "backend": "440 passed, 8 research deselected, 1 expected failure",
+    "ruff": "passed",
+    "frontend": "91 tests / 20 files and Vite build passed on identical candidate source",
+    "browser": "fresh original backend; tick 164; selectors locked; no captured warnings/errors",
+    "benchmarks": "48 processes; unchanged source; income_first fails 5% target; measured legacy pairs within target",
+    "comparisons": "16 cases plus replay; selected starting hashes and replay match"
+  }
+}

@@ -842,6 +842,26 @@ class LLMConfig:
 class SimulationConfig:
     """Master configuration for the entire simulation."""
 
+    payment_sequence: str = "legacy"
+    payment_care_mode: str = "patient_pay"
+    payment_assistance: str = "reserve"
+    payment_care_request_slope: float = 0.5
+    payment_lease_term_ticks: int = 52
+    payment_renewal_soft_cap: float = 0.05
+    payment_renewal_strict_cap: float = 0.02
+    payment_construction_unit_cost: float = 1000.0
+    payment_construction_project_cap: int = 4
+    payment_construction_lag_ticks: int = 4
+    payment_household_default_misses: int = 8
+    payment_firm_default_misses: int = 8
+    payment_default_cooldown_ticks: int = 26
+    payment_annual_quote_shift: float = 0.0
+    payment_benefit_wage_floor_multiplier: float = 1.5
+    payment_services_project_enabled: bool = False
+    payment_services_project_cost: float = 1000.0
+    payment_services_project_lag_ticks: int = 1
+    payment_debt_service_share: float = 0.35
+
     # Sub-configurations
     time: TimeConfig = field(default_factory=TimeConfig)
     households: HouseholdBehaviorConfig = field(default_factory=HouseholdBehaviorConfig)
@@ -872,6 +892,30 @@ class SimulationConfig:
 
     def __post_init__(self):
         """Validation and derived values."""
+        if self.payment_sequence not in {"legacy", "income_first", "income_late"}:
+            raise ValueError("unsupported payment sequence")
+        if self.payment_care_mode not in {"patient_pay", "covered"}:
+            raise ValueError("unsupported payment care mode")
+        if self.payment_assistance not in {"reserve", "care", "rent", "mixed"}:
+            raise ValueError("unsupported payment assistance destination")
+        if not 0.0 <= self.payment_care_request_slope <= 1.0:
+            raise ValueError("payment care request slope must be in [0, 1]")
+        if self.payment_lease_term_ticks <= 0:
+            raise ValueError("lease term must be positive")
+        if not 0.0 <= self.payment_renewal_strict_cap <= self.payment_renewal_soft_cap:
+            raise ValueError("renewal caps must be ordered and nonnegative")
+        if self.payment_construction_unit_cost <= 0.0 or self.payment_construction_project_cap <= 0 or self.payment_construction_lag_ticks < 0:
+            raise ValueError("construction cost/cap must be positive and lag nonnegative")
+        if self.payment_household_default_misses not in {4, 8, 12} or self.payment_firm_default_misses not in {4, 8, 12}:
+            raise ValueError("payment default misses must be 4, 8 or 12")
+        if self.payment_default_cooldown_ticks < 0 or not -0.05 <= self.payment_annual_quote_shift <= 0.05:
+            raise ValueError("payment default cooldown/quote shift outside bounds")
+        if self.payment_benefit_wage_floor_multiplier not in {0.0, 1.5}:
+            raise ValueError("benefit wage floor multiplier must be 0 or 1.5")
+        if self.payment_services_project_cost <= 0.0 or self.payment_services_project_lag_ticks < 1:
+            raise ValueError("Services project needs positive cost and next-tick-or-later delivery")
+        if not 0.0 < self.payment_debt_service_share <= 1.0:
+            raise ValueError("payment debt service share must be in (0,1]")
         # Validate time parameters
         if self.time.ticks_per_year <= 0:
             raise ValueError("ticks_per_year must be positive")

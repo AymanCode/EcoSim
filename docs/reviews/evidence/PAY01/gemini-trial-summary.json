@@ -1,0 +1,108 @@
+{
+  "requested_model": "gemini-3.8-flash-high",
+  "requested_effort": "high",
+  "outcome": "superseded by user-selected Sol medium; Gemini code unaccepted",
+  "runs": [
+    {
+      "stream": "agy-output.jsonl",
+      "observed_model": "gemini-3.8-flash-high",
+      "status": "SUCCESS",
+      "error": null,
+      "conversation_id": "743dd065-14f4-47e5-821f-87d51f648091",
+      "denied_actions": [
+        {
+          "action": "command",
+          "display_name": "RunCommand"
+        }
+      ],
+      "duration_seconds": 200.689182
+    },
+    {
+      "stream": "agy-tests-output.jsonl",
+      "observed_model": "gemini-3.8-flash-high",
+      "status": "ERROR",
+      "error": "interrupted",
+      "conversation_id": "6b9d6617-7592-4cf5-bd10-5ef00d6668cf",
+      "denied_actions": [],
+      "duration_seconds": 36.925827
+    },
+    {
+      "stream": "attempt1-agy-output.jsonl",
+      "observed_model": "gemini-3.8-flash-high",
+      "status": "SUCCESS",
+      "error": null,
+      "conversation_id": "daadbce5-6733-4c43-a44c-af8559833518",
+      "denied_actions": [
+        {
+          "action": "read_file",
+          "display_name": "ViewFile"
+        }
+      ],
+      "duration_seconds": 12.37099
+    },
+    {
+      "stream": "attempt2-agy-output.jsonl",
+      "observed_model": "gemini-3.8-flash-high",
+      "status": "SUCCESS",
+      "error": null,
+      "conversation_id": "0e68d488-280c-4d27-9969-380971fa7639",
+      "denied_actions": [
+        {
+          "action": "read_file",
+          "display_name": "ViewFile"
+        }
+      ],
+      "duration_seconds": 25.748589
+    },
+    {
+      "stream": "attempt3-agy-output.jsonl",
+      "observed_model": "gemini-3.8-flash-high",
+      "status": "SUCCESS",
+      "error": null,
+      "conversation_id": "2263ac17-9c58-42c7-8333-74f69ef8b382",
+      "denied_actions": [
+        {
+          "action": "command",
+          "display_name": "RunCommand"
+        }
+      ],
+      "duration_seconds": 32.078164
+    },
+    {
+      "stream": "attempt4-agy-output.jsonl",
+      "observed_model": "gemini-3.8-flash-high",
+      "status": "ERROR",
+      "error": "interrupted",
+      "conversation_id": "2263ac17-9c58-42c7-8333-74f69ef8b382",
+      "denied_actions": [],
+      "duration_seconds": 227.05644
+    },
+    {
+      "stream": "attempt5-agy-output.jsonl",
+      "observed_model": "gemini-3.8-flash-high",
+      "status": "ERROR",
+      "error": "interrupted",
+      "conversation_id": "2263ac17-9c58-42c7-8333-74f69ef8b382",
+      "denied_actions": [],
+      "duration_seconds": 355.510532
+    },
+    {
+      "stream": "attempt6-agy-output.jsonl",
+      "observed_model": "gemini-3.8-flash-high",
+      "status": "ERROR",
+      "error": "Your previous response was cut off because it exceeded the output token limit\nPlease continue from where you left off, keeping your response shorter\nRetries remaining: 3",
+      "conversation_id": "5d55d102-0810-4f1b-b7e3-2cd122d20d8a",
+      "denied_actions": [],
+      "duration_seconds": 223.084715
+    },
+    {
+      "stream": "tests-attempt1-agy-tests-output.jsonl",
+      "observed_model": "gemini-3.8-flash-high",
+      "status": "SUCCESS",
+      "error": null,
+      "conversation_id": "5116c032-07da-4b38-804c-51e47ffebd9f",
+      "denied_actions": [],
+      "duration_seconds": 56.104741
+    }
+  ]
+}

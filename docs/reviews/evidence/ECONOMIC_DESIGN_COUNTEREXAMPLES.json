@@ -1,0 +1,61 @@
+{
+  "scope": "equation counterexamples and current source inputs; not aggregate policy effects",
+  "results": {
+    "D01": {
+      "signed_cash_change": 0.0,
+      "proposed_overdraft_creation_line": 10.0,
+      "artificial_residual": -10.0
+    },
+    "D03": {
+      "actual_effective_rates_at_headline_40_percent": [
+        0.2666591796072546,
+        0.2666591796072546,
+        0.4,
+        0.42040676677828276,
+        0.47194559420798377,
+        0.4839455942079838
+      ],
+      "proposed_zero_rate_fallback": [
+        0.4,
+        0.4,
+        0.4,
+        0.4,
+        0.4,
+        0.4
+      ],
+      "initial_zero_expectation_after_rescale": 0.0,
+      "two_updates_overwritten_ratio_result": 0.3,
+      "required_final_headline": 0.4
+    },
+    "D04": {
+      "previous_means": [
+        1.0,
+        1.0
+      ],
+      "new_observation": 0,
+      "next_exact_means": [
+        1.0,
+        0.0
+      ]
+    },
+    "D07": {
+      "requested_delay": 2,
+      "append_then_pop_deliveries": [
+        0.0,
+        1.0,
+        0.0
+      ],
+      "queue_lengths": [
+        1,
+        1,
+        1
+      ]
+    },
+    "N2": {
+      "scalar_saving_input": 0.14300000000000002,
+      "batch_saving_input": 0.02,
+      "scalar_wage_mpc_before_caps": 0.8135349999999999,
+      "batch_wage_mpc_before_caps": 0.8449
+    }
+  }
+}

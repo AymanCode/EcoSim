@@ -82,6 +82,8 @@ def test_run_full_app_evidence_rejects_unclaimed_frontend_controls(tmp_path):
 
 def test_run_full_app_evidence_passes_seed_to_dashboard_flow(monkeypatch, tmp_path):
     observed: dict[str, int] = {}
+    # Every process and finalization check is mocked; no real shutdown to wait for.
+    monkeypatch.setattr(full_app.time, "sleep", lambda seconds: None)
 
     monkeypatch.setattr(
         full_app,

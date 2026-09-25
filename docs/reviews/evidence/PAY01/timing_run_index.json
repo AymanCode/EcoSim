@@ -1,0 +1,72 @@
+{
+  "scope": "early 1000-household timing; not full integrated 5-percent acceptance",
+  "order": "AB then BA within each mode",
+  "ticks": 100,
+  "seed": 42,
+  "runs": [
+    {
+      "mode": "normal",
+      "pair": 1,
+      "variant": "baseline",
+      "source": "/Users/aymanislam/EcoSim_v_2/EcoSim",
+      "exit_code": 0,
+      "output": "/var/folders/tl/vy03rfvj6sv8vz76qyw1stb00000gn/T/ecosim-agy-wages-csvdfs9o/timing/normal/1/baseline"
+    },
+    {
+      "mode": "normal",
+      "pair": 1,
+      "variant": "candidate",
+      "source": "/var/folders/tl/vy03rfvj6sv8vz76qyw1stb00000gn/T/ecosim-agy-wages-csvdfs9o/candidate",
+      "exit_code": 0,
+      "output": "/var/folders/tl/vy03rfvj6sv8vz76qyw1stb00000gn/T/ecosim-agy-wages-csvdfs9o/timing/normal/1/candidate"
+    },
+    {
+      "mode": "normal",
+      "pair": 2,
+      "variant": "candidate",
+      "source": "/var/folders/tl/vy03rfvj6sv8vz76qyw1stb00000gn/T/ecosim-agy-wages-csvdfs9o/candidate",
+      "exit_code": 0,
+      "output": "/var/folders/tl/vy03rfvj6sv8vz76qyw1stb00000gn/T/ecosim-agy-wages-csvdfs9o/timing/normal/2/candidate"
+    },
+    {
+      "mode": "normal",
+      "pair": 2,
+      "variant": "baseline",
+      "source": "/Users/aymanislam/EcoSim_v_2/EcoSim",
+      "exit_code": 0,
+      "output": "/var/folders/tl/vy03rfvj6sv8vz76qyw1stb00000gn/T/ecosim-agy-wages-csvdfs9o/timing/normal/2/baseline"
+    },
+    {
+      "mode": "performance",
+      "pair": 1,
+      "variant": "baseline",
+      "source": "/Users/aymanislam/EcoSim_v_2/EcoSim",
+      "exit_code": 0,
+      "output": "/var/folders/tl/vy03rfvj6sv8vz76qyw1stb00000gn/T/ecosim-agy-wages-csvdfs9o/timing/performance/1/baseline"
+    },
+    {
+      "mode": "performance",
+      "pair": 1,
+      "variant": "candidate",
+      "source": "/var/folders/tl/vy03rfvj6sv8vz76qyw1stb00000gn/T/ecosim-agy-wages-csvdfs9o/candidate",
+      "exit_code": 0,
+      "output": "/var/folders/tl/vy03rfvj6sv8vz76qyw1stb00000gn/T/ecosim-agy-wages-csvdfs9o/timing/performance/1/candidate"
+    },
+    {
+      "mode": "performance",
+      "pair": 2,
+      "variant": "candidate",
+      "source": "/var/folders/tl/vy03rfvj6sv8vz76qyw1stb00000gn/T/ecosim-agy-wages-csvdfs9o/candidate",
+      "exit_code": 0,
+      "output": "/var/folders/tl/vy03rfvj6sv8vz76qyw1stb00000gn/T/ecosim-agy-wages-csvdfs9o/timing/performance/2/candidate"
+    },
+    {
+      "mode": "performance",
+      "pair": 2,
+      "variant": "baseline",
+      "source": "/Users/aymanislam/EcoSim_v_2/EcoSim",
+      "exit_code": 0,
+      "output": "/var/folders/tl/vy03rfvj6sv8vz76qyw1stb00000gn/T/ecosim-agy-wages-csvdfs9o/timing/performance/2/baseline"
+    }
+  ]
+}

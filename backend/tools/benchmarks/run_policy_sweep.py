@@ -18,6 +18,7 @@ if str(BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(BACKEND_ROOT))
 
 from config import CONFIG
+from run_evidence import RunEvidence, comparison_evidence, model_identity, write_evidence
 from tools.runners.run_large_simulation import compute_household_stats, create_large_economy
 
 from .common import (
@@ -102,6 +103,22 @@ def run_policy_sweep(
     paths = BenchmarkPaths.create(output_root, "policy-sweep")
     specs = expand_policy_specs(policy_groups)
     rows: list[dict[str, Any]] = []
+    evidence_runs = []
+    model = model_identity()
+    evidence_path = paths.run_dir / "comparison-evidence.json"
+
+    def save_evidence():
+        write_evidence(evidence_path, comparison_evidence(
+            model=model, runs=evidence_runs, runner="backend.tools.benchmarks.run_policy_sweep",
+            planned_runs=[{"policy": spec["name"], "seed": seed, "requested_policy": spec["levers"]}
+                          for spec in specs for seed in seeds],
+            metric_schema={"source": "run_policy_sweep.run_policy_sweep + compute_household_stats",
+                "timing": "elapsed_seconds covers the step loop, including settings observations; excludes initialization, final metric collection and sidecar I/O.",
+                "overrides": {"final_unemployment_rate": "1 minus mean household is_employed across all households, regardless of count_cannot_work_as_unemployed."},
+                "aliases": {"final_gdp": "gdp_this_tick", "final_unemployment_rate": "unemployment_rate",
+                    "final_happiness": "mean_happiness", "final_health": "mean_health",
+                    "final_government_cash": "government_cash"}},
+        ))
 
     for spec in specs:
         for seed in seeds:
@@ -112,47 +129,57 @@ def run_policy_sweep(
                 )
             _set_seed(seed)
             run_id = build_run_id("policy", {"policy": spec["name"], "seed": seed, "households": households})
-            economy = _create_economy_quietly(households, firms_per_category, verbose=verbose)
-            _apply_policy(economy, spec["levers"])
-            started = time.perf_counter()
-            failed = False
-            error = ""
-            for tick in range(ticks):
-                if verbose and (tick == 0 or tick % 20 == 0):
-                    print(f"[policy] run={run_id} tick={tick}/{ticks}", flush=True)
+            evidence = RunEvidence(run_id=run_id, seed=seed, ticks=ticks,
+                factory={"households": households, "firms_per_category": firms_per_category},
+                requested_policy=spec["levers"])
+            evidence_runs.append(evidence.data)
+            save_evidence()
+            economy = None
+            stats, metrics = {}, {}
+            elapsed = 0.0
+            failure = None
+            phase = "initialization"
+            try:
+                economy = _create_economy_quietly(households, firms_per_category, verbose=verbose)
+                evidence.observe(economy, phase="initialized")
+                phase = "policy_application"
+                _apply_policy(economy, spec["levers"])
+                evidence.policy_applied(economy)
+                phase = "step"
+                started = time.perf_counter()
                 try:
-                    economy.step()
-                except Exception as exc:  # pragma: no cover - reported to output
-                    failed = True
-                    error = f"{type(exc).__name__}: {exc}"
-                    break
-            elapsed = time.perf_counter() - started
-            stats = compute_household_stats(economy.households)
-            metrics = economy.get_economic_metrics()
-            rows.append(
-                {
-                    "run_id": run_id,
-                    "policy": spec["name"],
-                    "policy_group": ",".join(policy_groups),
-                    "levers_json": spec["levers"],
-                    "seed": seed,
-                    "households": households,
-                    "ticks_requested": ticks,
-                    "ticks_completed": int(economy.current_tick),
-                    "elapsed_seconds": round(elapsed, 4),
-                    "ticks_per_second": round(int(economy.current_tick) / elapsed, 4) if elapsed > 0 else 0.0,
-                    "final_gdp": float(metrics.get("gdp_this_tick", 0.0)),
-                    "final_unemployment_rate": float(stats.get("unemployment_rate", 0.0)),
-                    "final_happiness": float(stats.get("mean_happiness", 0.0)),
-                    "final_health": float(stats.get("mean_health", 0.0)),
-                    "final_government_cash": float(economy.government.cash_balance),
-                    "failed": failed,
-                    "error": error,
-                }
-            )
+                    for tick in range(ticks):
+                        if verbose and (tick == 0 or tick % 20 == 0):
+                            print(f"[policy] run={run_id} tick={tick}/{ticks}", flush=True)
+                        evidence.observe(economy, phase="before_step")
+                        economy.step()
+                        evidence.completed += 1
+                finally:
+                    elapsed = time.perf_counter() - started
+                phase = "metrics"
+                stats = compute_household_stats(economy.households)
+                metrics = economy.get_economic_metrics()
+            except Exception as exc:  # Errors remain visible in both rows and evidence.
+                failure = exc
+            evidence.finish(economy, error=failure, phase=phase)
+            save_evidence()
+            rows.append({
+                "run_id": run_id, "policy": spec["name"], "policy_group": ",".join(policy_groups),
+                "levers_json": spec["levers"], "seed": seed, "households": households,
+                "ticks_requested": ticks, "ticks_completed": evidence.completed,
+                "elapsed_seconds": round(elapsed, 4),
+                "ticks_per_second": round(evidence.completed / elapsed, 4) if elapsed > 0 else 0.0,
+                "final_gdp": float(metrics["gdp_this_tick"]) if metrics else None,
+                "final_unemployment_rate": float(stats["unemployment_rate"]) if stats else None,
+                "final_happiness": float(stats["mean_happiness"]) if stats else None,
+                "final_health": float(stats["mean_health"]) if stats else None,
+                "final_government_cash": float(economy.government.cash_balance) if economy is not None else None,
+                "failed": failure is not None,
+                "error": f"{type(failure).__name__}: {failure}" if failure else "",
+            })
             if verbose:
                 print(
-                    f"[policy] completed run={run_id} ticks_completed={int(economy.current_tick)} "
+                    f"[policy] run={run_id} status={evidence.data['status']} ticks_completed={evidence.completed} "
                     f"ticks_per_sec={rows[-1]['ticks_per_second']}",
                     flush=True,
                 )
@@ -177,7 +204,7 @@ def run_policy_sweep(
         "metadata": metadata,
         "summary": summary,
         "rows": rows,
-        "artifacts": {"rows_csv": rows_csv, "summary_md": summary_md, "raw_json": raw_json},
+        "artifacts": {"rows_csv": rows_csv, "summary_md": summary_md, "raw_json": raw_json, "comparison_evidence": evidence_path},
     }
 
 
@@ -210,7 +237,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     print(f"Wrote policy sweep artifacts to {result['paths'].run_dir}")
     print(f"Best average GDP policy: {result['summary'].get('best_by_avg_gdp', {}).get('policy', 'n/a')}")
-    return 0
+    return 1 if any(row["failed"] for row in result["rows"]) else 0
 
 
 if __name__ == "__main__":  # pragma: no cover

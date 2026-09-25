@@ -29,10 +29,10 @@ from types import SimpleNamespace
 # Add current directory to path so we can import backend modules
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Literal
 from fastapi import FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 import numpy as np
 
 from config import clone_config, use_config
@@ -136,12 +136,38 @@ app.add_middleware(
 
 class SetupConfig(BaseModel):
     """Validated setup configuration from WebSocket."""
+    model_config = ConfigDict(allow_inf_nan=False)
     num_households: int = Field(default=1000, ge=3, le=100_000)
     num_firms: int = Field(default=5, ge=1, le=1_000)
     seed: Optional[int] = Field(default=None, ge=0, le=2_147_483_647)
     enable_llm_government: Optional[bool] = False
     disable_stabilizers: bool = False
     disabled_agents: List[str] = Field(default_factory=list)
+    payment_sequence: Literal["legacy", "income_first", "income_late"] = "legacy"
+    payment_care_mode: Literal["patient_pay", "covered"] = "patient_pay"
+    payment_assistance: Literal["reserve", "care", "rent", "mixed"] = "reserve"
+    payment_care_request_slope: float = Field(default=0.5, ge=0.0, le=1.0)
+    payment_lease_term_ticks: int = Field(default=52, ge=1)
+    payment_renewal_soft_cap: float = Field(default=0.05, ge=0.0)
+    payment_renewal_strict_cap: float = Field(default=0.02, ge=0.0)
+    payment_construction_unit_cost: float = Field(default=1000.0, gt=0.0)
+    payment_construction_project_cap: int = Field(default=4, ge=1)
+    payment_construction_lag_ticks: int = Field(default=4, ge=0)
+    payment_household_default_misses: Literal[4, 8, 12] = 8
+    payment_firm_default_misses: Literal[4, 8, 12] = 8
+    payment_default_cooldown_ticks: int = Field(default=26, ge=0)
+    payment_annual_quote_shift: float = Field(default=0.0, ge=-0.05, le=0.05)
+    payment_benefit_wage_floor_multiplier: Literal[0.0, 1.5] = 1.5
+    payment_services_project_enabled: bool = False
+    payment_services_project_cost: float = Field(default=1000.0, gt=0.0)
+    payment_services_project_lag_ticks: int = Field(default=1, ge=1)
+    payment_debt_service_share: float = Field(default=0.35, gt=0.0, le=1.0)
+
+    @model_validator(mode="after")
+    def validate_payment_caps(self):
+        if self.payment_renewal_strict_cap > self.payment_renewal_soft_cap:
+            raise ValueError("strict renewal cap cannot exceed soft cap")
+        return self
 
     @field_validator("disabled_agents", mode="before")
     @classmethod
@@ -355,6 +381,7 @@ class SimulationManager:
             "government": True
         }
         self.pending_config_updates: Dict[str, Any] | None = None
+        self.setup_config: Dict[str, Any] = {}
         self.metrics_stride = 5
         self.policy_changes = []
         self.cached_stats = None
@@ -526,7 +553,8 @@ class SimulationManager:
         self._previous_unemployment_rate = 0.0
         self._previous_avg_health = 0.0
 
-        effective_config = dict(config)
+        effective_config = dict(self.setup_config)
+        effective_config.update(config)
         effective_config["num_households"] = int(num_households)
         effective_config["num_firms"] = int(num_firms)
         effective_config["seed"] = int(getattr(self.config, "random_seed", 0))
@@ -1844,9 +1872,18 @@ class SimulationManager:
 
         # Validate config through pydantic model
         validated = SetupConfig(**config)
+        # Session-owned settings must be in scope before the factory constructs
+        # Economy; omitted API setup keeps the library's legacy default.
+        for payment_field in (name for name in SetupConfig.model_fields if name.startswith("payment_")):
+            setattr(self.config, payment_field, getattr(validated, payment_field))
+        self.setup_config = validated.model_dump()
         num_households = validated.num_households
         num_firms = validated.num_firms
         seed = int(validated.seed if validated.seed is not None else getattr(self.config, "random_seed", 0))
+        self.setup_config["seed"] = seed
+        for opening_rate in ("wage_tax", "profit_tax"):
+            if opening_rate in config:
+                self.setup_config[opening_rate] = config[opening_rate]
         self.config.random_seed = seed
         if validated.enable_llm_government is not None:
             self.config.llm.enable_llm_government = bool(validated.enable_llm_government)
@@ -1859,6 +1896,10 @@ class SimulationManager:
             num_households=num_households, 
             num_firms_per_category=num_firms
         )
+        self.economy.payment_config_snapshot = {
+            name: getattr(self.config, name)
+            for name in SetupConfig.model_fields if name.startswith("payment_")
+        }
 
         disabled_agents: List[str] = []
         if validated.disable_stabilizers:
@@ -2566,6 +2607,8 @@ class SimulationManager:
                 }]
                 
                 # Construct state update
+                from payment_reporting import payment_snapshot
+                payment_stats = payment_snapshot(self.economy)
                 state = {
                     "tick": self.tick,
                     "metrics": {
@@ -2578,6 +2621,7 @@ class SimulationManager:
                         "govInvestments": gov_investments / 1000000.0,
                         "govOwnedFirms": gov_owned_firms,
                         "activeLoans": active_loans,
+                        "payment": payment_stats,
                         "bondPurchases": gov_investments / 1000000.0,  # Proxy bond purchases as govt investments
                         "policyChanges": self.policy_changes,
                         "latestGovernmentDecision": self.latest_government_decision,
@@ -2803,6 +2847,11 @@ class SimulationManager:
         """
         if not self.economy:
             return
+
+        locked = {name for name in SetupConfig.model_fields if name.startswith("payment_")}
+        locked.update({"paymentSequence", "paymentCareMode", "paymentAssistance"})
+        if locked.intersection(config_data):
+            raise ValueError("Payment scenario is fixed at SETUP; start a new run to change it")
 
         if not self.is_running:
             await self._apply_config_updates(config_data)
@@ -3190,8 +3239,11 @@ async def websocket_endpoint(websocket: WebSocket):
             if command == "SETUP":
                 config = data.get("config", {})
                 try:
+                    if session_manager.is_running:
+                        await websocket.send_json({"error": "SETUP failed: stop the active run before starting a new scenario"})
+                        continue
                     session_manager.initialize(config)
-                    await websocket.send_json({"type": "SETUP_COMPLETE"})
+                    await websocket.send_json({"type": "SETUP_COMPLETE", "config": session_manager.setup_config})
                 except Exception as e:
                     logger.exception("SETUP failed")
                     await websocket.send_json({"error": f"SETUP failed: {e}"})
@@ -3218,7 +3270,10 @@ async def websocket_endpoint(websocket: WebSocket):
                 await websocket.send_json({"type": "RESET", "tick": 0})
             elif command == "CONFIG":
                 config_data = data.get("config", {})
-                await session_manager.update_config(config_data)
+                try:
+                    await session_manager.update_config(config_data)
+                except ValueError as exc:
+                    await websocket.send_json({"error": f"CONFIG failed: {exc}"})
             elif command == "STABILIZERS":
                 disable_flag = data.get("disable_stabilizers", False)
                 disabled_agents = data.get("disabled_agents", [])

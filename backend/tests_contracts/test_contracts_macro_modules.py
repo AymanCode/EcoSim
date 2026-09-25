@@ -1,7 +1,7 @@
 """Contract tests for Module 1 (demand-weighted spawning) and Module 2 (Phillips Curve wages).
 
 Module 1 invariants:
-- saturated market (food_unmet == services_unmet == 0) aborts spawn entirely
+- zero unmet demand can still spawn a competitor below the target firm count
 - food-heavy unmet demand always spawns a Food firm
 - services-only unmet demand always spawns a Services firm
 - _clear_goods_market accumulates per-category unmet demand correctly

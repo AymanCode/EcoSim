@@ -26,6 +26,12 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+test = [
+    "pytest>=7.4.0",
+    "pytest-asyncio>=0.23.0",
+    "ruff>=0.12.0,<1",
+    "requests>=2.32.0,<3",
+]
 dev = [
     "pytest>=7.4.0",
     "pytest-cov>=4.1.0",
@@ -90,11 +96,11 @@ select = ["E9", "F63", "F7", "F82"]
 
 [tool.pytest.ini_options]
 pythonpath = ["backend"]
-testpaths = ["backend/tests_contracts"]
-addopts = "-q --tb=short"
+testpaths = ["backend/tests_contracts", "backend/tests_server", "backend/data/tests"]
+addopts = "-q --tb=short --strict-markers -m 'not research'"
 markers = [
     "slow: marks tests as slow (deselect with '-m \"not slow\"')",
-    "llm: marks local LLM and prompt-advisor tests that are still in progress",
+    "llm: provider-free LLM contracts using mocked responses (included in the default suite)",
     "research: marks exploratory simulation policy checks that are useful but not CI-stable",
 ]
 

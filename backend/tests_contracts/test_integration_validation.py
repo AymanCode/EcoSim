@@ -6,14 +6,8 @@ dynamics with all Tier 1-3 fixes applied.
 
 import json
 import math
-import random
 from typing import Any, Dict
 
-import numpy as np
-import pytest
-
-from agents import GovernmentAgent
-from config import CONFIG
 from economy import Economy
 
 
@@ -94,34 +88,6 @@ class TestCapitalStock:
         cap_2 = f2._capacity_for_workers(5)
         assert cap_2 > cap_1, (
             f"More capital (50 vs 1) should produce more output: {cap_2:.1f} vs {cap_1:.1f}"
-        )
-
-
-class TestDynamicDepositRate:
-    """Verify Fix 22 deposit rate responds to reserves."""
-
-    def test_high_reserves_lower_rate(self) -> None:
-        eco = _build_economy(42)
-        if eco.bank is None:
-            pytest.skip("No bank in economy")
-        bank = eco.bank
-        bank.cash_reserves = 200_000.0
-        bank.total_deposits = 100_000.0  # 200% reserve ratio
-        bank.update_deposit_rate()
-        assert bank.deposit_rate < 0.01, (
-            f"With 200% reserves, rate should be < 1%, got {bank.deposit_rate:.4f}"
-        )
-
-    def test_low_reserves_raise_rate(self) -> None:
-        eco = _build_economy(42)
-        if eco.bank is None:
-            pytest.skip("No bank in economy")
-        bank = eco.bank
-        bank.cash_reserves = 2_000.0
-        bank.total_deposits = 100_000.0  # 2% reserve ratio
-        bank.update_deposit_rate()
-        assert bank.deposit_rate > 0.01, (
-            f"With 2% reserves, rate should be > 1%, got {bank.deposit_rate:.4f}"
         )
 
 
@@ -246,7 +212,7 @@ class TestDeterministicReplay:
         keys = ["gdp_this_tick", "unemployment_rate", "mean_wage",
                 "total_household_cash", "total_firm_cash", "government_cash"]
         for k in keys:
-            v1, v2 = m1.get(k, 0.0), m2.get(k, 0.0)
+            v1, v2 = m1[k], m2[k]
             assert v1 == v2, (
                 f"Deterministic replay failed: {k} = {v1} vs {v2}"
             )

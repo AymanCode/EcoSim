@@ -1,0 +1,21 @@
+{
+  "source": "/private/var/folders/tl/vy03rfvj6sv8vz76qyw1stb00000gn/T/ecosim-agy-wages-csvdfs9o/candidate",
+  "rows": [
+    {
+      "performance_mode": false,
+      "ticks": 55,
+      "mirror_mismatches": 0,
+      "earned_receipt_mismatches": 0,
+      "mirror_examples": [],
+      "earned_examples": []
+    },
+    {
+      "performance_mode": true,
+      "ticks": 55,
+      "mirror_mismatches": 0,
+      "earned_receipt_mismatches": 0,
+      "mirror_examples": [],
+      "earned_examples": []
+    }
+  ]
+}

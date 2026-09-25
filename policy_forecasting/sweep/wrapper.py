@@ -189,93 +189,114 @@ def run_single_policy(
     verbose: bool = False,
 ) -> list[dict[str, Any]]:
     """Run one policy/seed pair and return per-tick manifest rows."""
-    set_run_seed(seed)
-    _, config = _backend_imports()
-    households_cfg = getattr(config, "households", config)
-    essential_spend = float(getattr(households_cfg, "subsistence_min_cash", 50.0))
-    economy = create_economy_quietly(households, firms_per_category, verbose=verbose)
-    apply_policy(economy, arm)
-    run_id = build_run_id(arm.arm_id, seed, households)
-    canonical = arm.policy_canonical
-    levers_json = canonical_lever_json(arm.levers)
-    distress_history = DistressHistory()
-    unemployment_history: deque[float] = deque(maxlen=8)
-    gdp_history: deque[float] = deque(maxlen=4)
-    rows: list[dict[str, Any]] = []
-    for _ in range(ticks):
-        economy.step()
-        tick = int(economy.current_tick) - 1
-        rows.append(
-            snapshot_manifest(
-                economy,
-                run_id=run_id,
-                policy_canonical=canonical,
-                levers_json=levers_json,
-                seed=seed,
-                tick=tick,
-                distress_history=distress_history,
-                unemployment_history=unemployment_history,
-                gdp_history=gdp_history,
-                essential_spend=essential_spend,
-            )
-        )
+    rows, evidence = _run_policy_with_evidence(arm, seed=seed, households=households, ticks=ticks,
+        firms_per_category=firms_per_category, verbose=verbose)
+    if evidence["status"] == "failed":
+        raise RuntimeError(f"Policy run failed: {evidence['failure']}")
     return rows
 
 
-def _worker(task: tuple[str, int, int, int, int, bool]) -> list[dict[str, Any]]:
+def _run_policy_with_evidence(arm: PolicyArm, *, seed: int, households: int, ticks: int,
+                              firms_per_category: int, verbose: bool = False):
+    from run_evidence import RunEvidence
+    set_run_seed(seed)
+    _, config = _backend_imports()
+    essential_spend = float(config.households.subsistence_min_cash)
+    run_id = build_run_id(arm.arm_id, seed, households)
+    evidence = RunEvidence(run_id=run_id, seed=seed, ticks=ticks,
+        factory={"households": households, "firms_per_category": firms_per_category}, requested_policy=arm.levers)
+    economy = None
+    rows = []
+    error = None
+    phase = "initialization"
+    try:
+        economy = create_economy_quietly(households, firms_per_category, verbose=verbose)
+        evidence.observe(economy, phase="initialized")
+        phase = "policy_application"
+        apply_policy(economy, arm)
+        evidence.policy_applied(economy)
+        distress_history = DistressHistory()
+        unemployment_history: deque[float] = deque(maxlen=8)
+        gdp_history: deque[float] = deque(maxlen=4)
+        for _ in range(ticks):
+            phase = "step"
+            evidence.observe(economy, phase="before_step")
+            economy.step()
+            evidence.completed += 1
+            phase = "metrics"
+            rows.append(snapshot_manifest(economy, run_id=run_id, policy_canonical=arm.policy_canonical,
+                levers_json=canonical_lever_json(arm.levers), seed=seed, tick=int(economy.current_tick) - 1,
+                distress_history=distress_history, unemployment_history=unemployment_history,
+                gdp_history=gdp_history, essential_spend=essential_spend))
+    except Exception as exc:
+        error = exc
+    return rows, evidence.finish(economy, error=error, phase=phase)
+
+
+def _worker(task: tuple[str, int, int, int, int, bool]):
     arm_id, seed, households, ticks, firms_per_category, verbose = task
-    return run_single_policy(
-        arm_by_id(arm_id),
-        seed=seed,
-        households=households,
-        ticks=ticks,
-        firms_per_category=firms_per_category,
-        verbose=verbose,
-    )
+    return _run_policy_with_evidence(arm_by_id(arm_id), seed=seed, households=households,
+        ticks=ticks, firms_per_category=firms_per_category, verbose=verbose)
 
 
 def run_policy_sweep(
-    *,
-    arms: list[str],
-    seeds: list[int],
-    households: int,
-    ticks: int,
-    firms_per_category: int,
-    output_path: Path,
-    processes: int = 1,
-    verbose: bool = False,
+    *, arms: list[str], seeds: list[int], households: int, ticks: int,
+    firms_per_category: int, output_path: Path, processes: int = 1, verbose: bool = False,
 ) -> pd.DataFrame:
-    """Run policy/seed tasks in parallel and persist rows to parquet."""
+    """Persist unchanged feature rows plus versioned evidence, including failures."""
+    from run_evidence import comparison_evidence, model_identity, write_evidence
     tasks = [(arm_id, seed, households, ticks, firms_per_category, verbose) for arm_id in arms for seed in seeds]
+    # Validate all requested arms before creating output artifacts or launching workers.
+    for arm_id in arms:
+        arm_by_id(arm_id)
+    model = model_identity()
+    evidence_path = output_path.with_suffix(".evidence.json")
+    runs = []
+    failures = []
+    rows = []
+    metric_schema = {"columns": list(FEATURE_MANIFEST), "policy_columns": list(POLICY_STATE_COLUMNS),
+        "source": "policy_forecasting/sweep/wrapper.py::snapshot_manifest and policy_forecasting/distress.py::compute_household_welfare",
+        "source_identity": "model.files_sha256", "feature_contract": "frozen V1, unchanged",
+        "aliases": {"gdp": "gdp_this_tick", "price_index": "mean_price", "gov_cash": "government_cash"},
+        "consumer_distress": "Alias of mean_distress; model composite defined in distress.py, not an empirical welfare estimate."}
+    def save():
+        write_evidence(evidence_path, comparison_evidence(model=model, runs=runs,
+            runner="policy_forecasting.sweep.wrapper", metric_schema=metric_schema,
+            planned_runs=[{"arm": task[0], "seed": task[1]} for task in tasks], failures=failures))
     started = time.perf_counter()
-    if processes > 1 and len(tasks) > 1:
-        with mp.get_context("spawn").Pool(processes=processes) as pool:
-            chunks = pool.map(_worker, tasks)
-    else:
-        chunks = [_worker(task) for task in tasks]
-    rows = [row for chunk in chunks for row in chunk]
+    save()
+    def consume(results):
+        for chunk, evidence in results:
+            rows.extend(chunk)
+            runs.append(evidence)
+            save()
+    try:
+        if processes > 1 and len(tasks) > 1:
+            with mp.get_context("spawn").Pool(processes=processes) as pool:
+                consume(pool.imap(_worker, tasks))
+        else:
+            consume(map(_worker, tasks))
+    except Exception as exc:
+        failures.append({"phase": "worker_dispatch", "type": type(exc).__name__, "message": str(exc)})
+        save()
+        raise
+    if any(run["status"] == "failed" for run in runs):
+        raise RuntimeError(f"Policy sweep failed; evidence saved to {evidence_path}")
     frame = pd.DataFrame(rows)
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    frame.to_parquet(output_path, index=False)
+    try:
+        frame.to_parquet(output_path, index=False)
+    except Exception as exc:
+        failures.append({"phase": "parquet_export", "type": type(exc).__name__, "message": str(exc)})
+        save()
+        raise
     metadata_path = output_path.with_suffix(".metadata.json")
-    metadata_path.write_text(
-        json.dumps(
-            {
-                "arms": arms,
-                "seeds": seeds,
-                "households": households,
-                "ticks": ticks,
-                "firms_per_category": firms_per_category,
-                "rows": len(frame),
-                "elapsed_seconds": round(time.perf_counter() - started, 4),
-                "horizon": HORIZON_TICKS,
-                "dropped_manifest_columns": list(DROPPED_MANIFEST_COLUMNS),
-            },
-            indent=2,
-            sort_keys=True,
-        ),
-        encoding="utf-8",
-    )
+    metadata_path.write_text(json.dumps({
+        "arms": arms, "seeds": seeds, "households": households, "ticks": ticks,
+        "firms_per_category": firms_per_category, "rows": len(frame),
+        "elapsed_seconds": round(time.perf_counter() - started, 4), "horizon": HORIZON_TICKS,
+        "dropped_manifest_columns": list(DROPPED_MANIFEST_COLUMNS), "evidence_file": evidence_path.name,
+    }, indent=2, sort_keys=True), encoding="utf-8")
     return frame
 
 

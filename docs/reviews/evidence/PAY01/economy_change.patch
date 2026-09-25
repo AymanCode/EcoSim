@@ -1,0 +1,175 @@
+--- /var/folders/tl/vy03rfvj6sv8vz76qyw1stb00000gn/T/ecosim-agy-wages-csvdfs9o/baseline/backend/economy.py	2026-09-21 13:57:49
++++ /Users/aymanislam/EcoSim_v_2/EcoSim/backend/economy.py	2026-09-21 21:06:56
+@@ -1125,7 +1125,8 @@
+         transfer_plan: Dict[int, float],
+         wage_taxes: Dict[int, float],
+         per_household_purchases: Dict[int, Dict[str, Tuple[float, float]]],
+-        good_category_lookup: Optional[Dict[str, str]] = None
++        good_category_lookup: Optional[Dict[str, str]] = None,
++        frozen_wages: Optional[Dict[int, float]] = None
+     ) -> None:
+         """
+         Optimized batch update of all household states.
+@@ -1139,6 +1140,9 @@
+             per_household_purchases: Dictionary mapping household_id to
+                                 {good_name: (quantity, price_paid)}
+             good_category_lookup: Optional mapping of good_name to category
++            frozen_wages: Optional production-boundary ordinary gross wages in
++                          currency per tick, keyed by household ID. Direct calls
++                          without it retain the current household-wage behavior.
+ 
+         Note:
+             This method is 200+ lines long with multiple responsibilities.
+@@ -1190,7 +1194,10 @@
+             household.last_tick_cash_start = household.cash_balance
+ 
+             # Apply income and taxes
+-            wage_income = household.wage if household.employer_id is not None else 0.0
++            if frozen_wages is not None:
++                wage_income = frozen_wages.get(hid, 0.0)
++            else:
++                wage_income = household.wage if household.employer_id is not None else 0.0
+ 
+             # Add CEO salary if household is a CEO of any firm
+             ceo_salary = 0.0
+@@ -1831,8 +1838,18 @@
+             else:
+                 anchor = wage_anchor_mid
+ 
++            hh_outcome = household_labor_outcomes[household.household_id]
++            new_employer_id = hh_outcome.get("employer_id")
++            if new_employer_id is not None and new_employer_id in self.firm_lookup:
++                employer_firm = self.firm_lookup[new_employer_id]
++                if household.household_id in employer_firm.actual_wages:
++                    resolved_wage = employer_firm.actual_wages[household.household_id]
++                    if resolved_wage != hh_outcome.get("wage"):
++                        hh_outcome = dict(hh_outcome)
++                        hh_outcome["wage"] = resolved_wage
++
+             household.apply_labor_outcome(
+-                household_labor_outcomes[household.household_id],
++                hh_outcome,
+                 market_wage_anchor=anchor,
+                 current_tick=self.current_tick
+             )
+@@ -1845,6 +1862,13 @@
+         if self.current_tick % 50 == 0:
+             self._update_continuing_employee_wages()
+ 
++        # Freeze ordinary earned wages at the production boundary (currency per
++        # tick, all households including zero-paid unemployed households).
++        frozen_wages: Dict[int, float] = {
++            hh.household_id: (hh.wage if hh.is_employed else 0.0)
++            for hh in self.households
++        }
++
+         # Phase 5: Firms apply production and costs
+         for firm in self.firms:
+             production_plan = firm_production_plans[firm.firm_id]
+@@ -1909,7 +1933,7 @@
+         self._process_healthcare_services(per_firm_sales)
+ 
+         # Phase 7: Government plans taxes
+-        household_tax_snapshots = self._build_household_tax_snapshots()
++        household_tax_snapshots = self._build_household_tax_snapshots(frozen_wages=frozen_wages)
+         firm_tax_snapshots = self._build_firm_tax_snapshots(per_firm_sales)
+         price_ceiling_tax_by_firm_id = {
+             int(snapshot["firm_id"]): float(snapshot.get("price_ceiling_tax", 0.0))
+@@ -1951,6 +1975,12 @@
+                 firm_price_plans[firm.firm_id],
+                 firm_wage_plans[firm.firm_id]
+             )
++
++            # Mirror actual worker contracts to households whose employer still matches
++            for worker_id, contract_wage in firm.actual_wages.items():
++                worker_hh = self.household_lookup.get(worker_id)
++                if worker_hh is not None and worker_hh.employer_id == firm.firm_id:
++                    worker_hh.wage = contract_wage
+ 
+         # Phase 9.5: Bank loan repayments (firms & households → bank)
+         # Runs after wages and sales so borrowers have income before repayment.
+@@ -1962,7 +1992,8 @@
+             transfer_plan,
+             tax_plan["wage_taxes"],
+             per_household_purchases,
+-            good_category_lookup
++            good_category_lookup,
++            frozen_wages=frozen_wages
+         )
+ 
+         # Phase 11: Apply government fiscal results
+@@ -3606,7 +3637,7 @@
+ 
+             for employee_id in firm.employees:
+                 household = self.household_lookup.get(employee_id)
+-                if household is None:
++                if household is None or household.employer_id != firm.firm_id:
+                     continue
+ 
+                 # Only update if last wage update was at least 50 ticks ago
+@@ -3619,6 +3650,7 @@
+ 
+                     # Update the wage
+                     firm.actual_wages[employee_id] = new_wage
++                    household.wage = new_wage
+                     household.last_wage_update_tick = self.current_tick
+ 
+     def _sync_firm_employee_rosters(self) -> None:
+@@ -3671,6 +3703,7 @@
+ 
+             employer_id = household.employer_id
+             if employer_id is None:
++                household.wage = 0.0
+                 continue
+             if employer_id not in self.firm_lookup:
+                 household.employer_id = None
+@@ -3698,7 +3731,10 @@
+                 if household is not None and household.wage > 0.0:
+                     synced_wages[household_id] = household.wage
+                 else:
+-                    synced_wages[household_id] = firm.actual_wages.get(household_id, firm.wage_offer)
++                    fallback_wage = firm.actual_wages.get(household_id, firm.wage_offer)
++                    synced_wages[household_id] = fallback_wage
++                    if household is not None:
++                        household.wage = fallback_wage
+             firm.actual_wages = synced_wages
+ 
+     # -------------------------------------------------------------------------
+@@ -4303,6 +4339,8 @@
+                 # Also ensure minimum wage floor for existing workers
+                 minimum_wage = self.government.get_minimum_wage()
+                 household.wage = max(household.wage, living_cost, minimum_wage)
++                if household.employer_id is not None and household.employer_id in self.firm_lookup:
++                    self.firm_lookup[household.employer_id].actual_wages[household.household_id] = household.wage
+             else:
+                 # Unemployed: Initialize or decay reservation wage
+                 if household.unemployment_duration == 1:
+@@ -4341,16 +4379,26 @@
+             })
+         return snapshots
+ 
+-    def _build_household_tax_snapshots(self) -> List[Dict[str, object]]:
++    def _build_household_tax_snapshots(
++        self,
++        frozen_wages: Optional[Dict[int, float]] = None
++    ) -> List[Dict[str, object]]:
+         """
+         Build snapshots for government tax planning (household part).
++
++        When supplied, frozen_wages holds this tick's production-boundary
++        ordinary gross wages in currency per tick. Direct calls retain the
++        household contract wage fallback.
+ 
+         Returns:
+             List of dicts with household_id and wage_income
+         """
+         snapshots = []
+         for household in self.households:
+-            wage_income = household.wage if household.is_employed else 0.0
++            if frozen_wages is not None:
++                wage_income = frozen_wages.get(household.household_id, 0.0)
++            else:
++                wage_income = household.wage if household.is_employed else 0.0
+             snapshots.append({
+                 "household_id": household.household_id,
+                 "wage_income": wage_income

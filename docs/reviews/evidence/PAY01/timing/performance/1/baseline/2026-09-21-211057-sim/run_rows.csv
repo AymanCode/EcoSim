@@ -1,0 +1,2 @@
+run_id,seed,households,ticks_requested,ticks_completed,creation_seconds,run_seconds,profile_seconds,final_active_firms,final_queued_firms,failed,error
+sim-households-1000-seed-42,42,1000,100,100,0.0212,4.6179,,35,0,False,

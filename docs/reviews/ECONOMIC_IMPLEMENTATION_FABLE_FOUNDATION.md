@@ -1,0 +1,48 @@
+## Audit result
+
+No new cash creation or double settlement was found in the wired PS3.1 path. The two-pass payroll, single deposit pass, shared goods book, once-only clearing release, once-only rent and care receipts, and the treasury guard on every direct debit site all check out against source. The actionable defects are one retained legacy gap the contract explicitly asked to close, one care re-request path that violates the "no new arrival" rule, missing shortage telemetry, and a money-total metric that ignores the recovery hold.
+
+### Findings, prioritized
+
+- **PF-01 Medium, implementation defect (retained).** `Economy._build_firm_tax_snapshots` at `backend/economy.py:4673` emits only `firm_id`, `profit_before_tax` and `price_ceiling_tax`, but `GovernmentAgent.plan_taxes` at `backend/agents.py:6955` and `agents.py:7022` reads `cash_balance`, `good_category`, `property_tax_rate`, `max_rental_units` and `price` from the same dicts. Trigger: any payment-arm step. Consequence: property tax is always empty, so the landlord never pays it and the A envelope base at `economy.py:2317` excludes it. Every firm scores `cash_balance=0`, so all fall in the bottom bracket and the progressive firm bracket rule is inert. PS3.1 §4 required supplying these fields without a second rent credit. Minimum fix: add the five keys to the snapshot dict. Discriminating test: housing firm with positive `property_tax_rate`, price and units; after one step, landlord cash falls and treasury rises by the same property tax once, and a high-cash firm draws a higher profit rate than a zero-cash firm.
+
+- **PF-02 Medium, implementation defect.** `requeue_payment_care_due` at `backend/payment_sectors.py:562` is never called from `economy.py`. A funding-denied or price-deferred episode leaves `settle_payment_care` at `payment_sectors.py:500` with `queued_healthcare_firm_id=None` and a still-due tick. Next tick `enqueue_payment_care_requests` at `payment_sectors.py:429` re-draws the charge-sensitivity probability and, on success, increments `healthcare_requests_last_tick` and `healthcare_requests_this_tick` at `payment_sectors.py:442`. That feeds `healthcare_arrivals_ema`, which drives provider staffing in `FirmAgent` at `agents.py:3429`. Consequence: denial incidence re-enters as a fresh demand arrival every tick the episode persists, contrary to PS3.1 §4 "no surge-pricing arrival". A non-critical denied patient can also drop silently when the draw fails, and `payment_care_due_retry` is dead state. Minimum fix: call `requeue_payment_care_due` before the enqueue pass, or skip the draw and arrival increment when the retry flag is set. Discriminating test: patient with zero cash, no bank, one due episode; step twice; arrival counters rise once, the patient is re-queued on tick two without a random draw.
+
+- **PF-03 Medium, reporting gap.** `unpaid_employed`, `denied_benefits`, `payment_denied_outlays`, `exit_recovery`, `exit_worker_writeoff`, wage claim totals and relief payer share exist on `PaymentBook` and `payment_state` but no reader exports them. `get_economic_metrics` has no payment keys, and `backend/server.py` references none of them. PS3.1 §2 and §5 require per-tick reporting of unpaid wages, denied benefits and denied outlays separately from timing. Consequence: the comparison arms cannot show shortages, so a late-versus-early result is not interpretable. Minimum fix: emit these as metrics from `Economy.get_economic_metrics` and include them in the server frame. Discriminating test: partially funded payroll fixture yields nonzero unpaid count and shortfall in metrics.
+
+- **PF-04 Low, implementation defect.** `total_economy_cash` and `money_supply` at `backend/economy.py:7617` exclude `payment_state["recovery_holds"]`, which persists across the tick boundary. `tests_contracts/conftest.total_money` also omits it. PS3.1 §2 requires the hold to be counted once in totals. Consequence: a firm exit with positive recovery shows a one-tick money-supply dip and a rebound, and any conservation check on that metric reports false drift. Minimum fix: add the hold sum, and for mid-tick callers add clearing cash, CEO holds and late income. Discriminating test: the exit fixture from `test_payment_core.py:54` run through `step()` keeps `money_supply` flat across the exit tick.
+
+- **PF-05 Low, latent defect.** `_handle_firm_exits` at `backend/economy.py:4852` writes off firm claims with legacy `BankAgent.write_off_loan`, which zeroes `remaining` but not `principal_remaining` or `accrued_interest`. For a version-2 firm claim, `collect_firm_dues` at `backend/payment_loans.py:403` would recompute a due next tick, find the firm missing, and call `_write_off` a second time, double-counting defaults and loss provision. Unreachable today because only household medical claims are version 2, so this blocks the next-stage loan work rather than the current foundation. Minimum fix: route payment-arm exit write-offs through `payment_loans._write_off`. Discriminating test: version-2 firm claim, forced exit, `last_tick_defaults` counted once over two ticks.
+
+- **PF-06 Low, implementation defect.** Firm exit does not unlink tenants or zero their arrears mirrors. Next tick `payment_deposit_quotes` at `payment_sectors.py:192` requests rent plus arrears for a vanished landlord and the care liquidity at `payment_sectors.py:422` subtracts it, before `settle_payment_rent` at `payment_sectors.py:229` finally unlinks and counts an eviction. Money-conserving, but it distorts one tick of withdrawals and care request probability. Minimum fix: unlink tenants at exit. Discriminating test: exit a housing firm, assert tenant quote next tick excludes rent.
+
+- **PF-07 Low, bounded-state leak.** `loan_claim_ids` at `payment_loans.py:80` and `payment_loans.py:96` only grows; `cleanup_settled_loans` never prunes it. Memory is O(loans ever issued), not O(active claims). Minimum fix: rebuild the set from active loans in `_ensure_ids`.
+
+- **PF-08 Low, quote mismatch.** `payment_deposit_quotes` prices goods at posted `firm.price` at `payment_sectors.py:176`, while the goods book uses the Services effective floor from `_effective_market_price`. Services requests can be under-quoted at 5b. Acceptable as a nonbinding quote, but it should be stated.
+
+### Deliberate assumptions and unfinished scope
+
+These are not counted as defects.
+
+- **Cash-capped firm taxes** at `economy.py:2118` replace the legacy negative-cash allowance. Accrued wage cost enters profit in full even when partly unpaid, per PS3.1.
+- **Wage-arrears credit gate is absent.** No reader of `wage_claims` exists outside the dividend gate at `economy.py:2307` and exit recovery. Firms with unpaid wages can still receive working-capital bridges, investment loans, long-term capital loans and bailouts. PS3.1 §2 selected this gate, and the execution record queues the Firm credit package, so treat it as next stage. The disclosed "loans at 9.5 before old wages" tradeoff is therefore wider than disclosed.
+- **`backend/payment_projects.py` is unwired.** No import from `economy.py`; legacy construction and mortgage paths run in the payment arm.
+- **Relief eligibility frozen at init** for initially housed tenants, as disclosed. `pre_policy_liquidity` stays infinite for later tenants.
+- **Rent stabilization applies only at 52-tick renewal**; vacancy asks are uncapped and the legacy ask cap at `economy.py:6275` is bypassed, matching FC05.
+- **Rent is exempt from the price-ceiling tax** because housing units sold are zero by design. This is retained legacy behavior.
+- **Verified correct**: payroll validation before any mutation; withholding credited once and released at phase 11 with `apply_fiscal_results` receiving zero; receipt-only phase 10 skips wage, CEO, transfer, tax, medical fallback, cash and inventory mutations; clearing release once with no second stock deduction; care receipt added once via the identity check at `payment_sectors.py:545`; combined Services units read at close; version-2 interest accrued once per tick through the cached due index; every direct treasury debit site is guarded, namely restrictions, benefits, stimulus, bailouts, public works, seed cash, `_issue_firm_loan` fallback, government-backed bank loans and the four `GovernmentAgent` investment routes; the legacy phase 11.3 second withdrawal is disabled for payment arms; standalone legacy callers keep their defaults.
+
+### Missing executed evidence
+
+I did not run anything. The current tests leave these unexercised:
+
+- A full `Economy.step()` with partially funded payroll and positive wage tax, verifying employer debit equals net plus withholding.
+- A CEO hold through `step()`; the acceptance fixtures use no CEO and the 24-household run only checks holds are empty at tick end.
+- Exit recovery through `step()` with positive withholding, proving the next-tick tax clock.
+- Property tax, price-ceiling tax and subsidy restriction G through the public step with a sector target set.
+- Covered care and patient-pay medical credit through `step()`, including the next-tick installment at 6.9 and a default after eight misses.
+- Money conservation across ticks in either arm including holds and bank reserves.
+- Deposit quote and withdrawal in the income-late arm with a bank present.
+- Housing or care provider exit inside the payment arm.
+- The full-step acceptance test at `test_payment_acceptance.py:45` monkeypatches labor matching and consumption plans, so it does not exercise job changes or stale cached desire.
+- No benchmark at 1,000 or 10,000 households in either mode; the record itself claims no performance acceptance.

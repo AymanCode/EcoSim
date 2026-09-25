@@ -1,0 +1,68 @@
+{
+  "ticket": "PAY-01",
+  "status": "integrated and functionally verified; full performance gate pending",
+  "writer": "gpt-5.6-sol",
+  "reasoning_effort": "medium",
+  "provenance": "Sol reviewed and completed a Gemini-derived engine patch under Codex design corrections; Sol authored final regression suite. Codex independently reviewed and tested.",
+  "source_hashes": {
+    "backend/economy.py": "11d6d2268b1fea5946cd178ecc8f5ae79d4ffc277e1bb7a69fa81044aeafa4a4",
+    "backend/tests_contracts/test_wage_contract_consistency.py": "ce9a3e49bef23b62539b6302de1c75a636c6b1238ed05b2f59c6dc17ebfb8c36"
+  },
+  "verification": {
+    "candidate_full_suite": {
+      "passed": 358,
+      "deselected": 8,
+      "xfailed": 1,
+      "seconds": 5.2
+    },
+    "new_regressions": 12,
+    "independent_probe_mismatches": 0,
+    "performance": "early1000HH check only; full10k and cumulative package budget not verified",
+    "original_checkout": {
+      "new_regressions_passed": 12,
+      "independent_probe": {
+        "households": 60,
+        "ticks_per_mode": 55,
+        "normal_contract_mismatches": 0,
+        "normal_earned_receipt_mismatches": 0,
+        "performance_contract_mismatches": 0,
+        "performance_earned_receipt_mismatches": 0
+      },
+      "engine_and_test_hashes_match_tested_candidate": true
+    },
+    "source_archives": "Baseline 417 entries match manifest; candidate 418 entries include exact verified engine and test hashes.",
+    "changed_preexisting_files": [
+      "backend/economy.py",
+      "docs/ECONOMIC_WORK_READINESS.md",
+      "docs/README.md",
+      "openwiki/.last-update.json",
+      "openwiki/backend/agents-and-markets.md",
+      "openwiki/backend/tick-lifecycle.md",
+      "openwiki/engineering/testing-performance.md",
+      "openwiki/quickstart.md"
+    ],
+    "documentation": {
+      "local_links_and_fences_checked": [
+        "docs/ECONOMIC_IMPLEMENTATION_PLAN.md",
+        "docs/reviews/ECONOMIC_PAY01_IMPLEMENTATION.md"
+      ],
+      "native_preview": "Implementation plan opened through open_in_codex; returned queued, rendered preview not inspected. Source review used for this Markdown-only documentation update."
+    }
+  },
+  "committed": false,
+  "pushed": false,
+  "wiki_refresh": {
+    "tool": "/opt/homebrew/bin/openwiki code --update --print",
+    "exit_code": 0,
+    "elapsed_seconds": 153.9,
+    "files": [
+      "openwiki/.last-update.json",
+      "openwiki/backend/agents-and-markets.md",
+      "openwiki/backend/tick-lifecycle.md",
+      "openwiki/engineering/testing-performance.md",
+      "openwiki/quickstart.md",
+      "openwiki/_plan.md"
+    ],
+    "review": "Inspected generated diff against frozen baseline; wage-freeze and paired-contract claims match integrated source. Broader PS3.1 and full performance gate explicitly pending."
+  }
+}

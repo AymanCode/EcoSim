@@ -53,6 +53,11 @@ class LoanContract:
     pmt_per_tick: float
     ticks_remaining: int
     origination_tick_rate: float  # per-tick rate = annual_rate / 52
+    missed_payments: int = 0
+    claim_id: str = ""
+    contract_version: int = 1
+    last_missed_tick: Optional[int] = None
+    first_due_tick: int = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -127,6 +132,15 @@ class HouseholdAgent(AgentMixin):
     owns_housing: bool = False  # Track if household already owns housing
     renting_from_firm_id: Optional[int] = None  # Firm ID of housing provider (rental)
     monthly_rent: float = 0.0  # Current rent amount paid per tick
+    rent_arrears: float = 0.0
+    rent_notice_remaining: int = 0
+    lease_renewal_tick: int = -1
+    payment_care_due_retry: bool = False
+    payment_care_accepted_quote: float = float("inf")
+    payment_pre_policy_liquidity: float = float("inf")
+    payment_care_episode_id: int = 0
+    payment_care_due_tick: int = -1
+    payment_care_planning_liquidity: float = 0.0
     stabilization_disabled: bool = False  # Experiment flag
 
     # H4: Income breakdown tracking (for debugging and anomaly detection)
@@ -202,7 +216,8 @@ class HouseholdAgent(AgentMixin):
     # Medical loan tracking
     medical_loan_principal: float = 0.0  # Original medical loan amount
     medical_loan_remaining: float = 0.0  # Remaining balance with interest
-    medical_loan_payment_per_tick: float = 0.0  # Payment per tick (10% of wage)
+    medical_loan_payment_per_tick: float = 0.0  # Scheduled bank payment; fallback derives its own floor
+    medical_loan_bank_serviced: bool = False  # Includes treasury-funded loans on the bank ledger
 
     # Bank deposit account (optional — 0.0 when no bank exists)
     bank_deposit: float = 0.0
@@ -1245,6 +1260,17 @@ class HouseholdAgent(AgentMixin):
             "employer_id": self.employer_id,
             "wage": self.wage,
             "owns_housing": self.owns_housing,
+            "renting_from_firm_id": self.renting_from_firm_id,
+            "monthly_rent": self.monthly_rent,
+            "rent_arrears": self.rent_arrears,
+            "rent_notice_remaining": self.rent_notice_remaining,
+            "lease_renewal_tick": self.lease_renewal_tick,
+            "payment_pre_policy_liquidity": self.payment_pre_policy_liquidity if math.isfinite(self.payment_pre_policy_liquidity) else None,
+            "payment_care_episode_id": self.payment_care_episode_id,
+            "payment_care_due_tick": self.payment_care_due_tick,
+            "payment_care_due_retry": self.payment_care_due_retry,
+            "payment_care_planning_liquidity": self.payment_care_planning_liquidity,
+            "payment_care_accepted_quote": self.payment_care_accepted_quote if math.isfinite(self.payment_care_accepted_quote) else None,
             "met_housing_need": self.met_housing_need,
             "spending_tendency": self.spending_tendency,
             "food_preference": self.food_preference,
@@ -1299,6 +1325,7 @@ class HouseholdAgent(AgentMixin):
             "bank_deposit": self.bank_deposit,
             "medical_loan_principal": self.medical_loan_principal,
             "medical_loan_remaining": self.medical_loan_remaining,
+            "medical_loan_bank_serviced": self.medical_loan_bank_serviced,
         }
 
     def plan_labor_supply(
@@ -1985,6 +2012,7 @@ class HouseholdAgent(AgentMixin):
         self.medical_loan_principal = loan_amount
         self.medical_loan_remaining = total_repayment
         self.medical_loan_payment_per_tick = 0.0
+        self.medical_loan_bank_serviced = False
 
         # Grant the loan (add to cash balance)
         self.cash_balance += loan_amount
@@ -1992,14 +2020,17 @@ class HouseholdAgent(AgentMixin):
 
     def make_medical_loan_payment(self) -> float:
         """
-        Make a medical loan payment based on minimum wage.
+        Service only the legacy unregistered medical loan, using the wage floor.
+
+        Registered bank loans (including treasury-funded ones) are settled by
+        Economy._collect_bank_loan_repayments before household settlement.
 
         Returns:
             Amount paid toward loan this tick
 
         Mutates state by deducting payment from cash and reducing loan balance.
         """
-        if self.medical_loan_remaining <= 0:
+        if self.medical_loan_remaining <= 0 or self.medical_loan_bank_serviced:
             return 0.0
 
         min_wage = CONFIG.government.default_unemployment_benefit * CONFIG.government.wage_floor_multiplier
@@ -2488,6 +2519,8 @@ class FirmAgent(AgentMixin):
 
     # Labour market state
     wage_offer: float = 50.0
+    payment_wage_arrears: float = 0.0
+    payment_prior_unmet_units: float = 0.0
     planned_headcount: int = 0
     planned_hires_count: int = 0
     planned_layoffs_ids: List[int] = field(default_factory=list)
@@ -2523,6 +2556,7 @@ class FirmAgent(AgentMixin):
     healthcare_completed_visits_last_tick: float = 0.0
     healthcare_idle_streak: int = 0
     healthcare_capacity_carryover: float = 0.0
+    rent_arrears_receivable_by_tenant: Dict[int, float] = field(default_factory=dict)
 
     # Config / tuning
     sales_expectation_alpha: float = 0.3  # [0,1] for smoothing sales
@@ -2546,6 +2580,7 @@ class FirmAgent(AgentMixin):
     baseline_production_quota: float = 500.0
     actual_wages: Dict[int, float] = field(default_factory=dict)
     last_tick_total_costs: float = 0.0  # Track costs for dividend calculation
+    last_tick_operating_cash_cost_nonwage: float = 0.0
     payout_ratio: float = 0.0  # Fraction of net profit paid as dividends
     net_profit: float = 0.0  # Track last tick net profit
     pending_healthcare_worker_bonus: float = 0.0
@@ -4424,9 +4459,14 @@ class FirmAgent(AgentMixin):
         loan processing. Resets capital_investment_this_tick to 0 first.
         """
         config = self._firm_config()
-        self.capital_investment_this_tick = 0.0
+        if CONFIG.payment_sequence == "legacy":
+            self.capital_investment_this_tick = 0.0
         self.needs_investment_loan = False
         self.investment_loan_amount = 0.0
+
+        if CONFIG.payment_sequence != "legacy" and self.payment_wage_arrears > 1e-6:
+            self.decision_diagnostics["capital_denial_reason"] = "worker_arrears"
+            return
 
         # Only invest from a position of strength
         if self.survival_mode or self.burn_mode:
@@ -4453,6 +4493,29 @@ class FirmAgent(AgentMixin):
         if vmpk <= cost_of_capital_weekly:
             return
 
+        if CONFIG.payment_sequence != "legacy":
+            workers = max(0, int(self.planned_headcount or len(self.employees)))
+            usable_inventory = max(0.0, self.inventory_units) if not self._is_generic_services_firm() else 0.0
+            existing_output = self._capacity_for_workers(workers)
+            expected_demand = max(0.0, float(self.expected_sales_units))
+            sellable_gap = max(0.0, expected_demand - usable_inventory - existing_output)
+            if self._is_generic_services_firm():
+                # Services throughput follows staffed slots rather than capital
+                # stock.  A physical capital purchase cannot expand its slots.
+                sellable_gap = 0.0
+            next_capacity = (units * ((K + 1.0) ** config.alpha_k) * (workers ** config.alpha_n)
+                             if workers > 0 else 0.0)
+            incremental_units = min(sellable_gap, max(0.0, next_capacity - existing_output))
+            contribution = max(0.0, float(self.price) - max(0.0, float(self.pricing_operating_unit_cost)))
+            self.decision_diagnostics["capital_sellable_gap"] = sellable_gap
+            self.decision_diagnostics["capital_incremental_sellable_units"] = incremental_units
+            if workers <= 0:
+                self.decision_diagnostics["capital_denial_reason"] = "labor_bound"
+                return
+            if incremental_units <= 1e-6 or incremental_units * contribution <= cost_of_capital_weekly:
+                self.decision_diagnostics["capital_denial_reason"] = "no_expected_buyer"
+                return
+
         # Invest 1 unit at a time (conservative)
         investment_cost = config.capital_cost_per_unit
         weekly_wage_bill = self._current_wage_bill()
@@ -4461,7 +4524,10 @@ class FirmAgent(AgentMixin):
             # Self-finance: pay immediately
             self.capital_stock += 1.0
             self.cash_balance -= investment_cost
-            self.capital_investment_this_tick = 1.0
+            if CONFIG.payment_sequence == "legacy":
+                self.capital_investment_this_tick = 1.0
+            else:
+                self.capital_investment_this_tick += 1.0
         else:
             # Request investment loan — processed in Phase 1.5
             self.needs_investment_loan = True
@@ -4898,7 +4964,10 @@ class FirmAgent(AgentMixin):
             else float(firm_config.minimum_wage_floor)
         )
         policy_minimum_wage = max(policy_minimum_wage, float(firm_config.minimum_wage_floor))
-        floor_wage = max(policy_minimum_wage, unemployment_benefit * 1.5)
+        benefit_multiplier = (CONFIG.payment_benefit_wage_floor_multiplier
+                              if CONFIG.payment_sequence != "legacy" and self.good_category.lower() in {"food", "services"}
+                              else 1.5)
+        floor_wage = max(policy_minimum_wage, unemployment_benefit * benefit_multiplier)
 
         hire_failed = (
             int(getattr(self, "last_tick_planned_hires", 0) or 0) > 0
@@ -5084,7 +5153,7 @@ class FirmAgent(AgentMixin):
         fundamental_wage = realized_rev_per_worker * firm_config.target_labor_share * slack_factor
         wage_offer_next = self.wage_offer
         raise_damp = max(0.2, 1.0 - 0.8 * unemployment_rate)
-        floor_wage = max(firm_config.minimum_wage_floor, unemployment_benefit * 1.5)
+        floor_wage = max(firm_config.minimum_wage_floor, unemployment_benefit * benefit_multiplier)
 
         if self.good_category.lower() == "healthcare":
             return {"wage_offer_next": firm_config.minimum_wage_floor}
@@ -5241,7 +5310,7 @@ class FirmAgent(AgentMixin):
             self.inventory_units = 0.0
         elif self._is_generic_services_firm():
             service_worker_slots = max(0, int(self.production_capacity_units))
-            active_service_workers = min(len(self.employees), service_worker_slots)
+            active_service_workers = min(int(result.get("productive_worker_count", len(self.employees))), service_worker_slots)
             realized_production_units = min(
                 max(0.0, realized_production_units),
                 self._capacity_for_workers(active_service_workers)
@@ -5260,8 +5329,10 @@ class FirmAgent(AgentMixin):
         wage_bill = self._current_wage_bill()
 
         # Update cash (pay wages and costs — depreciation is non-cash)
-        self.cash_balance -= wage_bill
+        if not result.get("funded_payroll_book", False):
+            self.cash_balance -= wage_bill
         self.cash_balance -= other_variable_costs
+        self.last_tick_operating_cash_cost_nonwage = other_variable_costs
 
         # Capital depreciation: reduces capital stock; non-cash cost that enters unit cost
         cap_config = self._firm_config()
@@ -5327,12 +5398,14 @@ class FirmAgent(AgentMixin):
         profit_taxes_paid = result.get("profit_taxes_paid", 0.0)
 
         # Update inventory (clamp at zero)
-        self.inventory_units = max(0.0, self.inventory_units - units_sold)
+        if not result.get("committed_sale_book", False):
+            self.inventory_units = max(0.0, self.inventory_units - units_sold)
         if self._is_generic_services_firm():
             self.inventory_units = 0.0
 
         # Update cash
-        self.cash_balance += revenue
+        if not result.get("committed_sale_book", False):
+            self.cash_balance += revenue
         self.cash_balance -= profit_taxes_paid
 
         self.last_units_sold = units_sold
@@ -5552,7 +5625,7 @@ class FirmAgent(AgentMixin):
 
         return True
 
-    def consider_service_infrastructure_upgrade(self, economy=None) -> bool:
+    def consider_service_infrastructure_upgrade(self, economy=None, current_units_sold=None) -> bool:
         """Flag a bank-financed Services slot upgrade after sustained full utilization.
 
         Services firms operating at >=95% utilization for 5+ ticks with 2+ ticks
@@ -5595,8 +5668,9 @@ class FirmAgent(AgentMixin):
             self.service_full_utilization_streak = 0
             return False
 
-        utilization = max(0.0, float(self.last_units_sold)) / max(float(self.last_units_produced), 1e-6)
-        if utilization >= 0.95 or self.last_sell_through_rate >= 0.95:
+        units_sold = self.last_units_sold if current_units_sold is None else current_units_sold
+        utilization = max(0.0, float(units_sold)) / max(float(self.last_units_produced), 1e-6)
+        if utilization >= 0.95 or (current_units_sold is None and self.last_sell_through_rate >= 0.95):
             self.service_full_utilization_streak += 1
         else:
             self.service_full_utilization_streak = 0
@@ -5814,6 +5888,7 @@ class BankAgent:
     """
 
     bank_id: int = 0
+    payment_current_tick: Optional[int] = None
     cash_reserves: float = 500_000.0
     total_deposits: float = 0.0
     total_loans_outstanding: float = 0.0
@@ -5825,7 +5900,8 @@ class BankAgent:
     reserve_ratio: float = 0.10                          # Fraction of deposits held as reserves
 
     # Loss tracking
-    loan_loss_provision: float = 0.0       # Accumulated write-offs from defaults
+    loan_loss_provision: float = 0.0       # Bank-funded contractual balances written off
+    government_loan_writeoffs: float = 0.0  # Treasury-funded balances written off (serviced here)
 
     # Per-tick telemetry
     last_tick_interest_income: float = 0.0
@@ -5833,6 +5909,9 @@ class BankAgent:
     last_tick_new_loans: float = 0.0
     last_tick_defaults: float = 0.0
     last_tick_repayments: float = 0.0
+    last_tick_government_repayments: float = 0.0
+    last_tick_government_interest_income: float = 0.0
+    last_tick_government_defaults: float = 0.0
 
     # Minimum per-tick profit margin retained out of loan interest income before
     # any deposit interest is paid. Bank funds depositor interest only from
@@ -5997,6 +6076,8 @@ class BankAgent:
             "missed_payments": 0,
             "interest_income_per_tick": interest_income_per_tick,
         }
+        if self.payment_current_tick is not None:
+            loan["first_due_tick"] = self.payment_current_tick + 1
         self.active_loans.append(loan)
         self.total_loans_outstanding += total_repayment
 
@@ -6006,22 +6087,53 @@ class BankAgent:
         self.last_tick_new_loans += principal
         return loan
 
-    def collect_repayment(self, loan: dict, payment: float) -> None:
-        """Record a repayment against a loan. Updates bank reserves and totals."""
-        loan["remaining"] -= payment
+    def collect_repayment(
+        self, loan: dict, payment: float, govt: Optional["GovernmentAgent"] = None,
+    ) -> float:
+        """Credit the funder and reduce the serviced claim; return cash collected.
+
+        ``govt_backed`` means treasury-funded in this model, not a guarantee.
+        The funder receives principal and interest; the bank charges no fee.
+        Keep the existing simple-interest total and allocate each actual payment
+        proportionally between principal and interest (including partials).
+        Portfolio repayments/outstanding include both funders, while the bank's
+        own interest income excludes treasury loans.
+        """
+        if not math.isfinite(payment) or payment < 0:
+            raise ValueError("Loan payment must be finite and nonnegative")
+        payment = min(payment, max(0.0, loan["remaining"]))
+        if payment == 0:
+            return 0.0
+        if loan["govt_backed"] and govt is None:
+            raise ValueError("Treasury-funded repayment requires its government recipient")
+        loan["remaining"] = max(0.0, loan["remaining"] - payment)
         loan["term_remaining"] = max(0, loan["term_remaining"] - 1)
         loan["missed_payments"] = 0  # Reset miss streak on successful payment
         self.total_loans_outstanding = max(0.0, self.total_loans_outstanding - payment)
 
-        if not loan["govt_backed"]:
+        interest = payment * loan.get("interest_income_per_tick", 0.0) / max(loan["payment_per_tick"], 1e-12)
+        if loan["govt_backed"]:
+            govt.cash_balance += payment
+            self.last_tick_government_repayments += payment
+            self.last_tick_government_interest_income += interest
+        else:
             self.cash_reserves += payment
+            self.last_tick_interest_income += interest
         self.last_tick_repayments += payment
-        self.last_tick_interest_income += loan.get("interest_income_per_tick", 0.0)
+        return payment
 
     def write_off_loan(self, loan: dict) -> None:
-        """Write off a defaulted loan. Absorbs loss into provision."""
+        """Remove a defaulted contractual claim; allocate loss to its funder.
+
+        This is a non-cash write-off of the remaining principal-plus-interest
+        balance, not an additional payment or a principal-only capital measure.
+        """
         remaining = loan["remaining"]
-        self.loan_loss_provision += remaining
+        if loan["govt_backed"]:
+            self.government_loan_writeoffs += remaining
+            self.last_tick_government_defaults += remaining
+        else:
+            self.loan_loss_provision += remaining
         self.total_loans_outstanding = max(0.0, self.total_loans_outstanding - remaining)
         self.last_tick_defaults += remaining
         loan["remaining"] = 0.0
@@ -6041,7 +6153,7 @@ class BankAgent:
         Used during circuit-breaker situations so emergency lending can continue.
         Returns the loan record, or None if government also can't fund it.
         """
-        if govt.cash_balance < principal:
+        if govt.cash_balance - govt.payment_reserved_cash < principal:
             return None
 
         govt.cash_balance -= principal
@@ -6178,6 +6290,9 @@ class BankAgent:
         self.last_tick_new_loans = 0.0
         self.last_tick_defaults = 0.0
         self.last_tick_repayments = 0.0
+        self.last_tick_government_repayments = 0.0
+        self.last_tick_government_interest_income = 0.0
+        self.last_tick_government_defaults = 0.0
 
     def cleanup_settled_loans(self) -> None:
         """Remove fully repaid or written-off loans from the active ledger.
@@ -6225,6 +6340,7 @@ class BankAgent:
             "reserve_ratio": self.reserve_ratio,
             "reserve_ratio_actual": self.cash_reserves / max(self.total_deposits, 1.0),
             "loan_loss_provision": self.loan_loss_provision,
+            "government_loan_writeoffs": self.government_loan_writeoffs,
             "lendable_cash": self.lendable_cash,
             "can_lend": self.can_lend(),
             "active_loan_count": len(self.active_loans),
@@ -6233,6 +6349,9 @@ class BankAgent:
             "last_tick_repayments": self.last_tick_repayments,
             "last_tick_deposit_interest_paid": self.last_tick_deposit_interest_paid,
             "last_tick_interest_income": self.last_tick_interest_income,
+            "last_tick_government_repayments": self.last_tick_government_repayments,
+            "last_tick_government_interest_income": self.last_tick_government_interest_income,
+            "last_tick_government_defaults": self.last_tick_government_defaults,
             "avg_credit_score_firms": (
                 sum(firm_scores) / len(firm_scores) if firm_scores else 0.5
             ),
@@ -6267,6 +6386,7 @@ class GovernmentAgent(AgentMixin):
 
     # ── Financial state ──────────────────────────────────────────────
     cash_balance: float = 0.0
+    payment_reserved_cash: float = 0.0
 
     # ── Policy lever settings (v1 action space) ──────────────────────
     # Each lever is a string key into a fixed option set.
@@ -6308,7 +6428,7 @@ class GovernmentAgent(AgentMixin):
     ubi_amount: float = 0.0
     wealth_tax_threshold: float = 1_000_000.0
     wealth_tax_rate: float = 0.0
-    target_inflation_rate: float = 0.02
+    target_inflation_rate: float = 0.02  # Inactive legacy target; no engine response
     birth_rate: float = 0.0
 
     # Government baseline firm tracking (category -> firm_id)
@@ -7040,7 +7160,7 @@ class GovernmentAgent(AgentMixin):
         if self.infrastructure_investment_budget <= 0.0:
             return 0.0
 
-        if self.cash_balance >= self.infrastructure_investment_budget:
+        if self.cash_balance - self.payment_reserved_cash >= self.infrastructure_investment_budget:
             investment = self.infrastructure_investment_budget
             self.cash_balance -= investment
 
@@ -7065,7 +7185,7 @@ class GovernmentAgent(AgentMixin):
         if self.technology_investment_budget <= 0.0:
             return 0.0
 
-        if self.cash_balance >= self.technology_investment_budget:
+        if self.cash_balance - self.payment_reserved_cash >= self.technology_investment_budget:
             investment = self.technology_investment_budget
             self.cash_balance -= investment
 
@@ -7107,7 +7227,7 @@ class GovernmentAgent(AgentMixin):
             1.0, self.social_happiness_multiplier * decay_rate
         )
 
-        investment = min(self.cash_balance, self.social_investment_budget)
+        investment = min(max(0.0, self.cash_balance - self.payment_reserved_cash), self.social_investment_budget)
         if investment <= 0:
             return 0.0
 
@@ -7148,10 +7268,10 @@ class GovernmentAgent(AgentMixin):
         baseline_reserve = 50000.0  # Minimum reserve to maintain
 
         # Calculate surplus (scaled, not fixed)
-        if self.cash_balance < baseline_reserve:
+        if self.cash_balance - self.payment_reserved_cash < baseline_reserve:
             return investments
 
-        surplus = max(0.0, self.cash_balance - baseline_reserve)
+        surplus = max(0.0, self.cash_balance - self.payment_reserved_cash - baseline_reserve)
 
         # Spend 10-15% of surplus on bonds each tick (scaled)
         if surplus > baseline_reserve * surplus_threshold_pct:

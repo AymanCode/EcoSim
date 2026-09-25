@@ -22,12 +22,12 @@ export const Slider = ({ label, value, min, max, step, format = v => v, onChange
   );
 };
 
-export const Select = ({ label, value, options, onChange, description }) => (
+export const Select = ({ label, value, options, onChange, description, disabled = false }) => (
   <div className="field">
     <div className="fh">
       <label>{label}</label>
     </div>
-    <select className="select" value={value} onChange={e => onChange(e.target.value)}>
+    <select className="select" aria-label={label} value={value} disabled={disabled} onChange={e => onChange(e.target.value)}>
       {options.map(option => (
         <option key={option.value} value={option.value}>{option.label}</option>
       ))}

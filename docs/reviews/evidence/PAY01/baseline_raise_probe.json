@@ -1,0 +1,12 @@
+{
+  "case": "continuing raise survives roster sync",
+  "before_sync": {
+    "household": 100.0,
+    "firm": 102.74134488827902
+  },
+  "after_sync": {
+    "household": 100.0,
+    "firm": 100.0
+  },
+  "raise_erased": true
+}

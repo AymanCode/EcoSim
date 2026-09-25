@@ -1,0 +1,1 @@
+{"mode": true, "repeat": 0, "path": "/var/folders/tl/vy03rfvj6sv8vz76qyw1stb00000gn/T/ecosim-agy-wages-csvdfs9o/timing/performance/1/baseline/2026-09-21-211057-sim"}

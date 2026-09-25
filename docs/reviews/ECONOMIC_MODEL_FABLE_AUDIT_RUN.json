@@ -1,0 +1,127 @@
+{
+  "status": "complete",
+  "started_at_utc": "2026-09-21T20:16:00.437401+00:00",
+  "repository": "/Users/aymanislam/EcoSim_v_2/EcoSim",
+  "audited_commit": "4f693890b5f133c2c6c1dcbec9b1ec91ced97b46",
+  "requested_model": "claude-fable-5-1",
+  "claude_cli_version": "2.1.272 (Claude Code)",
+  "input_sha256": {
+    "docs/ECONOMIC_MODEL_PROPOSAL.md": "68133da8d8b9d152284ec2188c31c98c8b9dd599b89c2934489cdac158511c79",
+    "docs/ECONOMIC_AGENT_WORKING_CONTRACT.md": "ce20dc4486a5a1ecdbebe7f88af384d4c1c2e42373044e0cf758ff094e58e7e7",
+    "docs/reviews/ECONOMIC_MODEL_FABLE_AUDIT_PROMPT.md": "d2c5393d194fdad91ed3c60a1a94a876c60e3e606ddbfe4bef9e524489080f43"
+  },
+  "economic_source_sha256": {
+    "backend/agents.py": "33350e523b55b1e7c64aef284e8f163c9ae5c73c15c0d67215bb7c6976c121c4",
+    "backend/economy.py": "d43990ee7fce3476b54fe15e200eb86bc9bbb2404e54d737ac681c1cddd12f83",
+    "backend/config.py": "eb97bc817fe698ede3b4b0e796866a1bd3c7c853f5345218d42817646051ae1f",
+    "backend/server.py": "cec957675ab665ba67a7657edf174c4364a04e67b43016abd84fb73e630768f0",
+    "backend/fiscal_guards.py": "79b74b31308e72196fbcf6e48cc15c68005e7bc12e04bd42e773f1ce06c1576c",
+    "backend/policy_schema.py": "8126d06615aab24690b448a296a6b49fd444d7c1c6ac9aace2f9f00448f02dce",
+    "backend/tools/runners/run_large_simulation.py": "737ec4bbb4682cd679cff97c66d1c913f982385f838eb2efa5ada57e374f3f59",
+    "policy_forecasting/sweep/wrapper.py": "992b94236769636031fe1e92ea4f54c4e4703ca011e6aa9479e576fa560c01f8"
+  },
+  "allowed_tools": [
+    "Read",
+    "Glob",
+    "Grep"
+  ],
+  "code_execution_or_writes_allowed": false,
+  "raw_output_path": "/private/tmp/ecosim-fable-audit-q6bny1zf/events.jsonl",
+  "stderr_path": "/private/tmp/ecosim-fable-audit-q6bny1zf/stderr.txt",
+  "previous_attempts": [
+    {
+      "status": "blocked_authentication",
+      "started_at_utc": "2026-09-21T13:02:43.176044+00:00",
+      "repository": "/Users/aymanislam/EcoSim_v_2/EcoSim",
+      "audited_commit": "4f693890b5f133c2c6c1dcbec9b1ec91ced97b46",
+      "requested_model": "claude-fable-5-1",
+      "claude_cli_version": "2.1.272 (Claude Code)",
+      "input_sha256": {
+        "docs/ECONOMIC_MODEL_PROPOSAL.md": "68133da8d8b9d152284ec2188c31c98c8b9dd599b89c2934489cdac158511c79",
+        "docs/ECONOMIC_AGENT_WORKING_CONTRACT.md": "6718d3a9c986d8cac3545a4414c7567394cbee3e32b3c89496c3b678f6f6a413",
+        "docs/reviews/ECONOMIC_MODEL_FABLE_AUDIT_PROMPT.md": "d2c5393d194fdad91ed3c60a1a94a876c60e3e606ddbfe4bef9e524489080f43"
+      },
+      "allowed_tools": [
+        "Read",
+        "Glob",
+        "Grep"
+      ],
+      "code_execution_or_writes_allowed": false,
+      "raw_output_path": "/private/tmp/ecosim-fable-audit-ysehftb8/events.jsonl",
+      "stderr_path": "/private/tmp/ecosim-fable-audit-ysehftb8/stderr.txt",
+      "process_exit_code": 1,
+      "finished_at_utc": "2026-09-21T13:02:44.114362+00:00",
+      "initialized_model": "claude-fable-5-1",
+      "provider_error": "Failed to authenticate: OAuth session expired and could not be refreshed",
+      "independent_review_completed": false,
+      "repository_tool_calls": 0,
+      "prepared_input_sha256": {
+        "docs/ECONOMIC_MODEL_PROPOSAL.md": "68133da8d8b9d152284ec2188c31c98c8b9dd599b89c2934489cdac158511c79",
+        "docs/ECONOMIC_AGENT_WORKING_CONTRACT.md": "e3187c4f90a3e6ca28fcc74aa8ee7d8bc44316672a2e36c3dcbc4d655755b622",
+        "docs/reviews/ECONOMIC_MODEL_FABLE_AUDIT_PROMPT.md": "d2c5393d194fdad91ed3c60a1a94a876c60e3e606ddbfe4bef9e524489080f43"
+      },
+      "prepared_inputs_note": "The contract gained an authentication-status note after the failed attempt; no review was produced for either version."
+    }
+  ],
+  "process_exit_code": 0,
+  "finished_at_utc": "2026-09-21T20:20:36.680326+00:00",
+  "initialized_model": "claude-fable-5-1",
+  "model_usage": {
+    "claude-haiku-4-5-20251001": {
+      "inputTokens": 2149,
+      "outputTokens": 15,
+      "cacheReadInputTokens": 0,
+      "cacheCreationInputTokens": 0,
+      "webSearchRequests": 0,
+      "costUSD": 0.002224,
+      "contextWindow": 200000,
+      "maxOutputTokens": 32000,
+      "thinkingTokens": 0,
+      "canonicalModel": "claude-haiku-4-5",
+      "provider": "firstParty",
+      "costBasis": "list"
+    },
+    "claude-fable-5-1": {
+      "inputTokens": 62,
+      "outputTokens": 22272,
+      "cacheReadInputTokens": 2821430,
+      "cacheCreationInputTokens": 132503,
+      "webSearchRequests": 0,
+      "costUSD": 4.469637500000001,
+      "contextWindow": 1000000,
+      "maxOutputTokens": 64000,
+      "thinkingTokens": 4395,
+      "canonicalModel": "claude-fable-5-1",
+      "provider": "firstParty",
+      "costBasis": "list"
+    }
+  },
+  "repository_tool_calls": 54,
+  "provider_error": null,
+  "independent_review_completed": true,
+  "review_path": "docs/reviews/ECONOMIC_MODEL_FABLE_AUDIT.md",
+  "review_sha256": "85b26d4018621bf6f164a7248202e8baa09e476ae78cbec89ee198efcf10033a",
+  "review_preserved_verbatim": true,
+  "coordinator_validation": {
+    "verified_at_utc": "2026-09-21T20:28:26.302638+00:00",
+    "additional_probe_ids": [
+      "E06",
+      "E07",
+      "E08",
+      "E09",
+      "E10"
+    ],
+    "probe_results_path": "docs/reviews/ECONOMIC_MODEL_AUDIT_PROBE_RESULTS.json",
+    "economic_source_unchanged": true,
+    "valid_pinned_code_links": 54,
+    "valid_local_document_links": 26,
+    "followup_path": "docs/reviews/ECONOMIC_MODEL_AUDIT_FOLLOWUP.md"
+  },
+  "post_review_document_note": "The proposal gained links to the review and follow-up; the working contract gained reviewed coordination/ticket details and a completed-review status. input_sha256 retains the versions read by Fable.",
+  "post_review_document_sha256": {
+    "docs/ECONOMIC_MODEL_PROPOSAL.md": "8914d0d36f64a9911cdcc843d7b897061e2dab14249201d7503bf0cc613a2899",
+    "docs/ECONOMIC_AGENT_WORKING_CONTRACT.md": "3c4f3884e98354559120b2813ebb977e92a0db93490d91d72867ac1a7aea3348",
+    "docs/reviews/ECONOMIC_MODEL_AUDIT_FOLLOWUP.md": "eb8a42ca7037381dec10ca9c6503f87916c618461e9a3f1162ab4cea3c238c59",
+    "docs/reviews/ECONOMIC_MODEL_FABLE_AUDIT_PROMPT.md": "d2c5393d194fdad91ed3c60a1a94a876c60e3e606ddbfe4bef9e524489080f43"
+  }
+}
