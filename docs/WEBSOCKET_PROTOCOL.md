@@ -88,6 +88,11 @@ All keys of the previous frame are unchanged. Added at the top level, every tick
   count, `price` the posted price, `isBaseline` is `true` for government baseline firms. `state` is
   `struggling` (cash at or below zero, burn or survival mode, or more than two ticks at zero cash), else
   `growing` (hires planned), else `steady`.
+- `frameBytesPrev`: size in UTF-8 bytes of the previous tick frame as sent, an integer; `0` on the first
+  frame after SETUP.
+- `serializeMsPrev`: milliseconds the server spent encoding the previous tick frame to JSON (a float);
+  `0.0` on the first frame after SETUP. A frame cannot carry its own size or encoding time, so both describe
+  the frame before it.
 
 A legacy `RESET` also restarts event collection: the closed-firm list empties and earlier policy
 changes and defaults are not reported again. It also clears the stride-cached figures, so the first tick

@@ -1,0 +1,137 @@
+{
+  "households": 1000,
+  "ticks": 260,
+  "arms": 2,
+  "seed": 1337,
+  "warehouse": false,
+  "wallClockSeconds": 53.63049279095139,
+  "perArm": {
+    "Town A": {
+      "frames": 260,
+      "bytes": {
+        "p50": 152465.0,
+        "p95": 186587.0,
+        "max": 195871.0
+      },
+      "tickComputeMs": {
+        "p50": 93.40370795689523,
+        "p95": 131.65704207494855
+      },
+      "projectionMs": {
+        "p50": 0.3504580818116665,
+        "p95": 0.40424999315291643,
+        "shareOfTickP50": 0.003752078900051794
+      },
+      "serializeMs": {
+        "p50": 1.444916008040309,
+        "p95": 1.902792020700872,
+        "shareOfTickP50": 0.015469578667124452
+      },
+      "interFrameMs": {
+        "p50": 203.86279106605798,
+        "p95": 245.67854101769626
+      }
+    },
+    "Town B": {
+      "frames": 260,
+      "bytes": {
+        "p50": 154780.0,
+        "p95": 188160.0,
+        "max": 198180.0
+      },
+      "tickComputeMs": {
+        "p50": 93.396709067747,
+        "p95": 131.33304193615913
+      },
+      "projectionMs": {
+        "p50": 0.35841704811900854,
+        "p95": 0.4376251017674804,
+        "shareOfTickP50": 0.003837576845015216
+      },
+      "serializeMs": {
+        "p50": 1.4621249865740538,
+        "p95": 1.9160839729011059,
+        "shareOfTickP50": 0.015654994712002913
+      },
+      "interFrameMs": {
+        "p50": 194.85983403865248,
+        "p95": 273.3276659855619
+      }
+    }
+  },
+  "equivalence": {
+    "checkpoints": [
+      {
+        "tick": 13,
+        "session": 2.1,
+        "smoke": 2.1,
+        "match": true
+      },
+      {
+        "tick": 26,
+        "session": 8.2,
+        "smoke": 8.200000000000001,
+        "match": true
+      },
+      {
+        "tick": 52,
+        "session": 19.4,
+        "smoke": 19.400000000000002,
+        "match": true
+      },
+      {
+        "tick": 104,
+        "session": 25.881168177240685,
+        "smoke": 25.88116817724068,
+        "match": true
+      },
+      {
+        "tick": 156,
+        "session": 19.611848825331972,
+        "smoke": 19.611848825331972,
+        "match": true
+      },
+      {
+        "tick": 208,
+        "session": 29.7741273100616,
+        "smoke": 29.774127310061605,
+        "match": true
+      },
+      {
+        "tick": 260,
+        "session": 36.69724770642202,
+        "smoke": 36.69724770642202,
+        "match": true
+      }
+    ],
+    "matches": true
+  },
+  "gate": {
+    "checks": {
+      "bytesP95": false,
+      "overheadShare": true,
+      "equivalence": true
+    },
+    "arms": {
+      "Town A": {
+        "bytesP95": 186587.0,
+        "overheadShare": 0.019221657567176247,
+        "bytesOk": false,
+        "overheadOk": true
+      },
+      "Town B": {
+        "bytesP95": 188160.0,
+        "overheadShare": 0.01949257155701813,
+        "bytesOk": false,
+        "overheadOk": true
+      }
+    },
+    "failingArms": [
+      "Town A",
+      "Town B"
+    ],
+    "passed": false,
+    "phaseGate": false
+  },
+  "exitCode": 1
+}

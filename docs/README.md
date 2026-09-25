@@ -59,6 +59,7 @@ Active documentation for the current EcoSim codebase. Code and runtime configura
 |----------|---------|
 | [AI_GOVERNMENT_EXPERIMENT.md](experiments/AI_GOVERNMENT_EXPERIMENT.md) | Curated 1,000-household LLM government comparison |
 | [evals/2026-09-24-newcomer-smoke/](evals/2026-09-24-newcomer-smoke/README.md) | Newcomer-scale policy-arm smoke run (1,000 households, five years): per-arm visibility against the baseline, with data |
+| [evals/2026-09-24-frame-bench/](evals/2026-09-24-frame-bench/README.md) | Concurrent full-path frame benchmark and phase-1 gate: frame bytes, tick, projection and serialization time per arm, and live-versus-headless equivalence, with data |
 
 ## Archive
 

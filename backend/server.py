@@ -431,6 +431,8 @@ class SimulationManager:
         self.last_events: List[Dict[str, Any]] = []
         self.last_event_counts: Dict[str, int] = {}
         self.cached_econ_tick: int = 0
+        self.last_frame_bytes: int = 0
+        self.last_serialize_ms: float = 0.0
         self.metrics_stride = 5
         self.policy_changes = []
         # Every policy record since the last tick's event collection; policy_changes keeps only five.
@@ -2245,6 +2247,8 @@ class SimulationManager:
         self.cached_mean_prices = None
         self.cached_supplies = None
         self.cached_total_net_worth = None
+        self.last_frame_bytes = 0
+        self.last_serialize_ms = 0.0
         if self.llm_task is not None and not self.llm_task.done():
             self.llm_task.cancel()
         self.llm_task = None
@@ -3001,10 +3005,17 @@ class SimulationManager:
                     "projectionMs": projection_ms,
                     "curated": curated_metrics,
                     "firms": firm_rows,
+                    "frameBytesPrev": self.last_frame_bytes,
+                    "serializeMsPrev": self.last_serialize_ms,
                 }
                 
                 # Send update
-                await self.active_websocket.send_json(state)
+                serialize_started = time.perf_counter()
+                # Same encoding as Starlette's send_json, so the wire content is unchanged.
+                encoded = json.dumps(state, separators=(",", ":"), ensure_ascii=False)
+                self.last_serialize_ms = (time.perf_counter() - serialize_started) * 1000.0
+                self.last_frame_bytes = len(encoded.encode("utf-8"))
+                await self.active_websocket.send_text(encoded)
                 
                 # Throttle
                 elapsed = asyncio.get_event_loop().time() - start_time

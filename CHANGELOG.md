@@ -4,6 +4,10 @@ Notable changes and decisions for EcoSim, newest first. The project does not use
 
 ## Unreleased
 
+### 2026-09-24: Phase 1 backend widening
+
+Phase 1 backend widening landed: experiment registry, initial policy and receipts, horizon/finish/extend, TRACK, event stream, curated metrics, recorder, concurrent frame bench; gate: fail, bytes p95 186,587 and 188,160 for the two towns (limit 61,440, at two towns of 1,000 households, warehouse off), overhead share 1.9% (limit 10%), equivalence matched at all seven checkpoints. Evidence and the byte breakdown are in `docs/evals/2026-09-24-frame-bench/`.
+
 ### 2026-09-24: Frontend redesign, design decisions
 
 Design phase only. No frontend code changed yet. Full design: [docs/superpowers/specs/2026-09-24-frontend-learning-redesign-design.md](docs/superpowers/specs/2026-09-24-frontend-learning-redesign-design.md). Approved mockups: [docs/superpowers/specs/2026-09-24-mockups/](docs/superpowers/specs/2026-09-24-mockups/).
@@ -33,6 +37,10 @@ The first draft of `docs/superpowers/plans/2026-09-24-frontend-redesign-phase1-b
 ### 2026-09-24: Newcomer-scale smoke benchmark
 
 Added `backend/tools/benchmarks/run_newcomer_smoke.py`, a matched-seed policy-arm runner at dashboard defaults (1,000 households, 260 ticks, 5 firms per sector) with `--payment-sequence`, checkpoint deltas and a `summary.md`, plus a fast contract test. Evidence from the 2026-09-24 runs (18 per-tick CSVs, meta, logs, README with verdicts) is under `docs/evals/2026-09-24-newcomer-smoke/`; `.gitignore` gained an exception so `docs/evals/**/data/` is tracked despite the global `data/` rule. Listed in `docs/README.md` and `backend/README.md`. A wiki refresh is due for `openwiki/engineering/testing-performance.md`.
+
+### 2026-09-24: Phase 1 branch status
+
+Branch `feat/frontend-redesign-phase1` holds the eight phase-1 tasks, each implemented by an Opus 5.5 subagent and reviewed per commit (Codex Astra for Tasks 1 to 8, with fix rounds until clean). The phase gate at two towns of 1,000 households passes overhead (1.9 percent) and live-versus-headless equivalence (7 of 7 checkpoints) and fails frame size (p95 about 187 KB against 60 KB) because the 40 tracked households carry per-frame history, traits, wage-reasoning and recent events. That contract change is deferred to phase 2's first task, to be built with the new client adapter. The final whole-branch review is deferred to a later session; the branch is unmerged. An OpenWiki refresh is due for the new commands and frame keys.
 
 ### In progress: payment settlement book (PS3.1)
 

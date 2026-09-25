@@ -1,0 +1,118 @@
+{
+  "households": 1000,
+  "ticks": 260,
+  "arms": 2,
+  "seed": 1337,
+  "warehouse": true,
+  "wallClockSeconds": 57.51377750001848,
+  "perArm": {
+    "Town A": {
+      "frames": 260,
+      "bytes": {
+        "p50": 152464.0,
+        "p95": 186586.0,
+        "max": 195871.0
+      },
+      "tickComputeMs": {
+        "p50": 92.9074170999229,
+        "p95": 131.5996249904856
+      },
+      "projectionMs": {
+        "p50": 0.34145801328122616,
+        "p95": 0.38137484807521105,
+        "shareOfTickP50": 0.0036752503076690262
+      },
+      "serializeMs": {
+        "p50": 1.425167080014944,
+        "p95": 1.8980000168085098,
+        "shareOfTickP50": 0.0153396480550327
+      },
+      "interFrameMs": {
+        "p50": 223.37287501432002,
+        "p95": 263.9139590319246
+      }
+    },
+    "Town B": {
+      "frames": 260,
+      "bytes": {
+        "p50": 154779.0,
+        "p95": 188160.0,
+        "max": 198180.0
+      },
+      "tickComputeMs": {
+        "p50": 92.32112497556955,
+        "p95": 129.54429199453443
+      },
+      "projectionMs": {
+        "p50": 0.352917006239295,
+        "p95": 0.3934999695047736,
+        "shareOfTickP50": 0.003822711284472385
+      },
+      "serializeMs": {
+        "p50": 1.4494170900434256,
+        "p95": 1.9172090105712414,
+        "shareOfTickP50": 0.01569973384127389
+      },
+      "interFrameMs": {
+        "p50": 208.84762494824827,
+        "p95": 293.2927500223741
+      }
+    }
+  },
+  "equivalence": {
+    "checkpoints": [
+      {
+        "tick": 13,
+        "session": 2.1,
+        "smoke": 2.1,
+        "match": true
+      },
+      {
+        "tick": 26,
+        "session": 8.2,
+        "smoke": 8.200000000000001,
+        "match": true
+      },
+      {
+        "tick": 52,
+        "session": 19.4,
+        "smoke": 19.400000000000002,
+        "match": true
+      },
+      {
+        "tick": 104,
+        "session": 25.881168177240685,
+        "smoke": 25.88116817724068,
+        "match": true
+      },
+      {
+        "tick": 156,
+        "session": 19.611848825331972,
+        "smoke": 19.611848825331972,
+        "match": true
+      },
+      {
+        "tick": 208,
+        "session": 29.7741273100616,
+        "smoke": 29.774127310061605,
+        "match": true
+      },
+      {
+        "tick": 260,
+        "session": 36.69724770642202,
+        "smoke": 36.69724770642202,
+        "match": true
+      }
+    ],
+    "matches": true
+  },
+  "gate": {
+    "checks": {
+      "bytesP95": false,
+      "overheadShare": true,
+      "equivalence": true
+    },
+    "passed": false,
+    "overheadShare": 0.019014898362701725
+  }
+}

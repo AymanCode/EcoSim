@@ -1,5 +1,6 @@
 import asyncio
 import functools
+import json
 import sys
 from pathlib import Path
 
@@ -132,6 +133,10 @@ class _ExtendOnHorizonSocket:
         if msg.get("type") == "HORIZON_REACHED" and msg["tick"] == 3:
             self.manager.extend(2)
         await asyncio.sleep(0)
+
+    async def send_text(self, text):
+        # Tick frames are pre-encoded by the loop; decode them so every message is recorded the same way.
+        await self.send_json(json.loads(text))
 
 
 def test_extend_arriving_while_horizon_notice_is_in_flight_keeps_the_loop_running(monkeypatch):
