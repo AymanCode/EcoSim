@@ -17,6 +17,7 @@ import copy
 import json
 import logging
 import logging.handlers
+import math
 import sys
 import os
 import random
@@ -151,6 +152,7 @@ class SetupConfig(BaseModel):
     experiment_owner: Optional[str] = Field(default=None, min_length=1, max_length=64)
     initial_policy: Dict[str, Any] = Field(default_factory=dict)
     horizon_ticks: int = Field(default=260, ge=1, le=5_200)
+    tracked_households: int = Field(default=40, ge=1, le=200)
     payment_sequence: Literal["legacy", "income_first", "income_late"] = "legacy"
     payment_care_mode: Literal["patient_pay", "covered"] = "patient_pay"
     payment_assistance: Literal["reserve", "care", "rent", "mixed"] = "reserve"
@@ -386,7 +388,9 @@ class SimulationManager:
     """
 
     # Constants for tracked subjects
-    TRACKED_HOUSEHOLDS_COUNT = 12
+    DEFAULT_TRACKED_HOUSEHOLDS = 40
+    MAX_PINNED_HOUSEHOLDS = 8
+    SAMPLE_RNG_SALT = 0x5A17
     TRACKED_FIRMS_PRIVATE = 5
     TRACKED_FIRMS_BASELINE = 2
     TRACKED_FIRMS_TOTAL = 7
@@ -418,6 +422,9 @@ class SimulationManager:
         self.horizon_tick: Optional[int] = None
         self.horizon_notified: bool = False
         self.run_finalized: bool = False
+        self.tracked_household_count: int = self.DEFAULT_TRACKED_HOUSEHOLDS
+        self.pinned_household_ids: List[int] = []
+        self._sample_rng = random.Random(self.config.random_seed ^ self.SAMPLE_RNG_SALT)
         self.metrics_stride = 5
         self.policy_changes = []
         self.cached_stats = None
@@ -1998,6 +2005,69 @@ class SimulationManager:
             resumed = True
         return {"type": "EXTENDED", "horizonTick": self.horizon_tick, "tick": self.tick, "resumed": resumed}
 
+    @staticmethod
+    def _household_id(value: Any) -> int:
+        """Accept an int, or a finite float with no fractional part; reject bools, strings and the rest."""
+        try:
+            if isinstance(value, bool):
+                raise ValueError
+            if isinstance(value, int):
+                return value
+            if isinstance(value, float) and math.isfinite(value) and value.is_integer():
+                return int(value)
+            raise ValueError
+        except (OverflowError, ValueError):
+            raise ValueError("householdId must be an integer") from None
+
+    def track(self, action: str, household_id: Optional[int]) -> Dict[str, Any]:
+        """Pin, unpin, follow or reshuffle the household sample. Never touches the session RNG."""
+        if not self.economy:
+            raise ValueError("no active simulation; send SETUP first")
+        action = str(action or "").lower()
+        tracked = list(self.tracked_household_ids)
+        if action in {"pin", "unpin", "follow"}:
+            if household_id is None:
+                raise ValueError(f"TRACK {action} needs householdId")
+            household_id = self._household_id(household_id)
+            if household_id not in self.economy.household_lookup:
+                raise ValueError(f"household {household_id} does not exist")
+        if action == "pin":
+            if household_id not in tracked:
+                raise ValueError(f"household {household_id} is not in the sample; follow it first")
+            if household_id not in self.pinned_household_ids:
+                if len(self.pinned_household_ids) >= self.MAX_PINNED_HOUSEHOLDS:
+                    raise ValueError(f"at most {self.MAX_PINNED_HOUSEHOLDS} households can be pinned")
+                self.pinned_household_ids.append(household_id)
+        elif action == "unpin":
+            if household_id in self.pinned_household_ids:
+                self.pinned_household_ids.remove(household_id)
+        elif action == "follow":
+            if household_id not in tracked:
+                if len(tracked) >= self.tracked_household_count:
+                    evictable = [hid for hid in tracked if hid not in self.pinned_household_ids]
+                    if not evictable:
+                        raise ValueError("every tracked household is pinned; unpin one first")
+                    evicted = evictable[0]
+                    tracked.remove(evicted)
+                    self.subject_histories.pop(evicted, None)
+                tracked.append(household_id)
+                self.subject_histories[household_id] = self._new_subject_history()
+        elif action == "reshuffle":
+            keep = [hid for hid in tracked if hid in self.pinned_household_ids]
+            candidates = [h for h in self.economy.households if h.household_id not in keep]
+            need = max(0, min(self.tracked_household_count, len(self.economy.households)) - len(keep))
+            fresh = [h.household_id for h in self._sample_rng.sample(candidates, min(need, len(candidates)))]
+            for hid in tracked:
+                if hid not in keep:
+                    self.subject_histories.pop(hid, None)
+            tracked = keep + fresh
+            for hid in fresh:
+                self.subject_histories[hid] = self._new_subject_history()
+        else:
+            raise ValueError(f"unknown TRACK action {action!r}")
+        self.tracked_household_ids = tracked
+        return {"type": "TRACKED", "tracked": list(tracked), "pinned": list(self.pinned_household_ids), "tick": self.tick}
+
     def initialize(self, config: Dict[str, Any] = None):
         """Initialize this session under its owned config and RNG context."""
         with use_config(self.config), self._random_scope():
@@ -2194,21 +2264,16 @@ class SimulationManager:
             self.economy.llm_government = None
             self.economy.last_llm_government_decision = None
 
-        # Select random households to track (more diverse sample)
+        # Household sample: its own RNG so browsing never touches the simulation stream.
+        self.tracked_household_count = int(validated.tracked_households)
+        self.pinned_household_ids = []
+        self._sample_rng = random.Random(seed ^ self.SAMPLE_RNG_SALT)
         if self.economy.households:
-            self.tracked_household_ids = [h.household_id for h in random.sample(self.economy.households, min(self.TRACKED_HOUSEHOLDS_COUNT, len(self.economy.households)))]
+            count = min(self.tracked_household_count, len(self.economy.households))
+            self.tracked_household_ids = [h.household_id for h in self._sample_rng.sample(self.economy.households, count)]
         else:
             self.tracked_household_ids = []
-
-        # Track historical data for each subject
-        self.subject_histories = {hid: {
-            "cash": [],
-            "wage": [],
-            "happiness": [],
-            "health": [],
-            "netWorth": [],
-            "events": []  # Life events (job changes, medical, etc.)
-        } for hid in self.tracked_household_ids}
+        self.subject_histories = {hid: self._new_subject_history() for hid in self.tracked_household_ids}
 
         # Initialize tracked firms (filled below)
         self.tracked_firm_ids = []
@@ -2251,6 +2316,10 @@ class SimulationManager:
             government=government_enabled
         )
         self.stabilizer_state = self._build_stabilizer_state_dict(households_enabled, firms_enabled, government_enabled)
+
+    @staticmethod
+    def _new_subject_history() -> Dict[str, List[Dict[str, Any]]]:
+        return {"cash": [], "wage": [], "happiness": [], "health": [], "netWorth": [], "events": []}
 
     def _select_tracked_firms(self):
         """Ensure tracked firm list highlights top private performers plus baselines."""
@@ -2632,6 +2701,9 @@ class SimulationManager:
                             "metHousingNeed": bool(h.met_housing_need),
                             "housingSecurity": bool(housing_security),
                             "monthlyRent": float(getattr(h, "monthly_rent", 0.0) or 0.0),
+                            "rentArrears": float(getattr(h, "rent_arrears", 0.0) or 0.0),
+                            # Evictions clear the rental but not the renewal tick, so only renters report one.
+                            "leaseRenewalTick": int(h.lease_renewal_tick) if has_rental else -1,
                             "needs": {
                                 # Check both cases due to potential case-sensitivity inconsistency in goods_inventory
                                 "food": h.goods_inventory.get("Food", 0) + h.goods_inventory.get("food", 0),
@@ -2873,7 +2945,8 @@ class SimulationManager:
                         "priceHistory": self.price_history,
                         "supplyHistory": self.supply_history,
                         "trackedSubjects": tracked_subjects,
-                        "trackedFirms": tracked_firms
+                        "trackedFirms": tracked_firms,
+                        "pinnedHouseholdIds": list(self.pinned_household_ids),
                     },
                     "logs": new_logs,
                     "firm_stats": firm_stats
@@ -3477,7 +3550,7 @@ async def websocket_endpoint(websocket: WebSocket):
     logger.info("WebSocket connected session=%s", session_id)
     await websocket.send_json({"type": "SESSION", "sessionId": session_id})
     
-    VALID_COMMANDS = {"SETUP", "START", "STOP", "RESET", "CONFIG", "STABILIZERS", "FINISH", "EXTEND"}
+    VALID_COMMANDS = {"SETUP", "START", "STOP", "RESET", "CONFIG", "STABILIZERS", "FINISH", "EXTEND", "TRACK"}
 
     try:
         while True:
@@ -3575,6 +3648,11 @@ async def websocket_endpoint(websocket: WebSocket):
                     await websocket.send_json(session_manager.extend(data.get("ticks", 52)))
                 except (TypeError, ValueError) as exc:
                     await websocket.send_json({"error": f"EXTEND failed: {exc}"})
+            elif command == "TRACK":
+                try:
+                    await websocket.send_json(session_manager.track(data.get("action"), data.get("householdId")))
+                except (TypeError, ValueError, OverflowError) as exc:
+                    await websocket.send_json({"error": f"TRACK failed: {exc}"})
 
     except WebSocketDisconnect:
         session_manager.stop_background_loop(cancel=True)
