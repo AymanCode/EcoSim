@@ -227,7 +227,7 @@ def test_frames_carry_a_forced_policy_event(monkeypatch):
         assert frames[0]["schemaVersion"] == "frame-2"
         policy_events = [e for f in frames for e in f["events"] if e["type"] == "policy_changed"]
         assert [e["text"] for e in policy_events] == ["benefit_level=high"]
-        assert policy_events[0]["id"].endswith(f":policy_changed:{receipt['actionId']}:benefit_level")
+        assert policy_events[0]["id"].endswith(f":policy_changed:{receipt['actionId']}:benefit_level:0")
         assert all("hired" in f["eventCounts"] and isinstance(f["firmsClosed"], list) for f in frames)
 
 

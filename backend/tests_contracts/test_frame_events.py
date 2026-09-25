@@ -83,11 +83,23 @@ def test_policy_changes_and_defaults_are_emitted_once_regardless_of_their_record
     defaults = [{"tick": 5, "claim_id": "c1", "borrower_type": "firm", "borrower_id": 3, "written_off": 500.0}]
     events, counts = _collect(collector, _economy([], defaults=defaults), 6, changes=changes)
     assert [e["type"] for e in events] == ["policy_changed", "policy_changed", "loan_default"]
-    assert {e["id"] for e in events} == {"6:policy_changed:abc:benefit_level", "6:policy_changed:abc:wage_tax_rate", "6:loan_default:c1"}
+    assert {e["id"] for e in events} == {"6:policy_changed:abc:benefit_level:0", "6:policy_changed:abc:wage_tax_rate:1",
+                                         "6:loan_default:c1"}
     assert events[0]["text"] == "benefit_level=high" and events[2]["value"] == 500.0
     assert counts["policyChanges"] == 2 and counts["loanDefaults"] == 1
     events, counts = _collect(collector, _economy([], defaults=defaults), 7, changes=changes)
     assert events == [] and counts["policyChanges"] == 0 and counts["loanDefaults"] == 0
+
+
+def test_two_records_for_one_lever_in_one_tick_get_distinct_ids():
+    collector = TickEventCollector()
+    collector.reset(_economy([]))
+    changes = [{"tick": 5, "policy": "benefit_level", "value": "high", "reason": "auto", "actionId": None},
+               {"tick": 5, "policy": "benefit_level", "value": "crisis", "reason": "auto", "actionId": None}]
+    events, counts = _collect(collector, _economy([]), 6, changes=changes)
+    ids = [e["id"] for e in events if e["type"] == "policy_changed"]
+    assert ids == ["6:policy_changed:auto:benefit_level:0", "6:policy_changed:auto:benefit_level:1"]
+    assert counts["policyChanges"] == 2
 
 
 def test_shock_and_other_regime_events_are_mapped():

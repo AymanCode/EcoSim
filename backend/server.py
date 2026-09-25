@@ -37,8 +37,8 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 import numpy as np
 
 from config import clone_config, use_config
-from policy_schema import ORDERED_LEVERS, VALID_LEVERS, normalize_current_policy
-from policy_vectors import PolicyVectorError, validate_lever_value, validate_policy_vector
+from policy_schema import ORDERED_LEVERS, POLICY_GROUPS, VALID_LEVERS, normalize_current_policy
+from policy_vectors import PolicyVectorError, policy_group_errors, validate_lever_value, validate_policy_vector
 from experiments import ExperimentError, ExperimentRegistry  # noqa: F401
 from frame_events import TickEventCollector
 from frame_projection import build_curated_metrics, build_firm_list
@@ -137,6 +137,11 @@ app.add_middleware(
 )
 
 
+# CONFIG and STABILIZERS change nothing while a run is finished: after FINISH, until SETUP, RESET, EXTEND, or a
+# START before the horizon (START at the horizon only repeats HORIZON_REACHED).
+FINISHED_RUN_MESSAGE = "the run is finished; send EXTEND to continue, or START if it finished before its horizon"
+
+
 # --- Input validation models ---
 
 class SetupConfig(BaseModel):
@@ -156,8 +161,9 @@ class SetupConfig(BaseModel):
     # None means the profile default: lean 260 ticks and 40 households, legacy no horizon and 12 households.
     horizon_ticks: Optional[int] = Field(default=None, ge=1, le=5_200)
     tracked_households: Optional[int] = Field(default=None, ge=1, le=200)
-    # Presentation only, so not part of world_key: "legacy" keeps every old frame key for the current
-    # dashboard; "lean" drops per-frame subject detail (except pinned), trackedFirms and firm_stats.
+    # Not part of world_key. Selects the frame shape: "legacy" keeps every old frame key for the current
+    # dashboard; "lean" drops per-frame subject detail (except pinned), trackedFirms and firm_stats. It also
+    # selects runtime group-rule enforcement for CONFIG: lean enforces the lever group rules, legacy does not.
     frame_profile: Literal["legacy", "lean"] = "legacy"
     payment_sequence: Literal["legacy", "income_first", "income_late"] = "legacy"
     payment_care_mode: Literal["patient_pay", "covered"] = "patient_pay"
@@ -429,7 +435,8 @@ class SimulationManager:
         self.arm_count: int = 1
         self.horizon_tick: Optional[int] = None
         self.horizon_notified: bool = False
-        self.run_finalized: bool = False
+        self.run_finalized: bool = False  # warehouse only: FINISH finalized the warehouse run
+        self.run_finished: bool = False  # FINISH happened, warehouse or not; CONFIG and STABILIZERS are refused
         self.frame_profile: str = "legacy"
         self.tracked_household_count: int = self.LEGACY_TRACKED_HOUSEHOLDS
         self.pinned_household_ids: List[int] = []
@@ -1906,8 +1913,8 @@ class SimulationManager:
             or self.warehouse_run_id is None
         ):
             return
-        if self.run_finalized and status == "stopped":
-            status = "completed"  # FINISH already happened; a later disconnect must not downgrade the run
+        if self.run_finalized and status in {"stopped", "failed"}:
+            status = "completed"  # FINISH already happened; a later disconnect or crash must not downgrade the run
 
         flush_ok = self._flush_warehouse_batches()
         effective_status = status if flush_ok else "failed"
@@ -1996,6 +2003,7 @@ class SimulationManager:
         if not await self.halt_background_loop():
             raise RuntimeError("simulation loop did not stop within the timeout")
         receipts = await self.drain_pending_config_updates()
+        self.run_finished = True  # whatever the warehouse outcome below
         analysis_ready = self._finalize_warehouse_run()
         finished = {
             "type": "FINISHED",
@@ -2014,6 +2022,7 @@ class SimulationManager:
             raise ValueError("EXTEND ticks must be between 1 and 5200")
         if not self._reopen_warehouse_run():
             raise ValueError("could not reopen the finished warehouse run")
+        self.run_finished = False
         base = self.horizon_tick if self.horizon_tick is not None else self.tick
         self.horizon_tick = base + ticks
         self.horizon_notified = False
@@ -2189,6 +2198,7 @@ class SimulationManager:
         self.horizon_tick = horizon_ticks
         self.horizon_notified = False
         self.run_finalized = False
+        self.run_finished = False
         self.setup_config["experiment"] = (
             {
                 "id": validated.experiment_id,
@@ -2541,7 +2551,14 @@ class SimulationManager:
             while self.is_running and self.active_websocket:
                 if self.horizon_tick is not None and self.tick >= self.horizon_tick:
                     self.is_running = False
-                    if not self.horizon_notified:
+                    # CONFIG queued during the final tick applies now, receipts before the notice; left queued,
+                    # FINISH or START would apply it later, over any change made while paused.
+                    for receipt in await self.drain_pending_config_updates():
+                        if self.active_websocket:
+                            await self.active_websocket.send_json(receipt)
+                    # An EXTEND that arrived during a receipt send moved the horizon: no notice for the old one.
+                    at_horizon = self.horizon_tick is not None and self.tick >= self.horizon_tick
+                    if at_horizon and not self.horizon_notified and self.active_websocket:
                         self.horizon_notified = True
                         await self.active_websocket.send_json({"type": "HORIZON_REACHED", "tick": self.tick})
                     # Re-test the loop condition: an EXTEND that arrived during the send resumes the loop.
@@ -3117,8 +3134,13 @@ class SimulationManager:
         return "neutral"
 
     @staticmethod
-    def _normalize_runtime_policy_updates(config_data: Dict[str, Any]) -> Dict[str, Any]:
-        """Convert frontend camelCase controls into policy-schema lever names."""
+    def _normalize_runtime_policy_updates(config_data: Dict[str, Any]) -> tuple[Dict[str, Any], set]:
+        """Convert frontend camelCase controls into policy-schema lever names.
+
+        Returns the lever updates and the set of levers given by canonical name. Only the camelCase
+        aliases get the old dashboard's coercion (snapped integer levers, bool ``publicWorks``, float
+        taxes); canonical names pass through unchanged for strict validation, as at SETUP.
+        """
         direct_map = {
             "wageTax": "wage_tax_rate",
             "profitTax": "profit_tax_rate",
@@ -3139,38 +3161,46 @@ class SimulationManager:
             "bailoutBudget": "bailout_budget",
         }
         normalized: Dict[str, Any] = {}
+        canonical: set = set()
         for key, value in config_data.items():
             if key in direct_map:
                 lever = direct_map[key]
                 normalized[lever] = value
+                canonical.discard(lever)
             elif key == "unemploymentBenefitRate":
                 normalized["benefit_level"] = SimulationManager._benefit_rate_to_level(value)
+                canonical.discard("benefit_level")
             elif key == "minimumWage":
                 normalized["minimum_wage_policy"] = SimulationManager._minimum_wage_to_policy(value)
+                canonical.discard("minimum_wage_policy")
             elif key in VALID_LEVERS:
                 normalized[key] = value
+                canonical.add(key)
 
-        if "public_works" in normalized and isinstance(normalized["public_works"], bool):
+        def alias(lever: str) -> bool:
+            return lever in normalized and lever not in canonical
+
+        if alias("public_works") and isinstance(normalized["public_works"], bool):
             normalized["public_works"] = "on" if normalized["public_works"] else "off"
         for integer_lever in ("sector_subsidy_level", "bailout_budget"):
-            if integer_lever in normalized:
+            if alias(integer_lever):
                 try:
                     normalized[integer_lever] = int(float(normalized[integer_lever]))
                 except (TypeError, ValueError, OverflowError):
                     pass
         for ordered_integer_lever in ("sector_subsidy_level", "bailout_budget"):
-            if ordered_integer_lever in normalized and isinstance(normalized[ordered_integer_lever], int):
+            if alias(ordered_integer_lever) and isinstance(normalized[ordered_integer_lever], int):
                 allowed = ORDERED_LEVERS.get(ordered_integer_lever, [])
                 if allowed:
                     value = normalized[ordered_integer_lever]
                     normalized[ordered_integer_lever] = min(allowed, key=lambda candidate: abs(candidate - value))
         for numeric_lever in ("wage_tax_rate", "profit_tax_rate", "investment_tax_rate"):
-            if numeric_lever in normalized:
+            if alias(numeric_lever):
                 try:
                     normalized[numeric_lever] = float(normalized[numeric_lever])
                 except (TypeError, ValueError, OverflowError):
                     pass
-        return normalized
+        return normalized, canonical
 
     async def _apply_config_updates(self, config_data: Dict[str, Any], action_id: Optional[str] = None) -> Dict[str, Any]:
         """Apply runtime-safe frontend config updates and return a receipt."""
@@ -3215,22 +3245,28 @@ class SimulationManager:
             if "birthRate" in config_data:
                 self.economy.government.birth_rate = config_data["birthRate"]
 
-            lever_updates = self._normalize_runtime_policy_updates(config_data)
+            lever_updates, canonical_levers = self._normalize_runtime_policy_updates(config_data)
             receipt["requested"] = dict(lever_updates)
-            # A bad value rejects only its own lever; a group-rule breach rejects the whole lever batch.
+            # A bad value rejects only its own lever. Canonical names are held to SETUP's rules and apply
+            # SETUP's canonical value; camelCase aliases were coerced above and apply that value.
             for lever, value in list(lever_updates.items()):
                 try:
-                    validate_lever_value(lever, value)
+                    checked = validate_lever_value(lever, value)
                 except PolicyVectorError as exc:
                     receipt["rejected"][lever] = str(exc)
                     del lever_updates[lever]
-            if lever_updates:
+                    continue
+                if lever in canonical_levers:
+                    lever_updates[lever] = checked
+            # Group rules (sector subsidy, bailout) bind only the lean profile, and reject only the requested
+            # levers of the group that fails; legacy applies levers one by one, as the old dashboard expects.
+            if lever_updates and self.frame_profile == "lean":
                 current = {k: v for k, v in normalize_current_policy(self._snapshot_government_levers()).items() if k in VALID_LEVERS}
-                try:
-                    validate_policy_vector({**current, **lever_updates})
-                except PolicyVectorError as exc:
-                    receipt["rejected"]["_group"] = str(exc)
-                    lever_updates = {}
+                for group, rule in policy_group_errors({**current, **lever_updates}).items():
+                    for lever in POLICY_GROUPS[group]:
+                        if lever in lever_updates:
+                            receipt["rejected"][lever] = rule
+                            del lever_updates[lever]
             for lever, value in lever_updates.items():
                 try:
                     self.economy.government.set_lever(lever, value)
@@ -3301,6 +3337,8 @@ class SimulationManager:
         """
         if not self.economy:
             raise ValueError("no active simulation; send SETUP first")
+        if self.run_finished:
+            raise ValueError(FINISHED_RUN_MESSAGE)
 
         locked = {name for name in SetupConfig.model_fields if name.startswith("payment_")}
         locked.update({"paymentSequence", "paymentCareMode", "paymentAssistance"})
@@ -3714,11 +3752,15 @@ async def websocket_endpoint(websocket: WebSocket):
                          await websocket.send_json({"error": f"START failed: {e}"})
                          continue
 
-                if session_manager.run_finalized and not session_manager._reopen_warehouse_run():
+                at_horizon = session_manager.horizon_tick is not None and session_manager.tick >= session_manager.horizon_tick
+                # A finished run reopens only if it can tick; at the horizon it stays finished.
+                if session_manager.run_finalized and not at_horizon and not session_manager._reopen_warehouse_run():
                     await websocket.send_json({"error": "START failed: could not reopen the finished warehouse run"})
                     continue
-                if session_manager.horizon_tick is not None and session_manager.tick >= session_manager.horizon_tick:
+                if at_horizon:
                     session_manager.horizon_notified = False  # START at the horizon answers with HORIZON_REACHED again
+                else:
+                    session_manager.run_finished = False  # the run resumes, reopened above if it was finalized
                 session_manager.start_background_loop()
                 await websocket.send_json({"type": "STARTED"})
             elif command == "STOP":
@@ -3735,6 +3777,7 @@ async def websocket_endpoint(websocket: WebSocket):
                 session_manager._close_warehouse_run("stopped")
                 session_manager.horizon_notified = False
                 session_manager.run_finalized = False  # the close above already ended the finished run
+                session_manager.run_finished = False
                 dropped = len(session_manager.pending_config_updates)
                 session_manager.pending_config_updates = []
                 if dropped:
@@ -3759,6 +3802,9 @@ async def websocket_endpoint(websocket: WebSocket):
                 except ValueError as exc:
                     await websocket.send_json({"error": f"CONFIG failed: {exc}"})
             elif command == "STABILIZERS":
+                if session_manager.run_finished:
+                    await websocket.send_json({"error": f"STABILIZERS failed: {FINISHED_RUN_MESSAGE}"})
+                    continue
                 disable_flag = data.get("disable_stabilizers", False)
                 disabled_agents = data.get("disabled_agents", [])
                 session_manager.update_stabilizers(disable_flag, disabled_agents)

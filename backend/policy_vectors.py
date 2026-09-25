@@ -1,19 +1,23 @@
 """Validate a whole policy lever vector against the shared policy schema.
 
-Used for SETUP's initial_policy and for the merged state after a runtime
-CONFIG. Pure: imports only policy_schema.
+Used for SETUP's initial_policy and, in the lean frame profile, for the merged
+state after a runtime CONFIG. Pure: imports only policy_schema.
 """
 
 from __future__ import annotations
 
 import math
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 from policy_schema import ORDERED_LEVERS, SIMPLE_ENUM_LEVERS, TAX_LIMITS, VALID_LEVERS
 
 
 class PolicyVectorError(ValueError):
-    """A lever vector that does not fit the schema."""
+    """A lever vector that does not fit the schema; ``group`` names a broken group rule (see POLICY_GROUPS)."""
+
+    def __init__(self, message: str, *, group: Optional[str] = None) -> None:
+        super().__init__(message)
+        self.group = group
 
 
 def _coerce_ordered(lever: str, value: Any) -> Any:
@@ -51,16 +55,25 @@ def validate_lever_value(lever: str, value: Any) -> Any:
     return value
 
 
-def validate_policy_vector(vector: Dict[str, Any]) -> Dict[str, Any]:
-    """Return a canonical copy of *vector* or raise PolicyVectorError."""
-    result = {lever: validate_lever_value(lever, value) for lever, value in (vector or {}).items()}
+def policy_group_errors(vector: Dict[str, Any]) -> Dict[str, str]:
+    """Return ``{group: rule text}`` for every group rule a canonical *vector* breaks, in checking order."""
+    errors: Dict[str, str] = {}
+    level = vector.get("sector_subsidy_level", 0)
+    if level and vector.get("sector_subsidy_target", "none") == "none":
+        errors["sector_subsidy"] = "sector_subsidy_level above 0 needs a sector_subsidy_target other than 'none'"
+    if vector.get("bailout_policy", "off") != "off":
+        if vector.get("bailout_target", "none") == "none":
+            errors["bailout"] = "bailout_policy needs a bailout_target other than 'none'"
+        elif not vector.get("bailout_budget", 0):
+            errors["bailout"] = "bailout_policy needs a bailout_budget above 0"
+    return errors
 
-    level = result.get("sector_subsidy_level", 0)
-    if level and result.get("sector_subsidy_target", "none") == "none":
-        raise PolicyVectorError("sector_subsidy_level above 0 needs a sector_subsidy_target other than 'none'")
-    if result.get("bailout_policy", "off") != "off":
-        if result.get("bailout_target", "none") == "none":
-            raise PolicyVectorError("bailout_policy needs a bailout_target other than 'none'")
-        if not result.get("bailout_budget", 0):
-            raise PolicyVectorError("bailout_policy needs a bailout_budget above 0")
+
+def validate_policy_vector(vector: Dict[str, Any]) -> Dict[str, Any]:
+    """Return a canonical copy of *vector* or raise PolicyVectorError (with ``group`` set for a group rule)."""
+    result = {lever: validate_lever_value(lever, value) for lever, value in (vector or {}).items()}
+    errors = policy_group_errors(result)
+    if errors:
+        group, rule = next(iter(errors.items()))
+        raise PolicyVectorError(rule, group=group)
     return result

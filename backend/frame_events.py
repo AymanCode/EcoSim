@@ -138,8 +138,9 @@ class TickEventCollector:
             if key in self._seen_policy:
                 continue
             self._seen_policy.append(key)
+            # The call's running count keeps ids unique when one lever changes twice in a tick.
+            ident = f"{change.get('actionId') or 'auto'}:{change.get('policy')}:{counts['policyChanges']}"
             counts["policyChanges"] += 1
-            ident = f"{change.get('actionId') or 'auto'}:{change.get('policy')}"
             value = change.get("value")
             structural.append(_event(tick, "policy_changed", ident, text=f"{change.get('policy')}={value}",
                                      value=float(value) if isinstance(value, (int, float)) and not isinstance(value, bool) else None))

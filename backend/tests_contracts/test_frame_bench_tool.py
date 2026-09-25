@@ -202,15 +202,17 @@ def test_two_arms_run_concurrently_against_a_live_server_and_match_the_smoke_run
         results = run_frame_bench.run_experiment(
             base_url=base_url,
             arms=[{"label": "Town A", "initial_policy": {}}, {"label": "Town B", "initial_policy": {"benefit_level": "high"}}],
-            households=60, ticks=6, seed=7, warehouse=False,
+            households=60, ticks=13, seed=7, warehouse=False,
         )
     finally:
         run_frame_bench.stop_server(process)
     assert set(results) == {"Town A", "Town B"}
-    assert [r["tick"] for r in results["Town A"]] == [1, 2, 3, 4, 5, 6]
+    assert [r["tick"] for r in results["Town A"]] == list(range(1, 14))
     assert all(r["bytes"] > 0 and r["serializeMs"] >= 0.0 for r in results["Town B"][1:])
-    equivalence = run_frame_bench.equivalence(records_for_baseline=results["Town A"], households=60, ticks=6, seed=7)
+    equivalence = run_frame_bench.equivalence(records_for_baseline=results["Town A"], households=60, ticks=13, seed=7)
     assert equivalence["matches"] is True, equivalence
+    # Not vacuous: unemployment is zero until tick 11 in this world, so compare where it is not.
+    assert any(row["session"] > 0 for row in equivalence["checkpoints"]), equivalence
 
 
 @pytest.mark.parametrize("profile", [None, "lean", "legacy"])

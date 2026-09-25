@@ -4,6 +4,8 @@ import json
 import sys
 from pathlib import Path
 
+from types import SimpleNamespace
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -16,6 +18,7 @@ import server  # noqa: E402
 from _ws import setup, until  # noqa: E402
 
 SMALL = {"num_households": 30, "num_firms": 1, "seed": 7}
+FINISHED_ERROR = "the run is finished; send EXTEND to continue, or START if it finished before its horizon"
 
 
 def _client(monkeypatch, warehouse="0"):
@@ -157,6 +160,53 @@ def test_extend_arriving_while_horizon_notice_is_in_flight_keeps_the_loop_runnin
     assert manager.tick == 5 and manager.is_running is False
 
 
+class _ConfigAfterLastFrameSocket:
+    """Fake websocket: a CONFIG arrives, queued because the loop is running, right after the last tick's frame."""
+
+    def __init__(self, manager, horizon):
+        self.manager = manager
+        self.horizon = horizon
+        self.messages = []
+        self.queued = None
+
+    async def send_json(self, msg):
+        self.messages.append(msg)
+        await asyncio.sleep(0)
+
+    async def send_text(self, text):
+        frame = json.loads(text)
+        self.messages.append(frame)
+        if frame.get("tick") == self.horizon and self.queued is None:
+            self.queued = await self.manager.update_config({"wageTax": 0.2})
+        await asyncio.sleep(0)
+
+
+def test_config_queued_in_the_final_tick_applies_before_the_horizon_notice(monkeypatch):
+    monkeypatch.setenv("ECOSIM_ENABLE_WAREHOUSE", "0")
+    manager = server.SimulationManager(session_id="config-at-horizon")
+    manager.initialize({**SMALL, "horizon_ticks": 3})
+    socket = _ConfigAfterLastFrameSocket(manager, horizon=3)
+
+    async def run():
+        manager.active_websocket = socket
+        manager.start_background_loop()
+        await asyncio.wait_for(manager.run_task, timeout=30)
+        later = await manager.update_config({"wageTax": 0.3})  # paused after HORIZON_REACHED: applies now
+        receipts, finished = await manager.finish()
+        return later, receipts, finished
+
+    later, receipts, finished = asyncio.run(run())
+    assert socket.queued["type"] == "CONFIG_QUEUED"
+    types = [m.get("type") for m in socket.messages]
+    applied_at = [i for i, m in enumerate(socket.messages)
+                  if m.get("type") == "CONFIG_APPLIED" and m["actionId"] == socket.queued["actionId"]]
+    assert len(applied_at) == 1 and applied_at[0] < types.index("HORIZON_REACHED"), types
+    assert socket.messages[applied_at[0]]["applied"] == {"wage_tax_rate": 0.2}
+    assert later["type"] == "CONFIG_APPLIED" and later["applied"] == {"wage_tax_rate": 0.3}
+    assert receipts == [] and finished["drained"] == 0
+    assert manager.economy.government.wage_tax_rate == 0.3
+
+
 class _FinishDuringReceiptSocket:
     """Fake websocket: FINISH is handled while the loop is suspended sending a CONFIG receipt."""
 
@@ -208,8 +258,10 @@ def test_finish_mid_run_replies_only_after_the_loop_has_exited(monkeypatch):
         assert manager.tick == finished["tick"]
         ws.send_json({"command": "CONFIG", "config": {"benefitLevel": "high"}})
         after = []
-        _until(ws, lambda m: after.append(m) or m.get("type") == "CONFIG_APPLIED")
+        until(ws, lambda m: after.append(m) or "error" in m or m.get("type") == "CONFIG_APPLIED")
+        assert after[-1] == {"error": f"CONFIG failed: {FINISHED_ERROR}"}, after
         assert [m for m in after if "metrics" in m] == []
+        assert manager.economy.government.benefit_level != "high" and manager.run_finalized is False
 
 
 def test_stop_waits_for_the_loop_before_replying(monkeypatch):
@@ -465,10 +517,42 @@ def test_sqlite_lifecycle_finish_extend_finish_and_disconnect(monkeypatch, tmp_p
     assert row["status"] == "completed" and row["analysis_ready"] in (True, 1) and row["total_ticks"] == 4
 
 
-def test_start_after_finish_reopens_the_warehouse_run(monkeypatch, tmp_path):
+def _sqlite_client(monkeypatch, tmp_path, name):
     monkeypatch.setenv("ECOSIM_WAREHOUSE_BACKEND", "sqlite")
-    monkeypatch.setenv("ECOSIM_SQLITE_PATH", str(tmp_path / "start-after-finish.db"))
-    client, registry = _client(monkeypatch, warehouse="1")
+    monkeypatch.setenv("ECOSIM_SQLITE_PATH", str(tmp_path / name))
+    return _client(monkeypatch, warehouse="1")
+
+
+def test_start_after_a_mid_run_finish_reopens_the_warehouse_run(monkeypatch, tmp_path):
+    client, registry = _sqlite_client(monkeypatch, tmp_path, "start-after-finish.db")
+    with client.websocket_connect("/ws") as ws:
+        session = _session(ws)
+        _setup(ws, {**SMALL, "horizon_ticks": 8})
+        manager = registry.get(session["sessionId"])
+        run_id = manager.warehouse_run_id
+        ws.send_json({"command": "START"})
+        _until(ws, lambda m: "metrics" in m and m["tick"] >= 1)
+        ws.send_json({"command": "FINISH"})
+        finished = _until(ws, lambda m: m.get("type") == "FINISHED")
+        assert finished["analysisReady"] is True and finished["tick"] < 8
+        assert next(r for r in _runs(client) if r["run_id"] == run_id)["status"] == "completed"
+
+        ws.send_json({"command": "START"})
+        _until(ws, lambda m: m.get("type") == "STARTED")
+        row = next(r for r in _runs(client) if r["run_id"] == run_id)
+        assert row["status"] == "running" and row["analysis_ready"] in (False, 0)
+        assert row["ended_at"] is None and row["termination_reason"] is None
+        assert manager.run_finalized is False
+        assert _until(ws, lambda m: m.get("type") == "HORIZON_REACHED")["tick"] == 8
+
+        ws.send_json({"command": "FINISH"})
+        assert _until(ws, lambda m: m.get("type") == "FINISHED")["analysisReady"] is True
+        row = next(r for r in _runs(client) if r["run_id"] == run_id)
+        assert row["status"] == "completed" and row["total_ticks"] == 8
+
+
+def test_start_at_the_horizon_after_finish_keeps_the_run_finished(monkeypatch, tmp_path):
+    client, registry = _sqlite_client(monkeypatch, tmp_path, "start-at-horizon.db")
     with client.websocket_connect("/ws") as ws:
         session = _session(ws)
         _setup(ws, {**SMALL, "horizon_ticks": 2})
@@ -478,16 +562,14 @@ def test_start_after_finish_reopens_the_warehouse_run(monkeypatch, tmp_path):
         _until(ws, lambda m: m.get("type") == "HORIZON_REACHED")
         ws.send_json({"command": "FINISH"})
         assert _until(ws, lambda m: m.get("type") == "FINISHED")["analysisReady"] is True
-        assert next(r for r in _runs(client) if r["run_id"] == run_id)["status"] == "completed"
 
         ws.send_json({"command": "START"})
         _until(ws, lambda m: m.get("type") == "STARTED")
-        row = next(r for r in _runs(client) if r["run_id"] == run_id)
-        assert row["status"] == "running" and row["analysis_ready"] in (False, 0)
-        assert row["ended_at"] is None and row["termination_reason"] is None
-        assert manager.run_finalized is False
-        # START at the horizon answers with the horizon notice again instead of silently stopping.
+        # START at the horizon answers with the horizon notice again; the finished run is not reopened.
         assert _until(ws, lambda m: m.get("type") == "HORIZON_REACHED")["tick"] == 2
+        row = next(r for r in _runs(client) if r["run_id"] == run_id)
+        assert row["status"] == "completed" and row["analysis_ready"] in (True, 1)
+        assert manager.run_finalized is True and manager.tick == 2
 
         ws.send_json({"command": "EXTEND", "ticks": 1})
         assert _until(ws, lambda m: m.get("type") == "HORIZON_REACHED")["tick"] == 3
@@ -495,3 +577,113 @@ def test_start_after_finish_reopens_the_warehouse_run(monkeypatch, tmp_path):
         assert _until(ws, lambda m: m.get("type") == "FINISHED")["analysisReady"] is True
         row = next(r for r in _runs(client) if r["run_id"] == run_id)
         assert row["status"] == "completed" and row["total_ticks"] == 3
+
+
+@pytest.mark.parametrize("warehouse", ["1", "0"], ids=["warehouse-on", "warehouse-off"])
+def test_config_and_stabilizers_after_finish_change_nothing_until_extend(monkeypatch, tmp_path, warehouse):
+    if warehouse == "1":
+        client, registry = _sqlite_client(monkeypatch, tmp_path, "config-after-finish.db")
+    else:
+        client, registry = _client(monkeypatch)
+    with client.websocket_connect("/ws") as ws:
+        session = _session(ws)
+        _setup(ws, {**SMALL, "horizon_ticks": 2})
+        manager = registry.get(session["sessionId"])
+        ws.send_json({"command": "START"})
+        _until(ws, lambda m: m.get("type") == "HORIZON_REACHED")
+        ws.send_json({"command": "FINISH"})
+        _until(ws, lambda m: m.get("type") == "FINISHED")
+        # The guard follows FINISH itself; only the warehouse flag depends on a finalized warehouse run.
+        assert manager.run_finished is True and manager.run_finalized is (warehouse == "1")
+        tax, stabilizers = manager.economy.government.wage_tax_rate, dict(manager.stabilizer_state)
+        policy_records = list(manager.policy_changes)
+
+        ws.send_json({"command": "CONFIG", "config": {"wageTax": 0.2, "universalBasicIncome": 50.0}})
+        assert until(ws, lambda m: True) == {"error": f"CONFIG failed: {FINISHED_ERROR}"}
+        ws.send_json({"command": "STABILIZERS", "disable_stabilizers": True, "disabled_agents": ["all"]})
+        assert until(ws, lambda m: True) == {"error": f"STABILIZERS failed: {FINISHED_ERROR}"}
+        assert manager.economy.government.wage_tax_rate == tax and manager.economy.government.ubi_amount != 50.0
+        assert manager.stabilizer_state == stabilizers and manager.policy_changes == policy_records
+        assert manager.pending_config_updates == []
+
+        ws.send_json({"command": "EXTEND", "ticks": 1})
+        _until(ws, lambda m: m.get("type") == "EXTENDED")
+        ws.send_json({"command": "STABILIZERS", "disable_stabilizers": True, "disabled_agents": ["firms"]})
+        assert _until(ws, lambda m: m.get("type") == "STABILIZERS_UPDATED")["state"]["firms"] is False
+        _until(ws, lambda m: m.get("type") == "HORIZON_REACHED")
+
+
+def test_start_after_a_mid_run_finish_lets_config_apply_again(monkeypatch):
+    client, registry = _client(monkeypatch)
+    with client.websocket_connect("/ws") as ws:
+        session = _session(ws)
+        _setup(ws, {**SMALL, "horizon_ticks": 30})
+        manager = registry.get(session["sessionId"])
+        ws.send_json({"command": "START"})
+        _until(ws, lambda m: "metrics" in m and m["tick"] >= 1)
+        ws.send_json({"command": "FINISH"})
+        assert _until(ws, lambda m: m.get("type") == "FINISHED")["tick"] < 30
+        ws.send_json({"command": "CONFIG", "config": {"benefitLevel": "high"}})
+        assert until(ws, lambda m: "error" in m or m.get("type") == "CONFIG_APPLIED") == {
+            "error": f"CONFIG failed: {FINISHED_ERROR}"}
+
+        ws.send_json({"command": "START"})
+        _until(ws, lambda m: m.get("type") == "STARTED")
+        assert manager.run_finished is False
+        ws.send_json({"command": "CONFIG", "config": {"benefitLevel": "high"}})
+        queued = _until(ws, lambda m: m.get("type") in {"CONFIG_QUEUED", "CONFIG_APPLIED"})
+        ws.send_json({"command": "STOP"})
+        before_stop = []
+        _until(ws, lambda m: before_stop.append(m) or m.get("type") == "STOPPED")
+        applied = queued if queued["type"] == "CONFIG_APPLIED" else next(
+            m for m in before_stop if m.get("type") == "CONFIG_APPLIED" and m["actionId"] == queued["actionId"])
+        assert applied["applied"] == {"benefit_level": "high"}
+        assert manager.economy.government.benefit_level == "high"
+
+
+def test_start_at_the_horizon_after_finish_keeps_config_refused(monkeypatch):
+    client, registry = _client(monkeypatch)
+    with client.websocket_connect("/ws") as ws:
+        session = _session(ws)
+        _setup(ws, {**SMALL, "horizon_ticks": 2})
+        manager = registry.get(session["sessionId"])
+        ws.send_json({"command": "START"})
+        _until(ws, lambda m: m.get("type") == "HORIZON_REACHED")
+        ws.send_json({"command": "FINISH"})
+        _until(ws, lambda m: m.get("type") == "FINISHED")
+        ws.send_json({"command": "START"})
+        assert _until(ws, lambda m: m.get("type") == "HORIZON_REACHED")["tick"] == 2
+        assert manager.run_finished is True
+        ws.send_json({"command": "CONFIG", "config": {"benefitLevel": "high"}})
+        assert until(ws, lambda m: "error" in m or m.get("type") == "CONFIG_APPLIED") == {
+            "error": f"CONFIG failed: {FINISHED_ERROR}"}
+        ws.send_json({"command": "RESET"})
+        _until(ws, lambda m: m.get("type") == "RESET")
+        assert manager.run_finished is False
+        ws.send_json({"command": "CONFIG", "config": {"benefitLevel": "high"}})
+        assert _until(ws, lambda m: m.get("type") == "CONFIG_APPLIED")["applied"] == {"benefit_level": "high"}
+
+
+class _FailingFlushRecorder(_WarehouseRecorder):
+    def persist_flush_bundle(self, **kwargs):
+        raise RuntimeError("disk full")
+
+
+@pytest.mark.parametrize("status", ["stopped", "failed"])
+def test_closing_a_finished_run_keeps_it_completed_unless_the_flush_fails(monkeypatch, status):
+    manager, _ = _manager_with_blocked_loop(monkeypatch, refusals=0)
+    assert manager._finalize_warehouse_run() is True and manager.run_finalized is True
+    manager._close_warehouse_run(status)  # e.g. the websocket handler crashing after FINISH
+    name, run_id, closed = manager.warehouse_manager.calls[-1]
+    assert (name, run_id) == ("update_run_status", "run_fake")
+    assert closed["status"] == "completed" and closed["analysis_ready"] is True
+    assert closed["termination_reason"] == "completed"
+
+    manager, _ = _manager_with_blocked_loop(monkeypatch, refusals=0)
+    assert manager._finalize_warehouse_run() is True
+    manager.warehouse_manager = _FailingFlushRecorder()
+    manager.tick_metrics_batch = [SimpleNamespace(tick=3)]
+    manager._close_warehouse_run(status)
+    name, _, closed = manager.warehouse_manager.calls[-1]
+    assert name == "update_run_status" and closed["status"] == "failed"
+    assert closed["termination_reason"] == "warehouse_flush_failed" and closed["analysis_ready"] is False

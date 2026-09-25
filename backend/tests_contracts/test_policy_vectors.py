@@ -1,6 +1,6 @@
 import pytest
 
-from policy_vectors import PolicyVectorError, validate_policy_vector
+from policy_vectors import PolicyVectorError, policy_group_errors, validate_policy_vector
 
 
 def test_empty_vector_is_allowed():
@@ -52,3 +52,24 @@ def test_overflowing_integer_lever_raises_policy_vector_error():
 def test_non_finite_tax_raises_policy_vector_error():
     with pytest.raises(PolicyVectorError, match="wage_tax_rate"):
         validate_policy_vector({"wage_tax_rate": float("nan")})
+
+
+def test_a_group_rule_error_names_its_group():
+    with pytest.raises(PolicyVectorError, match="sector_subsidy_target") as subsidy:
+        validate_policy_vector({"sector_subsidy_level": 25})
+    assert subsidy.value.group == "sector_subsidy"
+    with pytest.raises(PolicyVectorError, match="bailout_target") as bailout:
+        validate_policy_vector({"bailout_policy": "all"})
+    assert bailout.value.group == "bailout"
+    with pytest.raises(PolicyVectorError, match="wage_tax_rate") as lever:
+        validate_policy_vector({"wage_tax_rate": 0.9})
+    assert lever.value.group is None
+
+
+def test_policy_group_errors_reports_every_failing_group():
+    assert policy_group_errors({}) == {}
+    assert policy_group_errors({"sector_subsidy_level": 25, "bailout_policy": "all", "bailout_target": "food"}) == {
+        "sector_subsidy": "sector_subsidy_level above 0 needs a sector_subsidy_target other than 'none'",
+        "bailout": "bailout_policy needs a bailout_budget above 0",
+    }
+    assert policy_group_errors({"bailout_policy": "sector", "bailout_target": "food", "bailout_budget": 5000}) == {}

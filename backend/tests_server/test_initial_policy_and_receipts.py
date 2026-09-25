@@ -78,16 +78,68 @@ def test_config_while_paused_returns_receipt_with_applied_and_rejected(monkeypat
         assert manager.policy_changes[0]["actionId"] == receipt["actionId"]
 
 
-def test_group_rule_rejects_the_whole_lever_batch(monkeypatch):
+SUBSIDY_RULE = "sector_subsidy_level above 0 needs a sector_subsidy_target other than 'none'"
+BUDGET_RULE = "bailout_policy needs a bailout_budget above 0"
+
+
+def _config(ws, config):
+    ws.send_json({"command": "CONFIG", "config": config})
+    receipt = until(ws, lambda m: m.get("type") == "CONFIG_APPLIED" or "error" in m)
+    assert receipt.get("type") == "CONFIG_APPLIED", receipt
+    return receipt
+
+
+def test_lean_group_rule_rejects_only_the_levers_of_the_failing_group(monkeypatch):
+    client, registry = _client(monkeypatch)
+    with client.websocket_connect("/ws") as ws:
+        session = _session(ws)
+        assert setup(ws, {**SMALL, "frame_profile": "lean"})["type"] == "SETUP_COMPLETE"
+        manager = registry.get(session["sessionId"])
+        receipt = _config(ws, {"sectorSubsidyLevel": 25, "wageTax": 0.2})
+        assert receipt["applied"] == {"wage_tax_rate": 0.2}
+        assert receipt["rejected"] == {"sector_subsidy_level": SUBSIDY_RULE}
+        assert manager.economy.government.wage_tax_rate == 0.2
+        assert manager._snapshot_government_levers()["sector_subsidy_level"] == 0
+
+        receipt = _config(ws, {"bailoutPolicy": "all", "bailoutTarget": "food", "benefitLevel": "high"})
+        assert receipt["applied"] == {"benefit_level": "high"}
+        assert receipt["rejected"] == {"bailout_policy": BUDGET_RULE, "bailout_target": BUDGET_RULE}
+        assert manager._snapshot_government_levers()["bailout_policy"] == "off"
+
+        receipt = _config(ws, {"bailoutPolicy": "all", "bailoutTarget": "food", "bailoutBudget": 5000})
+        assert receipt["rejected"] == {} and receipt["applied"]["bailout_policy"] == "all"
+
+
+def test_legacy_applies_levers_one_by_one_without_group_rules(monkeypatch):
     client, registry = _client(monkeypatch)
     with client.websocket_connect("/ws") as ws:
         session = _session(ws)
         assert setup(ws, SMALL)["type"] == "SETUP_COMPLETE"
-        ws.send_json({"command": "CONFIG", "config": {"sectorSubsidyLevel": 25, "benefitLevel": "high"}})
-        receipt = until(ws, lambda m: m.get("type") == "CONFIG_APPLIED" or "error" in m)
-        assert receipt["applied"] == {} and "sector_subsidy_target" in receipt["rejected"]["_group"]
+        receipt = _config(ws, {"bailoutPolicy": "all"})
+        assert receipt["applied"] == {"bailout_policy": "all"} and receipt["rejected"] == {}
+        receipt = _config(ws, {"sectorSubsidyLevel": 25, "benefitLevel": "high"})
+        assert receipt["applied"] == {"sector_subsidy_level": 25, "benefit_level": "high"} and receipt["rejected"] == {}
+        assert registry.get(session["sessionId"]).economy.government.bailout_policy == "all"
+
+
+def test_canonical_lever_names_are_strict_and_camel_case_aliases_keep_their_coercion(monkeypatch):
+    client, registry = _client(monkeypatch)
+    with client.websocket_connect("/ws") as ws:
+        session = _session(ws)
+        assert setup(ws, SMALL)["type"] == "SETUP_COMPLETE"
         manager = registry.get(session["sessionId"])
-        assert manager._snapshot_government_levers().get("benefit_level") != "high"
+        for strict in ({"bailout_budget": 1000000}, {"public_works": True}, {"sector_subsidy_level": 30}):
+            receipt = _config(ws, strict)
+            [(lever, _)] = strict.items()
+            assert receipt["applied"] == {} and lever in receipt["rejected"], receipt
+        assert manager._snapshot_government_levers()["bailout_budget"] == 0
+        assert manager._snapshot_government_levers()["public_works"] == "off"
+
+        assert _config(ws, {"bailoutBudget": 1000000})["applied"] == {"bailout_budget": 50000}
+        assert _config(ws, {"publicWorks": True})["applied"] == {"public_works": "on"}
+        assert _config(ws, {"sectorSubsidyLevel": 30})["applied"] == {"sector_subsidy_level": 25}
+        # a canonical value SETUP accepts is applied as SETUP would apply it
+        assert _config(ws, {"bailout_budget": "10000"})["applied"] == {"bailout_budget": 10000}
 
 
 def test_canonical_lever_names_are_accepted_for_replay(monkeypatch):
