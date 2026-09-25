@@ -14,19 +14,22 @@ Legacy `test_tier*` alias modules were removed; use the canonical `test_contract
 Run stable contract tests:
 
 ```bash
-python -m pytest backend/tests_contracts -q -m "not llm and not research"
+python -m pytest backend/tests_contracts
 ```
 
-Run in-progress LLM and research contracts locally:
+Mocked LLM contracts are included in the stable gate and need no provider. To focus on them or run the exploratory research contracts:
 
 ```bash
-python -m pytest backend/tests_contracts -q -m "llm or research"
+python -m pytest backend/tests_contracts -m llm
+python -m pytest backend/tests_contracts -m research
 ```
 
 Recent coverage added on top of the core suites:
 
 - post-warmup cash-ledger conservation in no-sink economies
 - distressed private-firm survival-mode probes, including a documented known-gap check for 3-worker firms that should downsize but currently do not
+
+From the repository root, `python -m pytest` also discovers server and warehouse tests. See [the testing guide](../../docs/testing/README.md) for the complete suite map and known gaps.
 
 ## Scenario Factories
 

@@ -37,19 +37,21 @@ The dashboard connects to `ws://localhost:8002/ws` through the Vite or Nginx pro
 Stable backend gate:
 
 ```bash
-python -m pytest backend/tests_contracts backend/tests_server -q -m "not llm and not research"
+python -m pip install -c backend/requirements.lock -e ".[test,ml]"
+python -m pytest
 ```
 
-Warehouse/API:
+Focused warehouse/API check (already included above):
 
 ```bash
 python -m pytest backend/data/tests backend/tests_server/test_server_api.py -q
 ```
 
-LLM and research-marked contracts:
+Focused mocked LLM tests and optional research contracts:
 
 ```bash
-python -m pytest backend/tests_contracts -q -m "llm or research"
+python -m pytest -m llm
+python -m pytest -m research
 ```
 
 ## Runtime Notes

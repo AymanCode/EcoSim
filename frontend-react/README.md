@@ -14,6 +14,8 @@ Open `http://localhost:5173`.
 
 ## Frontend-Only Development
 
+Use Node.js 22.22.2 or newer within the 22.x release line. Docker and CI both use Node 22.
+
 Start the backend first:
 
 ```bash
@@ -24,7 +26,7 @@ Then run Vite:
 
 ```bash
 cd frontend-react
-npm install
+npm ci
 npm run dev
 ```
 
@@ -35,6 +37,7 @@ Vite proxies `/ws` and `/health` to `http://127.0.0.1:8002`.
 ```bash
 npm ci
 npm run lint
+npm run test
 npm run build
 ```
 

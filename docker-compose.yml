@@ -1,9 +1,14 @@
+x-logging: &bounded-logs
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
 services:
   backend:
     build:
       context: .
       dockerfile: backend/Dockerfile
-    container_name: ecosim-backend
     environment:
       ECOSIM_ENABLE_WAREHOUSE: "1"
       ECOSIM_WAREHOUSE_BACKEND: "sqlite"
@@ -19,17 +24,17 @@ services:
       retries: 12
       start_period: 15s
     restart: unless-stopped
+    logging: *bounded-logs
 
   frontend:
     build:
       context: ./frontend-react
       dockerfile: Dockerfile
-    container_name: ecosim-frontend
     depends_on:
       backend:
         condition: service_healthy
     ports:
-      - "5173:80"
+      - "${ECOSIM_PORT:-5173}:80"
     healthcheck:
       test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1/ || exit 1"]
       interval: 10s
@@ -37,6 +42,7 @@ services:
       retries: 12
       start_period: 10s
     restart: unless-stopped
+    logging: *bounded-logs
 
 volumes:
   ecosim_runtime:

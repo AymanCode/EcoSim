@@ -53,7 +53,7 @@ Two extensions build on the simulator. An optional LLM government proposes bound
 
 ## Quickstart
 
-Requires Docker Engine with Compose v2.
+Install and start Docker Desktop (macOS/Windows), or Docker Engine with a recent Compose v2 plugin (Linux). Docker must be running before the command below. The first build needs internet access to download images and dependencies.
 
 ```bash
 git clone https://github.com/AymanCode/EcoSim.git
@@ -61,17 +61,43 @@ cd EcoSim
 docker compose up --build -d --wait
 ```
 
-Open http://localhost:5173. No local Python or Node.js installation is required.
+Open http://localhost:5173, leave the default settings in Config, and click **Launch Simulation**. The dashboard starts the simulation and switches to the Command view. No local Python or Node.js installation, API keys, `.env` file, or separate database setup is required.
 
 The stack runs two containers: a FastAPI backend and an Nginx-served React build that proxies `/ws` and `/health` to it. SQLite persistence is enabled by default in the `ecosim_runtime` volume.
+
+Stop with `docker compose down`; saved experiment data remains in the volume. After pulling updates, rerun `docker compose up --build -d --wait`.
+
+If port 5173 is already in use, add `ECOSIM_PORT=5183` to a `.env` file in the repository root and rerun the startup command, then open http://localhost:5183. On macOS/Linux you can also set it for one command:
+
+```bash
+ECOSIM_PORT=5183 docker compose up --build -d --wait
+```
+
+If startup fails, check `docker compose ps -a` and `docker compose logs --tail 100`. A “Cannot connect to the Docker daemon” message means Docker needs to be started.
+
+### Docker storage cleanup
+
+Container logs rotate at 10 MB per file with three files per service. Saved SQLite experiments remain in the volume until explicitly removed.
+
+| Intent | Command | Effect |
+|---|---|---|
+| Inspect Docker disk usage | `docker system df` | Shows images, containers, volumes, and build cache |
+| Stop EcoSim, keep saved experiments | `docker compose down` | Removes this stack's containers and network |
+| Clear unused build cache | `docker builder prune` | Frees cache across Docker projects; later builds may take longer |
+| Remove EcoSim images, keep experiments | `docker compose down --rmi local` | Removes this stack's locally built images as well as containers |
+| Completely reset EcoSim and delete its saved experiments | `docker compose down --volumes --rmi local` | Removes this stack's containers, images, and SQLite volume; the next startup creates an empty database |
+
+Run the Compose commands from the same checkout and with the same project name (`-p`, if used) as startup. Other projects' databases are separate volumes. SQLite history has no automatic retention limit, so use the explicit reset command when those experiments are disposable.
 
 <details>
 <summary>Run from source</summary>
 
-Requires Python 3.11 or later, Node.js 22, and npm. Start the backend from the repository root:
+Use Python 3.11 (the tested version), Node.js 22.22.2 or newer within the 22.x release line, and npm. Create an isolated Python environment from the repository root:
 
 ```bash
-python -m pip install -c backend/requirements.lock -e ".[dev,ml]"
+python3.11 -m venv .venv
+source .venv/bin/activate
+python -m pip install -c backend/requirements.lock -e ".[ml]"
 python -m uvicorn backend.server:app --reload --port 8002
 ```
 
@@ -82,6 +108,8 @@ cd frontend-react
 npm ci
 npm run dev
 ```
+
+On Windows, create the environment with `py -3.11 -m venv .venv` and activate it with `.venv\Scripts\Activate.ps1` in PowerShell.
 
 Vite serves the dashboard on http://localhost:5173 and proxies `/ws` and `/health` to the backend on port 8002. Persistence is off by default when running from source; see [Configuration](#configuration) to enable it.
 
@@ -192,19 +220,18 @@ The reported figures come from [policy_forecasting/RESULTS.md](policy_forecastin
 
 ## Development
 
-Install the backend with development and ML extras:
+Install the dependencies used by backend CI (the broader `dev` extra also provides optional formatting, coverage, and type-checking tools):
 
 ```bash
-python -m pip install -c backend/requirements.lock -e ".[dev,ml]"
+python -m pip install -c backend/requirements.lock -e ".[test,ml]"
 ```
 
 Run the checks that CI runs:
 
 ```bash
 python -m ruff check .
-python -m pytest backend/tests_server -q
-python -m pytest backend/tests_contracts -q -m "not llm and not research"
-python -m pytest backend/data/tests backend/tests_server/test_server_api.py -q
+python -m pip wheel --no-deps --wheel-dir /tmp/ecosim-wheel .
+python -m pytest --durations=10
 ```
 
 Forecasting package tests use their own pinned requirements:
@@ -218,13 +245,22 @@ Frontend checks:
 
 ```bash
 cd frontend-react
-npm ci
+npm ci --no-audit --no-fund
 npm run lint
 npm run test
+npm audit --omit=dev --audit-level=high
 npm run build
 ```
 
-A bare `python -m pytest` discovers only `backend/tests_contracts`. Name the server, warehouse, and forecasting paths explicitly. Tests marked `llm` or `research` depend on a provider or are exploratory and are excluded from the stable gate. Benchmarks and the full-application evidence harness do not run in CI.
+A bare `python -m pytest` runs the simulation contracts, server, and SQLite warehouse tests once each, including provider-free mocked LLM tests. Only exploratory `research` tests are excluded by default; run them explicitly with `python -m pytest -m research`. Forecasting remains a separate suite and dependency environment. Historical scripts under `backend/tools/checks` and `backend/data/test_sample_data.py` are manual utilities, not default tests.
+
+CI also builds and starts the Docker stack from a fresh checkout. Its short startup probe checks the built dashboard assets, proxied health/WebSocket connection, advancing simulation ticks, stop/reset acknowledgements, and SQLite readback. To run the same probe locally (it creates a small test run):
+
+```bash
+docker compose exec -T backend python -m backend.tools.integration.smoke_startup --url http://frontend --sqlite-path /app/runtime/ecosim.db
+```
+
+This probe does not automate a real browser. Benchmarks and the full-application browser evidence harness remain separate from CI. CI validates changes; it does not publish or deploy a release. See [testing guide](docs/testing/README.md) for suite ownership and review decisions.
 
 ## Documentation
 
