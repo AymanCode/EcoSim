@@ -741,4 +741,56 @@ export const COPY = {
     command: 'python -m uvicorn backend.server:app --port 8002',
     watchInstead: 'Watch the recorded example instead',
   },
+  // The live Run screen and the app bar around it (NextApp.jsx, RunScreen.jsx,
+  // components/HorizonBar.jsx, components/HouseholdCards.jsx, components/LostPanel.jsx).
+  live: {
+    setUp: 'Set up',
+    newExperiment: 'New experiment',
+    watchExample: 'Watch the example',
+    building: 'Building the towns…',
+    resume: 'Resume',
+    backToLive: 'Back to live',
+    meetOthers: 'Meet other families',
+    // "Town B lost its connection to the simulation in Year 1, week 12. The other towns are paused."
+    lost: (town, week, others) => {
+      const when = week ? `in ${week}` : 'before its first week'
+      return `${town} lost its connection to the simulation ${when}.${others ? ' The other towns are paused.' : ''}`
+    },
+    restart: townCount => (townCount > 1 ? 'Start these towns again' : 'Start this town again'),
+    newSetup: 'Set up something new',
+  },
+  // The Town hall drawer (components/TownHall.jsx).
+  hall: {
+    title: 'Town hall',
+    close: 'Close',
+    closeLabel: 'Close the town hall',
+    towns: 'Which town',
+    note: townCount => (townCount > 1
+      ? 'Changes start at the next week. The other towns keep their own rules.'
+      : 'Changes start at the next week.'),
+    apply: 'Change from next week',
+    receipts: 'Your changes',
+    waiting: 'Waiting for next week…',
+    applied: (week, phrase) => `${week}: ${capitalise(phrase)}.`,
+    rejected: (lever, reason) => `${capitalise(lever)} was not changed: ${reason}`,
+    failed: message => `Couldn't change the rules: ${message}`,
+    // Why the rules cannot change right now, by experiment phase.
+    locked: {
+      connecting: 'You can change the rules as soon as the run starts.',
+      over: 'The run is over. Add a year to change the rules again.',
+      lost: 'The run has stopped. Start it again to change the rules.',
+    },
+  },
+  // The end of the run (components/EndPanel.jsx).
+  end: {
+    // "5 years are up." from the horizon in weeks.
+    up: horizon => {
+      const weeks = Math.max(0, Math.round(Number(horizon) || 0))
+      if (weeks >= 52 && weeks % 52 === 0) return `${counted(weeks / 52, 'year')} ${weeks === 52 ? 'is' : 'are'} up.`
+      return `${counted(weeks, 'week')} ${weeks === 1 ? 'is' : 'are'} up.`
+    },
+    finishing: 'Wrapping up the run…',
+    addYear: 'Add a year',
+    another: 'Try another question',
+  },
 }

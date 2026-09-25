@@ -59,7 +59,10 @@ function HouseholdCard({ subject, arm, tick, pinned, onTogglePin }) {
 }
 
 // Four households from the tracked sample; "Follow" keeps one in the first slot.
-export default function HouseholdCards({ arm, tick }) {
+// In a live town (`onTrack(action, householdId)`) Follow also pins or unpins
+// the household on the server, and "Meet other families" asks it for a new
+// sample.
+export default function HouseholdCards({ arm, tick, onTrack }) {
   const [offset, setOffset] = useState(0)
   const [pinnedId, setPinnedId] = useState(null)
   const sample = snapshotAt(arm, tick)?.subjects ?? []
@@ -71,7 +74,21 @@ export default function HouseholdCards({ arm, tick }) {
   const shown = Array.from({ length: slots }, (_, i) => rest[(start + i) % rest.length])
   const cards = pinned ? [pinned, ...shown] : shown
 
-  const togglePin = id => setPinnedId(current => (current === id ? null : id))
+  const togglePin = id => {
+    if (onTrack) {
+      if (pinnedId === id) {
+        onTrack('unpin', id)
+      } else {
+        if (pinnedId != null) onTrack('unpin', pinnedId)
+        onTrack('pin', id)
+      }
+    }
+    setPinnedId(current => (current === id ? null : id))
+  }
+  const meetOthers = () => {
+    onTrack('reshuffle')
+    setOffset(0)
+  }
 
   return (
     <div className="nx-card nx-hh">
@@ -96,6 +113,9 @@ export default function HouseholdCards({ arm, tick }) {
         <button type="button" className="nx-more" onClick={() => setOffset(value => value + slots)}>
           {COPY.households.showOthers}
         </button>
+      )}
+      {onTrack && (
+        <button type="button" className="nx-more" onClick={meetOthers}>{COPY.live.meetOthers}</button>
       )}
     </div>
   )

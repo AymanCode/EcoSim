@@ -885,6 +885,82 @@
   .nx .nx-stats { grid-template-columns: minmax(0, 1fr) }
 }
 
+/* Live run: the timeline's extra buttons, a town's server notice, the end and
+   lost panels, and the household sample's second button. */
+.nx .nx-abtn:disabled { cursor: not-allowed; opacity: .55 }
+.nx .nx-follow { flex: none }
+.nx .nx-hall-toggle { flex: none }
+.nx .nx-notice { margin: -2px 0 8px 22px; font-size: 12.5px; line-height: 1.4; color: var(--nx-ink3-text) }
+.nx .nx-hh .nx-more + .nx-more { margin-left: 18px }
+.nx .nx-endp, .nx .nx-lostp {
+  margin-top: 18px;
+  padding: 16px 18px;
+  border: 1px solid var(--nx-line2);
+  border-radius: 14px;
+  background: var(--nx-panel);
+  max-width: 1000px;
+}
+.nx .nx-endp h2 { font-size: 20px }
+.nx .nx-endp-v { margin-top: 6px; font-size: 15px; line-height: 1.45; color: var(--nx-ink2) }
+.nx .nx-endp-wait { margin-top: 8px; font-size: 13px; color: var(--nx-ink3-text) }
+.nx .nx-endp-act { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 12px }
+.nx .nx-lostp { border-color: #F2C4CB; background: #FBE5E8; color: var(--nx-ink2) }
+.nx .nx-lostp-t { font-size: 15px; font-weight: 600; color: var(--nx-ink) }
+
+/* Town hall drawer: fixed to the right, 380 px, full width on a phone. On a
+   wide screen the app (bar included) makes room for it instead of sitting
+   under it. */
+.nx .nx-hall {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 10;
+  width: 380px;
+  display: flex;
+  flex-direction: column;
+  background: var(--nx-panel);
+  border-left: 1px solid var(--nx-line2);
+  box-shadow: -8px 0 24px rgba(23, 32, 43, .08);
+}
+.nx .nx-hall-top { padding: 14px 18px 10px; border-bottom: 1px solid var(--nx-line) }
+.nx .nx-hall-head { display: flex; align-items: center; justify-content: space-between; gap: 10px }
+.nx .nx-hall-head h2 { font-size: 18px }
+.nx .nx-hall-tabs { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 12px }
+.nx .nx-hall-tabs button {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 5px 10px;
+  border: 1px solid var(--nx-line2);
+  border-radius: 8px;
+  background: var(--nx-panel);
+  color: var(--nx-ink2);
+  font-size: 13px;
+  font-weight: 600;
+}
+.nx .nx-hall-tabs button i { width: 10px; height: 10px; border-radius: 3px; display: inline-block; flex: none }
+.nx .nx-hall-tabs button[aria-pressed='true'] { border-color: var(--nx-tab, var(--nx-ink)); box-shadow: inset 0 -3px 0 var(--nx-tab, var(--nx-ink)); background: var(--nx-page) }
+.nx .nx-hall-note { margin-top: 8px; font-size: 12.5px; line-height: 1.4; color: var(--nx-ink3-text) }
+.nx .nx-hall-body { flex: 1; min-height: 0; overflow-y: auto; padding: 12px 18px 18px }
+.nx .nx-hall-foot { padding: 12px 18px 16px; border-top: 1px solid var(--nx-line); background: var(--nx-panel) }
+.nx .nx-hall-apply { width: 100%; padding: 10px 14px; font-size: 14px }
+.nx .nx-hall-locked { margin-bottom: 8px; font-size: 12.5px; line-height: 1.4; color: var(--nx-ink3-text) }
+.nx .nx-hall .nx-levers { grid-template-columns: minmax(0, 1fr) }
+.nx .nx-receipts { margin-bottom: 12px; padding: 10px 12px; border: 1px solid var(--nx-line); border-radius: 12px; background: var(--nx-page) }
+.nx .nx-receipts h3 { font-size: 14px }
+.nx .nx-receipts li { padding: 6px 0; border-bottom: 1px solid var(--nx-line); font-size: 13px; line-height: 1.4; color: var(--nx-ink2) }
+.nx .nx-receipts li:last-child { border-bottom: 0; padding-bottom: 0 }
+.nx .nx-receipts li span { display: block }
+.nx .nx-receipts li.is-sending, .nx .nx-receipts li.is-queued { color: var(--nx-ink3-text) }
+.nx .nx-receipts li.is-failed, .nx .nx-receipts .is-rejected { color: var(--nx-home-text) }
+@media (min-width: 1100px) {
+  .nx.nx-app.has-hall { padding-right: 380px }
+}
+@media (max-width: 720px) {
+  .nx .nx-hall { width: 100%; border-left: 0 }
+}
+
 /* The page behind the app. NextApp adds .nx-page to <html> while it is
    mounted, so these are the only rules outside .nx; the classic dashboard's
    styles are not loaded on this view. */
