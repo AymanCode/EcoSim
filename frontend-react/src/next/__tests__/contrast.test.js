@@ -8,7 +8,10 @@ const CSS = fs.readFileSync(new URL('../next.css', here), 'utf8')
 
 const BACKGROUNDS = ['#FFFFFF', '#F3F5F7', '#EEF1F4']
 // Text drawn in white sits on a dark fill set elsewhere; each of these is checked below.
-const WHITE_ON_DARK = ['.nx-verdict', '.nx-abtn.is-dark', ".nx-mchip[aria-pressed='true']", '.nx-hc .av', '.nx-flag-mark', ".pin[aria-pressed='true']"]
+const WHITE_ON_DARK = [
+  '.nx-verdict', '.nx-abtn.is-dark', ".nx-mchip[aria-pressed='true']", '.nx-hc .av', '.nx-flag-mark', ".pin[aria-pressed='true']",
+  '.nx-start', ".nx-seg button[aria-pressed='true']",
+]
 const TEXT_FILL = /\btext\b|nx-label|nx-flag-mark|nx-bldg-more|nx-ann|nx-ahead|nx-endl|nx-warm-label/
 
 function luminance(hex) {
@@ -91,6 +94,17 @@ describe('text contrast in next.css', () => {
     for (const { selector, decls } of fills) {
       const colour = resolve(decls.background ?? decls.fill)
       expect(contrast(colour, '#FFFFFF'), selector).toBeGreaterThanOrEqual(4.5)
+    }
+  })
+
+  test('the Set up buttons with white text sit on dark fills, disabled included', () => {
+    const fills = RULES.filter(({ selector }) => /\.nx-start\b|\.nx-seg button\[aria-pressed='true'\]/.test(selector))
+      .filter(({ decls }) => decls.background)
+    expect(fills.map(({ selector }) => selector)).toEqual([
+      '.nx .nx-start', '.nx .nx-start:disabled', ".nx .nx-seg button[aria-pressed='true']",
+    ])
+    for (const { selector, decls } of fills) {
+      expect(contrast(resolve(decls.background), '#FFFFFF'), selector).toBeGreaterThanOrEqual(4.5)
     }
   })
 

@@ -553,6 +553,321 @@
 /* Feed beside the first-timer notes */
 .nx .nx-feedwrap { margin-top: 28px; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 22px }
 
+/* Set up screen. Ported from docs/superpowers/specs/2026-09-24-mockups/01-setup.html;
+   the page sits inside .nx-wrap, narrowed to the mockup's 1100 px. */
+.nx .nx-setup { max-width: 1100px; padding-top: 34px }
+.nx .nx-setup-lead { font-size: 32px; line-height: 1.15; letter-spacing: -.02em }
+.nx .nx-setup-sub { color: var(--nx-ink3-text); font-size: 15px; margin-top: 6px; max-width: 720px }
+.nx .nx-watch { margin-top: 8px; font-size: 13.5px }
+.nx .nx-step { margin-top: 30px }
+.nx .nx-stephead { display: flex; align-items: baseline; gap: 4px 10px; flex-wrap: wrap; margin-bottom: 10px }
+.nx .nx-stephead h2 { font-size: 15px; color: var(--nx-ink3-text); font-weight: 600 }
+.nx .nx-stephead h2 b { color: var(--nx-ink); font-weight: 600; margin-right: 8px }
+.nx .nx-stephead p { font-size: 13.5px; font-weight: 500; color: var(--nx-ink4-text) }
+
+/* Step 1: the kind of experiment */
+.nx .nx-modes { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px }
+.nx .nx-mode {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  background: var(--nx-panel);
+  color: var(--nx-ink2);
+  border: 1px solid var(--nx-line);
+  border-radius: 14px;
+  padding: 18px 18px 16px;
+  text-align: left;
+}
+.nx .nx-mode:hover:not(:disabled) { border-color: var(--nx-line2) }
+.nx .nx-mode[aria-pressed='true'] { border-color: var(--nx-ink); box-shadow: 0 0 0 3px var(--nx-panel2) }
+.nx .nx-mode:disabled { cursor: not-allowed; background: var(--nx-page) }
+.nx .nx-mode-ic { width: 40px; height: 40px; border-radius: 10px; display: flex; align-items: center; justify-content: center }
+.nx .nx-mode-ic.is-compare { background: var(--nx-a) }
+.nx .nx-mode-ic.is-play { background: var(--nx-work) }
+.nx .nx-mode-ic.is-ai { background: var(--nx-slate2) }
+.nx .nx-mode-ic svg { width: 22px; height: 22px; stroke: #fff; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round }
+.nx .nx-mode-t { font-family: var(--nx-disp), var(--nx-body), sans-serif; font-size: 17px; font-weight: 600; letter-spacing: -.01em; color: var(--nx-ink) }
+.nx .nx-mode-d { font-size: 13.5px; line-height: 1.45; color: var(--nx-ink3-text) }
+.nx .nx-pick { position: absolute; top: 14px; right: 14px; width: 18px; height: 18px; border-radius: 50%; border: 2px solid var(--nx-line2) }
+.nx .nx-mode:disabled .nx-pick { display: none }
+.nx .nx-mode[aria-pressed='true'] .nx-pick { border-color: var(--nx-ink); background: var(--nx-ink) }
+.nx .nx-mode[aria-pressed='true'] .nx-pick::after {
+  content: '';
+  position: absolute;
+  left: 5px;
+  top: 2px;
+  width: 4px;
+  height: 8px;
+  border: solid #fff;
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg);
+}
+.nx .nx-soon {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  font-size: 11.5px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--nx-panel2);
+  color: var(--nx-ink3-text);
+}
+
+/* Step 2: the question */
+.nx .nx-qs { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px }
+.nx .nx-q {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  background: var(--nx-panel);
+  color: var(--nx-ink2);
+  border: 1px solid var(--nx-line);
+  border-radius: 12px;
+  padding: 14px 16px;
+  text-align: left;
+}
+.nx .nx-q:hover { border-color: var(--nx-line2) }
+.nx .nx-q[aria-pressed='true'] { border-color: var(--nx-ink); box-shadow: 0 0 0 3px var(--nx-panel2) }
+.nx .nx-q-t { font-family: var(--nx-disp), var(--nx-body), sans-serif; font-size: 15px; font-weight: 600; line-height: 1.3; color: var(--nx-ink) }
+.nx .nx-arms { display: flex; gap: 4px 10px; flex-wrap: wrap; font-size: 12.5px; color: var(--nx-ink3-text) }
+.nx .nx-arms span { display: inline-flex; align-items: center; gap: 6px }
+.nx .nx-arms i { width: 9px; height: 9px; border-radius: 3px; display: inline-block; flex: none }
+.nx .nx-q-d { font-size: 12.5px; line-height: 1.4; color: var(--nx-ink3-text) }
+.nx .nx-q.is-custom { border-style: dashed; justify-content: center; align-items: center; text-align: center; gap: 4px }
+.nx .nx-q.is-custom[aria-pressed='true'] { border-style: solid }
+.nx .nx-q.is-custom .nx-q-t { color: var(--nx-ink2) }
+
+/* Step 3: the towns, and the rules of the one being changed */
+/* A tile: the town's colour, name and rules, with its buttons underneath so
+   four tiles still fit one row. */
+.nx .nx-towns { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 12px }
+.nx .nx-tw {
+  display: grid;
+  grid-template-columns: 14px minmax(0, 1fr);
+  gap: 6px 12px;
+  align-items: start;
+  align-content: start;
+  background: var(--nx-panel);
+  border: 1px solid var(--nx-line);
+  border-radius: 12px;
+  padding: 12px 14px;
+  min-width: 0;
+}
+.nx .nx-tw.is-editing { border-color: var(--nx-ink); box-shadow: 0 0 0 3px var(--nx-panel2) }
+.nx .nx-tw-dot { width: 14px; height: 14px; border-radius: 4px; display: inline-block; margin-top: 4px }
+.nx .nx-tw-text { min-width: 0 }
+.nx .nx-tw-n { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-weight: 600; color: var(--nx-ink) }
+.nx .nx-tw-r { font-size: 12.5px; line-height: 1.4; color: var(--nx-ink3-text) }
+.nx .nx-tw-act { grid-column: 2; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 14px }
+.nx .nx-tw-act .nx-more { margin-top: 0; font-size: 12.5px }
+.nx .nx-fixtag { font-size: 11.5px; font-weight: 600; padding: 1px 7px; border-radius: 999px; background: #FBE5E8; color: var(--nx-home-text) }
+.nx .nx-tw.is-add { display: flex; padding: 0; border-style: dashed }
+.nx .nx-tw.is-add:hover { border-color: var(--nx-ink4) }
+.nx .nx-tw.is-add button {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  padding: 12px 14px;
+  border: 0;
+  border-radius: 12px;
+  background: none;
+  color: var(--nx-ink3-text);
+  text-align: center;
+}
+.nx .nx-tw.is-add b { color: var(--nx-ink2); font-weight: 600 }
+.nx .nx-tw.is-add small { font-size: 11.5px; line-height: 1.35 }
+.nx .nx-editor { margin-top: 12px; background: var(--nx-panel); border: 1px solid var(--nx-line2); border-radius: 14px; padding: 16px 18px 18px }
+.nx .nx-editor-head { display: flex; align-items: center; gap: 10px; margin-bottom: 12px }
+.nx .nx-editor-head i { width: 12px; height: 12px; border-radius: 4px; display: inline-block; flex: none }
+.nx .nx-editor-head h3 { font-size: 17px }
+
+/* Step 4: the world every town shares */
+.nx .nx-world { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px }
+.nx .nx-f { background: var(--nx-panel); border: 1px solid var(--nx-line); border-radius: 12px; padding: 12px 14px; min-width: 0 }
+.nx .nx-f-k { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; font-size: 14px; font-weight: 600; color: var(--nx-ink) }
+.nx .nx-f-v { font-family: var(--nx-disp), var(--nx-body), sans-serif; font-size: 16px; font-variant-numeric: tabular-nums; white-space: nowrap }
+.nx .nx-f-d { font-size: 12.5px; line-height: 1.4; margin-top: 6px; color: var(--nx-ink3-text) }
+.nx .nx-f-range { position: relative; margin-top: 20px }
+.nx .nx-f-cap { position: absolute; right: 0; top: -16px; font-size: 11px; line-height: 14px; color: var(--nx-ink4-text) }
+.nx .nx-f .nx-seg button { padding: 6px 0 }
+.nx .nx-reroll { margin-top: 8px }
+.nx .nx-seed { display: flex; align-items: center; gap: 10px; margin-top: 10px; font-size: 13px; color: var(--nx-ink2) }
+.nx .nx-seed input {
+  width: 130px;
+  font: inherit;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  color: var(--nx-ink);
+  background: var(--nx-panel);
+  border: 1px solid var(--nx-line2);
+  border-radius: 8px;
+  padding: 5px 8px;
+}
+
+/* Start */
+.nx .nx-go { margin-top: 30px }
+.nx .nx-go-row { display: flex; align-items: center; gap: 12px 18px; flex-wrap: wrap }
+.nx .nx-start {
+  border: 0;
+  border-radius: 12px;
+  padding: 14px 22px;
+  background: var(--nx-ink);
+  color: #fff;
+  font-family: var(--nx-disp), var(--nx-body), sans-serif;
+  font-weight: 600;
+  font-size: 17px;
+  line-height: 1.2;
+}
+.nx .nx-start:disabled { background: var(--nx-ink3-text); cursor: not-allowed }
+.nx .nx-est { font-size: 13.5px; line-height: 1.4; color: var(--nx-ink3-text) }
+.nx .nx-est b { font-weight: 600; color: var(--nx-ink) }
+.nx .nx-fix { margin-top: 10px; font-size: 13px; font-weight: 500; color: var(--nx-home-text) }
+.nx .nx-problem {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  max-width: 720px;
+  margin-bottom: 14px;
+  padding: 14px 16px;
+  border: 1px solid #F2C4CB;
+  border-radius: 12px;
+  background: #FBE5E8;
+  color: var(--nx-ink2);
+  font-size: 13.5px;
+}
+.nx .nx-problem .nx-problem-t { font-size: 15px; font-weight: 600; color: var(--nx-ink) }
+.nx .nx-problem code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 13px;
+  padding: 4px 8px;
+  border: 1px solid var(--nx-line);
+  border-radius: 6px;
+  background: var(--nx-panel);
+  color: var(--nx-ink);
+  user-select: all;
+}
+.nx .nx-problem .nx-detail { font-size: 12.5px; color: var(--nx-ink2) }
+
+/* Lever editor: five sections that fill the width they are given, one
+   column in the Town hall drawer. */
+.nx .nx-levers { display: grid; grid-template-columns: repeat(auto-fill, minmax(290px, 1fr)); gap: 12px; align-items: start }
+.nx .nx-lgroup { min-width: 0; margin: 0; padding: 12px 14px 4px; border: 1px solid var(--nx-line); border-radius: 12px; background: var(--nx-page) }
+.nx .nx-lgroup legend {
+  float: left;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  font-family: var(--nx-disp), var(--nx-body), sans-serif;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--nx-ink);
+}
+.nx .nx-lgroup legend + * { clear: both }
+.nx .nx-lblurb { font-size: 12.5px; color: var(--nx-ink3-text) }
+.nx .nx-lever { padding: 10px 0; border-bottom: 1px solid var(--nx-line) }
+.nx .nx-lever:last-of-type { border-bottom: 0 }
+.nx .nx-lhead { display: flex; justify-content: space-between; align-items: baseline; gap: 10px }
+.nx .nx-lname { display: inline-flex; align-items: center; gap: 6px; font-size: 13.5px; font-weight: 600; color: var(--nx-ink) }
+.nx .nx-ldot { width: 7px; height: 7px; border-radius: 50%; display: inline-block; flex: none; background: var(--nx-ink) }
+.nx .nx-lval { font-family: var(--nx-disp), var(--nx-body), sans-serif; font-size: 15px; font-weight: 600; font-variant-numeric: tabular-nums; color: var(--nx-ink) }
+.nx .nx-lhelp { margin-top: 2px; font-size: 12.5px; line-height: 1.4; color: var(--nx-ink3-text) }
+/* A rule problem sits inside its lever's row, above the line to the next lever. */
+.nx .nx-lever:has(+ .nx-lproblem) { border-bottom: 0; padding-bottom: 8px }
+.nx .nx-lproblem + .nx-lever { border-top: 1px solid var(--nx-line) }
+.nx .nx-lproblem { margin: 0 0 10px; padding: 8px 10px; border-radius: 8px; font-size: 12.5px; font-weight: 500; line-height: 1.4; background: #FBE5E8; color: var(--nx-home-text) }
+.nx .nx-select {
+  width: 100%;
+  margin-top: 8px;
+  font: inherit;
+  font-size: 13px;
+  color: var(--nx-ink);
+  background: var(--nx-panel);
+  border: 1px solid var(--nx-line2);
+  border-radius: 8px;
+  padding: 6px 8px;
+}
+.nx .nx-seed input:focus-visible, .nx .nx-select:focus-visible { outline: 2px solid var(--nx-a); outline-offset: 2px }
+
+/* Segmented buttons: the lever options and the run's length */
+.nx .nx-seg { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 8px }
+.nx .nx-seg button {
+  flex: 1 1 auto;
+  min-width: 40px;
+  padding: 5px 8px;
+  border: 1px solid var(--nx-line2);
+  border-radius: 8px;
+  background: var(--nx-panel);
+  color: var(--nx-ink2);
+  font-size: 13px;
+  line-height: 1.3;
+  white-space: nowrap;
+}
+.nx .nx-seg button:hover { border-color: var(--nx-ink4) }
+.nx .nx-seg button[aria-pressed='true'] { background: var(--nx-ink); border-color: var(--nx-ink); color: #fff }
+
+/* Sliders: households and the tax rates */
+.nx .nx-range {
+  -webkit-appearance: none;
+  appearance: none;
+  display: block;
+  width: 100%;
+  height: 20px;
+  margin: 6px 0 0;
+  background: transparent;
+  cursor: pointer;
+}
+.nx .nx-range:focus-visible { outline: 2px solid var(--nx-a); outline-offset: 3px; border-radius: 6px }
+.nx .nx-range::-webkit-slider-runnable-track {
+  height: 6px;
+  border-radius: 3px;
+  background: linear-gradient(to right, var(--nx-ink) var(--nx-fill, 0%), var(--nx-line) var(--nx-fill, 0%));
+}
+.nx .nx-range::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 16px;
+  height: 16px;
+  margin-top: -5px;
+  border-radius: 50%;
+  background: var(--nx-ink);
+  border: 3px solid #fff;
+  box-shadow: 0 0 0 1px var(--nx-line2);
+}
+.nx .nx-range::-moz-range-track {
+  height: 6px;
+  border: 0;
+  border-radius: 3px;
+  background: linear-gradient(to right, var(--nx-ink) var(--nx-fill, 0%), var(--nx-line) var(--nx-fill, 0%));
+}
+.nx .nx-range::-moz-range-progress { background: transparent }
+.nx .nx-range::-moz-range-thumb {
+  width: 16px;
+  height: 16px;
+  box-sizing: border-box;
+  border-radius: 50%;
+  background: var(--nx-ink);
+  border: 3px solid #fff;
+  box-shadow: 0 0 0 1px var(--nx-line2);
+}
+
+@media (max-width: 900px) {
+  .nx .nx-setup-lead { font-size: 26px }
+  .nx .nx-modes, .nx .nx-world { grid-template-columns: minmax(0, 1fr) }
+  .nx .nx-qs { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) }
+}
+@media (max-width: 560px) {
+  .nx .nx-qs { grid-template-columns: minmax(0, 1fr) }
+  .nx .nx-go-row { flex-direction: column; align-items: stretch }
+}
+
 @media (max-width: 1100px) {
   .nx .nx-story { grid-template-columns: minmax(0, 1fr) }
 }

@@ -215,13 +215,35 @@ const controlPolicy = subject => ({
 
 // name: how a sentence refers to the lever; values: the phrase for each value;
 // policy: the lever set to that value, as a noun phrase ("a higher minimum wage").
+// help: one sentence on what the town hall directly does with the lever, checked
+// against the backend code that reads it (backend/agents.py GovernmentAgent and
+// backend/economy.py); it names the mechanism, never an outcome.
 // Rate levers take any value within their bounds, so they phrase it as a percent.
 export const LEVERS = {
-  wage_tax_rate: { name: 'the tax on wages', kind: 'rate', values: {}, policy: rate => `a ${percent(rate)} tax on wages` },
-  profit_tax_rate: { name: 'the tax on profits', kind: 'rate', values: {}, policy: rate => `a ${percent(rate)} tax on profits` },
-  investment_tax_rate: { name: 'the tax on investment', kind: 'rate', values: {}, policy: rate => `a ${percent(rate)} tax on investment` },
+  wage_tax_rate: {
+    name: 'the tax on wages',
+    help: 'Sets the tax taken from every paycheque, with bigger paycheques paying a larger share.',
+    kind: 'rate',
+    values: {},
+    policy: rate => `a ${percent(rate)} tax on wages`,
+  },
+  profit_tax_rate: {
+    name: 'the tax on profits',
+    help: 'Sets the tax on business profits, with richer businesses paying a larger share.',
+    kind: 'rate',
+    values: {},
+    policy: rate => `a ${percent(rate)} tax on profits`,
+  },
+  investment_tax_rate: {
+    name: 'the tax on investment',
+    help: 'Taxes the money businesses spend on improving what they sell.',
+    kind: 'rate',
+    values: {},
+    policy: rate => `a ${percent(rate)} tax on investment`,
+  },
   benefit_level: {
     name: 'help for people out of work',
+    help: 'Sets the weekly payment for families out of work, plus a top-up for those running low on cash.',
     values: { low: 'low', neutral: 'normal', high: 'high', crisis: 'emergency level' },
     policy: {
       low: 'less help for people out of work',
@@ -232,16 +254,19 @@ export const LEVERS = {
   },
   public_works: {
     name: 'public works jobs',
+    help: 'When on, the town hall runs its own business and hires people to work in it.',
     values: { off: 'off', on: 'on' },
     policy: { off: 'no public works jobs', on: 'public works jobs' },
   },
   minimum_wage_policy: {
     name: 'the minimum wage',
+    help: 'Sets the lowest weekly wage a business is allowed to pay.',
     values: { low: 'low', neutral: 'normal', high: 'high' },
     policy: { low: 'a lower minimum wage', neutral: 'the usual minimum wage', high: 'a higher minimum wage' },
   },
   sector_subsidy_target: {
     name: 'the subsidy target',
+    help: 'Chooses which kind of business the town hall helps families buy from.',
     values: FIRM_TARGETS,
     policy: {
       none: 'no business subsidy',
@@ -253,11 +278,13 @@ export const LEVERS = {
   },
   sector_subsidy_level: {
     name: 'the business subsidy',
+    help: 'Sets the share of the price the town hall pays when families buy from the chosen kind of business.',
     values: { 0: 'none', 10: '10%', 25: '25%', 50: '50%' },
     policy: { 0: 'no business subsidy', 10: 'a 10% business subsidy', 25: 'a 25% business subsidy', 50: 'a 50% business subsidy' },
   },
   price_stabilization_target: {
     name: 'the price-control target',
+    help: 'Chooses which kind of business the price limit applies to.',
     values: { none: 'nothing', food: 'food', services: 'services', healthcare: 'healthcare' },
     policy: {
       none: 'no price-control target',
@@ -266,20 +293,45 @@ export const LEVERS = {
       healthcare: 'price controls on healthcare',
     },
   },
-  price_stabilization_level: { name: 'price controls', values: STABILISATION, policy: controlPolicy('price') },
-  rent_stabilization_level: { name: 'rent controls', values: STABILISATION, policy: controlPolicy('rent') },
-  infrastructure_spending: {
-    name: 'spending on roads and buildings', values: SPENDING, policy: spendingPolicy('spending on roads and buildings'),
+  price_stabilization_level: {
+    name: 'price controls',
+    help: 'Limits how much the chosen kind of business may raise its prices at a time; “watch only” sets no limit.',
+    values: STABILISATION,
+    policy: controlPolicy('price'),
   },
-  technology_spending: { name: 'spending on technology', values: SPENDING, policy: spendingPolicy('spending on technology') },
-  social_spending: { name: 'social spending', values: SPENDING, policy: spendingPolicy('social spending') },
+  rent_stabilization_level: {
+    name: 'rent controls',
+    help: 'Limits how much landlords may raise the rent at a time; “watch only” sets no limit.',
+    values: STABILISATION,
+    policy: controlPolicy('rent'),
+  },
+  infrastructure_spending: {
+    name: 'spending on roads and buildings',
+    help: 'Sets how much the town hall spends each week on roads and buildings.',
+    values: SPENDING,
+    policy: spendingPolicy('spending on roads and buildings'),
+  },
+  technology_spending: {
+    name: 'spending on technology',
+    help: 'Sets how much the town hall spends each week on new technology.',
+    values: SPENDING,
+    policy: spendingPolicy('spending on technology'),
+  },
+  social_spending: {
+    name: 'social spending',
+    help: 'Sets how much the town hall spends each week on community programmes.',
+    values: SPENDING,
+    policy: spendingPolicy('social spending'),
+  },
   bailout_policy: {
     name: 'bailouts',
+    help: 'Decides whether the town hall lends emergency money to struggling businesses, and to which ones.',
     values: { off: 'off', sector: 'one sector only', all: 'any business' },
     policy: { off: 'no bailouts', sector: 'bailouts for one sector', all: 'bailouts for any business' },
   },
   bailout_target: {
     name: 'the bailout target',
+    help: 'Chooses which kind of business can get emergency loans when bailouts cover one sector only.',
     values: FIRM_TARGETS,
     policy: {
       none: 'no bailout target',
@@ -291,6 +343,7 @@ export const LEVERS = {
   },
   bailout_budget: {
     name: 'the bailout budget',
+    help: 'Sets the pot of money the town hall can lend to struggling businesses.',
     values: { 0: '$0', 5000: '$5,000', 10000: '$10,000', 25000: '$25,000', 50000: '$50,000' },
     policy: {
       0: 'no bailout budget',
@@ -346,6 +399,39 @@ export const LEVER_OPTIONS = {
   sector_subsidy_target: ['none', 'food', 'housing', 'services', 'healthcare'],
   price_stabilization_target: ['none', 'food', 'services', 'healthcare'],
   bailout_target: ['none', 'food', 'housing', 'services', 'healthcare'],
+}
+
+// The lever editor's sections, in order; every lever sits in exactly one.
+// Titles and blurbs are in COPY.levers.groups.
+export const LEVER_GROUPS = [
+  { id: 'taxes', levers: ['wage_tax_rate', 'profit_tax_rate', 'investment_tax_rate'] },
+  { id: 'people', levers: ['minimum_wage_policy', 'benefit_level', 'social_spending'] },
+  { id: 'spending', levers: ['public_works', 'infrastructure_spending', 'technology_spending'] },
+  { id: 'business', levers: ['sector_subsidy_target', 'sector_subsidy_level', 'bailout_policy', 'bailout_target', 'bailout_budget'] },
+  { id: 'prices', levers: ['price_stabilization_target', 'price_stabilization_level', 'rent_stabilization_level'] },
+]
+
+// The question cards on Set up. Each town is the levers it changes from
+// DEFAULT_POLICY; the first town is the control. Only the two questions the
+// newcomer-scale smoke runs support ship (spec section 5.1).
+export const QUESTIONS = [
+  {
+    id: 'minimum-wage',
+    title: 'What happens if we raise the minimum wage?',
+    blurb: 'Higher pay for the lowest earners, higher costs for firms. Which wins?',
+    towns: [{}, { minimum_wage_policy: 'high' }],
+  },
+  {
+    id: 'benefits',
+    title: 'Do generous benefits keep people out of work?',
+    blurb: 'More money for people without a job. Does it help them or make work less tempting?',
+    towns: [{}, { benefit_level: 'high' }],
+  },
+]
+
+export function capitalise(text) {
+  const value = String(text ?? '')
+  return `${value.charAt(0).toUpperCase()}${value.slice(1)}`
 }
 
 export function leverName(lever) {
@@ -438,7 +524,11 @@ export const FIRM_STATES = {
   growing: 'Growing', steady: 'Steady', struggling: 'Struggling', closed: 'Closed',
 }
 
-const counted = (n, one, many = `${one}s`) => `${n} ${n === 1 ? one : many}`
+const counted = (n, one, many = `${one}s`, format = String) => `${format(n)} ${n === 1 ? one : many}`
+
+// Small counts read as words in sentences: 2 -> "two".
+const NUMBER_WORDS = ['zero', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten']
+const numberWord = n => NUMBER_WORDS[n] ?? grouped.format(n)
 
 // How many households one house in the drawing stands for, as a phrase.
 export function householdsPerHouse(total) {
@@ -555,5 +645,100 @@ export const COPY = {
     underMinute: 'Under a minute.',
     aboutMinute: 'About a minute.',
     minutes: n => `About ${n} minutes.`,
+  },
+  // The lever editor (components/LeverEditor.jsx).
+  levers: {
+    groups: {
+      taxes: { title: 'Taxes', blurb: 'How the town hall raises money.' },
+      people: { title: 'Families and work', blurb: 'Pay, help for people out of work, and community programmes.' },
+      spending: { title: 'Town hall projects', blurb: 'Jobs, roads and technology the town hall pays for.' },
+      business: { title: 'Help for businesses', blurb: 'Subsidies and emergency loans.' },
+      prices: { title: 'Prices and rent', blurb: 'Limits on how fast prices and rents can rise.' },
+    },
+    // The group rules of backend/policy_vectors.py `policy_group_errors`, for a
+    // newcomer (policyRules.js). The backend asks for a bailout target even
+    // when bailouts cover any business.
+    rules: {
+      sector_subsidy: 'The subsidy needs a kind of business to go to. Pick one, or set the subsidy to none.',
+      bailout_target: 'Bailouts need a kind of business picked, even when they cover any business. Pick one, or turn bailouts off.',
+      bailout_budget: 'Bailouts need money to lend. Pick a budget above $0, or turn bailouts off.',
+    },
+    changed: '(changed)',
+  },
+  // The Set up screen (setup/SetupScreen.jsx).
+  setup: {
+    title: 'What do you want to find out?',
+    subhead: 'EcoSim runs a small town of families, businesses, a bank and a town hall, one week at a time. Set up a question, press start, and watch it play out.',
+    watchFirst: 'Or watch a recorded example first',
+    steps: {
+      mode: 'Pick a kind of experiment',
+      question: 'Choose a question',
+      towns: 'Your towns',
+      town: 'Your town',
+      world: 'The world',
+    },
+    worldNote: 'these are shared by every town, so the comparison is fair',
+    modes: {
+      compare: {
+        title: 'Compare policies',
+        blurb: 'Run the same town two to four times with different rules and watch where they part ways.',
+      },
+      ai: {
+        title: 'Test an AI mayor',
+        blurb: 'Let a language model run the town hall and see how it does against a town where nothing changes.',
+      },
+      play: {
+        title: 'Just play',
+        blurb: 'One town, every rule, no comparison. Change things while it runs and see what happens.',
+      },
+    },
+    comingSoon: 'Coming soon',
+    noChanges: 'No changes',
+    custom: { title: 'Build my own', blurb: 'Pick every rule for every town' },
+    // A question card's towns, read out in one go: "Town A: No changes. Town B: A higher minimum wage."
+    cardTowns: towns => towns.map(town => `${town.label}: ${town.text}.`).join(' '),
+    control: 'No changes. The control.',
+    usual: 'The usual rules.',
+    townRules: phrase => `${capitalise(phrase)}.`,
+    changeRules: 'Change rules',
+    changeRulesFor: label => `Change rules for ${label}`,
+    remove: 'Remove',
+    removeTown: label => `Remove ${label}`,
+    addTown: 'Add a town',
+    addTownNote: 'up to 4. Each town gets an equal share of 10,000 households.',
+    editorTitle: label => `${label}'s rules`,
+    done: 'Done',
+    households: 'Households per town',
+    householdsValue: n => grouped.format(n),
+    householdsCap: (cap, towns) => `up to ${grouped.format(cap)} with ${counted(towns, 'town')}`,
+    householdsNote: 'More households, more realistic, slower.',
+    years: 'How long',
+    yearsValue: n => counted(n, 'year'),
+    yearsNote: "You can add a year at the end if it's getting interesting.",
+    town: 'Which town',
+    townNumber: seed => `Town #${seed}`,
+    reroll: 'Try a different town',
+    seedLabel: 'Town number',
+    townNote: 'The same town number always builds the same town with the same people. Change it for a different town, keep it to repeat an experiment.',
+    start: 'Start the experiment',
+    startPlay: 'Start playing',
+    busy: 'Building the towns…',
+    // "Two towns, 1,000 households each, five years."
+    estimate: ({ towns, households, years }) => {
+      const size = `${grouped.format(households)} households${towns === 1 ? '' : ' each'}`
+      return `${capitalise(counted(towns, 'town', 'towns', numberWord))}, ${size}, ${counted(years, 'year', 'years', numberWord)}.`
+    },
+    anyTime: 'You can pause, change the rules, or stop at any time.',
+    needsFix: 'Needs a fix',
+    fixFirst: labels => `Fix the rules marked in ${joinPhrases(labels)} before you start.`,
+    problems: {
+      unreachable: "The simulation isn't running on this computer.",
+      full: 'The simulation is already running as many towns as it can. Close another EcoSim tab, or try again in a moment.',
+      setup: "The simulation couldn't build these towns.",
+      lost: 'A town lost its connection before the run began.',
+    },
+    startWith: 'To start it, run this in the EcoSim folder, then press Start again:',
+    command: 'python -m uvicorn backend.server:app --port 8002',
+    watchInstead: 'Watch the recorded example instead',
   },
 }

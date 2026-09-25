@@ -1,5 +1,8 @@
 import { describe, expect, test } from 'vitest'
-import { METRICS, LEVERS, formatMetric, formatMoneyShort, describePolicy, leverValuePhrase } from '../catalog.js'
+import {
+  COPY, DEFAULT_POLICY, LEVER_GROUPS, LEVERS, METRICS, QUESTIONS, capitalise, describePolicy, formatMetric, formatMoneyShort, leverValuePhrase,
+} from '../catalog.js'
+import { policyProblems } from '../policyRules.js'
 
 const REQUIRED_METRICS = [
   'peopleOutOfWorkPer100', 'typicalWeeklyPay', 'priceFood', 'foodSpendPerHousehold', 'gini', 'townHallCash',
@@ -105,5 +108,46 @@ describe('describePolicy', () => {
     expect(describePolicy({ price_stabilization_target: 'food', price_stabilization_level: 'strict' })).toBe('strict price controls on food')
     expect(describePolicy({ bailout_policy: 'sector', bailout_target: 'food', bailout_budget: 25000 }))
       .toBe('bailouts for food firms up to $25,000')
+  })
+})
+
+describe('lever groups, help and question cards', () => {
+  test('every lever appears in exactly one group, and every group has a title and a blurb', () => {
+    const listed = LEVER_GROUPS.flatMap(group => group.levers)
+    expect(listed).toHaveLength(17)
+    expect([...listed].sort()).toEqual(Object.keys(LEVERS).sort())
+    expect(LEVER_GROUPS.map(group => group.id)).toEqual(['taxes', 'people', 'spending', 'business', 'prices'])
+    for (const { id } of LEVER_GROUPS) {
+      expect(COPY.levers.groups[id].title.length, id).toBeGreaterThan(2)
+      expect(COPY.levers.groups[id].blurb.length, id).toBeGreaterThan(10)
+    }
+  })
+
+  test('every lever has a one-sentence help line', () => {
+    for (const [lever, spec] of Object.entries(LEVERS)) {
+      expect(typeof spec.help, lever).toBe('string')
+      expect(spec.help.length, lever).toBeGreaterThan(20)
+      expect(spec.help, lever).toMatch(/^[A-Z].*\.$/)
+      expect(spec.help.match(/\. /g), lever).toBeNull()
+    }
+  })
+
+  test('two launch questions, each a control town and one changed town whose rules pass the group rules', () => {
+    expect(QUESTIONS.map(question => question.id)).toEqual(['minimum-wage', 'benefits'])
+    expect(QUESTIONS[0]).toEqual({
+      id: 'minimum-wage',
+      title: 'What happens if we raise the minimum wage?',
+      blurb: 'Higher pay for the lowest earners, higher costs for firms. Which wins?',
+      towns: [{}, { minimum_wage_policy: 'high' }],
+    })
+    expect(QUESTIONS[1].towns).toEqual([{}, { benefit_level: 'high' }])
+    for (const question of QUESTIONS) {
+      for (const levers of question.towns) expect(policyProblems({ ...DEFAULT_POLICY, ...levers })).toEqual({})
+    }
+  })
+
+  test('capitalise', () => {
+    expect(capitalise('a higher minimum wage')).toBe('A higher minimum wage')
+    expect(capitalise('')).toBe('')
   })
 })
