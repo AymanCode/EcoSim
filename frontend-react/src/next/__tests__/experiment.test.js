@@ -239,19 +239,27 @@ describe('createExperiment', () => {
     expect(t.sockets[1].sent).toEqual([])
   })
 
-  it('8b. a plain close before SESSION, or during set up, is unreachable too', () => {
+  it('8b. a plain close before any SESSION is unreachable; once the server has answered, it dropped', () => {
     const t = boot()
     t.sockets[1].serverClose()
     expect(t.exp.getState()).toMatchObject({ phase: 'failed', error: { kind: 'unreachable', town: 'Town B', message: '' } })
     expect(allClosed(t.sockets)).toBe(true)
 
+    // The server answered, then stopped (a reload, a dropped proxy): it is running, so not "unreachable".
     const u = boot()
     u.sockets.forEach((s, i) => s.receive({ type: 'SESSION', sessionId: `s${i}` }))
     u.sockets[0].receive({ type: 'SETUP_COMPLETE', config: {} })
     u.sockets[0].serverClose()
-    expect(u.exp.getState()).toMatchObject({ phase: 'failed', error: { kind: 'unreachable', town: 'Town A' } })
+    expect(u.exp.getState()).toMatchObject({ phase: 'failed', error: { kind: 'dropped', town: 'Town A', message: '' } })
     expect(allClosed(u.sockets)).toBe(true)
     expect(u.sockets.some(s => s.commands().includes('START'))).toBe(false)
+
+    // One town answered, the other's socket errors before its SESSION.
+    const v = boot()
+    v.sockets[0].receive({ type: 'SESSION', sessionId: 's0' })
+    v.sockets[1].fail()
+    expect(v.exp.getState()).toMatchObject({ phase: 'failed', error: { kind: 'dropped', town: 'Town B' } })
+    expect(allClosed(v.sockets)).toBe(true)
   })
 
   it('8c. a socket that cannot even be constructed fails as unreachable', () => {
@@ -326,7 +334,7 @@ describe('createExperiment', () => {
     expect(t.exp.getState().phase).toBe('paused')
   })
 
-  it('10b. other server errors become a notice on that town', () => {
+  it('10b. a command the server could not do becomes a notice on that town until its next week', () => {
     const t = boot()
     ready(t)
     t.sockets[0].receive({ error: 'STOP failed: simulation loop did not stop within the timeout' })
@@ -335,6 +343,59 @@ describe('createExperiment', () => {
     expect(state.towns[1].notice).toBe(null)
     expect(state.phase).toBe('running')
     expect(state.error).toBe(null)
+    feed(t.sockets[0], [1])
+    expect(t.exp.getState().towns[0].notice).toBe(null)
+    for (const text of ['Invalid JSON', 'Unknown command: X. Valid: {...}', 'Payload too large (max 1 MB)', 'STABILIZERS failed: finished']) {
+      t.sockets[1].receive({ error: text })
+      expect(t.exp.getState().towns[1].notice).toBe(text)
+    }
+    expect(t.exp.getState().phase).toBe('running')
+  })
+
+  it('10c. a failed TRACK leaves no notice', () => {
+    const t = boot()
+    ready(t)
+    t.sockets[1].receive({ error: 'TRACK failed: household 523 is not in the sample; follow it first' })
+    expect(t.exp.getState().towns.map(town => town.notice)).toEqual([null, null])
+    expect(t.exp.getState().phase).toBe('running')
+  })
+
+  it('10d. any other error after START means the server stopped that town: the others stop, and it is lost', () => {
+    const t = boot()
+    ready(t)
+    feed(t.sockets[0], [1, 2])
+    feed(t.sockets[1], [1, 2])
+    // The loop's crash reply keeps the socket open (backend/server.py _run_loop_scoped).
+    t.sockets[1].receive({ error: 'float division by zero' })
+    const state = t.exp.getState()
+    expect(state.phase).toBe('lost')
+    expect(state.error).toEqual({ kind: 'crashed', town: 'Town B', message: 'float division by zero' })
+    expect(statuses(t.exp)).toEqual(['stopped', 'lost'])
+    expect(t.sockets[0].commands().at(-1)).toBe('STOP')
+    // The stopped town's socket is closed so the server frees its households; the other stays open.
+    expect(t.sockets[1].closedWith).toBe(1000)
+    expect(t.sockets[0].readyState).toBe(1)
+    t.exp.resume()
+    expect(t.sockets[0].commands().at(-1)).toBe('STOP')
+  })
+
+  it('10e. START, FINISH or EXTEND failing is lost the same way', () => {
+    for (const text of ['START failed: could not reopen the finished warehouse run', 'FINISH failed: no run', 'EXTEND failed: ticks must be positive']) {
+      const t = boot()
+      ready(t)
+      t.sockets.forEach(s => s.receive({ type: 'HORIZON_REACHED', tick: 52 }))
+      t.sockets[0].receive({ error: text })
+      expect(t.exp.getState().phase).toBe('lost')
+      expect(t.exp.getState().error).toMatchObject({ kind: 'crashed', town: 'Town A', message: text })
+    }
+  })
+
+  it('10f. an unexpected error while the towns are set up fails the set up', () => {
+    const t = boot()
+    t.sockets.forEach((s, i) => s.receive({ type: 'SESSION', sessionId: `s${i}` }))
+    t.sockets[0].receive({ error: 'WebSocket error: boom' })
+    expect(t.exp.getState()).toMatchObject({ phase: 'failed', error: { kind: 'setup', town: 'Town A', message: 'WebSocket error: boom' } })
+    expect(allClosed(t.sockets)).toBe(true)
   })
 
   it('11. close() closes every socket, and nothing that arrives later changes the state', () => {

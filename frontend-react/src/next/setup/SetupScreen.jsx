@@ -139,7 +139,7 @@ function Problem({ problem, onWatchExample }) {
 // The Set up screen: the kind of experiment, a question, the towns and their
 // rules, and the world they share. NextApp owns `setup` (useSetup) so the plan
 // survives a trip to the Run screen and back.
-export default function SetupScreen({ setup, onStart, onWatchExample, busy = false, problem = null }) {
+export default function SetupScreen({ setup, onStart, onWatchExample, problem = null }) {
   const uid = useId()
   const { state, actions, plan } = setup
   const { mode, questionId, towns, households, years, seed, editing } = state
@@ -341,8 +341,8 @@ export default function SetupScreen({ setup, onStart, onWatchExample, busy = fal
       <div className="nx-go">
         {problem && <Problem problem={problem} onWatchExample={onWatchExample} />}
         <div className="nx-go-row">
-          <button type="button" className="nx-start" disabled={busy || broken.length > 0} onClick={() => onStart(plan)}>
-            {busy ? COPY.setup.busy : compare ? COPY.setup.start : COPY.setup.startPlay}
+          <button type="button" className="nx-start" disabled={broken.length > 0} onClick={() => onStart(plan)}>
+            {compare ? COPY.setup.start : COPY.setup.startPlay}
           </button>
           <p className="nx-est">
             <span>{COPY.setup.estimate({ towns: towns.length, households, years })}</span>{' '}

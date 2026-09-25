@@ -12,13 +12,24 @@
 // Kept across ticks: every event in tick order, the policy changes, a directory
 // of every firm seen, the tracked households' profiles, the setup and the horizon.
 // Kept as the latest value only: `policy`, the lever vector in force (the
-// highest tick's `metrics.governmentPolicy`, null before any frame).
+// highest tick's `metrics.governmentPolicy`, null before any frame). A
+// CONFIG_APPLIED merges the levers it applied into `policy` at once: the server
+// has already set them, and the next frame carries the same values.
 // Also kept: `receipts`, one per CONFIG in send order. A live client adds a
 // 'sending' receipt as it sends (`addPendingConfig`); CONFIG_QUEUED and
 // CONFIG_APPLIED fill it in, and a `CONFIG failed` error fails it
 // (`failPendingConfig`). A recording's CONFIG replies make their own receipts.
 // A receipt that changes is replaced, never edited, and so is the `receipts`
 // array, so a reader memoised on either sees the change.
+//
+// Shared, append-only inner data. `ingest` grows an arm in place: `ticks`,
+// every `series` array, `snapshots`, `eventCounts`, `events`, `policyChanges`,
+// `profiles` and `firmDirectory` keep their identity from frame to frame (a
+// late or repeated week is spliced into place). The live controller publishes
+// shallow copies of each arm, so every copy shares these same objects. Treat
+// them as append-only and shared: never edit them outside `ingest`, and memoise
+// a reader on `arm.ticks.length` (or the latest tick), never on their identity.
+// Only `receipts` and `policy` are replaced when they change.
 
 // A tick frame is the only server message with both `tick` and `metrics`.
 export function isFrame(message) {
@@ -176,15 +187,19 @@ function ingestReceipt(arm, message) {
     if (receipt.status === 'sending' || receipt.status === 'queued') replaceReceipt(arm, index, { actionId, status: 'queued' })
     return
   }
+  const applied = plainObject(message.applied)
   replaceReceipt(arm, index, {
     actionId,
     status: 'applied',
     requested: Object.keys(receipt.requested).length ? receipt.requested : plainObject(message.requested),
-    applied: plainObject(message.applied),
+    applied,
     rejected: plainObject(message.rejected),
     effectiveTick: numberOrNull(message.effectiveTick),
     message: null,
   })
+  // The server has set these levers already (while paused, no frame follows
+  // until the town runs again), so the rules in force include them now.
+  if (Object.keys(applied).length) arm.policy = { ...(arm.policy ?? arm.setup?.initial_policy ?? {}), ...applied }
 }
 
 function ingestFrame(arm, frame) {

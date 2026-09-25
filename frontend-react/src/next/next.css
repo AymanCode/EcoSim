@@ -500,9 +500,10 @@
 .nx .nx-solo > .nx-biz { margin-top: 0 }
 
 /* Moments under the lead: one chip per thing that just happened, fading in
-   once when it arrives. */
+   once when it arrives. One chip row is always reserved, so the page below
+   does not jump as moments come and go. */
 .nx .nx-moments { margin-top: 12px; max-width: 1000px }
-.nx .nx-moments ul { display: flex; flex-wrap: wrap; gap: 8px; margin: 0; padding: 0; list-style: none }
+.nx .nx-moments ul { display: flex; flex-wrap: wrap; gap: 8px; min-height: 33px; margin: 0; padding: 0; list-style: none }
 .nx .nx-moment {
   display: inline-flex;
   align-items: center;
@@ -921,7 +922,9 @@
 .nx .nx-follow { flex: none }
 .nx .nx-hall-toggle { flex: none }
 .nx .nx-notice { margin: -2px 0 8px 22px; font-size: 12.5px; line-height: 1.4; color: var(--nx-ink3-text) }
+.nx .nx-notice:empty { margin: 0 }
 .nx .nx-hh .nx-more + .nx-more { margin-left: 18px }
+.nx .nx-more:disabled { cursor: not-allowed; opacity: .55; text-decoration: none }
 .nx .nx-endp, .nx .nx-lostp {
   margin-top: 18px;
   padding: 16px 18px;
@@ -936,6 +939,11 @@
 .nx .nx-endp-act { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 12px }
 .nx .nx-lostp { border-color: #F2C4CB; background: #FBE5E8; color: var(--nx-ink2) }
 .nx .nx-lostp-t { font-size: 15px; font-weight: 600; color: var(--nx-ink) }
+.nx .nx-lostp .nx-detail, .nx .nx-lostp-n { margin-top: 6px; font-size: 13px; line-height: 1.4; color: var(--nx-ink2) }
+/* Scrubbed back after the end: the end panel folds to one line. */
+.nx .nx-endp.is-slim { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; padding: 10px 14px }
+.nx .nx-endp.is-slim h2 { font-size: 15px }
+.nx .nx-endp.is-slim .nx-endp-act { margin-top: 0 }
 
 /* Town hall drawer: fixed to the right, 380 px, full width on a phone. On a
    wide screen the app (bar included) makes room for it instead of sitting

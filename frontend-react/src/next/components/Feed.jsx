@@ -1,5 +1,5 @@
 import { COPY } from '../catalog.js'
-import { eventsUpTo } from '../data/derive.js'
+import { eventIndexAt, tickIndexAt } from '../data/derive.js'
 import { firmDisplayName } from '../names.js'
 import { eventGroupSentence, townWideSentence, weekLabel } from '../narration.js'
 import '../next.css'
@@ -8,19 +8,21 @@ import '../next.css'
 // town-wide line when many people were hired or laid off, then its events,
 // with events that share a type and text folded into one counted line. Stops
 // after `limit` lines, finishing the week it is in so no line undercounts.
+// It walks the arm's shared arrays back from `tick` in place, so each render
+// reads only the weeks it shows, never the whole history.
 function linesFor(arm, tick, limit) {
-  const events = eventsUpTo(arm, tick)
-  const weeks = (arm.ticks ?? []).filter(week => week <= tick).reverse()
+  const events = arm.events ?? []
+  const ticks = arm.ticks ?? []
   const lines = []
-  let next = 0
-  for (const week of weeks) {
-    if (lines.length >= limit) break
+  let next = eventIndexAt(arm, tick)
+  for (let at = tickIndexAt(arm, tick); at >= 0 && lines.length < limit; at -= 1) {
+    const week = ticks[at]
     const town = townWideSentence(arm.eventCounts?.[week])
     if (town) lines.push({ key: `town:${week}`, tick: week, town })
     const byKind = new Map()
-    while (next < events.length && events[next].tick >= week) {
+    while (next >= 0 && events[next].tick >= week) {
       const event = events[next]
-      next += 1
+      next -= 1
       if (event.tick !== week) continue
       const kind = `${event.type}|${event.text ?? ''}`
       const line = byKind.get(kind)

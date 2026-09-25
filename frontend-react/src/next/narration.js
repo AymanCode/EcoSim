@@ -5,7 +5,7 @@ import {
   COPY, METRICS, NO_CHANGES, WARMUP_TICKS, describePolicy, formatMetric, formatMoney, joinPhrases, leverName, leverValuePhrase, shownValue,
 } from './catalog.js'
 import { firmDisplayName, householdName as defaultHouseholdName } from './names.js'
-import { householdState, snapshotAt, valueAt } from './data/derive.js'
+import { householdState, rulesAt, rulesDiff, snapshotAt, tickIndexAt, valueAt } from './data/derive.js'
 
 const WEEKS_PER_YEAR = 52
 const OUT = 'peopleOutOfWorkPer100'
@@ -167,27 +167,59 @@ function singleTownVerdict(arm, tick) {
     + ` and ${movement(PAY, valueAt(arm, PAY, start), valueAt(arm, PAY, tick))}.`
 }
 
-// Plain-words verdict on the second town against the first over the last
-// three months, ending with a question about the second town's policy. One
-// town gets a summary instead.
+// How one town compares with the first over `ticks`; `when` opens the
+// sentence ("Over the last three months, ...") or is null.
+function townSummary(when, first, arm, ticks) {
+  const { goods, bads } = findings(first, arm, ticks)
+  const lead = when ? `${when}, ` : ''
+  if (!goods.length && !bads.length) return `${lead}${arm.label} and ${first.label} look about the same.`
+  if (!goods.length || !bads.length) return `${lead}${arm.label} has ${joinPhrases(goods.length ? goods : bads)} than ${first.label}.`
+  return `${lead}${arm.label} has ${joinPhrases(goods)} than ${first.label}, but ${joinPhrases(bads)}.`
+}
+
+// The weeks after warm-up, up to `tick`, in which a town's hall changed its rules.
+function changeWeeks(arm, tick) {
+  const weeks = new Set()
+  for (const change of arm.policyChanges ?? []) {
+    if (change.tick > tick) break
+    if (!inWarmUp(change.tick)) weeks.add(change.tick)
+  }
+  return [...weeks]
+}
+
+// "Town A changed its rules in Year 2, week 5." for a town whose rules changed
+// while the real economy ran, or null.
+function changedClause(arm, tick) {
+  const weeks = changeWeeks(arm, tick)
+  if (!weeks.length) return null
+  const last = weekLabel(weeks[weeks.length - 1])
+  if (weeks.length === 1) return `${arm.label} changed its rules in ${last}.`
+  const times = weeks.length === 2 ? 'twice' : `${weeks.length} times`
+  return `${arm.label} changed its rules ${times}, most recently in ${last}.`
+}
+
+// Plain-words verdict on each town against the first over the last three
+// months. With two towns it ends with a question about the rules the second
+// town has in force at `tick` that the first does not; with more, a general
+// question. A town whose rules changed during the run says so. One town gets
+// a summary instead.
 export function verdict(arms, tick) {
   if (!arms?.length) return ''
   if (arms.length === 1) return singleTownVerdict(arms[0], tick)
-  const [first, second] = arms
-  const policy = describePolicy(second.setup?.initial_policy)
+  const [first, ...rest] = arms
+  const gap = arms.length === 2 ? describePolicy(rulesDiff(rulesAt(rest[0], tick), rulesAt(first, tick))) : NO_CHANGES
   if (inWarmUp(tick)) {
-    const next = policy === NO_CHANGES ? 'how they compare' : `what ${policy} does`
+    const next = gap === NO_CHANGES ? 'how they compare' : `what ${gap} does`
     return `${towns(arms.length)} are still being set up and start the same. From week ${FIRST_REAL_WEEK} you can see ${next}.`
   }
   const ticks = windowTicks(first, tick)
-  const { goods, bads } = findings(first, second, ticks)
   const when = ticks.length >= WINDOW ? 'Over the last three months' : 'So far'
-  let summary
-  if (!goods.length && !bads.length) summary = `${when}, ${second.label} and ${first.label} look about the same.`
-  else if (!goods.length || !bads.length) summary = `${when}, ${second.label} has ${joinPhrases(goods.length ? goods : bads)} than ${first.label}.`
-  else summary = `${when}, ${second.label} has ${joinPhrases(goods)} than ${first.label}, but ${joinPhrases(bads)}.`
-  const question = policy === NO_CHANGES ? 'Would you change anything?' : `Would you keep ${policy}?`
-  return `${summary} ${question}`
+  const summaries = rest.map((arm, i) => townSummary(i === 0 ? when : null, first, arm, ticks))
+  const changed = arms.map(arm => changedClause(arm, tick)).filter(Boolean)
+  let question
+  if (arms.length > 2) question = "Which town's rules would you keep?"
+  else question = gap === NO_CHANGES ? 'Would you change anything?' : `Would you keep ${gap}?`
+  return [...summaries, ...changed, question].join(' ')
 }
 
 const SHOCKS = {
@@ -343,12 +375,22 @@ export function townWideSentence(counts, threshold = 20) {
   return null
 }
 
-// The question the header asks about an experiment.
+const COUNT_WORDS = ['no', 'one', 'two', 'three', 'four']
+
+// The question the header asks about an experiment: its rules as set up, so
+// it stays the same when the town hall changes rules during the run.
 export function experimentQuestion(arms) {
   if (!arms?.length) return ''
   if (arms.length === 1) return `What happens in ${arms[0].label}?`
+  const count = COUNT_WORDS[arms.length] ?? String(arms.length)
+  if (arms.length > 2) {
+    const rules = arms.map(arm => describePolicy(arm.setup?.initial_policy))
+    return rules.every(rule => rule === rules[0])
+      ? `What happens when ${count} towns keep the same rules?`
+      : `What happens when ${count} towns try different rules?`
+  }
   const policy = describePolicy(arms[1].setup?.initial_policy)
-  if (policy === NO_CHANGES) return `What happens when ${arms.length === 2 ? 'two' : 'several'} towns keep the same rules?`
+  if (policy === NO_CHANGES) return `What happens when ${count} towns keep the same rules?`
   return `What happens with ${policy}?`
 }
 
@@ -430,9 +472,31 @@ function richestMoment(arm, weeks) {
 // Where a figure sits against a mark.
 const side = (value, mark) => (!known(value) ? null : value > mark ? 'above' : value < mark ? 'below' : 'at')
 
+// A crossing is ignored when the figure left the side it crossed to within
+// this many recorded weeks before it, so a figure hovering at a mark gives
+// one moment, not one at every flip.
+const SETTLE_WEEKS = 12
+
+// Whether the shown figure left `to` (the side of `mark` it has just crossed
+// to) in the SETTLE_WEEKS recorded weeks before the week `since`. Only real
+// economy weeks count. Reads recorded weeks up to `since` only, so the answer
+// is the same at every later tick.
+function leftRecently(arm, since, mark, to) {
+  const ticks = arm.ticks ?? []
+  const at = tickIndexAt(arm, since)
+  const shownAt = i => shownValue(OUT, arm.series?.[OUT]?.[i] ?? null)
+  for (let i = at - 1; i >= 1 && i >= at - SETTLE_WEEKS; i -= 1) {
+    if (inWarmUp(ticks[i - 1])) break
+    if (side(shownAt(i - 1), mark) === to && side(shownAt(i), mark) !== to) return true
+  }
+  return false
+}
+
 // People out of work per 100, as the page shows them, now past a mark it was
 // not past four weeks ago (or now under one it was not under). A jump across
-// several marks names the furthest. Dated to the week it last crossed.
+// several marks names the furthest. Dated to the week it last crossed, and
+// dropped when the figure had left that side of the mark in the 12 recorded
+// weeks before that crossing.
 function milestoneMoment(arm, weeks) {
   const shown = weeks.map(week => shownValue(OUT, valueAt(arm, OUT, week)))
   const [before, after] = [shown[0], shown[shown.length - 1]]
@@ -450,6 +514,7 @@ function milestoneMoment(arm, weeks) {
       break
     }
   }
+  if (leftRecently(arm, since, mark, to)) return null
   return moment('milestone', arm, since, sentence(arm.label, mark))
 }
 

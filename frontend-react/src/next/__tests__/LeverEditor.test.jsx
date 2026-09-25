@@ -71,17 +71,18 @@ describe('LeverEditor', () => {
     expect(sent).toEqual({ ...DEFAULT_POLICY, sector_subsidy_level: 10, sector_subsidy_target: 'food', minimum_wage_policy: 'high' })
   })
 
-  test('a broken group rule shows an alert under its group', () => {
+  test('a broken group rule shows a polite status line under its group, not an alert', () => {
     const { container } = editor({ value: { ...DEFAULT_POLICY, sector_subsidy_level: 10 } })
-    const alert = screen.getByRole('alert')
-    expect(alert).toHaveTextContent(COPY.levers.rules.sector_subsidy)
+    const line = screen.getByText(COPY.levers.rules.sector_subsidy)
+    expect(line).toHaveAttribute('role', 'status')
+    expect(screen.queryByRole('alert')).toBeNull()
     const business = container.querySelectorAll('fieldset')[LEVER_GROUPS.findIndex(group => group.id === 'business')]
-    expect(business).toContainElement(alert)
+    expect(business).toContainElement(line)
   })
 
-  test('no alert when the rules fit together', () => {
-    editor()
-    expect(screen.queryByRole('alert')).toBeNull()
+  test('no rule line when the rules fit together', () => {
+    const { container } = editor()
+    expect(container.querySelector('.nx-lproblem')).toBeNull()
   })
 
   test('a lever that differs from the base is marked as changed', () => {

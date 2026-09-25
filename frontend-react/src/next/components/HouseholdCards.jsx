@@ -60,9 +60,11 @@ function HouseholdCard({ subject, arm, tick, pinned, onTogglePin }) {
 
 // Four households from the tracked sample; "Follow" keeps one in the first slot.
 // In a live town (`onTrack(action, householdId)`) Follow also pins or unpins
-// the household on the server, and "Meet other families" asks it for a new
-// sample.
-export default function HouseholdCards({ arm, tick, onTrack }) {
+// the household on the server: it asks the server to follow it first, since
+// the week shown may be older than the server's sample. "Meet other families"
+// asks for a new sample, which shows from the next live week, so it is on
+// only while `canReshuffle` (the town runs and the viewer is on the live week).
+export default function HouseholdCards({ arm, tick, onTrack, canReshuffle = true }) {
   const [offset, setOffset] = useState(0)
   const [pinnedId, setPinnedId] = useState(null)
   const sample = snapshotAt(arm, tick)?.subjects ?? []
@@ -80,6 +82,7 @@ export default function HouseholdCards({ arm, tick, onTrack }) {
         onTrack('unpin', id)
       } else {
         if (pinnedId != null) onTrack('unpin', pinnedId)
+        onTrack('follow', id)
         onTrack('pin', id)
       }
     }
@@ -115,7 +118,7 @@ export default function HouseholdCards({ arm, tick, onTrack }) {
         </button>
       )}
       {onTrack && (
-        <button type="button" className="nx-more" onClick={meetOthers}>{COPY.live.meetOthers}</button>
+        <button type="button" className="nx-more" disabled={!canReshuffle} onClick={meetOthers}>{COPY.live.meetOthers}</button>
       )}
     </div>
   )

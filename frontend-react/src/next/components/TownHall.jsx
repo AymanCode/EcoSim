@@ -1,4 +1,4 @@
-import { useId, useState } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
 import { COPY, DEFAULT_POLICY, describePolicy, leverName, townTextColor } from '../catalog.js'
 import { weekLabel } from '../narration.js'
 import { policyProblems } from '../policyRules.js'
@@ -8,10 +8,17 @@ import '../next.css'
 const MAX_RECEIPTS = 5
 const same = (a, b) => (typeof a === 'number' && typeof b === 'number' ? Math.abs(a - b) < 1e-9 : String(a) === String(b))
 
-// The rules a town's hall has in force: the latest week's lever vector, or,
-// before any week has run, the rules it was set up with.
+// The rules a town's hall has in force: the latest week's lever vector (with
+// any change it has applied since), or, before any week has run, the rules it
+// was set up with. A change still on its way to the town hall counts as made,
+// so the editor neither snaps back to the old rules nor offers to send the
+// same change again; if the town hall refuses it, the rules in force show.
 function currentRules(arm) {
-  return { ...DEFAULT_POLICY, ...(arm?.policy ?? arm?.setup?.initial_policy ?? {}) }
+  const rules = { ...DEFAULT_POLICY, ...(arm?.policy ?? arm?.setup?.initial_policy ?? {}) }
+  for (const receipt of arm?.receipts ?? []) {
+    if (receipt.status === 'sending' || receipt.status === 'queued') Object.assign(rules, receipt.requested)
+  }
+  return rules
 }
 
 // The levers of `draft` that differ from `current`.
@@ -41,9 +48,16 @@ function ReceiptLines({ receipt }) {
 
 // The Town hall drawer: pick a town, change its rules from next week, and see
 // what the town hall did with each change. `locked` (a sentence) disables the
-// change button and says why.
-export default function TownHall({ arms, onConfigure, onClose, locked = null }) {
+// change button and says why. With `autoFocus` (opened from its toggle) focus
+// moves to the drawer's heading when it opens.
+export default function TownHall({ id, arms, onConfigure, onClose, locked = null, autoFocus = false }) {
   const uid = useId()
+  const headingRef = useRef(null)
+  // Only on opening: the drawer keeps whatever focus it has after that.
+  const focusOnOpen = useRef(autoFocus)
+  useEffect(() => {
+    if (focusOnOpen.current) headingRef.current?.focus()
+  }, [])
   const [selected, setSelected] = useState(0)
   const [drafts, setDrafts] = useState({})
   const index = Math.min(selected, Math.max(0, arms.length - 1))
@@ -64,13 +78,14 @@ export default function TownHall({ arms, onConfigure, onClose, locked = null }) 
 
   return (
     <aside
+      id={id}
       className="nx-hall"
       aria-label={COPY.hall.title}
       onKeyDown={event => { if (event.key === 'Escape') onClose() }}
     >
       <div className="nx-hall-top">
         <div className="nx-hall-head">
-          <h2 id={titleId}>{COPY.hall.title}</h2>
+          <h2 id={titleId} ref={headingRef} tabIndex={-1}>{COPY.hall.title}</h2>
           <button type="button" className="nx-abtn" aria-label={COPY.hall.closeLabel} onClick={onClose}>{COPY.hall.close}</button>
         </div>
         <div className="nx-hall-tabs" role="group" aria-label={COPY.hall.towns}>

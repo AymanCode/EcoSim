@@ -254,7 +254,7 @@ export const LEVERS = {
   },
   public_works: {
     name: 'public works jobs',
-    help: 'When on, the town hall runs its own business and hires people to work in it.',
+    help: 'When on, the town hall runs its own business and hires people to work in it, if it can afford to start one.',
     values: { off: 'off', on: 'on' },
     policy: { off: 'no public works jobs', on: 'public works jobs' },
   },
@@ -307,19 +307,19 @@ export const LEVERS = {
   },
   infrastructure_spending: {
     name: 'spending on roads and buildings',
-    help: 'Sets how much the town hall spends each week on roads and buildings.',
+    help: 'Sets how much the town hall spends on roads and buildings in each week it has the cash to cover it.',
     values: SPENDING,
     policy: spendingPolicy('spending on roads and buildings'),
   },
   technology_spending: {
     name: 'spending on technology',
-    help: 'Sets how much the town hall spends each week on new technology.',
+    help: 'Sets how much the town hall spends on new technology in each week it has the cash to cover it.',
     values: SPENDING,
     policy: spendingPolicy('spending on technology'),
   },
   social_spending: {
     name: 'social spending',
-    help: 'Sets how much the town hall spends each week on community programmes.',
+    help: 'Sets how much the town hall spends each week on community programmes, up to the cash it has.',
     values: SPENDING,
     policy: spendingPolicy('social spending'),
   },
@@ -418,7 +418,7 @@ export const QUESTIONS = [
   {
     id: 'minimum-wage',
     title: 'What happens if we raise the minimum wage?',
-    blurb: 'Higher pay for the lowest earners, higher costs for firms. Which wins?',
+    blurb: 'Higher pay for the lowest earners, higher costs for businesses. Which wins?',
     towns: [{}, { minimum_wage_policy: 'high' }],
   },
   {
@@ -545,7 +545,7 @@ function howToNotes({ armCount = 2, perHouse = householdsPerHouse(null), firstPo
     : 'A **tick** is one week. The town moves forward a week at a time, and the timeline takes you back to any week you have already seen.'
   const first = firstPolicy === NO_CHANGES ? 'keeps the usual rules' : `runs with ${firstPolicy}`
   const rules = armCount >= 2
-    ? `The **first town** ${first}. ${armCount === 2 ? 'The second changes' : 'Each of the others changes'} the ones named under its title, and that change is what the towns are testing.`
+    ? `The **first town** ${first}. The rules each town has in force are named under its title; where they differ from the first town's, that difference is what the towns are testing.`
     : "The **town hall** sets the rules: taxes, benefits, the minimum wage. The ones in force are named under the town's title."
   return [
     tick,
@@ -729,10 +729,9 @@ export const COPY = {
     townNumber: seed => `Town #${seed}`,
     reroll: 'Try a different town',
     seedLabel: 'Town number',
-    townNote: 'The same town number always builds the same town with the same people. Change it for a different town, keep it to repeat an experiment.',
+    townNote: 'The same town number and size always build the same town with the same people. Change it for a different town, keep it to repeat an experiment.',
     start: 'Start the experiment',
     startPlay: 'Start playing',
-    busy: 'Building the towns…',
     // "Two towns, 1,000 households each, five years."
     estimate: ({ towns, households, years }) => {
       const size = `${grouped.format(households)} households${towns === 1 ? '' : ' each'}`
@@ -745,7 +744,7 @@ export const COPY = {
       unreachable: "The simulation isn't running on this computer.",
       full: 'The simulation is already running as many towns as it can. Close another EcoSim tab, or try again in a moment.',
       setup: "The simulation couldn't build these towns.",
-      lost: 'A town lost its connection before the run began.',
+      dropped: 'The simulation stopped answering while it built the towns. Press Start to try again.',
     },
     startWith: 'To start it, run this in the EcoSim folder, then press Start again:',
     command: 'python -m uvicorn backend.server:app --port 8002',
@@ -766,7 +765,17 @@ export const COPY = {
       const when = week ? `in ${week}` : 'before its first week'
       return `${town} lost its connection to the simulation ${when}.${others ? ' The other towns are paused.' : ''}`
     },
+    // The server stopped a town's run with an error, or could not start or finish it.
+    crashed: (town, week, others) => {
+      const when = week ? `in ${week}` : 'before its first week'
+      return `${town} stopped because the simulation hit an error ${when}.${others ? ' The other towns are paused.' : ''}`
+    },
     restart: townCount => (townCount > 1 ? 'Start these towns again' : 'Start this town again'),
+    // Shown beside the restart once the town hall has applied a change.
+    notRepeated: 'Starting again uses the rules you set up. Your rule changes will not be repeated.',
+    // Under a town's name when the server could not do something it was asked
+    // (the server's words follow in a "Details:" line).
+    notice: "The simulation couldn't carry out the last request for this town.",
     newSetup: 'Set up something new',
   },
   // The Town hall drawer (components/TownHall.jsx).
@@ -801,6 +810,7 @@ export const COPY = {
     },
     finishing: 'Wrapping up the run…',
     addYear: 'Add a year',
+    backToEnd: 'Back to the end',
     another: 'Try another question',
   },
 }

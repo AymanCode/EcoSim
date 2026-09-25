@@ -203,6 +203,21 @@ describe('the lever vector in force', () => {
     expect(arm.policy.benefit_level).toBe('high')
   })
 
+  test('an applied change is in force at once, before the next frame; a refused lever is not', () => {
+    const arm = createArm(TOWN_A)
+    ingest(arm, { tick: 4, metrics: { governmentPolicy: { minimum_wage_policy: 'neutral', benefit_level: 'neutral' } }, curated: {} })
+    addPendingConfig(arm, { minimum_wage_policy: 'high', sector_subsidy_level: 10 })
+    ingest(arm, {
+      type: 'CONFIG_APPLIED', actionId: 'p1', requested: { minimum_wage_policy: 'high', sector_subsidy_level: 10 },
+      applied: { minimum_wage_policy: 'high' }, rejected: { sector_subsidy_level: 'needs a target' }, effectiveTick: 5,
+    })
+    expect(arm.policy).toEqual({ minimum_wage_policy: 'high', benefit_level: 'neutral' })
+    // Before any frame, the set-up rules are the base.
+    const fresh = createArm({ ...TOWN_A, setup: { initial_policy: { public_works: 'on' } } })
+    ingest(fresh, { type: 'CONFIG_APPLIED', actionId: 'p2', applied: { benefit_level: 'high' }, rejected: {}, effectiveTick: 1 })
+    expect(fresh.policy).toEqual({ public_works: 'on', benefit_level: 'high' })
+  })
+
   test('the fixture ends with the benefit change it recorded', () => {
     const arm = fixtureArm()
     expect(arm.policy.benefit_level).toBe('high')

@@ -40,6 +40,18 @@ describe('EndPanel', () => {
     end({ horizon: 52 })
     expect(screen.getByRole('heading', { name: '1 year is up.' })).toBeInTheDocument()
   })
+
+  test('while the viewer looks back at an earlier week it folds to a bar: no verdict, a way back, a year more', () => {
+    const onFollow = vi.fn()
+    const { arms, container, onExtend } = end({ phase: 'finished', following: false, onFollow })
+    expect(screen.getByRole('heading', { name: '5 years are up.' })).toBeInTheDocument()
+    expect(container).not.toHaveTextContent(verdict(arms, 24))
+    expect(screen.queryByRole('button', { name: 'Try another question' })).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Back to the end' }))
+    expect(onFollow).toHaveBeenCalledTimes(1)
+    fireEvent.click(screen.getByRole('button', { name: 'Add a year' }))
+    expect(onExtend).toHaveBeenCalledWith(52)
+  })
 })
 
 describe('LostPanel', () => {
@@ -54,6 +66,22 @@ describe('LostPanel', () => {
     expect(onRestart).toHaveBeenCalledTimes(1)
     fireEvent.click(screen.getByRole('button', { name: 'Set up something new' }))
     expect(onNewExperiment).toHaveBeenCalledTimes(1)
+  })
+
+  test('a town the server stopped with an error says so, with the server\'s words behind "Details:"', () => {
+    render(<LostPanel town="Town B" tick={60} townCount={2} crashed detail="float division by zero" onRestart={() => {}} onNewExperiment={() => {}} />)
+    expect(screen.getByRole('alert')).toHaveTextContent(
+      'Town B stopped because the simulation hit an error in Year 2, week 8. The other towns are paused.',
+    )
+    expect(screen.getByRole('alert')).not.toHaveTextContent('float division')
+    expect(screen.getByText('Details: float division by zero')).toBeInTheDocument()
+  })
+
+  test('after the town hall changed rules, the restart says those changes are not repeated', () => {
+    const { rerender } = render(<LostPanel town="Town B" tick={60} townCount={2} onRestart={() => {}} onNewExperiment={() => {}} />)
+    expect(screen.queryByText(/will not be repeated/)).toBeNull()
+    rerender(<LostPanel town="Town B" tick={60} townCount={2} rulesChanged onRestart={() => {}} onNewExperiment={() => {}} />)
+    expect(screen.getByText('Starting again uses the rules you set up. Your rule changes will not be repeated.')).toBeInTheDocument()
   })
 
   test('a single town, lost before its first week', () => {

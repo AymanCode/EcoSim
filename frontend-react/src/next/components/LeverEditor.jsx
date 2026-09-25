@@ -162,7 +162,7 @@ export default function LeverEditor({ value, base = DEFAULT_POLICY, onChange, id
                   id={`${idPrefix}-${lever}`}
                   onPick={pick(lever)}
                 />
-                {after(lever).map(([key, text]) => <p key={key} className="nx-lproblem" role="alert">{text}</p>)}
+                {after(lever).map(([key, text]) => <p key={key} className="nx-lproblem" role="status">{text}</p>)}
               </Fragment>
             ))}
           </fieldset>

@@ -132,6 +132,26 @@ describe('moments: people out of work passing 10, 20 or 30 in 100', () => {
     const a = town(TOWN_A, { out: t => (t >= 11 ? 25 : 5) })
     for (let t = 1; t <= 20; t += 1) expect(moments([a], t)).toEqual([])
   })
+
+  test('a figure hovering at a mark gives one moment, not one at every flip', () => {
+    // 25 in 100 until week 20, then 29, 31, 29, 31, 29, 31 from week 21, then 31.
+    const hover = [29, 31, 29, 31, 29, 31]
+    const a = town(TOWN_A, { weeks: 60, out: t => (t <= 20 ? 25 : t <= 26 ? hover[t - 21] : 31) })
+    const ids = new Set()
+    for (let t = 11; t <= 60; t += 1) for (const item of ofKind(moments([a], t), 'milestone')) ids.add(item.id)
+    expect([...ids]).toEqual(['milestone:Town A:22'])
+    // The same at any week, scrubbing back or forward.
+    expect(ofKind(moments([a], 22), 'milestone')).toHaveLength(1)
+    expect(ofKind(moments([a], 24), 'milestone')).toEqual([])
+  })
+
+  test('a crossing long after the figure left that side is a moment again', () => {
+    // Above 30 from week 21, below from week 30, above again from week 50.
+    const a = town(TOWN_A, { weeks: 60, out: t => (t <= 20 ? 25 : t < 30 ? 31 : t < 50 ? 25 : 31) })
+    const ids = new Set()
+    for (let t = 11; t <= 60; t += 1) for (const item of ofKind(moments([a], t), 'milestone')) ids.add(item.id)
+    expect([...ids]).toEqual(['milestone:Town A:21', 'milestone:Town A:50'])
+  })
 })
 
 describe('moments across towns', () => {

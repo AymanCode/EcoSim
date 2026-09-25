@@ -137,13 +137,24 @@ describe('lever groups, help and question cards', () => {
     expect(QUESTIONS[0]).toEqual({
       id: 'minimum-wage',
       title: 'What happens if we raise the minimum wage?',
-      blurb: 'Higher pay for the lowest earners, higher costs for firms. Which wins?',
+      blurb: 'Higher pay for the lowest earners, higher costs for businesses. Which wins?',
       towns: [{}, { minimum_wage_policy: 'high' }],
     })
     expect(QUESTIONS[1].towns).toEqual([{}, { benefit_level: 'high' }])
     for (const question of QUESTIONS) {
       for (const levers of question.towns) expect(policyProblems({ ...DEFAULT_POLICY, ...levers })).toEqual({})
     }
+  })
+
+  test('spending and public works help says the town hall pays only when it has the money', () => {
+    // backend/agents.py: roads and technology spend the whole budget or nothing,
+    // social spending spends up to the cash there is; economy.py: public works
+    // opens only on an affordable start-up budget.
+    expect(LEVERS.infrastructure_spending.help).toBe('Sets how much the town hall spends on roads and buildings in each week it has the cash to cover it.')
+    expect(LEVERS.technology_spending.help).toBe('Sets how much the town hall spends on new technology in each week it has the cash to cover it.')
+    expect(LEVERS.social_spending.help).toBe('Sets how much the town hall spends each week on community programmes, up to the cash it has.')
+    expect(LEVERS.public_works.help).toBe('When on, the town hall runs its own business and hires people to work in it, if it can afford to start one.')
+    expect(QUESTIONS.map(question => question.blurb).join(' ')).not.toMatch(/\bfirms\b/)
   })
 
   test('capitalise', () => {

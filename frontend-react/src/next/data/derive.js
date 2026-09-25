@@ -1,5 +1,8 @@
 // Read-side helpers over arms from session.js: align towns by tick and look
-// values up "as of" a tick (the last recorded tick at or before it).
+// values up "as of" a tick (the last recorded tick at or before it). An arm's
+// inner arrays are shared and append-only (see session.js): these helpers only
+// read them.
+import { DEFAULT_POLICY } from '../catalog.js'
 
 // Index of the last entry in the ascending `ticks` that is <= tick, or -1.
 function indexAtOrBefore(ticks, tick) {
@@ -55,8 +58,13 @@ export function compareAt(arms, key, tick) {
   })
 }
 
-// Events at or before `tick`, newest first; `limit` caps the count.
-export function eventsUpTo(arm, tick, limit = Infinity) {
+// Index in `arm.ticks` of the last recorded week at or before `tick`, or -1.
+export function tickIndexAt(arm, tick) {
+  return indexAtOrBefore(arm?.ticks ?? [], tick)
+}
+
+// Index in `arm.events` (tick order) of the newest event at or before `tick`, or -1.
+export function eventIndexAt(arm, tick) {
   const events = arm?.events ?? []
   let lo = 0
   let hi = events.length - 1
@@ -70,9 +78,49 @@ export function eventsUpTo(arm, tick, limit = Infinity) {
       hi = mid - 1
     }
   }
+  return last
+}
+
+// Events at or before `tick`, newest first; `limit` caps the count.
+export function eventsUpTo(arm, tick, limit = Infinity) {
+  const events = arm?.events ?? []
   const out = []
-  for (let i = last; i >= 0 && out.length < limit; i -= 1) out.push(events[i])
+  for (let i = eventIndexAt(arm, tick); i >= 0 && out.length < limit; i -= 1) out.push(events[i])
   return out
+}
+
+// A policy change's value arrives as text ("wage_tax_rate=0.2"): a lever whose
+// schema value is a number reads it back as one.
+function leverValue(lever, value) {
+  if (typeof DEFAULT_POLICY[lever] !== 'number' || typeof value === 'number') return value
+  const number = Number(value)
+  return String(value).trim() !== '' && Number.isFinite(number) ? number : value
+}
+
+const sameValue = (a, b) => (typeof a === 'number' && typeof b === 'number' ? Math.abs(a - b) < 1e-9 : String(a) === String(b))
+
+// The rules a town has in force at `tick`: DEFAULT_POLICY, then the rules it
+// was set up with, then every change the town hall made up to that week.
+export function rulesAt(arm, tick) {
+  const rules = { ...DEFAULT_POLICY }
+  for (const [lever, value] of Object.entries(arm?.setup?.initial_policy ?? {})) {
+    if (value !== undefined && value !== null) rules[lever] = leverValue(lever, value)
+  }
+  for (const change of arm?.policyChanges ?? []) {
+    if (change.tick > tick) break
+    rules[change.policy] = leverValue(change.policy, change.value)
+  }
+  return rules
+}
+
+// The levers of `rules` whose value differs from `base` (DEFAULT_POLICY by
+// default), with the value from `rules`.
+export function rulesDiff(rules, base = DEFAULT_POLICY) {
+  const diff = {}
+  for (const [lever, value] of Object.entries(rules ?? {})) {
+    if (!sameValue(value, base?.[lever])) diff[lever] = value
+  }
+  return diff
 }
 
 // A tracked household's situation: 'home' (lost their home), 'work', 'look'

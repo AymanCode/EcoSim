@@ -44,7 +44,7 @@ describe('RunScreen', () => {
     const columns = container.querySelectorAll('.nx-col')
     expect(columns).toHaveLength(2)
     expect(columns[0]).toHaveTextContent('Town A')
-    expect(columns[0]).toHaveTextContent('no changes')
+    expect(columns[0].querySelector('.nx-colhead span')).toHaveTextContent('more help for people out of work')
     expect(columns[1]).toHaveTextContent('Town B')
     expect(columns[1]).toHaveTextContent('a higher minimum wage')
     columns.forEach(column => {
@@ -94,6 +94,21 @@ describe('RunScreen', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Typical weekly pay' }))
     expect(screen.getByRole('button', { name: 'Typical weekly pay' })).toHaveAttribute('aria-pressed', 'true')
     expect(screen.getByRole('heading', { level: 3, name: 'Typical weekly pay' })).toBeInTheDocument()
+  })
+
+  test('a column head names the rules in force at the week shown, including a change the town hall made', () => {
+    // The recording's town hall raised help for people out of work in week 7.
+    const arms = [fixtureArm(TOWN_A), townB()]
+    const { container } = render(<Clocked arms={arms} />)
+    const heads = () => [...container.querySelectorAll('.nx-colhead span')].map(head => head.textContent)
+    scrubTo(6)
+    expect(heads()).toEqual(['no changes', 'a higher minimum wage'])
+    scrubTo(7)
+    expect(heads()).toEqual(['more help for people out of work', 'more help for people out of work and a higher minimum wage'])
+    // A change back to the usual rules reads as no change.
+    arms[0].policyChanges.push({ id: 'back', tick: 20, policy: 'benefit_level', value: 'neutral' })
+    scrubTo(20)
+    expect(heads()[0]).toBe('no changes')
   })
 
   test('one town: one column and a summary instead of a question', () => {

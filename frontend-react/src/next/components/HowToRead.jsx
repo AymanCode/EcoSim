@@ -1,5 +1,5 @@
 import { COPY, describePolicy, householdsPerHouse } from '../catalog.js'
-import { valueAt } from '../data/derive.js'
+import { rulesAt, rulesDiff, valueAt } from '../data/derive.js'
 import '../next.css'
 
 // "**word**" in a catalog note becomes the bold lead-in.
@@ -13,7 +13,8 @@ export default function HowToRead({ arms = [], tick = 1 }) {
   const notes = COPY.howTo.notes({
     armCount: arms.length,
     perHouse: householdsPerHouse(total),
-    firstPolicy: describePolicy(first?.setup?.initial_policy),
+    // The first town's rules in force at the week shown, as its title names them.
+    firstPolicy: describePolicy(first ? rulesDiff(rulesAt(first, tick)) : null),
   })
   return (
     <section className="nx-sect">

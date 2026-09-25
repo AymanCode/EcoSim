@@ -19,7 +19,7 @@ function Harness({ random, ...props }) {
 function screenWith(props = {}) {
   const handlers = { onStart: vi.fn(), onWatchExample: vi.fn() }
   const random = sequence([0.5, 0.1, 0.25])
-  const view = render(<Harness random={random} busy={false} problem={null} {...handlers} {...props} />)
+  const view = render(<Harness random={random} problem={null} {...handlers} {...props} />)
   return { ...view, ...handlers }
 }
 
@@ -48,6 +48,8 @@ describe('SetupScreen', () => {
 
     expect(screen.getByText('Town #50000')).toBeInTheDocument()
     expect(screen.queryByRole('spinbutton', { name: 'Town number' })).toBeNull()
+    // The size is part of what makes the town: the same number at another size is another town.
+    expect(screen.getByText(/^The same town number and size always build the same town/)).toBeInTheDocument()
 
     expect(screen.getByText('Two towns, 1,000 households each, five years.')).toBeInTheDocument()
     expect(screen.getByText('About a minute.')).toBeInTheDocument()
@@ -185,10 +187,12 @@ describe('SetupScreen', () => {
     expect(within(card).getByText('Coming soon')).toBeInTheDocument()
   })
 
-  test('while busy, Start is disabled and says the towns are being built', () => {
-    screenWith({ busy: true })
-    const start = screen.getByRole('button', { name: 'Building the towns…' })
-    expect(start).toBeDisabled()
+  test('a server that stopped answering while it built the towns says so, without the start command', () => {
+    screenWith({ problem: { kind: 'dropped', message: '' } })
+    const alert = screen.getByRole('alert')
+    expect(alert).toHaveTextContent('The simulation stopped answering while it built the towns. Press Start to try again.')
+    expect(alert).not.toHaveTextContent("isn't running")
+    expect(within(alert).queryByText('python -m uvicorn backend.server:app --port 8002')).toBeNull()
   })
 
   test('rules that do not fit together disable Start until they are fixed', () => {
@@ -196,7 +200,7 @@ describe('SetupScreen', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Change rules for Town B' }))
     const panel = screen.getByRole('region', { name: 'Town B\'s rules' })
     fireEvent.click(within(within(panel).getByRole('group', { name: 'The business subsidy' })).getByRole('button', { name: '10%' }))
-    expect(within(panel).getByRole('alert')).toHaveTextContent(COPY.levers.rules.sector_subsidy)
+    expect(within(panel).getByText(COPY.levers.rules.sector_subsidy)).toHaveAttribute('role', 'status')
     const start = screen.getByRole('button', { name: 'Start the experiment' })
     expect(start).toBeDisabled()
     expect(screen.getByText(COPY.setup.fixFirst(['Town B']))).toBeInTheDocument()

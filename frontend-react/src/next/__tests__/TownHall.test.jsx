@@ -1,8 +1,8 @@
 import { describe, expect, test, vi } from 'vitest'
 import { fireEvent, render, screen, within } from '@testing-library/react'
 import TownHall from '../components/TownHall.jsx'
-import { DEFAULT_POLICY, TOWN_COLORS } from '../catalog.js'
-import { createArm } from '../data/session.js'
+import { COPY, DEFAULT_POLICY, TOWN_COLORS } from '../catalog.js'
+import { addPendingConfig, createArm, failPendingConfig, ingest } from '../data/session.js'
 
 const receipt = fields => ({
   actionId: null, status: 'sending', requested: {}, applied: {}, rejected: {}, effectiveTick: null, message: null, ...fields,
@@ -51,16 +51,67 @@ describe('TownHall', () => {
     expect(within(aside).getByText('Changes start at the next week.')).toBeInTheDocument()
   })
 
-  test('sends only the levers that changed, then clears the draft', () => {
-    const { aside, onConfigure } = hall()
+  test('sends only the levers that changed, and the change stays shown while it is on its way', () => {
+    const arms = towns()
+    // As the live controller does: a 'sending' receipt for every CONFIG.
+    const onConfigure = vi.fn((index, levers) => addPendingConfig(arms[index], levers))
+    const { aside } = hall(arms, { onConfigure })
     expect(apply(aside)).toBeDisabled()
     pick(aside, 'The minimum wage', 'high')
     expect(apply(aside)).toBeEnabled()
     fireEvent.click(apply(aside))
     expect(onConfigure).toHaveBeenCalledWith(0, { minimum_wage_policy: 'high' })
+    // No snap back to the old rules, and nothing to send twice.
+    const wage = within(aside).getByRole('group', { name: 'The minimum wage' })
+    expect(within(wage).getByRole('button', { name: 'high' })).toHaveAttribute('aria-pressed', 'true')
+    expect(within(aside).queryByText('(changed)')).toBeNull()
     expect(apply(aside)).toBeDisabled()
+  })
+
+  test('after the town hall applies a change, its rules include it, and it can be undone at once', () => {
+    const arms = towns()
+    const onConfigure = vi.fn((index, levers) => addPendingConfig(arms[index], levers))
+    const { aside, rerender } = hall(arms, { onConfigure })
+    fireEvent.click(within(aside).getByRole('button', { name: 'Town B' }))
+    pick(aside, 'The business subsidy', '25%')
+    fireEvent.click(within(within(aside).getByRole('group', { name: /^The subsidy target/ })).getByRole('button', { name: 'food firms' }))
+    fireEvent.click(apply(aside))
+    expect(onConfigure).toHaveBeenLastCalledWith(1, { sector_subsidy_target: 'food', sector_subsidy_level: 25 })
+    // Paused: CONFIG_APPLIED comes alone, and no week follows until Resume.
+    ingest(arms[1], {
+      type: 'CONFIG_APPLIED', actionId: 'p1', requested: { sector_subsidy_target: 'food', sector_subsidy_level: 25 },
+      applied: { sector_subsidy_target: 'food', sector_subsidy_level: 25 }, rejected: {}, effectiveTick: 21,
+    })
+    rerender(<TownHall arms={[...arms]} tick={20} onConfigure={onConfigure} onClose={() => {}} />)
+    const level = within(aside).getByRole('group', { name: 'The business subsidy' })
+    expect(within(level).getByRole('button', { name: '25%' })).toHaveAttribute('aria-pressed', 'true')
+    expect(apply(aside)).toBeDisabled()
+    // Undo before resuming: back to no subsidy.
+    pick(aside, 'The business subsidy', 'none')
+    fireEvent.click(within(within(aside).getByRole('group', { name: /^The subsidy target/ })).getByRole('button', { name: 'no one' }))
+    expect(apply(aside)).toBeEnabled()
+    fireEvent.click(apply(aside))
+    expect(onConfigure).toHaveBeenLastCalledWith(1, { sector_subsidy_target: 'none', sector_subsidy_level: 0 })
+  })
+
+  test('a change that failed shows the rules in force again', () => {
+    const arms = towns()
+    const onConfigure = vi.fn((index, levers) => addPendingConfig(arms[index], levers))
+    const { aside, rerender } = hall(arms, { onConfigure })
+    pick(aside, 'The minimum wage', 'high')
+    fireEvent.click(apply(aside))
+    failPendingConfig(arms[0], 'the run is finished')
+    rerender(<TownHall arms={[...arms]} tick={20} onConfigure={onConfigure} onClose={() => {}} />)
     const wage = within(aside).getByRole('group', { name: 'The minimum wage' })
     expect(within(wage).getByRole('button', { name: 'normal' })).toHaveAttribute('aria-pressed', 'true')
+  })
+
+  test('focus moves to the heading only when opened from its toggle', () => {
+    const { aside, unmount } = hall(towns(), { autoFocus: true })
+    expect(document.activeElement).toBe(within(aside).getByRole('heading', { name: 'Town hall' }))
+    unmount()
+    hall(towns())
+    expect(document.activeElement).toBe(document.body)
   })
 
   test('each town keeps its own draft', () => {
@@ -80,7 +131,7 @@ describe('TownHall', () => {
   test('a rule the town hall would refuse keeps the button disabled', () => {
     const { aside } = hall()
     pick(aside, 'The business subsidy', '25%')
-    expect(within(aside).getAllByRole('alert').length).toBeGreaterThan(0)
+    expect(within(aside).getByText(COPY.levers.rules.sector_subsidy)).toHaveAttribute('role', 'status')
     expect(apply(aside)).toBeDisabled()
   })
 

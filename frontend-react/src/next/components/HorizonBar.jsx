@@ -25,9 +25,12 @@ const STEERABLE = ['running', 'paused']
 // weeks with year marks, and the playback speed (only when there is one).
 // In a live run (`live`, RunScreen's live prop) the toggle pauses and
 // resumes the towns, "Back to live" returns to the newest week while
-// `following` is false, and a Town hall button opens the drawer.
+// `following` is false, and a Town hall button opens and closes the drawer
+// (`onHallToggle(open)`, else `live.onHall`); `hallToggleRef` lets focus come
+// back to it, and `hallId` is the drawer it controls.
 export default function HorizonBar({
   tick, horizon, maxTick, playing, onToggle, onScrub, speed, onSpeed, live, following = true, onFollow,
+  hallToggleRef, hallId, onHallToggle,
 }) {
   const last = Math.max(1, maxTick)
   const length = Math.max(last, horizon || 0)
@@ -100,10 +103,13 @@ export default function HorizonBar({
         )}
         {live?.hallOpen !== undefined && (
           <button
+            ref={hallToggleRef}
             type="button"
             className={`nx-abtn nx-hall-toggle${live.hallOpen ? ' is-dark' : ''}`}
             aria-pressed={live.hallOpen}
-            onClick={() => live.onHall(!live.hallOpen)}
+            aria-expanded={live.hallOpen}
+            aria-controls={live.hallOpen && hallId ? hallId : undefined}
+            onClick={() => (onHallToggle ?? live.onHall)(!live.hallOpen)}
           >
             {COPY.hall.title}
           </button>

@@ -78,6 +78,59 @@ describe('verdict', () => {
   })
 })
 
+describe('verdict after the town hall changes rules during the run', () => {
+  // The recording changed both towns' help for people out of work in week 7,
+  // during warm-up; `change` adds one more for a town.
+  const change = (arm, tick, text) => {
+    const at = text.indexOf('=')
+    arm.policyChanges.push({ id: `${tick}:x`, tick, policy: text.slice(0, at), value: text.slice(at + 1) })
+    return arm
+  }
+
+  test('asks about the rules Town B has that Town A does not, at the week shown', () => {
+    const a = fixtureArm(TOWN_A)
+    const b = townB({ out: -5, policy: { minimum_wage_policy: 'high' } })
+    expect(verdict([a, b], 15).endsWith('Would you keep a higher minimum wage?')).toBe(true)
+    // Town A raises its minimum wage too: nothing is left between them.
+    change(a, 13, 'minimum_wage_policy=high')
+    const text = verdict([a, b], 15)
+    expect(text).not.toContain('Would you keep a higher minimum wage?')
+    expect(text).toContain('Town A changed its rules in Year 1, week 13.')
+    expect(text.endsWith('Would you change anything?')).toBe(true)
+    // Before that week the question is the original one, with no clause.
+    expect(verdict([a, b], 12)).not.toContain('changed its rules')
+    expect(verdict([a, b], 12).endsWith('Would you keep a higher minimum wage?')).toBe(true)
+  })
+
+  test('build my own: both towns raise the minimum wage, only Town B adds benefits', () => {
+    const a = fixtureArm(TOWN_A)
+    a.setup = { ...a.setup, initial_policy: { minimum_wage_policy: 'high' } }
+    a.policyChanges = []
+    const b = townB({ policy: { minimum_wage_policy: 'high', benefit_level: 'high' } })
+    b.policyChanges = []
+    const text = verdict([a, b], 20)
+    expect(text.endsWith('Would you keep more help for people out of work?')).toBe(true)
+    expect(text).not.toContain('minimum wage')
+  })
+
+  test('a town that changed rules several times says how often and when last', () => {
+    const a = change(change(fixtureArm(TOWN_A), 13, 'benefit_level=low'), 18, 'public_works=on')
+    const text = verdict([a, townB()], 20)
+    expect(text).toContain('Town A changed its rules twice, most recently in Year 1, week 18.')
+    // Warm-up changes (the recording's week 7) are part of the start, not the run.
+    expect(verdict([fixtureArm(TOWN_A), townB()], 20)).not.toContain('changed its rules')
+  })
+
+  test('three towns: a sentence per town against the first and a general question', () => {
+    const c = fixtureArm({ label: 'Town C', color: '#199E70' })
+    c.series[OUT] = c.series[OUT].map(v => v + 5)
+    const text = verdict([fixtureArm(TOWN_A), townB({ out: -5, policy: { minimum_wage_policy: 'high' } }), c], 20)
+    expect(text.startsWith('So far, Town B has fewer people out of work than Town A.')).toBe(true)
+    expect(text).toContain('Town C has more people out of work than Town A.')
+    expect(text.endsWith("Which town's rules would you keep?")).toBe(true)
+  })
+})
+
 describe('eventSentence', () => {
   const names = { householdName: id => `H${id}`, firmName: firm => `F${firm.id}` }
   const ev = (type, extra = {}) => ({ id: `x:${type}`, tick: 3, type, householdId: null, firmId: null, firmName: null, sector: null, value: null, text: null, ...extra })
@@ -178,6 +231,13 @@ describe('experimentQuestion', () => {
   test('two towns on the same rules, and one town', () => {
     expect(experimentQuestion([fixtureArm(TOWN_A), townB()])).toBe('What happens when two towns keep the same rules?')
     expect(experimentQuestion([fixtureArm(TOWN_A)])).toBe('What happens in Town A?')
+    // Three or four towns: a general question, not Town B's rules alone.
+    const c = fixtureArm({ label: 'Town C', color: '#199E70' })
+    c.setup = { ...c.setup, initial_policy: { benefit_level: 'high' } }
+    expect(experimentQuestion([fixtureArm(TOWN_A), townB({ policy: { minimum_wage_policy: 'high' } }), c]))
+      .toBe('What happens when three towns try different rules?')
+    expect(experimentQuestion([fixtureArm(TOWN_A), townB(), fixtureArm({ label: 'Town C', color: '#199E70' })]))
+      .toBe('What happens when three towns keep the same rules?')
   })
 })
 

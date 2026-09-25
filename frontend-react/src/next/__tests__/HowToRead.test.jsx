@@ -32,10 +32,20 @@ describe('HowToRead', () => {
   })
 
   test('describes the first town from its own rules', () => {
-    const { container, rerender } = render(<HowToRead arms={[town(TOWN_A), town(TOWN_B)]} tick={11} />)
+    const { container, rerender } = render(<HowToRead arms={[town(TOWN_A), town(TOWN_B)]} tick={5} />)
     expect(container).toHaveTextContent('The first town keeps the usual rules.')
-    rerender(<HowToRead arms={[town(TOWN_A, { policy: { minimum_wage_policy: 'high' } }), town(TOWN_B)]} tick={11} />)
+    rerender(<HowToRead arms={[town(TOWN_A, { policy: { minimum_wage_policy: 'high' } }), town(TOWN_B)]} tick={5} />)
     expect(container).toHaveTextContent('The first town runs with a higher minimum wage.')
+  })
+
+  test('names the rules in force at the week shown, and what the towns test is where they differ', () => {
+    // The recording's town hall raised help for people out of work in week 7.
+    const { container } = render(<HowToRead arms={[town(TOWN_A), town(TOWN_B)]} tick={11} />)
+    expect(container).toHaveTextContent('The first town runs with more help for people out of work.')
+    expect(container).toHaveTextContent(
+      "The rules each town has in force are named under its title; where they differ from the first town's, that difference is what the towns are testing.",
+    )
+    expect(container).not.toHaveTextContent('The second changes')
   })
 
   test('adapted for one town', () => {
