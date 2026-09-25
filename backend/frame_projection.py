@@ -1,8 +1,8 @@
 """Curated newcomer-facing metrics and the full firm list for the tick frame.
 
 Everything here is computed fresh from the economy each tick, O(households + firms),
-except Gini and the wealth percentiles, which come from get_economic_metrics()
-and carry the tick they were computed on.
+except Gini, the wealth percentiles and the top-tenth and bottom-half wealth shares,
+which come from get_economic_metrics() and carry the tick they were computed on.
 """
 
 from __future__ import annotations
@@ -59,6 +59,11 @@ def _num(value: Any) -> Optional[float]:
         return None
 
 
+def _percent(value: Any) -> Optional[float]:
+    share = _num(value)
+    return 100.0 * share if share is not None else None
+
+
 def build_curated_metrics(*, economy: Any, econ_metrics: Dict[str, Any], tick: int, wealth_as_of_tick: int) -> Dict[str, Any]:
     households = list(getattr(economy, "households", []) or [])
     firms = list(getattr(economy, "firms", []) or [])
@@ -71,6 +76,13 @@ def build_curated_metrics(*, economy: Any, econ_metrics: Dict[str, Any], tick: i
     payment = econ_metrics.get("payment") if isinstance(econ_metrics.get("payment"), dict) else None
     defaults_total = payment["loans"].get("defaults_total") if payment and isinstance(payment.get("loans"), dict) else None
     health = getattr(economy, "last_health_diagnostics", None) or {}
+    happiness = [float(h.happiness) for h in households if getattr(h, "happiness", None) is not None]
+    # Every firm's goods, services and care-visit sales this tick: the dollars behind metrics.gdp.
+    # Rent paid to housing firms never enters this dict, so the sum leaves it out.
+    firm_sales = getattr(economy, "last_tick_revenue", None)
+    # Direct payments to households: benefits and top-ups, plus the decaying stimulus after warm-up.
+    transfers = _num(getattr(economy, "last_tick_gov_transfers", None))
+    stimulus = _num(getattr(economy, "last_tick_gov_post_warmup_stimulus", None)) or 0.0
 
     curated: Dict[str, Any] = {
         "householdsTotal": len(households),
@@ -94,6 +106,12 @@ def build_curated_metrics(*, economy: Any, econ_metrics: Dict[str, Any], tick: i
         "bankDefaultsTotal": int(defaults_total) if defaults_total is not None else None,
         "publicWorksJobs": sum(len(getattr(f, "employees", []) or []) for f in firms
                                if str(getattr(f, "good_category", "")).lower() == "publicworks"),
+        "happiness": (100.0 * sum(happiness) / len(happiness)) if happiness else None,
+        "salesExceptRentThisWeek": float(sum(firm_sales.values())) if isinstance(firm_sales, dict) else None,
+        "townHallIncome": _num(getattr(economy.government, "last_tick_revenue", None)),
+        "familySupportPaid": (transfers + stimulus) if transfers is not None else None,
+        "topTenthShare": _percent(econ_metrics.get("top_10_percent_share")),
+        "bottomHalfShare": _percent(econ_metrics.get("bottom_50_percent_share")),
     }
     for sector, price in sector_mean_prices(economy).items():
         curated[SECTOR_KEYS[sector]] = price

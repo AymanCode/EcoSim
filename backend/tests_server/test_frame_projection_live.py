@@ -1,6 +1,7 @@
 import sys
 from pathlib import Path
 
+import pytest
 from fastapi.testclient import TestClient
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -73,3 +74,27 @@ def test_curated_bank_defaults_are_fresh_each_tick_while_wealth_is_stride_cached
     assert [f["curated"]["wealthAsOfTick"] for f in frames] == [1, 1, 1, 1, 5, 5]
     assert len({f["curated"]["gini"] for f in frames[:4]}) == 1
     assert all(isinstance(f["curated"]["careDenials"], float) for f in frames)  # step() always reports it
+
+
+def test_new_curated_money_figures_agree_with_the_frame_metrics_every_tick(monkeypatch):
+    client, _ = _client(monkeypatch)
+    with client.websocket_connect("/ws") as ws:
+        until(ws, lambda m: m.get("type") == "SESSION")
+        assert setup(ws, {**SMALL, "horizon_ticks": 14}).get("type") == "SETUP_COMPLETE"
+        ws.send_json({"command": "START"})
+        frames = _frames_until_horizon(ws)
+    assert [f["tick"] for f in frames] == list(range(1, 15))
+    for frame in frames:
+        curated, metrics = frame["curated"], frame["metrics"]
+        assert curated["salesExceptRentThisWeek"] == pytest.approx(metrics["gdp"] * 1e6)
+        assert curated["townHallIncome"] == pytest.approx(metrics["govRevenue"] * 1e6)
+        assert curated["familySupportPaid"] >= metrics["govTransfers"] * 1e6 - 1e-6
+        assert 0.0 <= curated["happiness"] <= 100.0
+    # The stimulus paid to every household after warm-up is support that metrics.govTransfers leaves out.
+    assert any(f["curated"]["familySupportPaid"] > f["metrics"]["govTransfers"] * 1e6 + 1.0 for f in frames)
+    # The wealth shares change only when they are counted, and wealthAsOfTick says when.
+    shares_by_count = {}
+    for f in frames:
+        shares_by_count.setdefault(f["curated"]["wealthAsOfTick"], set()).add(
+            (f["curated"]["topTenthShare"], f["curated"]["bottomHalfShare"]))
+    assert sorted(shares_by_count) == [1, 5, 10] and all(len(v) == 1 for v in shares_by_count.values())

@@ -101,10 +101,25 @@ All keys of the previous frame are unchanged (the `lean` profile omits the ones 
   - `bankDefaultsTotal`: defaulted loan claims so far, a count, the same value as
     `metrics.payment.loans.defaults_total`; `null` under the legacy payment sequence.
   - `publicWorksJobs`: workers employed by public-works firms, a count.
+  - `happiness`: mean household happiness this tick, from 0 to 100; `null` when there are no households.
+    Unlike the stride-cached `metrics.happiness`, it is computed every tick.
+  - `salesExceptRentThisWeek`: what the operating firms sold this tick (food and services on the goods market
+    plus healthcare visits at their full price), currency. Rent paid to housing firms is not counted. The
+    same total as `metrics.gdp`, in currency instead of millions.
+  - `townHallIncome`: taxes the government collected this tick (wage, profit including the price-ceiling
+    levy, property and investment taxes), currency; the same value as `metrics.govRevenue`, in currency.
+    Loan repayments to the government and the levy on miscellaneous-firm receipts are not included.
+  - `familySupportPaid`: cash the government paid directly to households this tick, currency: unemployment
+    benefits and top-ups for out-of-work households short of cash (`metrics.govTransfers`, in currency), plus
+    the per-household stimulus paid for six ticks after warm-up. Subsidies, bailouts and spending on programs
+    are not included.
   - `gini`, `wealthP10`, `wealthP50`, `wealthP90`: Gini coefficient of household cash and its 10th, 50th and
     90th percentiles (currency). Stride-cached: recomputed every 5 ticks, on the first tick after SETUP and
     on LLM-decision ticks; `wealthAsOfTick` is the tick they were computed on. `null` when the economy has
     no households.
+  - `topTenthShare`, `bottomHalfShare`: percent of all household cash held by the richest tenth and by the
+    poorer half of households. Stride-cached with `gini` (same `wealthAsOfTick`). `null` when
+    the cached metrics lack them; `0.0` when total household cash is zero or less.
 - `firms`: every operating firm, richest first (`cash` descending), every tick. Each is `{"id", "name",
   "sector", "cash", "staff", "price", "lastRevenue", "lastProfit", "state", "isBaseline"}`: `name` is the
   firm's good name, `cash` and this tick's `lastRevenue`/`lastProfit` are currency, `staff` is the employee

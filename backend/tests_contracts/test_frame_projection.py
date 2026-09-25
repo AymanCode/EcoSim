@@ -11,8 +11,9 @@ def _firm(firm_id, name, *, cash=100.0, employees=2, hires=0, burn=False, surviv
                            last_profit=1.0, zero_cash_streak=0)
 
 
-def _household(hid, *, employer=None, wage=0.0, can_work=True, food_spend=0.0):
-    return SimpleNamespace(household_id=hid, employer_id=employer, wage=wage, can_work=can_work, last_food_spend=food_spend)
+def _household(hid, *, employer=None, wage=0.0, can_work=True, food_spend=0.0, happiness=0.5):
+    return SimpleNamespace(household_id=hid, employer_id=employer, wage=wage, can_work=can_work, last_food_spend=food_spend,
+                           happiness=happiness)
 
 
 def _economy(households, firms, bank=None):
@@ -89,3 +90,59 @@ def test_food_spend_metrics_exist_and_agree_with_household_receipts(tiny_economy
     total = sum(float(getattr(h, "last_food_spend", 0.0)) for h in economy.households)
     assert abs(econ["household_food_spend_total"] - total) < 1e-6
     assert abs(econ["household_food_spend_mean"] - total / len(economy.households)) < 1e-6
+
+
+NEW_KEYS = ("happiness", "salesExceptRentThisWeek", "townHallIncome", "familySupportPaid", "topTenthShare", "bottomHalfShare")
+
+
+def test_new_curated_numbers_equal_their_sources():
+    households = [_household(1, happiness=0.2), _household(2, happiness=0.5), _household(3, happiness=0.8),
+                  _household(4, happiness=0.9)]
+    economy = _economy(households, [])
+    economy.government.last_tick_revenue = 812.25
+    economy.last_tick_revenue = {1: 100.0, 2: 250.5, 3: 0.0}
+    economy.last_tick_gov_transfers = 300.0
+    economy.last_tick_gov_post_warmup_stimulus = 40.0
+    econ = {"top_10_percent_share": 0.42, "bottom_50_percent_share": 0.11}
+    curated = build_curated_metrics(economy=economy, econ_metrics=econ, tick=12, wealth_as_of_tick=10)
+    assert all(isinstance(curated[key], float) for key in NEW_KEYS)
+    assert abs(curated["happiness"] - 60.0) < 1e-9  # mean of 0.2, 0.5, 0.8, 0.9, times 100
+    assert curated["salesExceptRentThisWeek"] == 350.5  # sum of every firm's sales this tick (metrics.gdp in dollars)
+    assert curated["townHallIncome"] == 812.25
+    assert curated["familySupportPaid"] == 340.0  # benefits and top-ups plus the post-warm-up stimulus
+    assert abs(curated["topTenthShare"] - 42.0) < 1e-9 and abs(curated["bottomHalfShare"] - 11.0) < 1e-9
+    assert curated["wealthAsOfTick"] == 10
+
+
+def test_wealth_shares_are_null_without_a_count_and_a_counted_zero_stays_zero():
+    economy = _economy([_household(1)], [])
+    curated = build_curated_metrics(economy=economy, econ_metrics={}, tick=3, wealth_as_of_tick=1)
+    assert curated["topTenthShare"] is None and curated["bottomHalfShare"] is None
+    econ = {"top_10_percent_share": 0.0, "bottom_50_percent_share": None}
+    curated = build_curated_metrics(economy=economy, econ_metrics=econ, tick=3, wealth_as_of_tick=1)
+    assert curated["topTenthShare"] == 0.0 and curated["bottomHalfShare"] is None
+
+
+def test_new_curated_numbers_are_null_when_their_source_is_absent():
+    curated = build_curated_metrics(economy=_economy([], []), econ_metrics={}, tick=1, wealth_as_of_tick=1)
+    assert all(curated[key] is None for key in NEW_KEYS)
+    economy = _economy([_household(1, happiness=0.25)], [])
+    economy.last_tick_gov_transfers = 12.0  # an economy without the stimulus field still reports benefits
+    curated = build_curated_metrics(economy=economy, econ_metrics={}, tick=1, wealth_as_of_tick=1)
+    assert curated["happiness"] == 25.0 and curated["familySupportPaid"] == 12.0
+
+
+def test_new_curated_numbers_match_a_stepped_economy(tiny_economy_factory):
+    economy = tiny_economy_factory(num_households=30, num_firms_per_category=1)
+    for _ in range(3):
+        economy.step()
+    econ = economy.get_economic_metrics()
+    curated = build_curated_metrics(economy=economy, econ_metrics=econ, tick=3, wealth_as_of_tick=3)
+    assert all(isinstance(curated[key], float) for key in NEW_KEYS)
+    mean_happiness = sum(h.happiness for h in economy.households) / len(economy.households)
+    assert abs(curated["happiness"] - 100.0 * mean_happiness) < 1e-9
+    assert abs(curated["salesExceptRentThisWeek"] - sum(economy.last_tick_revenue.values())) < 1e-9
+    assert curated["townHallIncome"] == economy.government.last_tick_revenue
+    assert curated["familySupportPaid"] == economy.last_tick_gov_transfers + economy.last_tick_gov_post_warmup_stimulus
+    assert abs(curated["topTenthShare"] - 100.0 * econ["top_10_percent_share"]) < 1e-9
+    assert abs(curated["bottomHalfShare"] - 100.0 * econ["bottom_50_percent_share"]) < 1e-9
