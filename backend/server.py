@@ -150,6 +150,7 @@ class SetupConfig(BaseModel):
     arm_count: int = Field(default=1, ge=1, le=4)
     experiment_owner: Optional[str] = Field(default=None, min_length=1, max_length=64)
     initial_policy: Dict[str, Any] = Field(default_factory=dict)
+    horizon_ticks: int = Field(default=260, ge=1, le=5_200)
     payment_sequence: Literal["legacy", "income_first", "income_late"] = "legacy"
     payment_care_mode: Literal["patient_pay", "covered"] = "patient_pay"
     payment_assistance: Literal["reserve", "care", "rent", "mixed"] = "reserve"
@@ -414,6 +415,9 @@ class SimulationManager:
         self.experiment_id: Optional[str] = None
         self.arm_label: Optional[str] = None
         self.arm_count: int = 1
+        self.horizon_tick: Optional[int] = None
+        self.horizon_notified: bool = False
+        self.run_finalized: bool = False
         self.metrics_stride = 5
         self.policy_changes = []
         self.cached_stats = None
@@ -517,6 +521,39 @@ class SimulationManager:
         self.is_running = False
         if cancel and self.run_task is not None and not self.run_task.done():
             self.run_task.cancel()
+
+    async def wait_loop_stopped(self, timeout: float = 5.0) -> bool:
+        """Wait for a stopping tick loop to exit; return whether it has finished.
+
+        The task is shielded so a timeout leaves it to exit at its next ``is_running``
+        check instead of cancelling it mid-iteration.
+        """
+        task = self.run_task
+        if task is None or task.done():
+            return True
+        try:
+            await asyncio.wait_for(asyncio.shield(task), timeout)
+        except asyncio.TimeoutError:
+            logger.warning("Tick loop did not stop within %.1fs session=%s", timeout, self.session_id)
+        except asyncio.CancelledError:
+            # The loop task's own cancellation is expected; a cancellation aimed at the caller is not swallowed.
+            current = asyncio.current_task()
+            if current is not None and current.cancelling():
+                raise
+        return task.done()
+
+    async def halt_background_loop(self) -> bool:
+        """Stop the tick loop and wait for it to exit, cancelling it if the wait times out.
+
+        Returns ``False`` only when the loop task is still alive after the cancel, in which
+        case FINISH and STOP must fail rather than drain, flush or finalize behind it.
+        """
+        self.stop_background_loop()
+        if await self.wait_loop_stopped():
+            return True
+        logger.warning("Cancelling a tick loop that did not stop in time session=%s", self.session_id)
+        self.stop_background_loop(cancel=True)
+        return await self.wait_loop_stopped()
 
     @staticmethod
     def _infer_sector_from_good(good_name: str) -> str:
@@ -1844,6 +1881,8 @@ class SimulationManager:
             or self.warehouse_run_id is None
         ):
             return
+        if self.run_finalized and status == "stopped":
+            status = "completed"  # FINISH already happened; a later disconnect must not downgrade the run
 
         flush_ok = self._flush_warehouse_batches()
         effective_status = status if flush_ok else "failed"
@@ -1880,6 +1919,84 @@ class SimulationManager:
             self.last_fully_persisted_tick = 0
             self._previous_unemployment_rate = 0.0
             self._previous_avg_health = 0.0
+
+    def _finalize_warehouse_run(self) -> bool:
+        """Mark the active run completed and analysis-ready, keeping warehouse_run_id for EXTEND."""
+        if not self.enable_warehouse or self.warehouse_manager is None or self.warehouse_run_id is None:
+            return False
+        flush_ok = self._flush_warehouse_batches()
+        try:
+            self.warehouse_manager.update_run_status(
+                self.warehouse_run_id,
+                status="completed" if flush_ok else "failed",
+                total_ticks=self.tick,
+                final_metrics=self._collect_final_metrics(),
+                last_fully_persisted_tick=self.last_fully_persisted_tick,
+                analysis_ready=bool(flush_ok),
+                termination_reason="completed" if flush_ok else "warehouse_flush_failed",
+            )
+        except Exception as exc:
+            logger.error("Failed to finalize warehouse run %s: %s", self.warehouse_run_id, exc)
+            return False
+        self.run_finalized = bool(flush_ok)
+        return bool(flush_ok)
+
+    def _reopen_warehouse_run(self) -> bool:
+        """Return a finalized run to running before the loop resumes; False if it stays finished."""
+        if not self.run_finalized:
+            return True
+        if self.warehouse_manager is None or self.warehouse_run_id is None:
+            self.run_finalized = False
+            return True
+        reopen_run = getattr(self.warehouse_manager, "reopen_run", None)
+        if reopen_run is None:
+            logger.error("Warehouse backend %s cannot reopen runs", type(self.warehouse_manager).__name__)
+            return False
+        try:
+            reopen_run(self.warehouse_run_id)
+        except Exception as exc:
+            logger.error("Failed to reopen warehouse run %s: %s", self.warehouse_run_id, exc)
+            return False
+        self.run_finalized = False
+        return True
+
+    async def finish(self) -> tuple[List[Dict[str, Any]], Dict[str, Any]]:
+        """Stop the loop, apply queued CONFIG, finalize the warehouse run, keep the session alive for reading.
+
+        Returns the drained CONFIG_APPLIED receipts (to send first) and the FINISHED message.
+        Raises ``RuntimeError`` without draining or finalizing if the loop cannot be stopped.
+        """
+        if not self.economy:
+            raise ValueError("no active simulation; send SETUP first")
+        if not await self.halt_background_loop():
+            raise RuntimeError("simulation loop did not stop within the timeout")
+        receipts = await self.drain_pending_config_updates()
+        analysis_ready = self._finalize_warehouse_run()
+        finished = {
+            "type": "FINISHED",
+            "tick": self.tick,
+            "analysisReady": analysis_ready,
+            "runId": self.warehouse_run_id,
+            "drained": len(receipts),
+        }
+        return receipts, finished
+
+    def extend(self, ticks: int) -> Dict[str, Any]:
+        """Raise the horizon by *ticks*, reopen a finalized run, and resume the loop."""
+        if not self.economy:
+            raise ValueError("no active simulation; send SETUP first")
+        if isinstance(ticks, bool) or not isinstance(ticks, int) or ticks < 1 or ticks > 5_200:
+            raise ValueError("EXTEND ticks must be between 1 and 5200")
+        if not self._reopen_warehouse_run():
+            raise ValueError("could not reopen the finished warehouse run")
+        base = self.horizon_tick if self.horizon_tick is not None else self.tick
+        self.horizon_tick = base + ticks
+        self.horizon_notified = False
+        resumed = False
+        if self.active_websocket is not None:
+            self.start_background_loop()
+            resumed = True
+        return {"type": "EXTENDED", "horizonTick": self.horizon_tick, "tick": self.tick, "resumed": resumed}
 
     def initialize(self, config: Dict[str, Any] = None):
         """Initialize this session under its owned config and RNG context."""
@@ -1956,6 +2073,9 @@ class SimulationManager:
             setattr(self.config, payment_field, getattr(validated, payment_field))
         self.setup_config = validated.model_dump()
         self.setup_config["seed"] = seed
+        self.horizon_tick = int(validated.horizon_ticks)
+        self.horizon_notified = False
+        self.run_finalized = False
         self.setup_config["experiment"] = (
             {
                 "id": validated.experiment_id,
@@ -2201,6 +2321,13 @@ class SimulationManager:
                 await self._ensure_llm_government()
             history_stride = 25
             while self.is_running and self.active_websocket:
+                if self.horizon_tick is not None and self.tick >= self.horizon_tick:
+                    self.is_running = False
+                    if not self.horizon_notified:
+                        self.horizon_notified = True
+                        await self.active_websocket.send_json({"type": "HORIZON_REACHED", "tick": self.tick})
+                    # Re-test the loop condition: an EXTEND that arrived during the send resumes the loop.
+                    continue
                 start_time = asyncio.get_event_loop().time()
 
                 self._collect_llm_task_result()
@@ -2210,6 +2337,9 @@ class SimulationManager:
                 for receipt in await self.drain_pending_config_updates():
                     if self.active_websocket:
                         await self.active_websocket.send_json(receipt)
+                # STOP or FINISH handled during a receipt send ends the run here, before another tick.
+                if not self.is_running:
+                    break
 
                 # Run one step
                 policy_before = self._snapshot_government_policy()
@@ -2864,50 +2994,51 @@ class SimulationManager:
         if not self.economy or not config_data:
             return receipt
 
-        if "enableLlmGovernment" in config_data:
-            enabled = bool(config_data["enableLlmGovernment"])
-            self.config.llm.enable_llm_government = enabled
-            if not enabled:
-                if self.llm_task is not None and not self.llm_task.done():
-                    self.llm_task.cancel()
-                self.pending_llm_decision = None
-                self.llm_status = "disabled"
-                self.economy.llm_government = None
-            else:
-                self.llm_status = "ready"
-
-        if "universalBasicIncome" in config_data:
-            self.economy.government.ubi_amount = config_data["universalBasicIncome"]
-
-        if "wealthTaxThreshold" in config_data:
-            self.economy.government.wealth_tax_threshold = config_data["wealthTaxThreshold"]
-        if "wealthTaxRate" in config_data:
-            self.economy.government.wealth_tax_rate = config_data["wealthTaxRate"]
-
-        if "inflationRate" in config_data:
-            self.economy.government.target_inflation_rate = config_data["inflationRate"]
-        if "birthRate" in config_data:
-            self.economy.government.birth_rate = config_data["birthRate"]
-
-        lever_updates = self._normalize_runtime_policy_updates(config_data)
-        receipt["requested"] = dict(lever_updates)
         applied_levers: Dict[str, Any] = {}
-        # A bad value rejects only its own lever; a group-rule breach rejects the whole lever batch.
-        for lever, value in list(lever_updates.items()):
-            try:
-                validate_lever_value(lever, value)
-            except PolicyVectorError as exc:
-                receipt["rejected"][lever] = str(exc)
-                del lever_updates[lever]
-        if lever_updates:
-            current = {k: v for k, v in normalize_current_policy(self._snapshot_government_levers()).items() if k in VALID_LEVERS}
-            try:
-                validate_policy_vector({**current, **lever_updates})
-            except PolicyVectorError as exc:
-                receipt["rejected"]["_group"] = str(exc)
-                lever_updates = {}
-        # Government and firm mutation runs synchronously under this session's config and RNG; no await here.
+        # Every economy mutation below (legacy fields and canonical levers) runs synchronously
+        # under this session's config and RNG; there is no await inside this block.
         with use_config(self.config), self._random_scope():
+            if "enableLlmGovernment" in config_data:
+                enabled = bool(config_data["enableLlmGovernment"])
+                self.config.llm.enable_llm_government = enabled
+                if not enabled:
+                    if self.llm_task is not None and not self.llm_task.done():
+                        self.llm_task.cancel()
+                    self.pending_llm_decision = None
+                    self.llm_status = "disabled"
+                    self.economy.llm_government = None
+                else:
+                    self.llm_status = "ready"
+
+            if "universalBasicIncome" in config_data:
+                self.economy.government.ubi_amount = config_data["universalBasicIncome"]
+
+            if "wealthTaxThreshold" in config_data:
+                self.economy.government.wealth_tax_threshold = config_data["wealthTaxThreshold"]
+            if "wealthTaxRate" in config_data:
+                self.economy.government.wealth_tax_rate = config_data["wealthTaxRate"]
+
+            if "inflationRate" in config_data:
+                self.economy.government.target_inflation_rate = config_data["inflationRate"]
+            if "birthRate" in config_data:
+                self.economy.government.birth_rate = config_data["birthRate"]
+
+            lever_updates = self._normalize_runtime_policy_updates(config_data)
+            receipt["requested"] = dict(lever_updates)
+            # A bad value rejects only its own lever; a group-rule breach rejects the whole lever batch.
+            for lever, value in list(lever_updates.items()):
+                try:
+                    validate_lever_value(lever, value)
+                except PolicyVectorError as exc:
+                    receipt["rejected"][lever] = str(exc)
+                    del lever_updates[lever]
+            if lever_updates:
+                current = {k: v for k, v in normalize_current_policy(self._snapshot_government_levers()).items() if k in VALID_LEVERS}
+                try:
+                    validate_policy_vector({**current, **lever_updates})
+                except PolicyVectorError as exc:
+                    receipt["rejected"]["_group"] = str(exc)
+                    lever_updates = {}
             for lever, value in lever_updates.items():
                 try:
                     self.economy.government.set_lever(lever, value)
@@ -3346,7 +3477,7 @@ async def websocket_endpoint(websocket: WebSocket):
     logger.info("WebSocket connected session=%s", session_id)
     await websocket.send_json({"type": "SESSION", "sessionId": session_id})
     
-    VALID_COMMANDS = {"SETUP", "START", "STOP", "RESET", "CONFIG", "STABILIZERS"}
+    VALID_COMMANDS = {"SETUP", "START", "STOP", "RESET", "CONFIG", "STABILIZERS", "FINISH", "EXTEND"}
 
     try:
         while True:
@@ -3387,10 +3518,17 @@ async def websocket_endpoint(websocket: WebSocket):
                          await websocket.send_json({"error": f"START failed: {e}"})
                          continue
 
+                if session_manager.run_finalized and not session_manager._reopen_warehouse_run():
+                    await websocket.send_json({"error": "START failed: could not reopen the finished warehouse run"})
+                    continue
+                if session_manager.horizon_tick is not None and session_manager.tick >= session_manager.horizon_tick:
+                    session_manager.horizon_notified = False  # START at the horizon answers with HORIZON_REACHED again
                 session_manager.start_background_loop()
                 await websocket.send_json({"type": "STARTED"})
             elif command == "STOP":
-                session_manager.stop_background_loop()
+                if not await session_manager.halt_background_loop():
+                    await websocket.send_json({"error": "STOP failed: simulation loop did not stop within the timeout"})
+                    continue
                 # Queued actions apply now, in order, so a later paused CONFIG cannot be overwritten on START.
                 for receipt in await session_manager.drain_pending_config_updates():
                     await websocket.send_json(receipt)
@@ -3399,6 +3537,8 @@ async def websocket_endpoint(websocket: WebSocket):
             elif command == "RESET":
                 session_manager.stop_background_loop(cancel=True)
                 session_manager._close_warehouse_run("stopped")
+                session_manager.horizon_notified = False
+                session_manager.run_finalized = False  # the close above already ended the finished run
                 dropped = len(session_manager.pending_config_updates)
                 session_manager.pending_config_updates = []
                 if dropped:
@@ -3420,6 +3560,21 @@ async def websocket_endpoint(websocket: WebSocket):
                     "type": "STABILIZERS_UPDATED",
                     "state": session_manager.stabilizer_state
                 })
+            elif command == "FINISH":
+                try:
+                    receipts, finished = await session_manager.finish()
+                except (ValueError, RuntimeError) as exc:
+                    await websocket.send_json({"error": f"FINISH failed: {exc}"})
+                else:
+                    # Queued CONFIG applied by FINISH is reported before FINISHED, as STOP does before STOPPED.
+                    for receipt in receipts:
+                        await websocket.send_json(receipt)
+                    await websocket.send_json(finished)
+            elif command == "EXTEND":
+                try:
+                    await websocket.send_json(session_manager.extend(data.get("ticks", 52)))
+                except (TypeError, ValueError) as exc:
+                    await websocket.send_json({"error": f"EXTEND failed: {exc}"})
 
     except WebSocketDisconnect:
         session_manager.stop_background_loop(cancel=True)

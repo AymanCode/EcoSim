@@ -226,6 +226,22 @@ class PostgresDatabaseManager:
                 )
         self.conn.commit()
 
+    def reopen_run(self, run_id: str) -> None:
+        """Return a finished run to running so an extended session keeps writing to it."""
+        with self.conn.cursor() as cur:
+            cur.execute(
+                """
+                UPDATE simulation_runs
+                SET status = 'running',
+                    ended_at = NULL,
+                    termination_reason = NULL,
+                    analysis_ready = FALSE
+                WHERE run_id = %s
+                """,
+                (run_id,),
+            )
+        self.conn.commit()
+
     def _update_run_flush_metadata(self, cursor, run_id: str, last_fully_persisted_tick: int):
         """Advance the persisted watermark for a run inside an active transaction."""
         cursor.execute(
