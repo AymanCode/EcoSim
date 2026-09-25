@@ -82,6 +82,12 @@ data/
 !backend/data/migrations/
 !backend/data/migrations/*.py
 
+# Keep generated OpenWiki sections publishable despite broad sandbox rules.
+!openwiki/frontend/
+!openwiki/frontend/*.md
+!openwiki/data/
+!openwiki/data/*.md
+
 # Local agent / IDE settings
 .claude/
 .agents/
@@ -109,3 +115,6 @@ benchmarks/results/_logs/
 .codex_*.txt
 .codex_*.md
 .coverage
+
+# Brainstorm companion mockups
+.superpowers/
