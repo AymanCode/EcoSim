@@ -58,6 +58,20 @@ describe('StoryChart', () => {
     expect(container.querySelectorAll('.nx-marker')).toHaveLength(0)
   })
 
+  test('one town hall change of several levers in one week is one marker with one phrase', () => {
+    const [a, b] = arms()
+    b.policyChanges = [
+      { id: 'o1', tick: 15, policy: 'bailout_policy', value: 'off' },
+      { id: 'o2', tick: 15, policy: 'bailout_target', value: 'none' },
+      { id: 'o3', tick: 15, policy: 'bailout_budget', value: '0' },
+    ]
+    const { container } = render(<StoryChart arms={[a, b]} metricKey={OUT} tick={24} horizon={24} onMetricChange={() => {}} />)
+    const markers = [...container.querySelectorAll('.nx-marker')].filter(marker => marker.textContent.startsWith('Town B'))
+    expect(markers).toHaveLength(1)
+    expect(markers[0]).toHaveTextContent('Town B switched tono bailouts')
+    expect(container.querySelector('.nx-marker').textContent).not.toMatch(/bailout target|bailout budget/)
+  })
+
   test('end labels show each town\'s value and never overlap', () => {
     const { container } = draw({ tick: 11 })
     const labels = [...container.querySelectorAll('.nx-endl')]

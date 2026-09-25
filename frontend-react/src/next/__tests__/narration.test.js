@@ -243,8 +243,16 @@ describe('experimentQuestion', () => {
 
 describe('policyMarkerLabel', () => {
   test('names the town and the new rule in two short lines', () => {
-    expect(policyMarkerLabel(fixtureArm(TOWN_B), { tick: 7, policy: 'benefit_level', value: 'high' }))
+    expect(policyMarkerLabel(fixtureArm(TOWN_B), [{ tick: 7, policy: 'benefit_level', value: 'high' }]))
       .toEqual(['Town B switched to', 'more help for people out of work'])
+  })
+
+  test('reads the levers one change moved in a week as one rule', () => {
+    const changes = [
+      { tick: 30, policy: 'bailout_policy', value: 'all' },
+      { tick: 30, policy: 'bailout_target', value: 'none' },
+    ]
+    expect(policyMarkerLabel(fixtureArm(TOWN_B), changes)).toEqual(['Town B switched to', 'bailouts for any business'])
   })
 })
 

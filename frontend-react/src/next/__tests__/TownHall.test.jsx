@@ -94,6 +94,26 @@ describe('TownHall', () => {
     expect(onConfigure).toHaveBeenLastCalledWith(1, { sector_subsidy_target: 'none', sector_subsidy_level: 0 })
   })
 
+  test('switching one-sector bailouts to any business sends the choice and a cleared sector, and the receipt reads as one rule', () => {
+    const arms = towns()
+    arms[1].policy = { ...DEFAULT_POLICY, bailout_policy: 'sector', bailout_target: 'food', bailout_budget: 25000 }
+    const onConfigure = vi.fn((index, levers) => addPendingConfig(arms[index], levers))
+    const { aside, rerender } = hall(arms, { onConfigure })
+    fireEvent.click(within(aside).getByRole('button', { name: 'Town B' }))
+    pick(aside, 'Bailouts', 'any business')
+    expect(within(aside).queryByRole('group', { name: /^The bailout target/ })).toBeNull()
+    expect(apply(aside)).toBeEnabled()
+    fireEvent.click(apply(aside))
+    expect(onConfigure).toHaveBeenCalledTimes(1)
+    expect(onConfigure).toHaveBeenCalledWith(1, { bailout_policy: 'all', bailout_target: 'none' })
+    ingest(arms[1], {
+      type: 'CONFIG_APPLIED', actionId: 'b1', requested: { bailout_policy: 'all', bailout_target: 'none' },
+      applied: { bailout_policy: 'all', bailout_target: 'none' }, rejected: {}, effectiveTick: 21,
+    })
+    rerender(<TownHall arms={[...arms]} tick={20} onConfigure={onConfigure} onClose={() => {}} />)
+    expect(within(aside).getAllByRole('listitem')[0]).toHaveTextContent(/: Bailouts for any business\.$/)
+  })
+
   test('a change that failed shows the rules in force again', () => {
     const arms = towns()
     const onConfigure = vi.fn((index, levers) => addPendingConfig(arms[index], levers))

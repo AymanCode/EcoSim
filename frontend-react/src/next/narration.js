@@ -400,9 +400,21 @@ function changesPhrase(changes) {
   return describePolicy(Object.fromEntries(changes.map(change => [change.policy, change.value])))
 }
 
-// A policy marker's label on the story chart, as short lines.
-export function policyMarkerLabel(arm, change) {
-  return [`${arm?.label ?? 'The town'} switched to`, changesPhrase([change])]
+// A town's policy change records that pass `keep`, grouped by the week they
+// took effect, as [week, changes] in order: one town hall change can move
+// several levers in one week, and it reads as one change.
+export function policyChangesByWeek(arm, keep = () => true) {
+  const byWeek = new Map()
+  for (const change of arm?.policyChanges ?? []) {
+    if (keep(change)) byWeek.set(change.tick, [...(byWeek.get(change.tick) ?? []), change])
+  }
+  return [...byWeek]
+}
+
+// A policy marker's label on the story chart, as short lines, for the
+// changes of one week.
+export function policyMarkerLabel(arm, changes) {
+  return [`${arm?.label ?? 'The town'} switched to`, changesPhrase(changes)]
 }
 
 // Moments: something notable in a town lately, as one line each. Only the
@@ -420,12 +432,9 @@ const moment = (kind, arm, tick, text) => ({ id: `${kind}:${arm.label}:${tick}`,
 
 // One moment per week the town hall changed rules in the last six weeks.
 function ruleMoments(arm, tick) {
-  const byWeek = new Map()
-  for (const change of arm.policyChanges ?? []) {
-    if (inWarmUp(change.tick) || change.tick > tick || change.tick <= tick - RULE_WEEKS) continue
-    byWeek.set(change.tick, [...(byWeek.get(change.tick) ?? []), change])
-  }
-  return [...byWeek].map(([week, changes]) => moment('rule', arm, week, COPY.moments.rule(arm.label, changesPhrase(changes))))
+  const recent = change => !inWarmUp(change.tick) && change.tick <= tick && change.tick > tick - RULE_WEEKS
+  return policyChangesByWeek(arm, recent)
+    .map(([week, changes]) => moment('rule', arm, week, COPY.moments.rule(arm.label, changesPhrase(changes))))
 }
 
 // The recorded weeks to compare at `tick`: the week in force four weeks

@@ -778,7 +778,10 @@ def test_contract_all_bailout_with_a_sector_target_is_normalised_to_none():
         "bailout_budget": 10000,
     }
 
-    # The older cross-lever helper states the same rule.
+    # The live path above (_validate_group_invariants) is what enforces the rule. The older helper
+    # below is unreachable (_validate_decisions returns before calling it), never requires a budget for
+    # sector or all, and drops an `off` change instead of fixing it; this half only pins its `all`
+    # branch until a separate cleanup removes the helper.
     current = {"bailout_policy": "sector", "bailout_target": "food", "bailout_budget": 5000}
     expected = {"bailout_policy": "all", "bailout_target": "none", "bailout_budget": 10000}
     for proposal in (

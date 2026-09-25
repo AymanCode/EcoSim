@@ -2,7 +2,7 @@ import { useId } from 'react'
 import useMeasured from '../../charts/useMeasured.js'
 import { COPY, METRICS, STORY_METRICS, WARMUP_TICKS, formatMetric, formatMetricShort, townTextColor } from '../catalog.js'
 import { seriesUpTo, valueAt } from '../data/derive.js'
-import { policyMarkerLabel, startNote, weekLabel } from '../narration.js'
+import { policyChangesByWeek, policyMarkerLabel, startNote, weekLabel } from '../narration.js'
 import '../next.css'
 
 // Port of the mockup's storyChart: one number for every town from week 0 to
@@ -256,13 +256,13 @@ export default function StoryChart({ arms, metricKey, tick, horizon, onMetricCha
     }
   }
 
-  // Policy markers, each label in the first free slot beside its line.
+  // Policy markers, one per town per week of change, each label in the first
+  // free slot beside its line.
   const markers = []
   arms.forEach(arm => {
-    for (const change of arm.policyChanges ?? []) {
-      if (change.tick > tick || change.tick > end) continue
-      const at = x(change.tick)
-      const lines = policyMarkerLabel(arm, change)
+    for (const [week, changes] of policyChangesByWeek(arm, change => change.tick <= tick && change.tick <= end)) {
+      const at = x(week)
+      const lines = policyMarkerLabel(arm, changes)
       const w = Math.max(...lines.map((line, i) => textWidth(line, 12.5, i === 0))) + 4
       const h = lines.length * LINE_H + 2
       const candidates = []
@@ -273,7 +273,7 @@ export default function StoryChart({ arms, metricKey, tick, horizon, onMetricCha
       const fits = candidates.filter(box => box.x >= padL - 4 && box.x + box.w <= W)
       const spot = place(fits, taken)
       if (spot) taken.push(spot)
-      markers.push({ key: `${arm.label}:${change.id ?? `${change.tick}:${change.policy}`}`, arm, at, lines, spot })
+      markers.push({ key: `${arm.label}:${week}`, arm, at, lines, spot })
     }
   })
 

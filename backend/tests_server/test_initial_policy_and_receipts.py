@@ -115,6 +115,27 @@ def test_lean_group_rule_rejects_only_the_levers_of_the_failing_group(monkeypatc
         assert manager._snapshot_government_levers()["bailout_target"] == "none"
 
 
+def test_lean_switch_from_one_sector_to_any_business_bailouts(monkeypatch):
+    client, registry = _client(monkeypatch)
+    sector = {"bailout_policy": "sector", "bailout_target": "food", "bailout_budget": 25000}
+    with client.websocket_connect("/ws") as ws:
+        session = _session(ws)
+        assert setup(ws, {**SMALL, "frame_profile": "lean", "initial_policy": sector})["type"] == "SETUP_COMPLETE"
+        manager = registry.get(session["sessionId"])
+
+        # "any business" alone leaves the food target behind, which the rule refuses.
+        receipt = _config(ws, {"bailout_policy": "all"})
+        assert receipt["applied"] == {} and receipt["rejected"] == {"bailout_policy": ALL_TARGET_RULE}
+        assert manager._snapshot_government_levers()["bailout_policy"] == "sector"
+
+        # The Town hall sends the choice with the cleared target; the budget carries over.
+        receipt = _config(ws, {"bailout_policy": "all", "bailout_target": "none"})
+        assert receipt["rejected"] == {}
+        assert receipt["applied"] == {"bailout_policy": "all", "bailout_target": "none"}
+        levers = manager._snapshot_government_levers()
+        assert (levers["bailout_policy"], levers["bailout_target"], levers["bailout_budget"]) == ("all", "none", 25000)
+
+
 def test_legacy_applies_levers_one_by_one_without_group_rules(monkeypatch):
     client, registry = _client(monkeypatch)
     with client.websocket_connect("/ws") as ws:
