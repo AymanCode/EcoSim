@@ -36,7 +36,8 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 import numpy as np
 
 from config import clone_config, use_config
-from policy_schema import ORDERED_LEVERS
+from policy_schema import ORDERED_LEVERS, VALID_LEVERS, normalize_current_policy
+from policy_vectors import PolicyVectorError, validate_lever_value, validate_policy_vector
 from experiments import ExperimentError, ExperimentRegistry  # noqa: F401
 from utils.category_utils import get_good_category_capitalized
 from tools.runners.run_large_simulation import (
@@ -148,6 +149,7 @@ class SetupConfig(BaseModel):
     arm_label: Optional[str] = Field(default=None, min_length=1, max_length=40)
     arm_count: int = Field(default=1, ge=1, le=4)
     experiment_owner: Optional[str] = Field(default=None, min_length=1, max_length=64)
+    initial_policy: Dict[str, Any] = Field(default_factory=dict)
     payment_sequence: Literal["legacy", "income_first", "income_late"] = "legacy"
     payment_care_mode: Literal["patient_pay", "covered"] = "patient_pay"
     payment_assistance: Literal["reserve", "care", "rent", "mixed"] = "reserve"
@@ -173,6 +175,11 @@ class SetupConfig(BaseModel):
         if self.payment_renewal_strict_cap > self.payment_renewal_soft_cap:
             raise ValueError("strict renewal cap cannot exceed soft cap")
         return self
+
+    @field_validator("initial_policy", mode="after")
+    @classmethod
+    def validate_initial_policy(cls, v):
+        return validate_policy_vector(v or {})
 
     @field_validator("disabled_agents", mode="before")
     @classmethod
@@ -401,7 +408,7 @@ class SimulationManager:
             "firms": True,
             "government": True
         }
-        self.pending_config_updates: Dict[str, Any] | None = None
+        self.pending_config_updates: List[tuple[str, Dict[str, Any]]] = []
         self.setup_config: Dict[str, Any] = {}
         self.experiment_registry: ExperimentRegistry = experiment_registry
         self.experiment_id: Optional[str] = None
@@ -616,8 +623,8 @@ class SimulationManager:
             gov = self.economy.government if self.economy else None
             policy = PolicyConfig(
                 run_id=self.warehouse_run_id,
-                wage_tax=float(config.get("wage_tax", getattr(gov, "wage_tax_rate", 0.0))),
-                profit_tax=float(config.get("profit_tax", getattr(gov, "profit_tax_rate", 0.0))),
+                wage_tax=float(getattr(gov, "wage_tax_rate", 0.0)),
+                profit_tax=float(getattr(gov, "profit_tax_rate", 0.0)),
                 wealth_tax_rate=float(config.get("wealthTaxRate", getattr(gov, "wealth_tax_rate", 0.0))),
                 wealth_tax_threshold=float(config.get("wealthTaxThreshold", getattr(gov, "wealth_tax_threshold", 0.0))),
                 universal_basic_income=float(config.get("universalBasicIncome", getattr(gov, "ubi_amount", 0.0))),
@@ -1423,14 +1430,9 @@ class SimulationManager:
             "bailout_budget": int(getattr(gov, "bailout_budget", 0)),
         }
 
-    def _append_policy_change_ui_record(self, policy: str, value: Any, reason: str) -> None:
+    def _append_policy_change_ui_record(self, policy: str, value: Any, reason: str, action_id: Optional[str] = None) -> None:
         """Maintain the small recent-policy list used by the frontend."""
-        change_record = {
-            "tick": self.tick,
-            "policy": policy,
-            "value": value,
-            "reason": reason,
-        }
+        change_record = {"tick": self.tick, "policy": policy, "value": value, "reason": reason, "actionId": action_id}
         self.policy_changes.insert(0, change_record)
         if len(self.policy_changes) > 5:
             self.policy_changes.pop()
@@ -1913,6 +1915,13 @@ class SimulationManager:
         self.experiment_id = None
         self.arm_label = None
 
+        config = dict(config)
+        legacy_taxes = {}
+        if "wage_tax" in config:
+            legacy_taxes["wage_tax_rate"] = config["wage_tax"]
+        if "profit_tax" in config:
+            legacy_taxes["profit_tax_rate"] = config["profit_tax"]
+        config["initial_policy"] = {**legacy_taxes, **dict(config.get("initial_policy") or {})}
         validated = SetupConfig(**config)
         num_households = validated.num_households
         num_firms = validated.num_firms
@@ -1999,11 +2008,17 @@ class SimulationManager:
             )
             self.stabilizer_state = self._build_stabilizer_state_dict(True, True, True)
         
-        # Apply initial tax rates if provided
-        if "wage_tax" in config:
-            self.economy.government.wage_tax_rate = config["wage_tax"]
-        if "profit_tax" in config:
-            self.economy.government.profit_tax_rate = config["profit_tax"]
+        # Validated initial policy vector: presets, custom arms and the legacy tax keys all start here.
+        for lever, value in (validated.initial_policy or {}).items():
+            self.economy.government.set_lever(lever, value)
+        if "minimum_wage_policy" in (validated.initial_policy or {}):
+            min_wage = float(self.economy.government.get_minimum_wage())
+            for firm in self.economy.firms:
+                if firm.wage_offer < min_wage:
+                    firm.wage_offer = min_wage
+        self.setup_config["applied_policy"] = self._snapshot_government_levers()
+        self.pending_config_updates = []
+        self.policy_changes = []
             
         self.tick = 0
         self.logs = []
@@ -2191,10 +2206,10 @@ class SimulationManager:
                 self._collect_llm_task_result()
                 self._apply_llm_decision_at_boundary()
 
-                # Apply any pending config updates from the client
-                if self.pending_config_updates:
-                    await self._apply_config_updates(self.pending_config_updates)
-                    self.pending_config_updates = None
+                # Apply any pending config updates from the client, one receipt each.
+                for receipt in await self.drain_pending_config_updates():
+                    if self.active_websocket:
+                        await self.active_websocket.send_json(receipt)
 
                 # Run one step
                 policy_before = self._snapshot_government_policy()
@@ -2756,7 +2771,7 @@ class SimulationManager:
         """Map the legacy benefit-rate slider into the schema benefit level."""
         try:
             rate = float(value)
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
             return "neutral"
         if rate <= 0.25:
             return "low"
@@ -2771,7 +2786,7 @@ class SimulationManager:
         """Map the legacy minimum-wage slider into the schema wage policy."""
         try:
             wage = float(value)
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
             return "neutral"
         if wage <= 30.0:
             return "low"
@@ -2810,6 +2825,8 @@ class SimulationManager:
                 normalized["benefit_level"] = SimulationManager._benefit_rate_to_level(value)
             elif key == "minimumWage":
                 normalized["minimum_wage_policy"] = SimulationManager._minimum_wage_to_policy(value)
+            elif key in VALID_LEVERS:
+                normalized[key] = value
 
         if "public_works" in normalized and isinstance(normalized["public_works"], bool):
             normalized["public_works"] = "on" if normalized["public_works"] else "off"
@@ -2817,7 +2834,7 @@ class SimulationManager:
             if integer_lever in normalized:
                 try:
                     normalized[integer_lever] = int(float(normalized[integer_lever]))
-                except (TypeError, ValueError):
+                except (TypeError, ValueError, OverflowError):
                     pass
         for ordered_integer_lever in ("sector_subsidy_level", "bailout_budget"):
             if ordered_integer_lever in normalized and isinstance(normalized[ordered_integer_lever], int):
@@ -2829,14 +2846,23 @@ class SimulationManager:
             if numeric_lever in normalized:
                 try:
                     normalized[numeric_lever] = float(normalized[numeric_lever])
-                except (TypeError, ValueError):
+                except (TypeError, ValueError, OverflowError):
                     pass
         return normalized
 
-    async def _apply_config_updates(self, config_data: Dict[str, Any]):
-        """Apply runtime-safe frontend config updates before the next economy step."""
+    async def _apply_config_updates(self, config_data: Dict[str, Any], action_id: Optional[str] = None) -> Dict[str, Any]:
+        """Apply runtime-safe frontend config updates and return a receipt."""
+        action_id = action_id or uuid.uuid4().hex[:12]
+        receipt: Dict[str, Any] = {
+            "type": "CONFIG_APPLIED",
+            "actionId": action_id,
+            "requested": {},
+            "applied": {},
+            "rejected": {},
+            "effectiveTick": self.tick + 1,
+        }
         if not self.economy or not config_data:
-            return
+            return receipt
 
         if "enableLlmGovernment" in config_data:
             enabled = bool(config_data["enableLlmGovernment"])
@@ -2864,19 +2890,39 @@ class SimulationManager:
             self.economy.government.birth_rate = config_data["birthRate"]
 
         lever_updates = self._normalize_runtime_policy_updates(config_data)
-        for lever, value in lever_updates.items():
+        receipt["requested"] = dict(lever_updates)
+        applied_levers: Dict[str, Any] = {}
+        # A bad value rejects only its own lever; a group-rule breach rejects the whole lever batch.
+        for lever, value in list(lever_updates.items()):
             try:
-                self.economy.government.set_lever(lever, value)
-            except Exception as exc:
-                logger.warning("Rejected runtime government lever %s=%r: %s", lever, value, exc)
-                continue
-            if lever == "minimum_wage_policy":
-                min_wage = float(self.economy.government.get_minimum_wage())
-                for i, firm in enumerate(self.economy.firms):
-                    if firm.wage_offer < min_wage:
-                        firm.wage_offer = min_wage
-                    if i % 100 == 0:
-                        await asyncio.sleep(0)
+                validate_lever_value(lever, value)
+            except PolicyVectorError as exc:
+                receipt["rejected"][lever] = str(exc)
+                del lever_updates[lever]
+        if lever_updates:
+            current = {k: v for k, v in normalize_current_policy(self._snapshot_government_levers()).items() if k in VALID_LEVERS}
+            try:
+                validate_policy_vector({**current, **lever_updates})
+            except PolicyVectorError as exc:
+                receipt["rejected"]["_group"] = str(exc)
+                lever_updates = {}
+        # Government and firm mutation runs synchronously under this session's config and RNG; no await here.
+        with use_config(self.config), self._random_scope():
+            for lever, value in lever_updates.items():
+                try:
+                    self.economy.government.set_lever(lever, value)
+                except Exception as exc:
+                    logger.warning("Rejected runtime government lever %s=%r: %s", lever, value, exc)
+                    receipt["rejected"][lever] = str(exc)
+                    continue
+                applied_levers[lever] = value
+                if lever == "minimum_wage_policy":
+                    min_wage = float(self.economy.government.get_minimum_wage())
+                    for firm in self.economy.firms:
+                        if firm.wage_offer < min_wage:
+                            firm.wage_offer = min_wage
+        snapshot = self._snapshot_government_levers()
+        receipt["applied"] = {lever: snapshot.get(lever, value) for lever, value in applied_levers.items()}
 
         # Log policy changes
         legacy_policy_keys = {
@@ -2897,45 +2943,52 @@ class SimulationManager:
             if key in legacy_policy_keys:
                 policy_name = legacy_policy_key_map.get(key, key)
                 reason = f"User updated {policy_name} to {value}"
-                self._append_policy_change_ui_record(policy_name, value, reason)
+                self._append_policy_change_ui_record(policy_name, value, reason, action_id=action_id)
                 self._buffer_policy_action(
                     actor="user",
                     action_type=policy_name,
-                    payload={"value": value},
+                    payload={"value": value, "action_id": action_id},
                     reason_summary=reason,
                 )
-        for lever, value in lever_updates.items():
+        for lever, value in receipt["applied"].items():
             reason = f"User updated {lever} to {value}"
-            self._append_policy_change_ui_record(lever, value, reason)
+            self._append_policy_change_ui_record(lever, value, reason, action_id=action_id)
             self._buffer_policy_action(
                 actor="user",
                 action_type=lever,
-                payload={"value": value},
+                payload={"value": value, "action_id": action_id},
                 reason_summary=reason,
             )
+        return receipt
 
-    async def update_config(self, config_data):
-        """Queue or apply websocket runtime configuration updates.
+    async def drain_pending_config_updates(self) -> List[Dict[str, Any]]:
+        """Apply every queued runtime config action in arrival order and return their receipts."""
+        receipts: List[Dict[str, Any]] = []
+        while self.pending_config_updates:
+            action_id, config_data = self.pending_config_updates.pop(0)
+            receipts.append(await self._apply_config_updates(config_data, action_id))
+        return receipts
 
-        When the simulation is active, updates are buffered until the next
-        safe tick boundary. When paused, they are applied immediately through
-        the same policy-schema path.
+    async def update_config(self, config_data) -> Dict[str, Any]:
+        """Queue or apply websocket runtime configuration updates, returning a receipt.
+
+        Paused: apply now and return CONFIG_APPLIED. Running: queue for the
+        next tick boundary and return CONFIG_QUEUED with the same actionId the
+        later CONFIG_APPLIED will carry.
         """
         if not self.economy:
-            return
+            raise ValueError("no active simulation; send SETUP first")
 
         locked = {name for name in SetupConfig.model_fields if name.startswith("payment_")}
         locked.update({"paymentSequence", "paymentCareMode", "paymentAssistance"})
         if locked.intersection(config_data):
             raise ValueError("Payment scenario is fixed at SETUP; start a new run to change it")
 
+        action_id = uuid.uuid4().hex[:12]
         if not self.is_running:
-            await self._apply_config_updates(config_data)
-        else:
-            if self.pending_config_updates is None:
-                self.pending_config_updates = dict(config_data)
-            else:
-                self.pending_config_updates.update(config_data)
+            return await self._apply_config_updates(dict(config_data), action_id)
+        self.pending_config_updates.append((action_id, dict(config_data)))
+        return {"type": "CONFIG_QUEUED", "actionId": action_id, "tick": self.tick}
 
 
 class SessionRegistry:
@@ -3338,17 +3391,25 @@ async def websocket_endpoint(websocket: WebSocket):
                 await websocket.send_json({"type": "STARTED"})
             elif command == "STOP":
                 session_manager.stop_background_loop()
+                # Queued actions apply now, in order, so a later paused CONFIG cannot be overwritten on START.
+                for receipt in await session_manager.drain_pending_config_updates():
+                    await websocket.send_json(receipt)
                 session_manager._flush_warehouse_batches()
                 await websocket.send_json({"type": "STOPPED"})
             elif command == "RESET":
                 session_manager.stop_background_loop(cancel=True)
                 session_manager._close_warehouse_run("stopped")
+                dropped = len(session_manager.pending_config_updates)
+                session_manager.pending_config_updates = []
+                if dropped:
+                    logger.warning("RESET discarded %d queued CONFIG action(s) session=%s", dropped, session_id)
                 session_manager.tick = 0
                 await websocket.send_json({"type": "RESET", "tick": 0})
             elif command == "CONFIG":
                 config_data = data.get("config", {})
                 try:
-                    await session_manager.update_config(config_data)
+                    receipt = await session_manager.update_config(config_data)
+                    await websocket.send_json(receipt)
                 except ValueError as exc:
                     await websocket.send_json({"error": f"CONFIG failed: {exc}"})
             elif command == "STABILIZERS":

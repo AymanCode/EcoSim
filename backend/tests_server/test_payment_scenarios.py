@@ -68,7 +68,7 @@ def test_runtime_update_rejects_scenario_switch_without_mutation():
     with pytest.raises(ValueError, match="fixed at SETUP"):
         asyncio.run(manager.update_config({"payment_sequence": "legacy"}))
     assert manager.economy.payment_sequence == "income_first"
-    assert manager.pending_config_updates is None
+    assert manager.pending_config_updates == []
 
 
 def test_websocket_reports_selected_setup_and_recovers_from_rejected_config(monkeypatch):

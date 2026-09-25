@@ -11,6 +11,7 @@ if str(BACKEND_ROOT) not in sys.path:
 
 import server  # noqa: E402
 from experiments import HOUSEHOLD_BUDGET, MAX_ARMS, ExperimentError, ExperimentRegistry  # noqa: E402
+from _ws import setup, until  # noqa: E402
 
 WORLD = '{"seed": 7}'
 
@@ -85,17 +86,8 @@ def _connect(monkeypatch):
     return TestClient(server.app), registry, experiments
 
 
-def _until(ws, predicate, limit=200):
-    for _ in range(limit):
-        msg = ws.receive_json()
-        if predicate(msg):
-            return msg
-    raise AssertionError(f"no matching message within {limit} messages")
-
-
-def _setup(ws, **config):
-    ws.send_json({"command": "SETUP", "config": config})
-    return _until(ws, lambda msg: msg.get("type") == "SETUP_COMPLETE" or "error" in msg)
+def _session(ws):
+    return until(ws, lambda msg: msg.get("type") == "SESSION")
 
 
 EXP = {"num_households": 30, "num_firms": 1, "seed": 7, "experiment_id": "exp-ws", "arm_label": "Town A",
@@ -105,20 +97,20 @@ EXP = {"num_households": 30, "num_firms": 1, "seed": 7, "experiment_id": "exp-ws
 def test_setup_reserves_echoes_and_a_failed_setup_leaves_nothing_runnable(monkeypatch):
     client, registry, experiments = _connect(monkeypatch)
     with client.websocket_connect("/ws") as ws:
-        session = ws.receive_json()
-        reply = _setup(ws, **EXP)
+        session = _session(ws)
+        reply = setup(ws, EXP)
         assert reply["type"] == "SETUP_COMPLETE", reply
         assert reply["config"]["experiment"] == {"id": "exp-ws", "armLabel": "Town A", "armCount": 2, "householdCap": 5_000}
         assert experiments.describe("exp-ws")["households_reserved"] == 30
 
-        error = _setup(ws, **{**EXP, "num_households": 6_000})
+        error = setup(ws, {**EXP, "num_households": 6_000})
         assert "error" in error and "cap" in error["error"]
         assert experiments.describe("exp-ws") is None
         manager = registry.get(session["sessionId"])
         assert manager.economy is None  # nothing runnable is left behind
         assert manager.experiment_id is None
 
-        recovered = _setup(ws, **EXP)
+        recovered = setup(ws, EXP)
         assert recovered["type"] == "SETUP_COMPLETE", recovered
         assert experiments.describe("exp-ws")["households_reserved"] == 30
         assert manager.economy is not None
@@ -127,11 +119,11 @@ def test_setup_reserves_echoes_and_a_failed_setup_leaves_nothing_runnable(monkey
 def test_invalid_replacement_setup_releases_the_existing_reservation(monkeypatch):
     client, registry, experiments = _connect(monkeypatch)
     with client.websocket_connect("/ws") as ws:
-        session = ws.receive_json()
-        assert _setup(ws, **EXP)["type"] == "SETUP_COMPLETE"
+        session = _session(ws)
+        assert setup(ws, EXP)["type"] == "SETUP_COMPLETE"
         assert experiments.describe("exp-ws")["households_reserved"] == 30
 
-        error = _setup(ws, **{**EXP, "arm_count": 5})
+        error = setup(ws, {**EXP, "arm_count": 5})
         assert "error" in error
         assert experiments.describe("exp-ws") is None
         manager = registry.get(session["sessionId"])
@@ -158,8 +150,8 @@ def test_failed_setup_closes_the_previous_warehouse_run_while_its_economy_exists
 def test_disconnect_releases_a_live_reservation(monkeypatch):
     client, _, experiments = _connect(monkeypatch)
     with client.websocket_connect("/ws") as ws:
-        ws.receive_json()
-        assert _setup(ws, **EXP)["type"] == "SETUP_COMPLETE"
+        _session(ws)
+        assert setup(ws, EXP)["type"] == "SETUP_COMPLETE"
         assert experiments.describe("exp-ws")["households_reserved"] == 30
     assert experiments.describe("exp-ws") is None
 
@@ -167,19 +159,19 @@ def test_disconnect_releases_a_live_reservation(monkeypatch):
 def test_second_arm_must_share_the_world(monkeypatch):
     client, _, _ = _connect(monkeypatch)
     with client.websocket_connect("/ws") as first, client.websocket_connect("/ws") as second:
-        first.receive_json()
-        second.receive_json()
-        assert _setup(first, **EXP)["type"] == "SETUP_COMPLETE"
-        error = _setup(second, **{**EXP, "arm_label": "Town B", "seed": 8})
+        _session(first)
+        _session(second)
+        assert setup(first, EXP)["type"] == "SETUP_COMPLETE"
+        error = setup(second, {**EXP, "arm_label": "Town B", "seed": 8})
         assert "error" in error and "world" in error["error"]
-        ok = _setup(second, **{**EXP, "arm_label": "Town B"})
+        ok = setup(second, {**EXP, "arm_label": "Town B"})
         assert ok["type"] == "SETUP_COMPLETE"
 
 
 def test_setup_without_experiment_fields_still_works(monkeypatch):
     client, _, _ = _connect(monkeypatch)
     with client.websocket_connect("/ws") as ws:
-        ws.receive_json()
-        reply = _setup(ws, num_households=30, num_firms=1, seed=7)
+        _session(ws)
+        reply = setup(ws, {"num_households": 30, "num_firms": 1, "seed": 7})
         assert reply["type"] == "SETUP_COMPLETE"
         assert reply["config"]["experiment"] is None
