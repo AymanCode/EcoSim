@@ -8,6 +8,9 @@ that the session path reproduces the headless newcomer smoke runner for the same
     .venv/bin/python -m backend.tools.benchmarks.run_frame_bench --households 1000 --ticks 260 --arms 2 --warehouse
     .venv/bin/python -m backend.tools.benchmarks.run_frame_bench --households 5000 --ticks 52 --arms 2
     .venv/bin/python -m backend.tools.benchmarks.run_frame_bench --households 2500 --ticks 52 --arms 4
+    .venv/bin/python -m backend.tools.benchmarks.run_frame_bench --frame-profile legacy   # the old dashboard's frame
+
+Every arm's SETUP carries ``frame_profile`` (``--frame-profile``, default ``lean``).
 
 Exit codes: 0 when the phase gate passes (every arm within both budgets and the
 equivalence check measured and matched); 2 for a matrix run with
@@ -35,6 +38,8 @@ if str(REPO_ROOT) not in sys.path:
 from websockets.asyncio.client import connect  # noqa: E402
 
 GATE_BYTES_P95 = 61_440
+# The budget is defined at 40 tracked households; sent explicitly so a legacy-profile run (default 12) measures the same.
+TRACKED_HOUSEHOLDS = 40
 GATE_OVERHEAD_SHARE = 0.10
 CHECKPOINTS = (13, 26, 52, 104, 156, 208, 260)
 # Upper bound on messages read while waiting for SESSION, SETUP_COMPLETE or FINISHED.
@@ -164,8 +169,8 @@ async def _run_arm(ws_url: str, *, label: str, setup: Dict[str, Any], quiet_seco
 
 
 def run_experiment(*, base_url: str, arms: List[Dict[str, Any]], households: int, ticks: int, seed: int,
-                   warehouse: bool, quiet_seconds: float = 60.0,
-                   deadline_seconds: float = 1800.0) -> Dict[str, List[Dict[str, Any]]]:
+                   warehouse: bool, quiet_seconds: float = 60.0, deadline_seconds: float = 1800.0,
+                   frame_profile: str = "lean") -> Dict[str, List[Dict[str, Any]]]:
     ws_url = base_url.replace("http", "ws", 1) + "/ws"
     experiment_id = f"bench-{int(time.time())}"
 
@@ -174,8 +179,10 @@ def run_experiment(*, base_url: str, arms: List[Dict[str, Any]], households: int
         for arm in arms:
             setup = {
                 "num_households": households, "num_firms": 5, "seed": seed, "horizon_ticks": ticks,
+                "tracked_households": TRACKED_HOUSEHOLDS,
                 "initial_policy": dict(arm.get("initial_policy") or {}), "enable_llm_government": False,
                 "experiment_id": experiment_id, "arm_label": arm["label"], "arm_count": len(arms), "experiment_owner": "bench",
+                "frame_profile": frame_profile,
             }
             tasks.append(_run_arm(ws_url, label=arm["label"], setup=setup, quiet_seconds=quiet_seconds,
                                   deadline_seconds=deadline_seconds))
@@ -303,6 +310,8 @@ def main(argv: Optional[List[str]] = None) -> int:
     parser.add_argument("--seed", type=int, default=1337)
     parser.add_argument("--warehouse", action="store_true")
     parser.add_argument("--skip-equivalence", action="store_true")
+    parser.add_argument("--frame-profile", choices=("lean", "legacy"), default="lean",
+                        help="SETUP frame_profile for every arm (lean: the new client's frame; legacy: the old dashboard's)")
     parser.add_argument("--quiet", type=float, default=60.0, help="seconds an arm may go without a message")
     parser.add_argument("--deadline", type=float, default=1800.0, help="seconds an arm may run in total")
     parser.add_argument("--output-dir", default=None)
@@ -317,7 +326,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     try:
         results = run_experiment(base_url=base_url, arms=arms, households=args.households, ticks=args.ticks,
                                  seed=args.seed, warehouse=args.warehouse, quiet_seconds=args.quiet,
-                                 deadline_seconds=args.deadline)
+                                 deadline_seconds=args.deadline, frame_profile=args.frame_profile)
     finally:
         stop_server(process)
     wall = time.perf_counter() - started
@@ -328,11 +337,12 @@ def main(argv: Optional[List[str]] = None) -> int:
     verdict = gate(per_arm, equivalence_result, require_equivalence=not args.skip_equivalence)
     code = exit_code(verdict)
     report = {"households": args.households, "ticks": args.ticks, "arms": args.arms, "seed": args.seed,
-              "warehouse": args.warehouse, "wallClockSeconds": wall, "perArm": per_arm,
+              "warehouse": args.warehouse, "frameProfile": args.frame_profile, "wallClockSeconds": wall, "perArm": per_arm,
               "equivalence": equivalence_result, "gate": verdict, "exitCode": code}
     (out_dir / "summary.json").write_text(json.dumps(report, indent=2))
     lines = [f"# Frame bench: {args.arms} arms x {args.households} households, {args.ticks} ticks, seed {args.seed}, "
-             f"warehouse {'on' if args.warehouse else 'off'}", "", f"- wall clock: {wall:.1f} s", ""]
+             f"warehouse {'on' if args.warehouse else 'off'}, frame profile {args.frame_profile}", "",
+             f"- wall clock: {wall:.1f} s", ""]
     for label, summary in per_arm.items():
         lines += [f"## {label}",
                   f"- bytes p50 / p95 / max: {summary['bytes']['p50']:.0f} / {summary['bytes']['p95']:.0f} / {summary['bytes']['max']:.0f}",

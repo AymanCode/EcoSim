@@ -1,0 +1,135 @@
+{
+  "households": 1000,
+  "ticks": 260,
+  "arms": 2,
+  "seed": 1337,
+  "warehouse": false,
+  "frameProfile": "lean",
+  "wallClockSeconds": 51.61004425003193,
+  "perArm": {
+    "Town A": {
+      "frames": 260,
+      "bytes": {
+        "p50": 41227.0,
+        "p95": 43876.0,
+        "max": 44710.0
+      },
+      "tickComputeMs": {
+        "p50": 92.59258303791285,
+        "p95": 129.32366703171283
+      },
+      "projectionMs": {
+        "p50": 0.32912404276430607,
+        "p95": 0.3815420204773545,
+        "shareOfTickP50": 0.003554540028649415
+      },
+      "serializeMs": {
+        "p50": 0.30929199419915676,
+        "p95": 0.34920801408588886,
+        "shareOfTickP50": 0.003340353882043818
+      },
+      "interFrameMs": {
+        "p50": 195.14666590839624,
+        "p95": 236.76870798226446
+      }
+    },
+    "Town B": {
+      "frames": 260,
+      "bytes": {
+        "p50": 42795.0,
+        "p95": 45379.0,
+        "max": 46186.0
+      },
+      "tickComputeMs": {
+        "p50": 92.19016693532467,
+        "p95": 130.0511669833213
+      },
+      "projectionMs": {
+        "p50": 0.3415420651435852,
+        "p95": 0.3967089578509331,
+        "shareOfTickP50": 0.0037047559029065595
+      },
+      "serializeMs": {
+        "p50": 0.3184160450473428,
+        "p95": 0.36083394661545753,
+        "shareOfTickP50": 0.0034539046368223325
+      },
+      "interFrameMs": {
+        "p50": 186.90512492321432,
+        "p95": 261.3356659421697
+      }
+    }
+  },
+  "equivalence": {
+    "checkpoints": [
+      {
+        "tick": 13,
+        "session": 2.1,
+        "smoke": 2.1,
+        "match": true
+      },
+      {
+        "tick": 26,
+        "session": 8.2,
+        "smoke": 8.200000000000001,
+        "match": true
+      },
+      {
+        "tick": 52,
+        "session": 19.4,
+        "smoke": 19.400000000000002,
+        "match": true
+      },
+      {
+        "tick": 104,
+        "session": 25.881168177240685,
+        "smoke": 25.88116817724068,
+        "match": true
+      },
+      {
+        "tick": 156,
+        "session": 19.611848825331972,
+        "smoke": 19.611848825331972,
+        "match": true
+      },
+      {
+        "tick": 208,
+        "session": 29.7741273100616,
+        "smoke": 29.774127310061605,
+        "match": true
+      },
+      {
+        "tick": 260,
+        "session": 36.69724770642202,
+        "smoke": 36.69724770642202,
+        "match": true
+      }
+    ],
+    "matches": true
+  },
+  "gate": {
+    "checks": {
+      "bytesP95": true,
+      "overheadShare": true,
+      "equivalence": true
+    },
+    "arms": {
+      "Town A": {
+        "bytesP95": 43876.0,
+        "overheadShare": 0.0068948939106932335,
+        "bytesOk": true,
+        "overheadOk": true
+      },
+      "Town B": {
+        "bytesP95": 45379.0,
+        "overheadShare": 0.0071586605397288925,
+        "bytesOk": true,
+        "overheadOk": true
+      }
+    },
+    "failingArms": [],
+    "passed": true,
+    "phaseGate": true
+  },
+  "exitCode": 0
+}

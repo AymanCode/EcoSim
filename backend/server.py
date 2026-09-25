@@ -153,8 +153,12 @@ class SetupConfig(BaseModel):
     arm_count: int = Field(default=1, ge=1, le=4)
     experiment_owner: Optional[str] = Field(default=None, min_length=1, max_length=64)
     initial_policy: Dict[str, Any] = Field(default_factory=dict)
-    horizon_ticks: int = Field(default=260, ge=1, le=5_200)
-    tracked_households: int = Field(default=40, ge=1, le=200)
+    # None means the profile default: lean 260 ticks and 40 households, legacy no horizon and 12 households.
+    horizon_ticks: Optional[int] = Field(default=None, ge=1, le=5_200)
+    tracked_households: Optional[int] = Field(default=None, ge=1, le=200)
+    # Presentation only, so not part of world_key: "legacy" keeps every old frame key for the current
+    # dashboard; "lean" drops per-frame subject detail (except pinned), trackedFirms and firm_stats.
+    frame_profile: Literal["legacy", "lean"] = "legacy"
     payment_sequence: Literal["legacy", "income_first", "income_late"] = "legacy"
     payment_care_mode: Literal["patient_pay", "covered"] = "patient_pay"
     payment_assistance: Literal["reserve", "care", "rent", "mixed"] = "reserve"
@@ -389,8 +393,10 @@ class SimulationManager:
     without restarting the server process.
     """
 
-    # Constants for tracked subjects
-    DEFAULT_TRACKED_HOUSEHOLDS = 40
+    # Constants for tracked subjects. SETUP values win; otherwise the frame profile picks the default.
+    LEAN_TRACKED_HOUSEHOLDS = 40
+    LEGACY_TRACKED_HOUSEHOLDS = 12
+    LEAN_HORIZON_TICKS = 260
     MAX_PINNED_HOUSEHOLDS = 8
     SAMPLE_RNG_SALT = 0x5A17
     TRACKED_FIRMS_PRIVATE = 5
@@ -424,7 +430,8 @@ class SimulationManager:
         self.horizon_tick: Optional[int] = None
         self.horizon_notified: bool = False
         self.run_finalized: bool = False
-        self.tracked_household_count: int = self.DEFAULT_TRACKED_HOUSEHOLDS
+        self.frame_profile: str = "legacy"
+        self.tracked_household_count: int = self.LEGACY_TRACKED_HOUSEHOLDS
         self.pinned_household_ids: List[int] = []
         self._sample_rng = random.Random(self.config.random_seed ^ self.SAMPLE_RNG_SALT)
         self.event_collector = TickEventCollector()
@@ -2036,6 +2043,7 @@ class SimulationManager:
             raise ValueError("no active simulation; send SETUP first")
         action = str(action or "").lower()
         tracked = list(self.tracked_household_ids)
+        previous = set(tracked)
         if action in {"pin", "unpin", "follow"}:
             if household_id is None:
                 raise ValueError(f"TRACK {action} needs householdId")
@@ -2077,7 +2085,10 @@ class SimulationManager:
         else:
             raise ValueError(f"unknown TRACK action {action!r}")
         self.tracked_household_ids = tracked
-        return {"type": "TRACKED", "tracked": list(tracked), "pinned": list(self.pinned_household_ids), "tick": self.tick}
+        # Traits of households new to the sample; pin and unpin add none, so theirs is {}.
+        profiles = self._tracked_profiles([hid for hid in tracked if hid not in previous])
+        return {"type": "TRACKED", "tracked": list(tracked), "pinned": list(self.pinned_household_ids), "tick": self.tick,
+                "profiles": profiles}
 
     def initialize(self, config: Dict[str, Any] = None):
         """Initialize this session under its owned config and RNG context."""
@@ -2146,15 +2157,36 @@ class SimulationManager:
             self.economy = None
             raise
 
+    @classmethod
+    def _profile_defaults(cls, validated: "SetupConfig") -> tuple[Optional[int], int]:
+        """Return the horizon and sample size for a SETUP: explicit values win, else the profile's defaults.
+
+        Lean defaults to a 260-tick horizon and 40 households; legacy keeps the pre-frame-2 behaviour,
+        no horizon (the loop runs until STOP) and 12 households.
+        """
+        lean = validated.frame_profile == "lean"
+        horizon = validated.horizon_ticks
+        if horizon is None and lean:
+            horizon = cls.LEAN_HORIZON_TICKS
+        tracked = validated.tracked_households
+        if tracked is None:
+            tracked = cls.LEAN_TRACKED_HOUSEHOLDS if lean else cls.LEGACY_TRACKED_HOUSEHOLDS
+        return (int(horizon) if horizon is not None else None), int(tracked)
+
     def _initialize_economy(self, validated: "SetupConfig", config: Dict[str, Any], num_households: int, num_firms: int, seed: int):
         """Build the economy and tracking state for a validated SETUP."""
         # Session-owned settings must be in scope before the factory constructs
         # Economy; omitted API setup keeps the library's legacy default.
         for payment_field in (name for name in SetupConfig.model_fields if name.startswith("payment_")):
             setattr(self.config, payment_field, getattr(validated, payment_field))
+        self.frame_profile = validated.frame_profile
+        horizon_ticks, tracked_households = self._profile_defaults(validated)
         self.setup_config = validated.model_dump()
         self.setup_config["seed"] = seed
-        self.horizon_tick = int(validated.horizon_ticks)
+        # Echo the values in force, so an omitted horizon or sample size reports the profile default.
+        self.setup_config["horizon_ticks"] = horizon_ticks
+        self.setup_config["tracked_households"] = tracked_households
+        self.horizon_tick = horizon_ticks
         self.horizon_notified = False
         self.run_finalized = False
         self.setup_config["experiment"] = (
@@ -2279,7 +2311,7 @@ class SimulationManager:
             self.economy.last_llm_government_decision = None
 
         # Household sample: its own RNG so browsing never touches the simulation stream.
-        self.tracked_household_count = int(validated.tracked_households)
+        self.tracked_household_count = tracked_households
         self.pinned_household_ids = []
         self._sample_rng = random.Random(seed ^ self.SAMPLE_RNG_SALT)
         if self.economy.households:
@@ -2337,6 +2369,106 @@ class SimulationManager:
     @staticmethod
     def _new_subject_history() -> Dict[str, List[Dict[str, Any]]]:
         return {"cash": [], "wage": [], "happiness": [], "health": [], "netWorth": [], "events": []}
+
+    @staticmethod
+    def _subject_traits(h: Any) -> Dict[str, float]:
+        """A household's fixed traits: one builder for tick frames, SETUP_COMPLETE and TRACKED, so keys cannot drift."""
+        return {
+            "spendingTendency": float(h.spending_tendency),
+            "frugality": float(h.frugality),
+            "savingTendency": float(h.saving_tendency),
+            "qualityLavishness": float(h.quality_lavishness),
+            "priceSensitivity": float(h.price_sensitivity),
+            "skillGrowthRate": float(h.skill_growth_rate),
+            "healthDecayPerYear": float(h.health_decay_per_year),
+            "healthcareSeekBasePct": float(h.healthcare_request_base_chance_pct),
+            "minFoodPerTick": float(h.min_food_per_tick),
+            "minServicesPerTick": float(h.min_services_per_tick),
+        }
+
+    def _tracked_profiles(self, household_ids: List[int]) -> Dict[str, Dict[str, float]]:
+        """Traits of *household_ids*, keyed by the id as a string (JSON object keys are strings)."""
+        lookup = self.economy.household_lookup if self.economy is not None else {}
+        return {str(hid): self._subject_traits(lookup[hid]) for hid in household_ids if hid in lookup}
+
+    def _expected_wage_reason(self, h: Any, state: str, medical_status: str, wage_anchors: tuple) -> Dict[str, Any]:
+        """Explain a tracked household's expected-wage dynamics for UI transparency."""
+        hh_cfg = self.config.households
+        wage_anchor_low, wage_anchor_mid, wage_anchor_high = wage_anchors
+        if h.skills_level < 0.4:
+            market_anchor_estimate = wage_anchor_low
+        elif h.skills_level > 0.7:
+            market_anchor_estimate = wage_anchor_high
+        else:
+            market_anchor_estimate = wage_anchor_mid
+        market_anchor_estimate_value = (
+            float(market_anchor_estimate)
+            if market_anchor_estimate is not None
+            else None
+        )
+
+        duration_pressure = min(
+            hh_cfg.duration_pressure_cap,
+            h.unemployment_duration * hh_cfg.duration_pressure_rate,
+        )
+        cash_pressure = 0.0
+        poverty_threshold = max(1.0, float(hh_cfg.poverty_threshold))
+        if h.cash_balance < poverty_threshold:
+            cash_pressure = min(
+                hh_cfg.happiness_pressure_cap,
+                (poverty_threshold - h.cash_balance)
+                / max(poverty_threshold, 1.0)
+                * hh_cfg.happiness_pressure_cap,
+            )
+        health_pressure = 0.0
+        if h.health < hh_cfg.happiness_threshold:
+            health_pressure = min(
+                0.2,
+                (hh_cfg.happiness_threshold - h.health)
+                * hh_cfg.happiness_pressure_rate,
+            )
+        decay_factor = max(
+            hh_cfg.min_decay_factor,
+            hh_cfg.base_wage_decay
+            - duration_pressure
+            - cash_pressure
+            - health_pressure,
+        )
+
+        if h.is_employed:
+            expectation_mode = "EMPLOYED_ANCHOR"
+        elif state == "MED_SCHOOL":
+            expectation_mode = "TRAINING_TRACK"
+        else:
+            expectation_mode = "UNEMPLOYED_DECAY"
+
+        expectation_tags: List[str] = []
+        if h.is_employed:
+            expectation_tags.append("current_wage_anchor")
+        if h.unemployment_duration > 0:
+            expectation_tags.append("unemployment_duration_pressure")
+        if cash_pressure > 0.0:
+            expectation_tags.append("cash_stress_pressure")
+        if health_pressure > 0.0:
+            expectation_tags.append("health_stress_pressure")
+        if medical_status in {"resident", "doctor"}:
+            expectation_tags.append("medical_track_wage_anchor")
+        if medical_status == "student":
+            expectation_tags.append("in_training_not_searching")
+
+        # Force JSON-safe primitives for frontend transport.
+        return {
+            "mode": str(expectation_mode),
+            "gapToCurrentWage": float(h.expected_wage - h.wage),
+            "wageExpectationAlpha": float(h.wage_expectation_alpha),
+            "durationPressure": float(duration_pressure),
+            "cashPressure": float(cash_pressure),
+            "healthPressure": float(health_pressure),
+            "decayFactor": float(decay_factor),
+            "marketAnchorEstimate": market_anchor_estimate_value,
+            "unemploymentDuration": int(h.unemployment_duration),
+            "tags": [str(tag) for tag in expectation_tags],
+        }
 
     def _select_tracked_firms(self):
         """Ensure tracked firm list highlights top private performers plus baselines."""
@@ -2565,7 +2697,8 @@ class SimulationManager:
                 self._select_tracked_firms()
 
                 tracked_subjects = []
-                hh_cfg = self.config.households
+                lean_frame = self.frame_profile == "lean"
+                pinned_ids = set(self.pinned_household_ids)
                 wage_anchor_low, wage_anchor_mid, wage_anchor_high = getattr(
                     self.economy, "cached_wage_percentiles", (0.0, 0.0, 0.0)
                 )
@@ -2575,6 +2708,7 @@ class SimulationManager:
                     wage_anchor_low = wage_anchor_low or fallback_wage
                     wage_anchor_mid = wage_anchor_mid or fallback_wage
                     wage_anchor_high = wage_anchor_high or fallback_wage
+                wage_anchors = (wage_anchor_low, wage_anchor_mid, wage_anchor_high)
                 for hid in self.tracked_household_ids:
                     h = self.economy.household_lookup.get(hid)
                     if h:
@@ -2606,96 +2740,8 @@ class SimulationManager:
                             cat = self._infer_sector_from_good(good)
                             personal_net_worth += qty * mean_prices.get(cat, 0.0)
 
-                        # Explain expected wage dynamics for UI transparency.
-                        if h.skills_level < 0.4:
-                            market_anchor_estimate = wage_anchor_low
-                        elif h.skills_level > 0.7:
-                            market_anchor_estimate = wage_anchor_high
-                        else:
-                            market_anchor_estimate = wage_anchor_mid
-                        market_anchor_estimate_value = (
-                            float(market_anchor_estimate)
-                            if market_anchor_estimate is not None
-                            else None
-                        )
-
-                        duration_pressure = min(
-                            hh_cfg.duration_pressure_cap,
-                            h.unemployment_duration * hh_cfg.duration_pressure_rate,
-                        )
-                        cash_pressure = 0.0
-                        poverty_threshold = max(1.0, float(hh_cfg.poverty_threshold))
-                        if h.cash_balance < poverty_threshold:
-                            cash_pressure = min(
-                                hh_cfg.happiness_pressure_cap,
-                                (poverty_threshold - h.cash_balance)
-                                / max(poverty_threshold, 1.0)
-                                * hh_cfg.happiness_pressure_cap,
-                            )
-                        health_pressure = 0.0
-                        if h.health < hh_cfg.happiness_threshold:
-                            health_pressure = min(
-                                0.2,
-                                (hh_cfg.happiness_threshold - h.health)
-                                * hh_cfg.happiness_pressure_rate,
-                            )
-                        decay_factor = max(
-                            hh_cfg.min_decay_factor,
-                            hh_cfg.base_wage_decay
-                            - duration_pressure
-                            - cash_pressure
-                            - health_pressure,
-                        )
-
-                        if h.is_employed:
-                            expectation_mode = "EMPLOYED_ANCHOR"
-                        elif state == "MED_SCHOOL":
-                            expectation_mode = "TRAINING_TRACK"
-                        else:
-                            expectation_mode = "UNEMPLOYED_DECAY"
-
-                        expectation_tags: List[str] = []
-                        if h.is_employed:
-                            expectation_tags.append("current_wage_anchor")
-                        if h.unemployment_duration > 0:
-                            expectation_tags.append("unemployment_duration_pressure")
-                        if cash_pressure > 0.0:
-                            expectation_tags.append("cash_stress_pressure")
-                        if health_pressure > 0.0:
-                            expectation_tags.append("health_stress_pressure")
-                        if medical_status in {"resident", "doctor"}:
-                            expectation_tags.append("medical_track_wage_anchor")
-                        if medical_status == "student":
-                            expectation_tags.append("in_training_not_searching")
-
-                        # Force JSON-safe primitives for frontend transport.
-                        expected_wage_reason = {
-                            "mode": str(expectation_mode),
-                            "gapToCurrentWage": float(h.expected_wage - h.wage),
-                            "wageExpectationAlpha": float(h.wage_expectation_alpha),
-                            "durationPressure": float(duration_pressure),
-                            "cashPressure": float(cash_pressure),
-                            "healthPressure": float(health_pressure),
-                            "decayFactor": float(decay_factor),
-                            "marketAnchorEstimate": market_anchor_estimate_value,
-                            "unemploymentDuration": int(h.unemployment_duration),
-                            "tags": [str(tag) for tag in expectation_tags],
-                        }
-
-                        traits = {
-                            "spendingTendency": float(h.spending_tendency),
-                            "frugality": float(h.frugality),
-                            "savingTendency": float(h.saving_tendency),
-                            "qualityLavishness": float(h.quality_lavishness),
-                            "priceSensitivity": float(h.price_sensitivity),
-                            "skillGrowthRate": float(h.skill_growth_rate),
-                            "healthDecayPerYear": float(h.health_decay_per_year),
-                            "healthcareSeekBasePct": float(h.healthcare_request_base_chance_pct),
-                            "minFoodPerTick": float(h.min_food_per_tick),
-                            "minServicesPerTick": float(h.min_services_per_tick),
-                        }
-
-                        # Track history at startup and then every history_stride ticks.
+                        # Track history at startup and then every history_stride ticks, for every tracked
+                        # household in both profiles, so a household pinned later in a lean session has it.
                         if sample_history:
                             if hid in self.subject_histories:
                                 self.subject_histories[hid]["cash"].append({"tick": self.tick, "value": h.cash_balance})
@@ -2704,12 +2750,10 @@ class SimulationManager:
                                 self.subject_histories[hid]["health"].append({"tick": self.tick, "value": h.health * 100})
                                 self.subject_histories[hid]["netWorth"].append({"tick": self.tick, "value": personal_net_worth})
 
-                        # Get recent events
-                        recent_events = self.subject_histories.get(hid, {}).get("events", [])[-5:] if hid in self.subject_histories else []
                         has_rental = h.renting_from_firm_id is not None
                         housing_security = bool(h.owns_housing or has_rental or h.met_housing_need)
 
-                        tracked_subjects.append({
+                        subject = {
                             "id": h.household_id,
                             "name": f"Subject-{h.household_id}",
                             "age": h.age,
@@ -2744,22 +2788,42 @@ class SimulationManager:
                                 "housing": 1 if housing_security else 0,
                                 "healthcare": h.goods_inventory.get("Healthcare", 0) + h.goods_inventory.get("healthcare", 0),
                             },
-                            "expectedWageReason": expected_wage_reason,
-                            "traits": traits,
-                            "history": {
-                                "cash": self.subject_histories.get(hid, {}).get("cash", []),
-                                "wage": self.subject_histories.get(hid, {}).get("wage", []),
-                                "happiness": self.subject_histories.get(hid, {}).get("happiness", []),
-                                "health": self.subject_histories.get(hid, {}).get("health", []),
-                                "netWorth": self.subject_histories.get(hid, {}).get("netWorth", [])
-                            },
-                            "recentEvents": recent_events
-                        })
+                        }
+                        # Lean frames carry this detail only for pinned households; for the others it is
+                        # neither built nor sent, and traits travel in SETUP_COMPLETE and TRACKED instead.
+                        if not lean_frame or hid in pinned_ids:
+                            histories = self.subject_histories.get(hid, {})
+                            subject["expectedWageReason"] = self._expected_wage_reason(h, state, medical_status, wage_anchors)
+                            subject["traits"] = self._subject_traits(h)
+                            subject["history"] = {
+                                "cash": histories.get("cash", []),
+                                "wage": histories.get("wage", []),
+                                "happiness": histories.get("happiness", []),
+                                "health": histories.get("health", []),
+                                "netWorth": histories.get("netWorth", []),
+                            }
+                            subject["recentEvents"] = histories.get("events", [])[-5:]
+                        tracked_subjects.append(subject)
 
                 tracked_firms = []
                 for fid in self.tracked_firm_ids:
                     firm = self.economy.firm_lookup.get(fid)
                     if not firm:
+                        continue
+
+                    revenue = getattr(firm, "last_revenue", 0.0)
+                    profit = getattr(firm, "last_profit", 0.0)
+                    # Firm histories and the selection are kept in both profiles; lean frames skip only the rows.
+                    if sample_history and fid in self.firm_histories:
+                        history = self.firm_histories[fid]
+                        history["cash"].append({"tick": self.tick, "value": firm.cash_balance})
+                        history["price"].append({"tick": self.tick, "value": firm.price})
+                        history["wageOffer"].append({"tick": self.tick, "value": firm.wage_offer})
+                        history["inventory"].append({"tick": self.tick, "value": firm.inventory_units})
+                        history["employees"].append({"tick": self.tick, "value": len(firm.employees)})
+                        history["profit"].append({"tick": self.tick, "value": profit})
+                        history["revenue"].append({"tick": self.tick, "value": revenue})
+                    if lean_frame:
                         continue
 
                     if firm.cash_balance <= 0 or getattr(firm, "zero_cash_streak", 0) > 2:
@@ -2771,8 +2835,6 @@ class SimulationManager:
                     else:
                         firm_state = "STABLE"
 
-                    revenue = getattr(firm, "last_revenue", 0.0)
-                    profit = getattr(firm, "last_profit", 0.0)
                     is_healthcare_firm = (firm.good_category or "").lower() == "healthcare"
                     visits_completed = float(getattr(firm, "healthcare_completed_visits_last_tick", 0.0))
                     visit_revenue = float(revenue if is_healthcare_firm else 0.0)
@@ -2788,16 +2850,6 @@ class SimulationManager:
                                 medical_employees += 1
                             elif worker.medical_training_status == "resident":
                                 medical_employees += 1
-
-                    if sample_history and fid in self.firm_histories:
-                        history = self.firm_histories[fid]
-                        history["cash"].append({"tick": self.tick, "value": firm.cash_balance})
-                        history["price"].append({"tick": self.tick, "value": firm.price})
-                        history["wageOffer"].append({"tick": self.tick, "value": firm.wage_offer})
-                        history["inventory"].append({"tick": self.tick, "value": firm.inventory_units})
-                        history["employees"].append({"tick": self.tick, "value": len(firm.employees)})
-                        history["profit"].append({"tick": self.tick, "value": profit})
-                        history["revenue"].append({"tick": self.tick, "value": revenue})
 
                     tracked_firms.append({
                         "id": firm.firm_id,
@@ -2997,6 +3049,7 @@ class SimulationManager:
                     "logs": new_logs,
                     "firm_stats": firm_stats,
                     "schemaVersion": "frame-2",
+                    "frameProfile": self.frame_profile,
                     "arm": {"experimentId": self.experiment_id, "armLabel": self.arm_label, "armCount": self.arm_count},
                     "horizonTick": self.horizon_tick,
                     "events": self.last_events,
@@ -3008,6 +3061,10 @@ class SimulationManager:
                     "frameBytesPrev": self.last_frame_bytes,
                     "serializeMsPrev": self.last_serialize_ms,
                 }
+                if lean_frame:
+                    # Absent, not null: the lean client uses `firms`, `curated` and its own series instead.
+                    del state["metrics"]["trackedFirms"]
+                    del state["firm_stats"]
                 
                 # Send update
                 serialize_started = time.perf_counter()
@@ -3639,7 +3696,11 @@ async def websocket_endpoint(websocket: WebSocket):
                         await websocket.send_json({"error": "SETUP failed: stop the active run before starting a new scenario"})
                         continue
                     session_manager.initialize(config)
-                    await websocket.send_json({"type": "SETUP_COMPLETE", "config": session_manager.setup_config})
+                    await websocket.send_json({
+                        "type": "SETUP_COMPLETE",
+                        "config": session_manager.setup_config,
+                        "trackedProfiles": session_manager._tracked_profiles(session_manager.tracked_household_ids),
+                    })
                 except Exception as e:
                     logger.exception("SETUP failed")
                     await websocket.send_json({"error": f"SETUP failed: {e}"})

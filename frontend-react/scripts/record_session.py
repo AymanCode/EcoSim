@@ -7,7 +7,8 @@ and server message in wire order. Server errors are recorded, not fatal.
 Every receive is bounded (``quiet_seconds`` per message, ``deadline_seconds`` for the
 whole recording) with SIGALRM, so ``record`` must run on the main thread. On a
 timeout the footer carries ``aborted`` with the reason and ``TimeoutError`` is raised.
-STOP and FINISH are each sent at most once, scripted ones included.
+STOP and FINISH are each sent at most once, scripted ones included. The CLI's SETUP carries
+``frame_profile`` (``--frame-profile``, default ``lean``, the new client's frame).
 
     .venv/bin/python frontend-react/scripts/record_session.py --households 60 --ticks 24 \
         --out frontend-react/src/test/fixtures/session-compare-small.jsonl
@@ -168,12 +169,15 @@ def main(argv: Optional[List[str]] = None) -> int:
     parser.add_argument("--owner", default="recorder")
     parser.add_argument("--action", action="append", default=[], help='JSON like {"atTick":3,"command":"CONFIG","config":{...}}')
     parser.add_argument("--deadline", type=float, default=120.0, help="seconds allowed for the whole recording")
+    parser.add_argument("--frame-profile", choices=("lean", "legacy"), default="lean",
+                        help="SETUP frame_profile (lean: the new client's frame; legacy: the old dashboard's)")
     parser.add_argument("--out", required=True)
     args = parser.parse_args(argv)
     setup: Dict[str, Any] = {
         "num_households": args.households, "num_firms": args.firms, "seed": args.seed,
         "horizon_ticks": args.ticks, "tracked_households": args.tracked,
         "initial_policy": json.loads(args.initial_policy), "enable_llm_government": False,
+        "frame_profile": args.frame_profile,
     }
     if args.experiment:
         setup.update({"experiment_id": args.experiment, "arm_label": args.arm or "Town A", "arm_count": args.arms,

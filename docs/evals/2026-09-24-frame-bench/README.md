@@ -6,6 +6,8 @@ All outcomes describe EcoSim's synthetic economy. They are not real-world foreca
 
 ## Result
 
+Update, 2026-09-25: with the SETUP option `frame_profile: "lean"` (the new client's frame) the same command passes the phase gate; see [Lean profile gate (2026-09-25)](#lean-profile-gate-2026-09-25). The result below is run 1's frame, every per-household key for 40 tracked households, which the `legacy` profile (the current dashboard's) still sends; legacy samples 12 households unless SETUP asks for more.
+
 **The phase-1 gate fails on frame size.** At two towns of 1,000 households, warehouse off, both towns miss the byte budget: the p95 frame is 186,587 bytes for Town A and 188,160 for Town B against a limit of 61,440 (60 KB), about three times over. The other two checks pass: projection plus serialization is 1.9 percent of the median tick for each town (limit 10 percent), and the live session matched the headless runner at every checkpoint. The CLI exited `1`.
 
 | Run | Role | Exit code | Bytes p95 (Town A) | Overhead share (p50) | Equivalence |
@@ -198,6 +200,63 @@ Exit code `1`. Data: [`data/arms4-hh2500-t52-seed1337-whoff.json`](data/arms4-hh
 - checks: {'bytesP95': False, 'overheadShare': True, 'equivalence': True}
 - passed: False
 ```
+
+## Lean profile gate (2026-09-25)
+
+The frame contract change deferred from phase 1 landed as a SETUP option, `frame_profile` (see `docs/WEBSOCKET_PROTOCOL.md`). `"legacy"`, the default, keeps every old frame key for the current dashboard. `"lean"`, for the new client, sends `history`, `traits`, `expectedWageReason` and `recentEvents` only for pinned households, omits `metrics.trackedFirms` and the top-level `firm_stats`, and delivers traits once, in `SETUP_COMPLETE.trackedProfiles` and `TRACKED.profiles`. The bench now sends `frame_profile` in every arm's SETUP (`--frame-profile`, default `lean`); the world, seed and arms are the same as run 1, and lean's default sample is run 1's 40 tracked households. No float rounding was needed. After this run the bench also started sending `tracked_households: 40` explicitly, so a `--frame-profile legacy` run measures the same 40 households instead of legacy's default 12; for lean the explicit value equals the default it resolved here, so the frames are unchanged.
+
+```bash
+.venv/bin/python -m backend.tools.benchmarks.run_frame_bench --households 1000 --ticks 260 --arms 2 --seed 1337
+```
+
+Exit code `0`: the phase gate passes. Data: [`data/arms2-hh1000-t260-seed1337-whoff-lean.json`](data/arms2-hh1000-t260-seed1337-whoff-lean.json). Complete output (`summary.md`):
+
+```markdown
+# Frame bench: 2 arms x 1000 households, 260 ticks, seed 1337, warehouse off, frame profile lean
+
+- wall clock: 51.6 s
+
+## Town A
+- bytes p50 / p95 / max: 41227 / 43876 / 44710
+- tick compute ms p50 / p95: 92.6 / 129.3
+- projection ms p50 / p95: 0.33 / 0.38
+- serialize ms p50 / p95: 0.31 / 0.35
+- inter-frame ms p50 / p95: 195.1 / 236.8
+
+## Town B
+- bytes p50 / p95 / max: 42795 / 45379 / 46186
+- tick compute ms p50 / p95: 92.2 / 130.1
+- projection ms p50 / p95: 0.34 / 0.40
+- serialize ms p50 / p95: 0.32 / 0.36
+- inter-frame ms p50 / p95: 186.9 / 261.3
+
+## Gate
+- Town A: bytes p95 43876 (limit 61440, ok); overhead share of tick (p50) 0.7% (limit 10%, ok)
+- Town B: bytes p95 45379 (limit 61440, ok); overhead share of tick (p50) 0.7% (limit 10%, ok)
+- failing arms: []
+- checks: {'bytesP95': True, 'overheadShare': True, 'equivalence': True}
+- measured checks passed: True
+- phase gate passed: True
+- result: phase gate passed (exit 0)
+
+## Equivalence with the headless smoke runner
+| frame tick | session | smoke (tick-1) | match |
+|---|---|---|---|
+| 13 | 2.1 | 2.1 | True |
+| 26 | 8.2 | 8.200000000000001 | True |
+| 52 | 19.4 | 19.400000000000002 | True |
+| 104 | 25.881168177240685 | 25.88116817724068 | True |
+| 156 | 19.611848825331972 | 19.611848825331972 | True |
+| 208 | 29.7741273100616 | 29.774127310061605 | True |
+| 260 | 36.69724770642202 | 36.69724770642202 | True |
+```
+
+| Frame (2 x 1,000 households, 260 ticks, seed 1337) | Bytes p95, Town A | Bytes p95, Town B | Overhead share (p50) | Equivalence |
+|---|---|---|---|---|
+| before: run 1, every subject key for 40 households (what `legacy` sends at that sample size) | 186,587 | 188,160 | 1.9% | 7 of 7 |
+| after: `lean` | 43,876 | 45,379 | 0.7% | 7 of 7 |
+
+The lean p95 frame is about 76 percent smaller than before and at least 26 percent under the 61,440-byte budget. Serialization fell from about 1.45 ms to 0.31 ms per frame (p50), which accounts for nearly all of the drop in overhead share. The equivalence rows are identical to run 1's: the profile changes only what is sent, never the economy or the session's random stream.
 
 ## Equivalence
 

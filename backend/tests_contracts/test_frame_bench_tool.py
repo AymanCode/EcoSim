@@ -211,3 +211,16 @@ def test_two_arms_run_concurrently_against_a_live_server_and_match_the_smoke_run
     assert all(r["bytes"] > 0 and r["serializeMs"] >= 0.0 for r in results["Town B"][1:])
     equivalence = run_frame_bench.equivalence(records_for_baseline=results["Town A"], households=60, ticks=6, seed=7)
     assert equivalence["matches"] is True, equivalence
+
+
+@pytest.mark.parametrize("profile", [None, "lean", "legacy"])
+def test_each_arm_setup_names_the_frame_profile_lean_by_default(monkeypatch, profile):
+    stub = _StubSocket([{"type": "SESSION"}, {"type": "SETUP_COMPLETE"}, _frame(1), _frame(2),
+                        {"type": "HORIZON_REACHED", "tick": 2}, {"type": "FINISHED"}])
+    monkeypatch.setattr(run_frame_bench, "connect", lambda url, **kwargs: stub)
+    extra = {} if profile is None else {"frame_profile": profile}
+    run_frame_bench.run_experiment(base_url="http://127.0.0.1:1", arms=[{"label": "Town A", "initial_policy": {}}],
+                                   households=10, ticks=2, seed=1, warehouse=False, quiet_seconds=1.0,
+                                   deadline_seconds=5.0, **extra)
+    assert stub.sent[0]["command"] == "SETUP" and stub.sent[0]["config"]["frame_profile"] == (profile or "lean")
+    assert stub.sent[0]["config"]["horizon_ticks"] == 2 and stub.sent[0]["config"]["tracked_households"] == 40

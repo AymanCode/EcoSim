@@ -163,3 +163,16 @@ def test_recorder_sends_stop_and_finish_once(tmp_path, monkeypatch):
     assert [m["command"] for m in socket.sent] == sent
     assert lines[-2]["kind"] == "message" and lines[-2]["message"]["type"] == "FINISHED"
     assert lines[-1]["kind"] == "footer" and "aborted" not in lines[-1] and summary["frames"] == 2
+
+
+@pytest.mark.parametrize("argv, profile", [([], "lean"), (["--frame-profile", "legacy"], "legacy")])
+def test_recorder_cli_sends_the_frame_profile_lean_by_default(tmp_path, monkeypatch, argv, profile):
+    captured = {}
+
+    def fake_record(**kwargs):
+        captured.update(kwargs)
+        return {"frames": 0}
+
+    monkeypatch.setattr(record_session, "record", fake_record)
+    assert record_session.main(["--out", str(tmp_path / "s.jsonl"), *argv]) == 0
+    assert captured["setup"]["frame_profile"] == profile

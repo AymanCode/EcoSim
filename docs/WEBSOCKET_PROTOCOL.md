@@ -9,11 +9,11 @@ connection at open with an error and close code 1013, before SESSION.
 
 | Command | Payload | Reply |
 |---|---|---|
-| `SETUP` | `config`: `SetupConfig` fields. New in frame-2: `experiment_id`, `arm_label`, `arm_count` (1..4), `experiment_owner`, `initial_policy` (lever vector, schema names), `horizon_ticks` (default 260), `tracked_households` (default 40). Legacy `wage_tax`/`profit_tax` are folded into `initial_policy`. | `SETUP_COMPLETE` with `config`, including `experiment` (`id`, `armLabel`, `armCount`, `householdCap`) and `applied_policy`. A failed SETUP leaves no runnable economy. |
-| `START` | none | `STARTED`, then one tick frame per tick. After a `FINISH`, `START` reopens the finished warehouse run first, or replies with an error (`START failed: ...`) if it cannot. |
+| `SETUP` | `config`: `SetupConfig` fields. New in frame-2: `experiment_id`, `arm_label`, `arm_count` (1..4), `experiment_owner`, `initial_policy` (lever vector, schema names), `frame_profile` (`"legacy"`, the default, or `"lean"`; see [Frame profiles](#frame-profiles)), `horizon_ticks` (1..5200; when omitted, 260 under `lean` and no horizon under `legacy`), `tracked_households` (1..200; when omitted, 40 under `lean` and 12 under `legacy`). Legacy `wage_tax`/`profit_tax` are folded into `initial_policy`. | `SETUP_COMPLETE` with `config`, including `experiment` (`id`, `armLabel`, `armCount`, `householdCap`), `applied_policy`, `frame_profile`, and the `horizon_ticks` (an integer or `null`) and `tracked_households` in force; and `trackedProfiles`: `{"<household id>": traits}` for the initial sample, keyed by the id as a string, in both profiles (traits as in the frame's `traits`). A failed SETUP leaves no runnable economy. |
+| `START` | none | `STARTED`, then one tick frame per tick. Without a prior SETUP it builds a default economy under the `legacy` profile (no horizon, 12 tracked households). After a `FINISH`, `START` reopens the finished warehouse run first, or replies with an error (`START failed: ...`) if it cannot. |
 | `STOP` | none | Waits for the loop to stop, or replies with an error (`STOP failed: ...`) if it will not. Then applies queued CONFIG actions in order, sending each `CONFIG_APPLIED`, and sends `STOPPED`. |
 | `CONFIG` | `config`: camelCase aliases or canonical lever names. | Paused: `CONFIG_APPLIED`. Running: `CONFIG_QUEUED` now, `CONFIG_APPLIED` at the next tick boundary with the same `actionId`. Receipt keys: `actionId`, `requested`, `applied`, `rejected` (lever or `_group`), `effectiveTick`. Replay resends `applied` unchanged. |
-| `TRACK` | `action`: `pin`, `unpin`, `follow`, `reshuffle`; `householdId` (an integer) for the first three. | `TRACKED` with `tracked`, `pinned`, `tick`. Sampling uses its own RNG; the economy is unaffected. |
+| `TRACK` | `action`: `pin`, `unpin`, `follow`, `reshuffle`; `householdId` (an integer) for the first three. | `TRACKED` with `tracked`, `pinned`, `tick` and `profiles`: traits of the households this command added to the sample (`follow` of an untracked household, `reshuffle`), keyed by the id as a string; `{}` for `pin`, `unpin` and a `follow` of a household already tracked. Sampling uses its own RNG; the economy is unaffected. |
 | `FINISH` | none | Waits for the loop to stop, or replies with an error (`FINISH failed: ...`) if it will not. Then applies queued CONFIG actions in order, sending each `CONFIG_APPLIED`, and sends `FINISHED` with `tick`, `analysisReady`, `runId`, `drained` (number of queued actions applied). Marks the warehouse run completed, keeps the session and the run open. |
 | `EXTEND` | `ticks` (1..5200) | `EXTENDED` with `horizonTick`, `tick`, `resumed`. Reopens a finalized run and resumes the loop; no START needed. Replies with an error (`EXTEND failed: ...`) when the run cannot be reopened. |
 | `RESET` | none | `RESET`. Legacy: zeroes the tick without rebuilding the economy and discards queued CONFIG actions. The new client sends `SETUP` again instead. |
@@ -31,11 +31,30 @@ exceed 10,000 in total, duplicate an `arm_label`, add a fifth arm, come from a
 different owner, or use a different world. Reservations are released on
 disconnect or on the session's next `SETUP`.
 
+## Frame profiles
+
+`frame_profile` chosen at SETUP decides what each tick frame carries. It is presentation only: it is not part
+of an experiment's shared world, and it never changes the economy or the session's random streams.
+
+- `"legacy"` (the default, for the current dashboard): every key of the previous frame with its old meaning,
+  plus the frame-2 keys below, with the pre-frame-2 defaults (no horizon, 12 tracked households) when SETUP
+  omits them.
+- `"lean"` (for the new client), which differs from legacy only in these omissions:
+  - Each `metrics.trackedSubjects` entry omits `history`, `traits`, `expectedWageReason` and `recentEvents`,
+    unless its household is pinned (`metrics.pinnedHouseholdIds`); pinned entries keep all four. Every other
+    subject field is sent as in legacy. The server keeps sampling each tracked household's history either way,
+    so a household pinned later arrives with its history.
+  - `metrics.trackedFirms` and the top-level `firm_stats` are absent (not `null`).
+  - Traits travel out of band instead: `SETUP_COMPLETE.trackedProfiles` for the initial sample and
+    `TRACKED.profiles` for households added later. Traits do not change during a run.
+
 ## Tick frame
 
-All keys of the previous frame are unchanged. Added at the top level, every tick:
+All keys of the previous frame are unchanged (the `lean` profile omits the ones listed under
+[Frame profiles](#frame-profiles)). Added at the top level, every tick:
 
 - `schemaVersion`: `"frame-2"`.
+- `frameProfile`: `"legacy"` or `"lean"`, as chosen at SETUP.
 - `arm`: `{"experimentId", "armLabel", "armCount"}` as given at SETUP; `experimentId` and `armLabel` are
   `null` and `armCount` is `1` when the session is not part of an experiment.
 - `horizonTick`: the tick at which the loop pauses with `HORIZON_REACHED` (an integer, or `null` when no
@@ -107,4 +126,4 @@ Added inside `metrics`:
 - Policy-change records in `metrics.policyChanges` carry `actionId`: a
   12-character id for user actions and `null` for automatic ones.
 - Per tracked household, `recentEvents` lists its last five events as
-  `{"tick", "type", "firmName", "value"}`.
+  `{"tick", "type", "firmName", "value"}` (under `lean`, pinned households only).
