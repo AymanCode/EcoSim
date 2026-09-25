@@ -1,9 +1,9 @@
 // Numbers and events into plain sentences. Pure functions over arms from
 // data/session.js; all wording lives here or in catalog.js.
 
-import { METRICS, NO_CHANGES, describePolicy, formatMetric, joinPhrases, leverName, leverValuePhrase } from './catalog.js'
+import { METRICS, NO_CHANGES, describePolicy, formatMetric, formatMoney, joinPhrases, leverName, leverValuePhrase } from './catalog.js'
 import { firmDisplayName, householdName as defaultHouseholdName } from './names.js'
-import { snapshotAt, valueAt } from './data/derive.js'
+import { householdState, snapshotAt, valueAt } from './data/derive.js'
 
 const WEEKS_PER_YEAR = 52
 const OUT = 'peopleOutOfWorkPer100'
@@ -209,5 +209,25 @@ export function eventSentence(event, names = {}) {
     }
     default:
       return FALLBACK
+  }
+}
+
+const weeks = n => `${n} week${n === 1 ? '' : 's'}`
+
+// What a household card says when nothing has happened to it lately.
+export function householdStateSentence(subject, { employerName } = {}) {
+  const arrears = Number(subject?.rentArrears) || 0
+  switch (householdState(subject)) {
+    case 'home':
+      return 'Has no home right now.'
+    case 'work':
+      if (arrears >= 1) return `Working, but ${formatMoney(arrears)} behind on rent.`
+      return employerName ? `Steady work at ${employerName}.` : 'In steady work.'
+    case 'look': {
+      const duration = Math.round(Number(subject?.unemploymentDuration) || 0)
+      return duration > 0 ? `Has been looking for work for ${weeks(duration)}.` : 'Just started looking for work.'
+    }
+    default:
+      return 'Not working right now.'
   }
 }

@@ -74,3 +74,22 @@ export function eventsUpTo(arm, tick, limit = Infinity) {
   for (let i = last; i >= 0 && out.length < limit; i -= 1) out.push(events[i])
   return out
 }
+
+// A tracked household's situation: 'home' (lost their home), 'work', 'look'
+// (able to work, no job) or 'idle' (not able to work).
+export function householdState(subject) {
+  if (subject?.housingSecurity === false) return 'home'
+  if (subject?.isEmployed) return 'work'
+  if (subject?.canWork) return 'look'
+  return 'idle'
+}
+
+// The newest event about one household at or before `tick`, or null.
+export function latestEventFor(arm, householdId, tick) {
+  const events = arm?.events ?? []
+  for (let i = events.length - 1; i >= 0; i -= 1) {
+    const event = events[i]
+    if (event.tick <= tick && event.householdId === householdId) return event
+  }
+  return null
+}

@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest'
-import { weekLabel, leadSentence, verdict, eventSentence } from '../narration.js'
+import { weekLabel, leadSentence, verdict, eventSentence, householdStateSentence } from '../narration.js'
 import { householdName } from '../names.js'
 import { fixtureArm, TOWN_A, TOWN_B } from './fixture.js'
 
@@ -107,5 +107,19 @@ describe('eventSentence', () => {
 
   test('has a fallback for an unknown type', () => {
     expect(eventSentence(ev('mystery'))).toBe('Something changed in the town.')
+  })
+})
+
+describe('householdStateSentence', () => {
+  const base = { housingSecurity: true, isEmployed: true, canWork: true, rentArrears: 0, unemploymentDuration: 0 }
+
+  test('one sentence per situation', () => {
+    expect(householdStateSentence(base, { employerName: 'Harbor Grocers' })).toBe('Steady work at Harbor Grocers.')
+    expect(householdStateSentence({ ...base, rentArrears: 120.4 })).toBe('Working, but $120 behind on rent.')
+    expect(householdStateSentence({ ...base, isEmployed: false, unemploymentDuration: 3 })).toBe('Has been looking for work for 3 weeks.')
+    expect(householdStateSentence({ ...base, isEmployed: false, unemploymentDuration: 1 })).toBe('Has been looking for work for 1 week.')
+    expect(householdStateSentence({ ...base, isEmployed: false })).toBe('Just started looking for work.')
+    expect(householdStateSentence({ ...base, housingSecurity: false })).toBe('Has no home right now.')
+    expect(householdStateSentence({ ...base, isEmployed: false, canWork: false })).toBe('Not working right now.')
   })
 })

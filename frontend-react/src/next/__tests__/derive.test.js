@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest'
-import { commonTicks, valueAt, snapshotAt, seriesUpTo, compareAt, eventsUpTo } from '../data/derive.js'
+import { commonTicks, valueAt, snapshotAt, seriesUpTo, compareAt, eventsUpTo, householdState, latestEventFor } from '../data/derive.js'
 import { fixtureArm, TOWN_A, TOWN_B } from './fixture.js'
 
 const KEY = 'peopleOutOfWorkPer100'
@@ -84,5 +84,25 @@ describe('eventsUpTo', () => {
     const arm = fixtureArm()
     expect(eventsUpTo(arm, 24)).toHaveLength(arm.events.length)
     expect(eventsUpTo(arm, 0)).toEqual([])
+  })
+})
+
+describe('householdState', () => {
+  test('reads lost home first, then work, then looking', () => {
+    expect(householdState({ housingSecurity: false, isEmployed: true, canWork: true })).toBe('home')
+    expect(householdState({ housingSecurity: true, isEmployed: true, canWork: true })).toBe('work')
+    expect(householdState({ housingSecurity: true, isEmployed: false, canWork: true })).toBe('look')
+    expect(householdState({ housingSecurity: true, isEmployed: false, canWork: false })).toBe('idle')
+  })
+})
+
+describe('latestEventFor', () => {
+  test('finds the newest event about a household at or before the tick', () => {
+    const arm = fixtureArm()
+    // Household 13 was hired in week 1 and laid off in week 11.
+    expect(latestEventFor(arm, 13, 10)).toMatchObject({ type: 'hired', tick: 1 })
+    expect(latestEventFor(arm, 13, 24)).toMatchObject({ type: 'laid_off', tick: 11 })
+    expect(latestEventFor(arm, 13, 0)).toBeNull()
+    expect(latestEventFor(arm, 9999, 24)).toBeNull()
   })
 })

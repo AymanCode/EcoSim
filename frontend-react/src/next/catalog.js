@@ -335,3 +335,96 @@ export function describePolicy(initialPolicy) {
   }
   return joinPhrases(phrases)
 }
+
+// Panel copy for the Run screen.
+
+export const SECTORS = {
+  Food: 'Food', Housing: 'Housing', Services: 'Services', Healthcare: 'Healthcare', PublicWorks: 'Public works',
+}
+
+export function sectorName(sector) {
+  return SECTORS[sector] ?? sector ?? ''
+}
+
+export const HOUSEHOLD_STATES = {
+  work: { legend: 'working', chip: 'Working' },
+  look: { legend: 'looking for work', chip: 'Looking for work' },
+  home: { legend: 'lost their home', chip: 'Lost their home' },
+  idle: { legend: 'not working', chip: 'Not working' },
+}
+
+export const FIRM_STATES = {
+  growing: 'Growing', steady: 'Steady', struggling: 'Struggling', closed: 'Closed',
+}
+
+const counted = (n, one, many = `${one}s`) => `${n} ${n === 1 ? one : many}`
+
+// Notes use **word** for the bold lead-in the panel renders.
+function howToNotes(armCount) {
+  const tick = armCount >= 2
+    ? `A **tick** is one week. ${armCount === 2 ? 'Both towns' : 'All the towns'} run the same week at the same time, from the same starting point, so any difference you see is caused by the rules.`
+    : 'A **tick** is one week. The town moves forward a week at a time, and the timeline takes you back to any week you have already seen.'
+  const rules = armCount >= 2
+    ? `The **first town** keeps the usual rules. ${armCount === 2 ? 'The second changes' : 'Each of the others changes'} the ones named under its title, and that change is what the towns are testing.`
+    : "The **town hall** sets the rules: taxes, benefits, the minimum wage. The ones in force are named under the town's title."
+  return [
+    tick,
+    rules,
+    'Every **house** is 1 in 100 households. Green ones have someone working, amber ones are looking for work, red ones have lost their home. The household cards introduce a few of the families.',
+    "Every building on **Main street** is a firm. Taller means more staff. A flag means it's struggling to pay wages or rent, a cross means it closed.",
+  ]
+}
+
+export const COPY = {
+  town: {
+    hall: 'Town hall',
+    bank: 'Bank',
+    mainStreet: 'Main street',
+    houseScale: total => {
+      const per = Number(total) / 100
+      if (Number.isInteger(per) && per >= 1) return `each house is ${counted(per, 'household')}`
+      return 'each house is 1 in 100 households'
+    },
+    moreBuildings: n => `+${n} more`,
+    outOfWork: 'out of work',
+    typicalPay: 'typical weekly pay',
+    firms: n => counted(n, 'firm'),
+    firmStates: (struggling, closed) => `${struggling} struggling, ${closed} closed`,
+    altHouses: (work, look, home) => `Out of every 100 households: ${work} working, ${look} looking for work, ${home} lost their home.`,
+    altFirms: (open, struggling, closed) => `${counted(open, 'firm')} open: ${struggling} struggling. ${closed} closed in the last year.`,
+  },
+  businesses: {
+    title: 'Businesses',
+    subtitle: 'richest first, cash in the bank',
+    staff: n => `${n} staff`,
+    closedWhen: when => `closed ${when}`,
+    seeAll: n => `See all ${n}`,
+    showFewer: 'Show fewer',
+    empty: 'No businesses are open yet.',
+  },
+  households: {
+    title: 'Households',
+    subtitle: 'four from the sample, follow one to keep it here',
+    nameAge: (name, age) => (age == null ? name : `${name}, ${age}`),
+    worksAt: firm => `Works at ${firm}`,
+    looking: 'Looking for work',
+    notWorking: 'Not working',
+    saved: 'saved',
+    follow: 'Follow',
+    following: 'Following',
+    followLabel: (visible, name) => `${visible} ${name}`,
+    showOthers: 'Show me four others',
+    empty: 'No households in the sample yet.',
+  },
+  feed: {
+    title: "What's happening",
+    subtitle: 'newest first',
+    when: (week, town) => `${week}, ${town}`,
+    empty: 'Nothing has happened yet.',
+  },
+  howTo: {
+    title: 'How to read this',
+    subtitle: 'for first-timers',
+    notes: howToNotes,
+  },
+}
