@@ -6402,6 +6402,12 @@ class Economy:
                 self.households,
                 k=min(len(self.households), max(1, int(len(self.households) * _rng.uniform(0.05, 0.15))))
             )
+            self._append_regime_event(
+                event_type="shock_demand",
+                entity_type="economy",
+                metric_value=float(shock_magnitude),
+                payload={"affected": int(len(affected_households))},
+            )
             if self.payment_sequence != "legacy":
                 if shock_magnitude >= 0.0:
                     # A household income shock is a funded public outlay, not
@@ -6439,6 +6445,12 @@ class Economy:
             num_affected = min(len(self.firms), _rng.randint(1, 3))
             affected_firms = _rng.sample(self.firms, k=num_affected)
             productivity_change = _rng.uniform(0.85, 1.15)  # ±15% productivity
+            self._append_regime_event(
+                event_type="shock_supply",
+                entity_type="economy",
+                metric_value=float(productivity_change),
+                payload={"affected": int(len(affected_firms))},
+            )
             for firm in affected_firms:
                 # Temporarily adjust production capacity
                 if hasattr(firm, 'last_units_produced') and firm.last_units_produced > 0:
@@ -6451,6 +6463,12 @@ class Economy:
             affected_households = _rng.sample(
                 self.households,
                 k=min(len(self.households), max(1, int(len(self.households) * _rng.uniform(0.01, 0.05))))
+            )
+            self._append_regime_event(
+                event_type="shock_health",
+                entity_type="economy",
+                metric_value=float(health_shock),
+                payload={"affected": int(len(affected_households))},
             )
             for h in affected_households:
                 h.health = max(0.0, min(1.0, h.health + health_shock))

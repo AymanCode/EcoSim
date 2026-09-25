@@ -40,6 +40,7 @@ from config import clone_config, use_config
 from policy_schema import ORDERED_LEVERS, VALID_LEVERS, normalize_current_policy
 from policy_vectors import PolicyVectorError, validate_lever_value, validate_policy_vector
 from experiments import ExperimentError, ExperimentRegistry  # noqa: F401
+from frame_events import TickEventCollector
 from utils.category_utils import get_good_category_capitalized
 from tools.runners.run_large_simulation import (
     create_large_economy,
@@ -425,8 +426,13 @@ class SimulationManager:
         self.tracked_household_count: int = self.DEFAULT_TRACKED_HOUSEHOLDS
         self.pinned_household_ids: List[int] = []
         self._sample_rng = random.Random(self.config.random_seed ^ self.SAMPLE_RNG_SALT)
+        self.event_collector = TickEventCollector()
+        self.last_events: List[Dict[str, Any]] = []
+        self.last_event_counts: Dict[str, int] = {}
         self.metrics_stride = 5
         self.policy_changes = []
+        # Every policy record since the last tick's event collection; policy_changes keeps only five.
+        self.pending_policy_events: List[Dict[str, Any]] = []
         self.cached_stats = None
         self.cached_firm_stats = None
         self.cached_econ_metrics = None
@@ -1475,8 +1481,9 @@ class SimulationManager:
         }
 
     def _append_policy_change_ui_record(self, policy: str, value: Any, reason: str, action_id: Optional[str] = None) -> None:
-        """Maintain the small recent-policy list used by the frontend."""
+        """Maintain the small recent-policy list used by the frontend and queue the record for the next tick's events."""
         change_record = {"tick": self.tick, "policy": policy, "value": value, "reason": reason, "actionId": action_id}
+        self.pending_policy_events.append(change_record)
         self.policy_changes.insert(0, change_record)
         if len(self.policy_changes) > 5:
             self.policy_changes.pop()
@@ -2209,6 +2216,7 @@ class SimulationManager:
         self.setup_config["applied_policy"] = self._snapshot_government_levers()
         self.pending_config_updates = []
         self.policy_changes = []
+        self.pending_policy_events = []
             
         self.tick = 0
         self.logs = []
@@ -2279,6 +2287,9 @@ class SimulationManager:
         self.tracked_firm_ids = []
         self.firm_histories = {}
         self._select_tracked_firms()
+        self.event_collector.reset(self.economy)
+        self.last_events = []
+        self.last_event_counts = {}
         self._open_warehouse_run(config=config, num_households=num_households, num_firms=num_firms)
             
         logger.info("Economy initialized")
@@ -2420,6 +2431,22 @@ class SimulationManager:
                     policy_after=self._snapshot_government_policy(),
                 )
                 self._buffer_simulation_events()
+                projection_started = time.perf_counter()
+                self.last_events, self.last_event_counts = self.event_collector.collect(
+                    economy=self.economy,
+                    tick=self.tick,
+                    tracked_household_ids=set(self.tracked_household_ids),
+                    policy_changes=self.pending_policy_events,
+                )
+                self.pending_policy_events = []
+                for event in self.last_events:
+                    hid = event.get("householdId")
+                    if hid in self.subject_histories:
+                        bucket = self.subject_histories[hid]["events"]
+                        bucket.append({"tick": event["tick"], "type": event["type"], "firmName": event.get("firmName"),
+                                       "value": event.get("value")})
+                        del bucket[:-20]
+                projection_ms = (time.perf_counter() - projection_started) * 1000.0
                 sample_history = (self.tick == 1) or (self.tick % history_stride == 0)
 
                 llm_decision_due = self.economy.should_run_llm_government()
@@ -2949,7 +2976,14 @@ class SimulationManager:
                         "pinnedHouseholdIds": list(self.pinned_household_ids),
                     },
                     "logs": new_logs,
-                    "firm_stats": firm_stats
+                    "firm_stats": firm_stats,
+                    "schemaVersion": "frame-2",
+                    "arm": {"experimentId": self.experiment_id, "armLabel": self.arm_label, "armCount": self.arm_count},
+                    "horizonTick": self.horizon_tick,
+                    "events": self.last_events,
+                    "eventCounts": self.last_event_counts,
+                    "firmsClosed": self.event_collector.closed_archive(self.tick),
+                    "projectionMs": projection_ms,
                 }
                 
                 # Send update
@@ -3617,6 +3651,11 @@ async def websocket_endpoint(websocket: WebSocket):
                 if dropped:
                     logger.warning("RESET discarded %d queued CONFIG action(s) session=%s", dropped, session_id)
                 session_manager.tick = 0
+                if session_manager.economy is not None:
+                    session_manager.event_collector.reset(session_manager.economy)
+                session_manager.last_events = []
+                session_manager.last_event_counts = {}
+                session_manager.pending_policy_events = []
                 await websocket.send_json({"type": "RESET", "tick": 0})
             elif command == "CONFIG":
                 config_data = data.get("config", {})

@@ -33,7 +33,36 @@ disconnect or on the session's next `SETUP`.
 
 ## Tick frame
 
-All keys of the previous frame are unchanged. Added inside `metrics`:
+All keys of the previous frame are unchanged. Added at the top level, every tick:
+
+- `schemaVersion`: `"frame-2"`.
+- `arm`: `{"experimentId", "armLabel", "armCount"}` as given at SETUP; `experimentId` and `armLabel` are
+  `null` and `armCount` is `1` when the session is not part of an experiment.
+- `horizonTick`: the tick at which the loop pauses with `HORIZON_REACHED` (an integer, or `null` when no
+  horizon is set).
+- `events`: this tick's typed events, each sent once, at most 50, firm/policy/default/shock/regime events
+  first. Each is `{"id", "tick", "type", "householdId", "firmId", "firmName", "sector", "value", "text"}`;
+  `type` is `firm_opened`, `firm_closed`, `policy_changed`, `loan_default`, `shock`, `regime`, `hired`,
+  `laid_off`, `care_denied` or `care_completed`. Events about a household (hires, layoffs, care, household
+  loan defaults and household regime events such as `eviction`) carry `householdId` and appear only for
+  tracked households; firm regime events carry `firmId` and `firmName`. `value` by type:
+  - `firm_opened`: staff at opening; `firm_closed`: `null` (`text` is the bankruptcy reason code, or `null`).
+  - `policy_changed`: the lever value when numeric, else `null` (`text` is `lever=value`).
+  - `loan_default`: currency written off.
+  - `shock`: magnitude (cash per household for `shock_demand`, productivity factor for `shock_supply`,
+    health change for `shock_health`; `text` is the shock type).
+  - `regime`: the event's metric, or its severity when it has none (`text` is the regime event type).
+  - `hired`, `laid_off`: wage; `care_denied`, `care_completed`: visit price.
+- `eventCounts`: this tick's totals over the whole economy (`hired`, `laidOff`, `careDenied`,
+  `careCompleted`, `firmsOpened`, `firmsClosed`, `loanDefaults`, `policyChanges`, `shocks`, `regime`),
+  plus `detailed` (events sent) and `dropped` (events over the cap).
+- `firmsClosed`: firms closed in the last 52 ticks, each `{"id", "name", "sector", "closedTick", "lastStaff"}`.
+- `projectionMs`: milliseconds the server spent building this tick's events.
+
+A legacy `RESET` also restarts event collection: the closed-firm list empties and earlier policy
+changes and defaults are not reported again.
+
+Added inside `metrics`:
 
 - `pinnedHouseholdIds`: ids of the pinned households, every tick.
 - Per tracked household in `metrics.trackedSubjects`: `rentArrears` (rent owed,
@@ -41,3 +70,5 @@ All keys of the previous frame are unchanged. Added inside `metrics`:
   next lease renewal, `-1` when the household has no lease), every tick.
 - Policy-change records in `metrics.policyChanges` carry `actionId`: a
   12-character id for user actions and `null` for automatic ones.
+- Per tracked household, `recentEvents` lists its last five events as
+  `{"tick", "type", "firmName", "value"}`.

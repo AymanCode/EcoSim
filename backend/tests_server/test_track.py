@@ -1,5 +1,6 @@
 import pickle
 import sys
+from types import SimpleNamespace
 from pathlib import Path
 
 from fastapi.testclient import TestClient
@@ -201,3 +202,117 @@ def test_frame_reports_arrears_and_the_lease_sentinel_only_for_renters(monkeypat
         assert subjects[evicted_id]["leaseRenewalTick"] == -1
         assert subjects[renter_id]["hasRental"] is True
         assert subjects[renter_id]["leaseRenewalTick"] == 30
+
+
+def test_frames_carry_a_forced_policy_event(monkeypatch):
+    monkeypatch.setenv("ECOSIM_ENABLE_WAREHOUSE", "0")
+    registry = server.SessionRegistry(max_sessions=2)
+    monkeypatch.setattr(server, "session_registry", registry)
+    client = TestClient(server.app)
+    with client.websocket_connect("/ws") as ws:
+        until(ws, lambda m: m.get("type") == "SESSION")
+        assert setup(ws, {**SMALL, "horizon_ticks": 3}).get("type") == "SETUP_COMPLETE"
+        ws.send_json({"command": "CONFIG", "config": {"benefitLevel": "high"}})
+        receipt = until(ws, lambda m: m.get("type") in {"CONFIG_APPLIED", "CONFIG_QUEUED"} or "error" in m)
+        assert receipt["type"] == "CONFIG_APPLIED"
+        ws.send_json({"command": "START"})
+        frames = []
+
+        def watch(msg):
+            if "metrics" in msg:
+                frames.append(msg)
+            return msg.get("type") == "HORIZON_REACHED"
+
+        until(ws, watch)
+        assert frames[0]["schemaVersion"] == "frame-2"
+        policy_events = [e for f in frames for e in f["events"] if e["type"] == "policy_changed"]
+        assert [e["text"] for e in policy_events] == ["benefit_level=high"]
+        assert policy_events[0]["id"].endswith(f":policy_changed:{receipt['actionId']}:benefit_level")
+        assert all("hired" in f["eventCounts"] and isinstance(f["firmsClosed"], list) for f in frames)
+
+
+def _frames_until_horizon(ws):
+    frames = []
+
+    def watch(msg):
+        if "metrics" in msg:
+            frames.append(msg)
+        return msg.get("type") == "HORIZON_REACHED"
+
+    until(ws, watch)
+    return frames
+
+
+def test_six_policy_changes_in_one_tick_are_all_events(monkeypatch):
+    monkeypatch.setenv("ECOSIM_ENABLE_WAREHOUSE", "0")
+    registry = server.SessionRegistry(max_sessions=2)
+    monkeypatch.setattr(server, "session_registry", registry)
+    client = TestClient(server.app)
+    with client.websocket_connect("/ws") as ws:
+        until(ws, lambda m: m.get("type") == "SESSION")
+        assert setup(ws, {**SMALL, "horizon_ticks": 1}).get("type") == "SETUP_COMPLETE"
+        # five legacy fields at their defaults plus one lever: six records, one more than the UI list keeps
+        ws.send_json({"command": "CONFIG", "config": {
+            "universalBasicIncome": 0.0, "wealthTaxRate": 0.0, "wealthTaxThreshold": 1_000_000.0,
+            "inflationRate": 0.02, "birthRate": 0.0, "benefitLevel": "high"}})
+        receipt = until(ws, lambda m: m.get("type") in {"CONFIG_APPLIED", "CONFIG_QUEUED"} or "error" in m)
+        assert receipt["type"] == "CONFIG_APPLIED"
+        ws.send_json({"command": "START"})
+        frame = _frames_until_horizon(ws)[-1]
+        policy_events = [e for e in frame["events"] if e["type"] == "policy_changed"]
+        assert len(policy_events) == 6 and all(receipt["actionId"] in e["id"] for e in policy_events)
+        assert frame["eventCounts"]["policyChanges"] == 6
+        assert len(frame["metrics"]["policyChanges"]) == 5
+
+
+def test_reset_restarts_the_event_collector(monkeypatch):
+    monkeypatch.setenv("ECOSIM_ENABLE_WAREHOUSE", "0")
+    registry = server.SessionRegistry(max_sessions=2)
+    monkeypatch.setattr(server, "session_registry", registry)
+    client = TestClient(server.app)
+    with client.websocket_connect("/ws") as ws:
+        session = until(ws, lambda m: m.get("type") == "SESSION")
+        assert setup(ws, {**SMALL, "horizon_ticks": 1}).get("type") == "SETUP_COMPLETE"
+        manager = registry.get(session["sessionId"])
+        gone = manager.economy.firms[0].firm_id
+        # the collector saw the first firm close at tick 100 of the run being reset
+        manager.event_collector.collect(
+            economy=SimpleNamespace(firms=manager.economy.firms[1:]), tick=100,
+            tracked_household_ids=set(), policy_changes=[],
+        )
+        assert manager.event_collector.closed_archive(100)[0]["id"] == gone
+        ws.send_json({"command": "RESET"})
+        assert until(ws, lambda m: m.get("type") == "RESET" or "error" in m)["type"] == "RESET"
+        ws.send_json({"command": "START"})
+        first = _frames_until_horizon(ws)[0]
+        assert first["firmsClosed"] == []
+        assert not [e for e in first["events"] if e["type"] == "firm_opened" and e["firmId"] == gone]
+
+
+def test_recent_events_on_a_tracked_subject_come_from_its_events(monkeypatch):
+    monkeypatch.setenv("ECOSIM_ENABLE_WAREHOUSE", "0")
+    registry = server.SessionRegistry(max_sessions=2)
+    monkeypatch.setattr(server, "session_registry", registry)
+    client = TestClient(server.app)
+    with client.websocket_connect("/ws") as ws:
+        session = until(ws, lambda m: m.get("type") == "SESSION")
+        assert setup(ws, {**SMALL, "horizon_ticks": 2}).get("type") == "SETUP_COMPLETE"
+        manager = registry.get(session["sessionId"])
+        hid = manager.tracked_household_ids[0]
+        real_collect = manager.event_collector.collect
+
+        def collect(**kwargs):
+            _, counts = real_collect(**kwargs)
+            hire = {"id": f"{kwargs['tick']}:hired:{hid}:0", "tick": kwargs["tick"], "type": "hired",
+                    "householdId": hid, "firmId": 1, "firmName": "Corner Bakery", "sector": None,
+                    "value": 40.0, "text": None}
+            return [hire], counts
+
+        monkeypatch.setattr(manager.event_collector, "collect", collect)
+        ws.send_json({"command": "START"})
+        frames = _frames_until_horizon(ws)
+        assert len(frames) == 2
+        subject = next(s for s in frames[-1]["metrics"]["trackedSubjects"] if s["id"] == hid)
+        assert [e["type"] for e in subject["recentEvents"]] == ["hired", "hired"]
+        assert subject["recentEvents"][-1] == {"tick": 2, "type": "hired", "firmName": "Corner Bakery", "value": 40.0}
+        assert any(e["type"] == "hired" and e["householdId"] == hid for e in frames[-1]["events"])
