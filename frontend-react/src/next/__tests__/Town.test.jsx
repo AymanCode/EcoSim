@@ -91,6 +91,25 @@ describe('Town', () => {
     expect(buildings[9]).toHaveClass('is-closed')
   })
 
+  test('the town hall pulses for four weeks after the rules change', () => {
+    const arm = fixtureArm()
+    arm.policyChanges = [{ id: 'c1', tick: 15, policy: 'minimum_wage_policy', value: 'high' }]
+    const { container, rerender } = render(<Town arm={arm} tick={17} />)
+    const hall = () => container.querySelector('.nx-townhall')
+    expect(hall()).toHaveClass('is-changed')
+    const ring = hall().querySelector('circle.nx-hall-ring')
+    expect(ring.style.stroke).toBe('rgb(46, 111, 224)')
+    expect(hall().querySelector('title')).toHaveTextContent('Town hall: new rules this month')
+    expect(container.querySelector('.nx-sr')).toHaveTextContent('Town hall: new rules this month')
+    rerender(<Town arm={arm} tick={21} />)
+    expect(hall()).not.toHaveClass('is-changed')
+    expect(hall().querySelector('.nx-hall-ring')).toBeNull()
+    expect(hall().querySelector('title')).toBeNull()
+    expect(container.querySelector('.nx-sr')).not.toHaveTextContent('new rules')
+    rerender(<Town arm={arm} tick={14} />)
+    expect(hall()).not.toHaveClass('is-changed')
+  })
+
   test('has three facts and a text alternative for the drawing', () => {
     const { container, getByText } = render(<Town arm={fixtureArm()} tick={11} />)
     expect(getByText('42 in 100')).toBeInTheDocument()

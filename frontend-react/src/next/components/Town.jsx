@@ -16,6 +16,7 @@ const STREET_LEFT = 26
 const STREET_RIGHT = W - 26
 const MAX_BUILDINGS = 16
 const MORE_ROOM = 58
+const HALL_PULSE_WEEKS = 4
 const CIVIC = [
   { x: 200, label: COPY.town.hall, hall: true },
   { x: 300, label: COPY.town.bank, hall: false },
@@ -129,14 +130,31 @@ function House({ x, y, state, className }) {
   )
 }
 
-function Civic({ x, label, hall, color }) {
+// The newest rule change in the last four weeks, or null. Changes are kept in
+// tick order.
+function recentChange(arm, tick) {
+  const changes = arm?.policyChanges ?? []
+  for (let i = changes.length - 1; i >= 0; i -= 1) {
+    if (changes[i].tick > tick) continue
+    return changes[i].tick > tick - HALL_PULSE_WEEKS ? changes[i] : null
+  }
+  return null
+}
+
+// The town hall pulses a ring in the town's colour while its rules are new;
+// a newer change starts the pulse again.
+function Civic({ x, label, hall, color, changed }) {
   return (
-    <g>
+    <g className={hall ? `nx-townhall${changed ? ' is-changed' : ''}` : undefined}>
+      {changed && <title>{COPY.town.hallChanged}</title>}
       <rect className="nx-civic" x={x} y={34} width={74} height={32} />
       <path className="nx-civic" d={`M${x - 4} 34 L${x + 37} 15 L${x + 78} 34 Z`} />
       {[0, 1, 2, 3].map(i => <rect key={i} className="nx-pillar" x={x + 9 + i * 17} y={40} width={5} height={26} />)}
       {hall && <rect x={x + 35} y={5} width={3} height={12} style={{ fill: color }} />}
       <text className="nx-label" x={x + 37} y={80} textAnchor="middle">{label}</text>
+      {changed && (
+        <circle key={changed.id ?? changed.tick} className="nx-hall-ring" cx={x + 37} cy={47} r={45} style={{ stroke: color }} />
+      )}
     </g>
   )
 }
@@ -146,6 +164,7 @@ export default function Town({ arm, tick }) {
   const layout = useMemo(() => houseLayout(seed), [seed])
   const snapshot = snapshotAt(arm, tick)
   const street = useMemo(() => streetLayout(snapshot), [snapshot])
+  const changed = recentChange(arm, tick)
 
   const total = valueAt(arm, 'householdsTotal', tick)
   const homelessCount = valueAt(arm, 'homelessHouseholds', tick) ?? 0
@@ -164,7 +183,7 @@ export default function Town({ arm, tick }) {
     <div className="nx-card nx-townc">
       <svg className="nx-town" viewBox={`0 0 ${W} ${H}`} aria-hidden="true" focusable="false">
         <rect className="nx-ground" x={0} y={0} width={W} height={H} rx={10} />
-        {CIVIC.map(civic => <Civic key={civic.label} {...civic} color={arm?.color} />)}
+        {CIVIC.map(civic => <Civic key={civic.label} {...civic} color={arm?.color} changed={civic.hall ? changed : null} />)}
         {street.buildings.map(({ key, ...building }) => <Building key={key} {...building} />)}
         {street.hidden > 0 && (
           <text className="nx-bldg-more" x={street.moreX} y={STREET_Y - 8}>{COPY.town.moreBuildings(street.hidden)}</text>
@@ -178,6 +197,7 @@ export default function Town({ arm, tick }) {
       <ul className="nx-sr">
         <li>{COPY.town.altHouses(work, look, home)}</li>
         <li>{COPY.town.altFirms(firmsOpen, struggling, closed)}</li>
+        {changed && <li>{COPY.town.hallChanged}</li>}
       </ul>
       <div className="nx-legend" aria-hidden="true">
         {['work', 'look', 'home'].map(state => (

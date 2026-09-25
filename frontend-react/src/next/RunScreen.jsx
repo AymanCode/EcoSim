@@ -8,6 +8,7 @@ import HorizonBar from './components/HorizonBar.jsx'
 import HouseholdCards from './components/HouseholdCards.jsx'
 import HowToRead from './components/HowToRead.jsx'
 import LostPanel from './components/LostPanel.jsx'
+import Moments from './components/Moments.jsx'
 import StatCard from './components/StatCard.jsx'
 import StoryChart from './components/StoryChart.jsx'
 import Town from './components/Town.jsx'
@@ -118,6 +119,7 @@ export default function RunScreen({ arms, tick, maxTick, playing, onToggle, onSc
         ) : (
           <>
             <p className="nx-lead"><Lead text={leadSentence(arms, tick)} arms={arms} /></p>
+            <Moments arms={arms} tick={tick} />
             {panel}
 
             <div className={`nx-cols${single ? ' is-single' : ''}`}>

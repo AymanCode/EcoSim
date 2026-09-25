@@ -1,7 +1,9 @@
 // Numbers and events into plain sentences. Pure functions over arms from
 // data/session.js; all wording lives here or in catalog.js.
 
-import { METRICS, NO_CHANGES, WARMUP_TICKS, describePolicy, formatMetric, formatMoney, joinPhrases, leverName, leverValuePhrase, shownValue } from './catalog.js'
+import {
+  COPY, METRICS, NO_CHANGES, WARMUP_TICKS, describePolicy, formatMetric, formatMoney, joinPhrases, leverName, leverValuePhrase, shownValue,
+} from './catalog.js'
 import { firmDisplayName, householdName as defaultHouseholdName } from './names.js'
 import { householdState, snapshotAt, valueAt } from './data/derive.js'
 
@@ -350,9 +352,121 @@ export function experimentQuestion(arms) {
   return `What happens with ${policy}?`
 }
 
+// Policy change records ({ policy, value }, the value as the event's text) as
+// one noun phrase; a later record for the same lever wins.
+function changesPhrase(changes) {
+  return describePolicy(Object.fromEntries(changes.map(change => [change.policy, change.value])))
+}
+
 // A policy marker's label on the story chart, as short lines.
 export function policyMarkerLabel(arm, change) {
-  return [`${arm?.label ?? 'The town'} switched to`, describePolicy({ [change.policy]: change.value })]
+  return [`${arm?.label ?? 'The town'} switched to`, changesPhrase([change])]
+}
+
+// Moments: something notable in a town lately, as one line each. Only the
+// real economy counts, so a warm-up week is never the change nor the week it
+// is compared with.
+const MOMENTS_SHOWN = 3
+const RULE_WEEKS = 6
+const LOOK_BACK = 4
+const MARKS = [10, 20, 30]
+const KINDS = ['rule', 'richest', 'milestone']
+
+// The id names the week of the change, so a moment keeps its id (and its
+// chip) for as long as it lasts.
+const moment = (kind, arm, tick, text) => ({ id: `${kind}:${arm.label}:${tick}`, kind, label: arm.label, color: arm.color, tick, text })
+
+// One moment per week the town hall changed rules in the last six weeks.
+function ruleMoments(arm, tick) {
+  const byWeek = new Map()
+  for (const change of arm.policyChanges ?? []) {
+    if (inWarmUp(change.tick) || change.tick > tick || change.tick <= tick - RULE_WEEKS) continue
+    byWeek.set(change.tick, [...(byWeek.get(change.tick) ?? []), change])
+  }
+  return [...byWeek].map(([week, changes]) => moment('rule', arm, week, COPY.moments.rule(arm.label, changesPhrase(changes))))
+}
+
+// The recorded weeks to compare at `tick`: the week in force four weeks
+// earlier (the first real week at the earliest), then every recorded week
+// after it up to `tick`. Empty when there is nothing to compare yet.
+function lookBack(arm, tick) {
+  const from = Math.max(tick - LOOK_BACK, FIRST_REAL_WEEK)
+  const ticks = arm.ticks ?? []
+  const weeks = []
+  for (let i = ticks.length - 1; i >= 0; i -= 1) {
+    if (ticks[i] > tick) continue
+    weeks.unshift(ticks[i])
+    if (ticks[i] <= from) break
+  }
+  return weeks.length >= 2 && weeks[0] <= from && !inWarmUp(weeks[0]) ? weeks : []
+}
+
+const cashOf = firm => (typeof firm?.cash === 'number' && Number.isFinite(firm.cash) ? firm.cash : null)
+
+// The richest open business in a week; on a tie the one before keeps the lead.
+function leaderOf(snapshot, before) {
+  const firms = (snapshot?.firms ?? []).filter(firm => known(cashOf(firm)))
+  if (!firms.length) return null
+  const most = Math.max(...firms.map(cashOf))
+  const kept = before ? firms.find(firm => firm.id === before.id) : null
+  return kept && cashOf(kept) === most ? kept : firms.find(firm => cashOf(firm) === most)
+}
+
+// A different richest business now than four weeks ago, dated to the week it
+// took the lead.
+function richestMoment(arm, weeks) {
+  const first = leaderOf(arm.snapshots?.[weeks[0]], null)
+  let leader = first
+  let since = null
+  for (const week of weeks.slice(1)) {
+    const next = leaderOf(arm.snapshots?.[week], leader)
+    if (next?.id !== leader?.id) since = week
+    leader = next
+  }
+  if (!first || !leader || leader.id === first.id) return null
+  return moment('richest', arm, since, COPY.moments.richest(firmDisplayName(leader), arm.label))
+}
+
+// Where a figure sits against a mark.
+const side = (value, mark) => (!known(value) ? null : value > mark ? 'above' : value < mark ? 'below' : 'at')
+
+// People out of work per 100, as the page shows them, now past a mark it was
+// not past four weeks ago (or now under one it was not under). A jump across
+// several marks names the furthest. Dated to the week it last crossed.
+function milestoneMoment(arm, weeks) {
+  const shown = weeks.map(week => shownValue(OUT, valueAt(arm, OUT, week)))
+  const [before, after] = [shown[0], shown[shown.length - 1]]
+  if (!known(before) || !known(after)) return null
+  const passed = MARKS.filter(mark => side(before, mark) !== 'above' && side(after, mark) === 'above')
+  const fell = MARKS.filter(mark => side(before, mark) !== 'below' && side(after, mark) === 'below')
+  if (!passed.length && !fell.length) return null
+  const [mark, to, sentence] = passed.length
+    ? [Math.max(...passed), 'above', COPY.moments.passed]
+    : [Math.min(...fell), 'below', COPY.moments.fellBelow]
+  let since = weeks[weeks.length - 1]
+  for (let i = shown.length - 1; i >= 1; i -= 1) {
+    if (side(shown[i], mark) === to && side(shown[i - 1], mark) !== to) {
+      since = weeks[i]
+      break
+    }
+  }
+  return moment('milestone', arm, since, sentence(arm.label, mark))
+}
+
+// What just happened across the towns at `tick`, newest first, at most three.
+// Moment = { id, kind: 'rule'|'richest'|'milestone', label, color, tick, text }
+export function moments(arms, tick) {
+  const found = []
+  ;(arms ?? []).forEach((arm, order) => {
+    if (!arm) return
+    const weeks = lookBack(arm, tick)
+    const own = [...ruleMoments(arm, tick), ...(weeks.length ? [richestMoment(arm, weeks), milestoneMoment(arm, weeks)] : [])]
+    for (const item of own) if (item) found.push({ item, order })
+  })
+  return found
+    .sort((a, b) => (b.item.tick - a.item.tick) || (KINDS.indexOf(a.item.kind) - KINDS.indexOf(b.item.kind)) || (a.order - b.order))
+    .slice(0, MOMENTS_SHOWN)
+    .map(({ item }) => item)
 }
 
 // The story chart's opening note for matched towns.

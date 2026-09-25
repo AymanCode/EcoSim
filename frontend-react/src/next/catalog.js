@@ -565,6 +565,7 @@ export const COPY = {
       if (Number.isInteger(per) && per >= 1) return `each house is ${counted(per, 'household')}`
       return 'each house is 1 in 100 households'
     },
+    hallChanged: 'Town hall: new rules this month',
     moreBuildings: n => `+${n} more`,
     outOfWork: 'out of work',
     typicalPay: 'typical weekly pay',
@@ -572,6 +573,15 @@ export const COPY = {
     firmStates: (struggling, closed) => `${struggling} struggling, ${closed} closed`,
     altHouses: (work, look, home) => `Out of every 100 households: ${work} working, ${look} looking for work, ${home} lost their home.`,
     altFirms: (open, struggling, closed) => `${counted(open, 'firm')} open: ${struggling} struggling. ${closed} closed in the last year.`,
+  },
+  // Short lines under the lead when something notable just happened
+  // (narration.js `moments`, components/Moments.jsx).
+  moments: {
+    label: 'What just happened',
+    rule: (town, policy) => `${town}'s town hall brought in ${policy}.`,
+    richest: (business, town) => `${business} is now ${town}'s richest business.`,
+    passed: (town, level) => `${town} passed ${level} in 100 people out of work.`,
+    fellBelow: (town, level) => `${town} fell below ${level} in 100 people out of work.`,
   },
   businesses: {
     title: 'Businesses',

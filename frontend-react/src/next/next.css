@@ -119,6 +119,16 @@
 .nx .nx-town .nx-lot { fill: none; stroke: var(--nx-slate); stroke-dasharray: 3 3 }
 .nx .nx-town .nx-cross { stroke: var(--nx-slate2); stroke-width: 1.5; fill: none }
 .nx .nx-town .nx-bldg-more { font-family: var(--nx-body), sans-serif; font-size: 11.5px; font-weight: 600; fill: var(--nx-ink3-text) }
+/* New rules: a ring round the town hall pulses twice, then stays until the
+   rules are a month old. Under reduced motion it is only the still ring. */
+.nx .nx-town .nx-hall-ring {
+  fill: none;
+  stroke-width: 2.5;
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: nx-hall-pulse 500ms var(--nx-ease) 2;
+}
+@keyframes nx-hall-pulse { 50% { opacity: .3; transform: scale(1.05) } }
 /* Houses: colour plus a shape cue (an empty window when looking for work, a
    dashed outline when the home is lost), in the drawing and the legend. */
 .nx .nx-house, .nx .nx-keyhouse { fill: var(--nx-work); transition: fill var(--nx-change) var(--nx-ease) }
@@ -488,6 +498,26 @@
 /* One town: the drawing and the businesses side by side, households below. */
 .nx .nx-solo { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); gap: 14px; align-items: start }
 .nx .nx-solo > .nx-biz { margin-top: 0 }
+
+/* Moments under the lead: one chip per thing that just happened, fading in
+   once when it arrives. */
+.nx .nx-moments { margin-top: 12px; max-width: 1000px }
+.nx .nx-moments ul { display: flex; flex-wrap: wrap; gap: 8px; margin: 0; padding: 0; list-style: none }
+.nx .nx-moment {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  border: 1px solid var(--nx-line2);
+  border-radius: 999px;
+  background: var(--nx-panel);
+  color: var(--nx-ink2);
+  font-size: 13.5px;
+  line-height: 1.35;
+  animation: nx-moment-in 300ms var(--nx-ease);
+}
+.nx .nx-moment > i { width: 10px; height: 10px; border-radius: 3px; flex: none; display: inline-block }
+@keyframes nx-moment-in { from { opacity: 0; transform: translateY(4px) } }
 
 /* Story chart, verdict and stat cards */
 .nx .nx-story { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); gap: 22px; margin-top: 28px; align-items: start }
