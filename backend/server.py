@@ -37,6 +37,7 @@ import numpy as np
 
 from config import clone_config, use_config
 from policy_schema import ORDERED_LEVERS
+from experiments import ExperimentError, ExperimentRegistry  # noqa: F401
 from utils.category_utils import get_good_category_capitalized
 from tools.runners.run_large_simulation import (
     create_large_economy,
@@ -143,6 +144,10 @@ class SetupConfig(BaseModel):
     enable_llm_government: Optional[bool] = False
     disable_stabilizers: bool = False
     disabled_agents: List[str] = Field(default_factory=list)
+    experiment_id: Optional[str] = Field(default=None, min_length=1, max_length=64)
+    arm_label: Optional[str] = Field(default=None, min_length=1, max_length=40)
+    arm_count: int = Field(default=1, ge=1, le=4)
+    experiment_owner: Optional[str] = Field(default=None, min_length=1, max_length=64)
     payment_sequence: Literal["legacy", "income_first", "income_late"] = "legacy"
     payment_care_mode: Literal["patient_pay", "covered"] = "patient_pay"
     payment_assistance: Literal["reserve", "care", "rent", "mixed"] = "reserve"
@@ -178,6 +183,19 @@ class SetupConfig(BaseModel):
             if name not in valid:
                 raise ValueError(f"Invalid agent name '{name}'. Must be one of {valid}")
         return v
+
+    @model_validator(mode="after")
+    def validate_experiment_fields(self):
+        if (self.experiment_id is None) != (self.arm_label is None):
+            raise ValueError("experiment_id and arm_label must be given together")
+        return self
+
+    def world_key(self, seed: int) -> str:
+        """The part of the world every arm of an experiment must share."""
+        payload = {name: getattr(self, name) for name in type(self).model_fields if name.startswith("payment_")}
+        payload.update({"seed": int(seed), "num_firms": self.num_firms, "disable_stabilizers": self.disable_stabilizers,
+                        "disabled_agents": sorted(self.disabled_agents)})
+        return json.dumps(payload, sort_keys=True, default=str)
 
 
 @app.get("/health")
@@ -342,6 +360,9 @@ def _compute_policy_impact_memory(
         )
     return enriched_actions
 
+experiment_registry = ExperimentRegistry()
+
+
 class SimulationManager:
     """Owns the ``Economy`` instance and drives the tick loop.
 
@@ -382,6 +403,10 @@ class SimulationManager:
         }
         self.pending_config_updates: Dict[str, Any] | None = None
         self.setup_config: Dict[str, Any] = {}
+        self.experiment_registry: ExperimentRegistry = experiment_registry
+        self.experiment_id: Optional[str] = None
+        self.arm_label: Optional[str] = None
+        self.arm_count: int = 1
         self.metrics_stride = 5
         self.policy_changes = []
         self.cached_stats = None
@@ -559,6 +584,9 @@ class SimulationManager:
         effective_config["num_firms"] = int(num_firms)
         effective_config["seed"] = int(getattr(self.config, "random_seed", 0))
         effective_config["stabilizers"] = dict(self.stabilizer_state)
+        effective_config["experiment_id"] = self.experiment_id
+        effective_config["arm_label"] = self.arm_label
+        effective_config["arm_count"] = self.arm_count
 
         try:
             run = SimulationRun(
@@ -575,7 +603,13 @@ class SimulationManager:
                 last_fully_persisted_tick=0,
                 analysis_ready=False,
                 description="Live websocket simulation run",
-                tags=f"backend={self.warehouse_backend}",
+                tags=",".join(
+                    part for part in (
+                        f"backend={self.warehouse_backend}",
+                        f"experiment={self.experiment_id}" if self.experiment_id else "",
+                        f"arm={self.arm_label}" if self.arm_label else "",
+                    ) if part
+                ),
             )
             self.warehouse_manager.create_run(run)
 
@@ -1870,17 +1904,59 @@ class SimulationManager:
 
         self.stop_background_loop(cancel=True)
 
-        # Validate config through pydantic model
+        # SETUP replaces the run. A SETUP that fails at any point leaves nothing
+        # runnable behind, so START cannot resume an unreserved economy. The old
+        # warehouse run is finalized first, while its economy still exists.
+        self._close_warehouse_run("stopped")
+        self.economy = None
+        self.experiment_registry.release(self.session_id)
+        self.experiment_id = None
+        self.arm_label = None
+
         validated = SetupConfig(**config)
+        num_households = validated.num_households
+        num_firms = validated.num_firms
+        seed = int(validated.seed if validated.seed is not None else getattr(self.config, "random_seed", 0))
+        self.arm_count = int(validated.arm_count)
+        if validated.experiment_id is not None:
+            self.experiment_registry.reserve(
+                experiment_id=validated.experiment_id,
+                arm_label=validated.arm_label,
+                arm_count=self.arm_count,
+                households=num_households,
+                session_id=self.session_id,
+                owner=validated.experiment_owner,
+                world_key=validated.world_key(seed),
+            )
+            self.experiment_id = validated.experiment_id
+            self.arm_label = validated.arm_label
+        try:
+            self._initialize_economy(validated, config, num_households, num_firms, seed)
+        except Exception:
+            self.experiment_registry.release(self.session_id)
+            self.experiment_id = None
+            self.arm_label = None
+            self.economy = None
+            raise
+
+    def _initialize_economy(self, validated: "SetupConfig", config: Dict[str, Any], num_households: int, num_firms: int, seed: int):
+        """Build the economy and tracking state for a validated SETUP."""
         # Session-owned settings must be in scope before the factory constructs
         # Economy; omitted API setup keeps the library's legacy default.
         for payment_field in (name for name in SetupConfig.model_fields if name.startswith("payment_")):
             setattr(self.config, payment_field, getattr(validated, payment_field))
         self.setup_config = validated.model_dump()
-        num_households = validated.num_households
-        num_firms = validated.num_firms
-        seed = int(validated.seed if validated.seed is not None else getattr(self.config, "random_seed", 0))
         self.setup_config["seed"] = seed
+        self.setup_config["experiment"] = (
+            {
+                "id": validated.experiment_id,
+                "armLabel": validated.arm_label,
+                "armCount": self.arm_count,
+                "householdCap": self.experiment_registry.per_arm_cap(self.arm_count),
+            }
+            if validated.experiment_id is not None
+            else None
+        )
         for opening_rate in ("wage_tax", "profit_tax"):
             if opening_rate in config:
                 self.setup_config[opening_rate] = config[opening_rate]
@@ -2900,6 +2976,7 @@ class SessionRegistry:
             return
         session_manager.stop_background_loop(cancel=True)
         session_manager.active_websocket = None
+        session_manager.experiment_registry.release(session_id)
 
 
 session_registry = SessionRegistry()
