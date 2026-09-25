@@ -11,6 +11,14 @@
 //   - the town-wide `eventCounts` (`eventCounts[tick]`).
 // Kept across ticks: every event in tick order, the policy changes, a directory
 // of every firm seen, the tracked households' profiles, the setup and the horizon.
+// Kept as the latest value only: `policy`, the lever vector in force (the
+// highest tick's `metrics.governmentPolicy`, null before any frame).
+// Also kept: `receipts`, one per CONFIG in send order. A live client adds a
+// 'sending' receipt as it sends (`addPendingConfig`); CONFIG_QUEUED and
+// CONFIG_APPLIED fill it in, and a `CONFIG failed` error fails it
+// (`failPendingConfig`). A recording's CONFIG replies make their own receipts.
+// A receipt that changes is replaced, never edited, and so is the `receipts`
+// array, so a reader memoised on either sees the change.
 
 // A tick frame is the only server message with both `tick` and `metrics`.
 export function isFrame(message) {
@@ -110,9 +118,73 @@ export function createArm({ label, color, setup } = {}) {
     events: [],
     policyChanges: [],
     firmDirectory: { byId: {}, byName: {} },
+    policy: null,
+    receipts: [],
   }
   refreshHorizon(arm)
   return arm
+}
+
+// Receipt = { actionId, status: 'sending'|'queued'|'applied'|'failed', requested,
+//             applied, rejected: { [lever]: reason }, effectiveTick, message }
+function newReceipt(fields) {
+  return {
+    actionId: null, status: 'sending', requested: {}, applied: {}, rejected: {}, effectiveTick: null, message: null, ...fields,
+  }
+}
+
+function replaceReceipt(arm, index, fields) {
+  const receipt = { ...arm.receipts[index], ...fields }
+  arm.receipts = arm.receipts.map((old, i) => (i === index ? receipt : old))
+  return receipt
+}
+
+const oldestSending = arm => arm.receipts.findIndex(receipt => receipt.status === 'sending')
+const plainObject = value => (value && typeof value === 'object' && !Array.isArray(value) ? { ...value } : {})
+
+// A CONFIG the client is about to send: a 'sending' receipt at the end.
+export function addPendingConfig(arm, levers) {
+  const receipt = newReceipt({ requested: plainObject(levers) })
+  arm.receipts = [...arm.receipts, receipt]
+  return receipt
+}
+
+// A `CONFIG failed: <reason>` error answers the oldest CONFIG still waiting.
+export function failPendingConfig(arm, message) {
+  const index = oldestSending(arm)
+  if (index < 0) return null
+  return replaceReceipt(arm, index, { status: 'failed', message: String(message ?? '') })
+}
+
+// Match by actionId; else the oldest 'sending' receipt adopts it (the server
+// answers in send order); else it is a receipt nobody here was waiting for.
+function receiptIndex(arm, actionId) {
+  const matched = actionId == null ? -1 : arm.receipts.findIndex(receipt => receipt.actionId === actionId)
+  if (matched >= 0) return matched
+  const adopted = oldestSending(arm)
+  if (adopted >= 0) return adopted
+  arm.receipts = [...arm.receipts, newReceipt({ actionId })]
+  return arm.receipts.length - 1
+}
+
+function ingestReceipt(arm, message) {
+  const actionId = message.actionId ?? null
+  const index = receiptIndex(arm, actionId)
+  const receipt = arm.receipts[index]
+  if (message.type === 'CONFIG_QUEUED') {
+    // Never step back from a final answer.
+    if (receipt.status === 'sending' || receipt.status === 'queued') replaceReceipt(arm, index, { actionId, status: 'queued' })
+    return
+  }
+  replaceReceipt(arm, index, {
+    actionId,
+    status: 'applied',
+    requested: Object.keys(receipt.requested).length ? receipt.requested : plainObject(message.requested),
+    applied: plainObject(message.applied),
+    rejected: plainObject(message.rejected),
+    effectiveTick: numberOrNull(message.effectiveTick),
+    message: null,
+  })
 }
 
 function ingestFrame(arm, frame) {
@@ -134,6 +206,9 @@ function ingestFrame(arm, frame) {
     arm.ticks.splice(index, 0, tick)
     for (const key of Object.keys(arm.series)) arm.series[key].splice(index, 0, numberOrNull(curated[key]))
   }
+  // The rules in force are the highest tick's; a late older week leaves them be.
+  const policy = frame.metrics?.governmentPolicy
+  if (policy && typeof policy === 'object' && tick === arm.ticks[arm.ticks.length - 1]) arm.policy = { ...policy }
 
   const firms = list(frame.firms)
   const firmsClosed = list(frame.firmsClosed)
@@ -171,6 +246,8 @@ export function ingest(arm, message) {
     Object.assign(arm.profiles, message.profiles ?? {})
   } else if (message?.type === 'EXTENDED') {
     if (isNumber(message.horizonTick)) arm.horizonTick = message.horizonTick
+  } else if (message?.type === 'CONFIG_QUEUED' || message?.type === 'CONFIG_APPLIED') {
+    ingestReceipt(arm, message)
   } else if (isFrame(message)) {
     ingestFrame(arm, message)
   } else {

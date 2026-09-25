@@ -302,6 +302,52 @@ export const LEVERS = {
   },
 }
 
+// The rules of a town nobody has changed: the tick-1 `metrics.governmentPolicy`
+// of a run whose SETUP sends an empty `initial_policy`.
+export const DEFAULT_POLICY = {
+  wage_tax_rate: 0.15,
+  profit_tax_rate: 0.2,
+  investment_tax_rate: 0.1,
+  benefit_level: 'neutral',
+  public_works: 'off',
+  minimum_wage_policy: 'neutral',
+  sector_subsidy_target: 'none',
+  sector_subsidy_level: 0,
+  infrastructure_spending: 'none',
+  technology_spending: 'none',
+  social_spending: 'medium',
+  price_stabilization_target: 'none',
+  price_stabilization_level: 'off',
+  rent_stabilization_level: 'off',
+  bailout_policy: 'off',
+  bailout_target: 'none',
+  bailout_budget: 0,
+}
+
+// The values each lever accepts, copied from backend/policy_schema.py: the tax
+// rates (TAX_LIMITS) as { min, max }, the ordered levers (ORDERED_LEVERS) in
+// schema order. The four plain enums (SIMPLE_ENUM_LEVERS, which the schema
+// sorts) are in display order, "off" or "none" first. Numbers stay numbers.
+export const LEVER_OPTIONS = {
+  wage_tax_rate: { min: 0, max: 0.5 },
+  profit_tax_rate: { min: 0, max: 0.5 },
+  investment_tax_rate: { min: 0, max: 0.3 },
+  benefit_level: ['low', 'neutral', 'high', 'crisis'],
+  minimum_wage_policy: ['low', 'neutral', 'high'],
+  sector_subsidy_level: [0, 10, 25, 50],
+  infrastructure_spending: ['none', 'low', 'medium', 'high'],
+  technology_spending: ['none', 'low', 'medium', 'high'],
+  social_spending: ['none', 'low', 'medium', 'high'],
+  price_stabilization_level: ['off', 'monitor', 'soft', 'strict'],
+  rent_stabilization_level: ['off', 'monitor', 'soft', 'strict'],
+  bailout_policy: ['off', 'sector', 'all'],
+  bailout_budget: [0, 5000, 10000, 25000, 50000],
+  public_works: ['off', 'on'],
+  sector_subsidy_target: ['none', 'food', 'housing', 'services', 'healthcare'],
+  price_stabilization_target: ['none', 'food', 'services', 'healthcare'],
+  bailout_target: ['none', 'food', 'housing', 'services', 'healthcare'],
+}
+
 export function leverName(lever) {
   return LEVERS[lever]?.name ?? String(lever).replace(/_/g, ' ')
 }
@@ -503,5 +549,11 @@ export const COPY = {
     title: 'How to read this',
     subtitle: 'for first-timers',
     notes: howToNotes,
+  },
+  // How long a run should take, from live/plan.js `estimatePhrase`.
+  estimate: {
+    underMinute: 'Under a minute.',
+    aboutMinute: 'About a minute.',
+    minutes: n => `About ${n} minutes.`,
   },
 }

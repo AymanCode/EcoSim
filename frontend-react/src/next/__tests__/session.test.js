@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'vitest'
 import { parseSession, buildArm, createArm, ingest, isFrame } from '../data/session.js'
 import { FIXTURE_TEXT, fixtureArm, TOWN_A } from './fixture.js'
+import { addPendingConfig, failPendingConfig } from '../data/session.js'
 
 describe('parseSession', () => {
   test('returns the header and the message payloads in wire order', () => {
@@ -181,5 +182,118 @@ describe('incremental ingest', () => {
     ingest(arm, { tick: 1, metrics: {}, curated: { a: 1 } })
     ingest(arm, { tick: 2, metrics: {}, curated: { a: 2, b: 5 } })
     expect(arm.series).toEqual({ a: [1, 2], b: [null, 5] })
+  })
+})
+
+describe('the lever vector in force', () => {
+  test('arm.policy is null before any frame, then follows the latest frame', () => {
+    const arm = createArm(TOWN_A)
+    expect(arm.policy).toBe(null)
+    const policy = { wage_tax_rate: 0.15, benefit_level: 'neutral' }
+    ingest(arm, { tick: 1, metrics: { governmentPolicy: policy }, curated: {} })
+    expect(arm.policy).toEqual(policy)
+    expect(arm.policy).not.toBe(policy)
+    ingest(arm, { tick: 2, metrics: { governmentPolicy: { ...policy, benefit_level: 'high' } }, curated: {} })
+    expect(arm.policy.benefit_level).toBe('high')
+    // An older week arriving late does not roll the rules back.
+    ingest(arm, { tick: 1, metrics: { governmentPolicy: { ...policy, benefit_level: 'low' } }, curated: {} })
+    expect(arm.policy.benefit_level).toBe('high')
+    // A frame without the vector keeps the last one.
+    ingest(arm, { tick: 3, metrics: {}, curated: {} })
+    expect(arm.policy.benefit_level).toBe('high')
+  })
+
+  test('the fixture ends with the benefit change it recorded', () => {
+    const arm = fixtureArm()
+    expect(arm.policy.benefit_level).toBe('high')
+    expect(Object.keys(arm.policy)).toHaveLength(17)
+  })
+})
+
+describe('receipts', () => {
+  const blank = { actionId: null, applied: {}, rejected: {}, effectiveTick: null, message: null }
+
+  test('addPendingConfig appends a sending receipt in send order', () => {
+    const arm = createArm(TOWN_A)
+    expect(arm.receipts).toEqual([])
+    const first = addPendingConfig(arm, { minimum_wage_policy: 'low' })
+    addPendingConfig(arm, { benefit_level: 'high' })
+    expect(first).toEqual({ ...blank, status: 'sending', requested: { minimum_wage_policy: 'low' } })
+    expect(arm.receipts.map(r => r.requested)).toEqual([{ minimum_wage_policy: 'low' }, { benefit_level: 'high' }])
+  })
+
+  test('QUEUED then APPLIED match by actionId, after the oldest sending receipt adopts it', () => {
+    const arm = createArm(TOWN_A)
+    addPendingConfig(arm, { minimum_wage_policy: 'low' })
+    addPendingConfig(arm, { benefit_level: 'high' })
+    ingest(arm, { type: 'CONFIG_QUEUED', actionId: 'a1', tick: 4 })
+    ingest(arm, { type: 'CONFIG_QUEUED', actionId: 'a2', tick: 4 })
+    expect(arm.receipts.map(r => [r.actionId, r.status])).toEqual([['a1', 'queued'], ['a2', 'queued']])
+    ingest(arm, { type: 'CONFIG_APPLIED', actionId: 'a2', requested: { benefit_level: 'high' }, applied: { benefit_level: 'high' }, rejected: {}, effectiveTick: 5 })
+    expect(arm.receipts[1]).toEqual({
+      ...blank, actionId: 'a2', status: 'applied', requested: { benefit_level: 'high' }, applied: { benefit_level: 'high' }, effectiveTick: 5,
+    })
+    expect(arm.receipts[0].status).toBe('queued')
+    ingest(arm, { type: 'CONFIG_APPLIED', actionId: 'a1', applied: {}, rejected: { minimum_wage_policy: 'bad value' }, effectiveTick: 5 })
+    expect(arm.receipts[0]).toMatchObject({ status: 'applied', requested: { minimum_wage_policy: 'low' }, rejected: { minimum_wage_policy: 'bad value' } })
+  })
+
+  test('a paused APPLIED with no QUEUED adopts the oldest sending receipt', () => {
+    const arm = createArm(TOWN_A)
+    addPendingConfig(arm, { public_works: 'on' })
+    ingest(arm, { type: 'CONFIG_APPLIED', actionId: 'p1', requested: { public_works: 'on' }, applied: { public_works: 'on' }, rejected: {}, effectiveTick: 9 })
+    expect(arm.receipts).toEqual([{
+      ...blank, actionId: 'p1', status: 'applied', requested: { public_works: 'on' }, applied: { public_works: 'on' }, effectiveTick: 9,
+    }])
+  })
+
+  test('a receipt nobody is waiting for is created from the wire', () => {
+    const arm = createArm(TOWN_A)
+    ingest(arm, { type: 'CONFIG_QUEUED', actionId: 'w1', tick: 2 })
+    expect(arm.receipts).toEqual([{ ...blank, actionId: 'w1', status: 'queued', requested: {} }])
+    ingest(arm, { type: 'CONFIG_APPLIED', actionId: 'w1', requested: { benefit_level: 'low' }, applied: { benefit_level: 'low' }, rejected: {}, effectiveTick: 3 })
+    ingest(arm, { type: 'CONFIG_APPLIED', actionId: 'w2', requested: { public_works: 'on' }, applied: { public_works: 'on' }, rejected: {}, effectiveTick: 3 })
+    expect(arm.receipts.map(r => [r.actionId, r.status, r.requested])).toEqual([
+      ['w1', 'applied', { benefit_level: 'low' }],
+      ['w2', 'applied', { public_works: 'on' }],
+    ])
+  })
+
+  test('failPendingConfig fails the oldest sending receipt, or returns null', () => {
+    const arm = createArm(TOWN_A)
+    expect(failPendingConfig(arm, 'nothing to fail')).toBe(null)
+    addPendingConfig(arm, { benefit_level: 'high' })
+    addPendingConfig(arm, { public_works: 'on' })
+    const failed = failPendingConfig(arm, 'the run is finished')
+    expect(failed).toMatchObject({ status: 'failed', message: 'the run is finished', requested: { benefit_level: 'high' } })
+    expect(arm.receipts.map(r => r.status)).toEqual(['failed', 'sending'])
+  })
+
+  test('a change makes a new receipts array, so memoised readers see it', () => {
+    const arm = createArm(TOWN_A)
+    addPendingConfig(arm, { benefit_level: 'high' })
+    const before = arm.receipts
+    ingest(arm, { type: 'CONFIG_QUEUED', actionId: 'm1', tick: 1 })
+    expect(arm.receipts).not.toBe(before)
+    expect(before[0].status).toBe('sending')
+  })
+
+  test('the recorded fixture builds the same arm, plus the one receipt it recorded', () => {
+    const arm = fixtureArm()
+    expect(arm.ticks).toHaveLength(24)
+    expect(arm.events).toHaveLength(79)
+    expect(arm.receipts).toEqual([{
+      ...blank,
+      actionId: '1afbb9327926',
+      status: 'applied',
+      requested: { benefit_level: 'high' },
+      applied: { benefit_level: 'high' },
+      effectiveTick: 7,
+    }])
+    const withoutConfig = parseSession(FIXTURE_TEXT)
+    withoutConfig.messages = withoutConfig.messages.filter(m => m.type !== 'CONFIG_QUEUED' && m.type !== 'CONFIG_APPLIED')
+    const bare = buildArm(withoutConfig, TOWN_A)
+    expect(bare.receipts).toEqual([])
+    expect({ ...bare, receipts: arm.receipts }).toEqual(arm)
   })
 })
