@@ -81,6 +81,7 @@ data/
 !backend/data/
 !backend/data/migrations/
 !backend/data/migrations/*.py
+!frontend-react/src/next/data/
 
 # Keep generated OpenWiki sections publishable despite broad sandbox rules.
 !openwiki/frontend/
