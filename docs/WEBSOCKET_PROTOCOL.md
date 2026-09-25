@@ -104,15 +104,20 @@ All keys of the previous frame are unchanged (the `lean` profile omits the ones 
   - `happiness`: mean household happiness this tick, from 0 to 100; `null` when there are no households.
     Unlike the stride-cached `metrics.happiness`, it is computed every tick.
   - `salesExceptRentThisWeek`: what the operating firms sold this tick (food and services on the goods market
-    plus healthcare visits at their full price), currency. Rent paid to housing firms is not counted. The
-    same total as `metrics.gdp`, in currency instead of millions.
-  - `townHallIncome`: taxes the government collected this tick (wage, profit including the price-ceiling
-    levy, property and investment taxes), currency; the same value as `metrics.govRevenue`, in currency.
-    Loan repayments to the government and the levy on miscellaneous-firm receipts are not included.
-  - `familySupportPaid`: cash the government paid directly to households this tick, currency: unemployment
-    benefits and top-ups for out-of-work households short of cash (`metrics.govTransfers`, in currency), plus
-    the per-household stimulus paid for six ticks after warm-up. Subsidies, bailouts and spending on programs
-    are not included.
+    plus healthcare visits at their full price), currency. Rent paid to housing firms is not counted, and
+    neither are the sales of a firm that closes during the tick. The same total as `metrics.gdp`, in
+    currency instead of millions.
+  - `townHallIncome`: four taxes the government collected this tick, currency: wage tax, profit tax
+    (including the price-ceiling levy), property tax and investment tax. The same value as
+    `metrics.govRevenue`, in currency. It is not every tax. Not included: the levy on miscellaneous-firm
+    receipts; under the newer payment sequences, the exit tax on a completed services project's receipt when
+    its firm closes; and loan repayments to the government.
+  - `familySupportPaid`: support the government paid to households this tick, currency: unemployment
+    benefits, top-ups for out-of-work households short of cash (together `metrics.govTransfers`, in
+    currency), and the welcome payment every household receives for six ticks after warm-up. Subsidies,
+    bailouts and spending on programs are not included. Under the newer payment sequences
+    (`payment_sequence` other than `legacy`), town-hall-funded demand-shock payments to households and rent
+    relief paid to landlords on a household's behalf are not included either.
   - `gini`, `wealthP10`, `wealthP50`, `wealthP90`: Gini coefficient of household cash and its 10th, 50th and
     90th percentiles (currency). Stride-cached: recomputed every 5 ticks, on the first tick after SETUP and
     on LLM-decision ticks; `wealthAsOfTick` is the tick they were computed on. `null` when the economy has

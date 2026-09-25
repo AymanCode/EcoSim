@@ -77,24 +77,35 @@ def test_curated_bank_defaults_are_fresh_each_tick_while_wealth_is_stride_cached
 
 
 def test_new_curated_money_figures_agree_with_the_frame_metrics_every_tick(monkeypatch):
-    client, _ = _client(monkeypatch)
+    client, registry = _client(monkeypatch)
     with client.websocket_connect("/ws") as ws:
-        until(ws, lambda m: m.get("type") == "SESSION")
-        assert setup(ws, {**SMALL, "horizon_ticks": 14}).get("type") == "SETUP_COMPLETE"
+        session = until(ws, lambda m: m.get("type") == "SESSION")
+        # The post-warm-up stimulus starts on the first tick after warm-up and lasts six ticks. Take the
+        # warm-up from this session's own config so the window below never rests on the default length.
+        warmup = int(registry.get(session["sessionId"]).config.time.warmup_ticks)
+        horizon = warmup + 4
+        assert setup(ws, {**SMALL, "horizon_ticks": horizon}).get("type") == "SETUP_COMPLETE"
+        assert registry.get(session["sessionId"]).economy.warmup_ticks == warmup
         ws.send_json({"command": "START"})
         frames = _frames_until_horizon(ws)
-    assert [f["tick"] for f in frames] == list(range(1, 15))
+    assert [f["tick"] for f in frames] == list(range(1, horizon + 1))
     for frame in frames:
         curated, metrics = frame["curated"], frame["metrics"]
         assert curated["salesExceptRentThisWeek"] == pytest.approx(metrics["gdp"] * 1e6)
         assert curated["townHallIncome"] == pytest.approx(metrics["govRevenue"] * 1e6)
         assert curated["familySupportPaid"] >= metrics["govTransfers"] * 1e6 - 1e-6
         assert 0.0 <= curated["happiness"] <= 100.0
-    # The stimulus paid to every household after warm-up is support that metrics.govTransfers leaves out.
-    assert any(f["curated"]["familySupportPaid"] > f["metrics"]["govTransfers"] * 1e6 + 1.0 for f in frames)
+    # The stimulus paid to every household after warm-up is support that metrics.govTransfers leaves out:
+    # familySupportPaid exceeds it on exactly the stimulus ticks and equals it before them.
+    stimulus_ticks = [f["tick"] for f in frames
+                      if f["curated"]["familySupportPaid"] > f["metrics"]["govTransfers"] * 1e6 + 1.0]
+    assert stimulus_ticks == list(range(warmup + 1, horizon + 1))
+    assert all(f["curated"]["familySupportPaid"] == pytest.approx(f["metrics"]["govTransfers"] * 1e6)
+               for f in frames if f["tick"] <= warmup)
     # The wealth shares change only when they are counted, and wealthAsOfTick says when.
     shares_by_count = {}
     for f in frames:
         shares_by_count.setdefault(f["curated"]["wealthAsOfTick"], set()).add(
             (f["curated"]["topTenthShare"], f["curated"]["bottomHalfShare"]))
-    assert sorted(shares_by_count) == [1, 5, 10] and all(len(v) == 1 for v in shares_by_count.values())
+    assert sorted(shares_by_count) == [1, *range(5, horizon + 1, 5)]
+    assert all(len(v) == 1 for v in shares_by_count.values())
