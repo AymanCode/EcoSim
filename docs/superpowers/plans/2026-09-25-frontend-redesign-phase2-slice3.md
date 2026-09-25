@@ -73,7 +73,7 @@ It closes back to the towns.
 | Key | Meaning | Source (verify in code, cite file:line in your report) | Freshness |
 |---|---|---|---|
 | `happiness` | average household happiness, 0 to 100 | computed in `build_curated_metrics` from `economy.households` every tick (mean of `h.happiness` × 100) | every tick |
-| `salesThisWeek` | everything the town's businesses sold this week, in dollars | the value the frame's `metrics.gdp` is built from (`server.py` ~3024 divides by 1e6; curated carries dollars). If "gdp" is not firm sales, name the key after what it really is and tell the controller | every tick |
+| `salesExceptRentThisWeek` | everything the town's businesses sold this week, in dollars | the value the frame's `metrics.gdp` is built from (`server.py` ~3024 divides by 1e6; curated carries dollars). If "gdp" is not firm sales, name the key after what it really is and tell the controller | every tick |
 | `townHallIncome` | what the town hall took in this week, in dollars | `economy.government.last_tick_revenue` (taxes plus loan repayments; confirm) | every tick |
 | `familySupportPaid` | support the town hall paid to households this week, in dollars | `economy.last_tick_gov_transfers` (confirm it is household transfers only) | every tick |
 | `topTenthShare` | share of all household wealth held by the richest tenth, percent | `econ_metrics["top_10_percent_share"] × 100` | counted every 5 weeks; `wealthAsOfTick` says when |
@@ -102,8 +102,8 @@ It closes back to the towns.
 // catalog.js
 // New METRICS entries, each { name, meaning, format, better }:
 //   priceHousing, priceServices, priceHealthcare ('price'), bankDefaultAmountThisTick ('money'),
-//   happiness ('outOf100', "How people feel"), salesThisWeek ('money', "Everything sold this week"),
-//   townHallIncome ('money'), familySupportPaid ('money'), topTenthShare ('percent'), bottomHalfShare ('percent').
+//   happiness ('outOf100', "How people feel"), salesExceptRentThisWeek ('money', "Sales this week, not counting rent"),
+//   townHallIncome ('money', "Taxes collected this week"), familySupportPaid ('money', "Help paid to families this week"), topTenthShare ('percent'), bottomHalfShare ('percent').
 // Formats: formatMetric gains 'outOf100' -> "41 of 100" and 'percent' -> "42%".
 //   A negative townHallCash reads "owes $11,276".
 COUNTED_EVERY_5 = ['gini', 'wealthP10', 'wealthP50', 'wealthP90', 'topTenthShare', 'bottomHalfShare']
@@ -112,11 +112,11 @@ NUMBER_GROUPS = [
   { id: 'prices', keys: ['priceFood', 'priceHousing', 'priceServices', 'priceHealthcare', 'foodSpendPerHousehold'] },
   { id: 'richpoor', keys: ['gini', 'topTenthShare', 'bottomHalfShare'], extras: ['wealthLadder'] },
   { id: 'business', keys: ['firmsOpen'], extras: ['firmStates', 'openedClosed'] },
-  { id: 'money', keys: ['townHallCash', 'salesThisWeek', 'bankActiveLoans'], extras: ['moneyInOut', 'loansWrittenOff'] },
+  { id: 'money', keys: ['townHallCash', 'salesExceptRentThisWeek', 'bankActiveLoans'], extras: ['moneyInOut', 'loansWrittenOff'] },
   { id: 'wellbeing', keys: ['homelessHouseholds', 'careDenials', 'happiness'] },
 ]   // COPY.numbers.groups[id] = { title, blurb }, taken from the mockup
 GLANCE_KEYS = ['peopleOutOfWorkPer100', 'typicalWeeklyPay', 'foodSpendPerHousehold', 'gini', 'townHallCash', 'firmsOpen',
-               'happiness', 'salesThisWeek']
+               'happiness', 'salesExceptRentThisWeek']
 
 // derive.js
 countedAt(arm, key, tick) -> { value, asOfTick } | null   // for COUNTED_EVERY_5 keys: the value at the last tick <= `tick`
@@ -229,7 +229,7 @@ countedNote(asOfTick) -> "Counted every 5 weeks; last count Year 2, week 18."
 - **ShareBars.** "Out of every $100 saved": poorest half, the next 40%, richest tenth (100 − topTenthShare − bottomHalfShare). Show "Not measured in this run" when either share is null.
 - **FirmStates.** A stacked bar per town: growing, steady, struggling, with counts.
 - **OpenedClosed.** A week strip over the last 26 weeks with a mark for each opening and closing, plus the totals.
-- **MoneyInOut.** For the last 26 weeks, bars of townHallIncome ("in: taxes and loans paid back") against familySupportPaid ("out: help paid to families"). Add a note that other town hall spending is not included.
+- **MoneyInOut.** For the last 26 weeks, bars of townHallIncome ("in: taxes collected") against familySupportPaid ("out: help paid to families, including the welcome payments in the first weeks"). Add a note that other town hall spending is not included.
 - **CashChart.** The last 52 weeks of townHallCash, with a red "owes" band below zero and the first week below zero ringed. If the starting balance would flatten the scale, it becomes a note, not a point.
 - **FeelMeter.** A 0-to-100 meter per town, with the meaning sentence.
 - **Loans written off so far.** `cumulativeUpTo(arm, 'bankDefaultAmountThisTick', tick)` per town, with a sentence saying the count of loans is not recorded.
