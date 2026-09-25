@@ -1,10 +1,11 @@
 import { afterEach, describe, expect, test, vi } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { fireEvent, render, screen } from '@testing-library/react'
 import NextApp from '../NextApp.jsx'
 import { FIXTURE_TEXT } from './fixture.js'
 
-// The same recording twice, the second with a higher minimum wage in its header.
-const TOWN_B_TEXT = FIXTURE_TEXT.replace('"initial_policy": {}', '"initial_policy": {"minimum_wage_policy": "high"}')
+// The same recording twice, the second with a higher minimum wage in its
+// header, its SETUP and the server's SETUP_COMPLETE.
+const TOWN_B_TEXT = FIXTURE_TEXT.replaceAll('"initial_policy": {}', '"initial_policy": {"minimum_wage_policy": "high"}')
 
 function serve(files) {
   return vi.fn(async url => {
@@ -20,14 +21,26 @@ describe('NextApp', () => {
   test('loads the two demo towns and asks the experiment question', async () => {
     const fetch = serve({ 'town-a.jsonl': FIXTURE_TEXT, 'town-b.jsonl': TOWN_B_TEXT })
     vi.stubGlobal('fetch', fetch)
-    const { container } = render(<NextApp />)
-    expect(screen.getByText('Loading the demo towns…')).toBeInTheDocument()
-    expect(await screen.findByText('What happens with a higher minimum wage?')).toBeInTheDocument()
+    const { container, unmount } = render(<NextApp />)
+    expect(screen.getByRole('status')).toHaveTextContent('Loading the demo towns…')
+    expect(document.documentElement).toHaveClass('nx-page')
+    expect(await screen.findByRole('heading', { level: 1, name: 'What happens with a higher minimum wage?' })).toBeInTheDocument()
     expect(container.firstChild).toHaveClass('nx')
     expect(fetch.mock.calls.map(([url]) => String(url))).toEqual(['/demo/town-a.jsonl', '/demo/town-b.jsonl'])
     expect(screen.getByText('EcoSim')).toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'Classic dashboard' })).toHaveAttribute('href', '?view=classic')
     expect(container.querySelectorAll('.nx-col')).toHaveLength(2)
+    unmount()
+    expect(document.documentElement).not.toHaveClass('nx-page')
+  })
+
+  test('owns the replay clock and hands it to the Run screen', async () => {
+    vi.stubGlobal('fetch', serve({ 'town-a.jsonl': FIXTURE_TEXT, 'town-b.jsonl': TOWN_B_TEXT }))
+    const { container } = render(<NextApp />)
+    const slider = await screen.findByRole('slider', { name: 'Week of the run' })
+    expect(slider).toHaveAttribute('max', '24')
+    fireEvent.change(slider, { target: { value: '15' } })
+    expect(container.querySelector('.nx-week')).toHaveTextContent('Year 1, week 15')
   })
 
   test('explains how to fix missing demo data', async () => {

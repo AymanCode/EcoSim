@@ -1,14 +1,15 @@
 import { useId } from 'react'
 import useMeasured from '../../charts/useMeasured.js'
-import { COPY, METRICS, STORY_METRICS, formatMetric, formatMetricShort } from '../catalog.js'
+import { COPY, METRICS, STORY_METRICS, WARMUP_TICKS, formatMetric, formatMetricShort, townTextColor } from '../catalog.js'
 import { seriesUpTo, valueAt } from '../data/derive.js'
 import { policyMarkerLabel, startNote, weekLabel } from '../narration.js'
 import '../next.css'
 
 // Port of the mockup's storyChart: one number for every town from week 0 to
 // the horizon, the weeks not yet played shaded, direct end labels, a marker
-// per policy change. Label widths are estimated (no DOM measuring), so every
-// label keeps a little slack.
+// per policy change. The warm-up weeks sit in a hatched "setting up" band with
+// the lines dashed there, and the y-axis ignores them. Label widths are
+// estimated (no DOM measuring), so every label keeps a little slack.
 const HEIGHT = 320
 const PAD_TOP = 44
 const PAD_RIGHT = 156
@@ -75,6 +76,15 @@ function xMarks(horizon) {
   const labels = []
   for (let week = step; week <= horizon; week += step) labels.push({ at: week, text: COPY.chart.week(week) })
   return { labels, bounds: [] }
+}
+
+// Splits a town's points at the end of warm-up. The dashed part runs on to the
+// first real week so the two parts join.
+function splitWarmUp(points) {
+  const firstLive = points.findIndex(point => point.tick > WARMUP_TICKS)
+  const hasWarm = points.length > 0 && points[0].tick <= WARMUP_TICKS
+  if (firstLive < 0) return { warm: points, live: [] }
+  return { warm: hasWarm ? points.slice(0, firstLive + 1) : [], live: points.slice(firstLive) }
 }
 
 function pathFor(points, x, y) {
@@ -161,7 +171,10 @@ function ValueTable({ arms, metricKey, tick, name }) {
 
 export default function StoryChart({ arms, metricKey, tick, horizon, onMetricChange, playing = false }) {
   const [ref, size] = useMeasured()
-  const clipId = `nx-plot-${useId().replace(/:/g, '')}`
+  const uid = useId().replace(/:/g, '')
+  const clipId = `nx-plot-${uid}`
+  const linesClipId = `nx-lines-${uid}`
+  const hatchId = `nx-hatch-${uid}`
   const metric = METRICS[metricKey] ?? { name: metricKey, meaning: '', format: 'count' }
   const end = Math.max(1, Number(horizon) || 0, tick)
 
@@ -170,7 +183,10 @@ export default function StoryChart({ arms, metricKey, tick, horizon, onMetricCha
   // Narrow charts put the town and its value on two lines to leave room for the plot.
   const compact = W < COMPACT_BELOW
   const values = arms.flatMap(arm => (arm.series?.[metricKey] ?? []).filter(value => value !== null))
-  const scale = yScaleFor(values, metric.format)
+  // The y-axis is set by the real weeks; warm-up values may fall outside it.
+  const liveValues = arms.flatMap(arm => (arm.series?.[metricKey] ?? [])
+    .filter((value, i) => value !== null && arm.ticks[i] > WARMUP_TICKS))
+  const scale = yScaleFor(liveValues.length ? liveValues : values, metric.format)
   const yLabels = scale.ticks.map(value => formatMetricShort(metricKey, value))
   const padL = Math.max(44, Math.ceil(Math.max(...yLabels.map(label => textWidth(label, 12))) + 14))
   const endLines = item => {
@@ -188,13 +204,17 @@ export default function StoryChart({ arms, metricKey, tick, horizon, onMetricCha
   const plotRight = W - (compact ? Math.ceil(endWidth) + 20 : PAD_RIGHT)
   const x = t => padL + (t / end) * (plotRight - padL)
   const y = v => PAD_TOP + (1 - (v - scale.lo) / (scale.hi - scale.lo || 1)) * (H - PAD_TOP - PAD_BOTTOM)
+  const plotTop = PAD_TOP - 10
+  const plotBottom = H - PAD_BOTTOM
+  const clampY = value => Math.min(plotBottom, Math.max(plotTop, value))
   const cursorX = x(tick)
   const marks = xMarks(end)
+  const warmEnd = Math.min(WARMUP_TICKS, end)
 
   // End labels first: they carry the numbers.
   const endHeight = compact ? 2 * LINE_H : END_GAP
   const ends = spread(
-    readings.map(item => ({ ...item, dotY: y(item.value), y: y(item.value) })),
+    readings.map(item => ({ ...item, dotY: clampY(y(item.value)), y: clampY(y(item.value)) })),
     endHeight,
     PAD_TOP - 4 + (compact ? LINE_H / 2 : 0),
     H - PAD_BOTTOM - 6 - (compact ? LINE_H / 2 : 0),
@@ -208,17 +228,31 @@ export default function StoryChart({ arms, metricKey, tick, horizon, onMetricCha
   const note = startNote(arms.length)
   if (note) taken.push({ x: padL, y: 6, w: textWidth(note, 12.5, true), h: 18 })
 
+  // "setting up" sits at the top of the warm-up band, or its foot if a label is there.
+  let warmLabel = null
+  if (warmEnd > 0) {
+    const w = textWidth(COPY.chart.settingUp, 12)
+    const candidates = [
+      { x: x(0) + 6, y: PAD_TOP - 6, w, h: 18 },
+      { x: x(0) + 6, y: H - PAD_BOTTOM - 22, w, h: 18 },
+    ]
+    warmLabel = place(candidates, taken) ?? candidates[0]
+    taken.push(warmLabel)
+  }
+
   // "the weeks ahead" sits at the foot of the shading, or its top if a label is there.
   let ahead = null
   const aheadWidth = textWidth(COPY.chart.weeksAhead, 12)
   if (tick < end && x(end) - cursorX > aheadWidth + 20) {
-    const spot = place([
-      { x: cursorX + 8, y: H - PAD_BOTTOM - 22, w: aheadWidth, h: 18 },
-      { x: cursorX + 8, y: PAD_TOP - 6, w: aheadWidth, h: 18 },
-    ], taken)
+    // Just past the cursor if free, else just past whichever label is in the way.
+    const starts = [cursorX + 8, ...taken.map(box => box.x + box.w + 10).filter(at => at > cursorX + 8)].sort((a, b) => a - b)
+    const spot = place(starts.flatMap(at => [
+      { x: at, y: H - PAD_BOTTOM - 22, w: aheadWidth, h: 18 },
+      { x: at, y: PAD_TOP - 6, w: aheadWidth, h: 18 },
+    ]).filter(box => box.x + box.w <= x(end)), taken)
     if (spot) {
       taken.push(spot)
-      ahead = { y: spot.y + 13 }
+      ahead = { x: spot.x - cursorX, y: spot.y + 13 }
     }
   }
 
@@ -239,7 +273,7 @@ export default function StoryChart({ arms, metricKey, tick, horizon, onMetricCha
       const fits = candidates.filter(box => box.x >= padL - 4 && box.x + box.w <= W)
       const spot = place(fits, taken)
       if (spot) taken.push(spot)
-      markers.push({ key: `${arm.label}:${change.tick}:${change.policy}`, arm, at, lines, spot })
+      markers.push({ key: `${arm.label}:${change.id ?? `${change.tick}:${change.policy}`}`, arm, at, lines, spot })
     }
   })
 
@@ -254,6 +288,13 @@ export default function StoryChart({ arms, metricKey, tick, horizon, onMetricCha
             <clipPath id={clipId}>
               <rect x={padL} y={0} width={Math.max(0, x(end) - padL)} height={H} />
             </clipPath>
+            <clipPath id={linesClipId}>
+              <rect x={padL - 6} y={plotTop} width={Math.max(0, x(end) - padL + 12)} height={plotBottom - plotTop} />
+            </clipPath>
+            <pattern id={hatchId} width={6} height={6} patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+              <rect className="nx-hatch-bg" width={6} height={6} />
+              <line className="nx-hatch" x1={0} y1={0} x2={0} y2={6} />
+            </pattern>
           </defs>
           <g className="nx-yaxis">
             {scale.ticks.map((value, i) => (
@@ -270,11 +311,14 @@ export default function StoryChart({ arms, metricKey, tick, horizon, onMetricCha
               <text key={label.text} x={round(x(label.at))} y={H - 8} textAnchor="middle">{label.text}</text>
             ))}
           </g>
+          {warmEnd > 0 && (
+            <rect className="nx-warm" x={round(x(0))} y={plotTop} width={round(x(warmEnd) - x(0))} height={plotBottom - plotTop} fill={`url(#${hatchId})`} />
+          )}
           <g clipPath={`url(#${clipId})`}>
             <g className="nx-cursor" style={{ transform: `translateX(${round(cursorX)}px)` }}>
               <rect className="nx-future" x={0} y={PAD_TOP - 10} width={Math.max(0, x(end) - padL)} height={H - PAD_TOP - PAD_BOTTOM + 10} />
               <line className="nx-now" x1={0} x2={0} y1={PAD_TOP - 10} y2={H - PAD_BOTTOM} />
-              {ahead && <text className="nx-ahead" x={8} y={round(ahead.y)}>{COPY.chart.weeksAhead}</text>}
+              {ahead && <text className="nx-ahead" x={round(ahead.x)} y={round(ahead.y)}>{COPY.chart.weeksAhead}</text>}
             </g>
           </g>
           <g className="nx-rules">
@@ -282,11 +326,21 @@ export default function StoryChart({ arms, metricKey, tick, horizon, onMetricCha
               <line key={key} x1={round(at)} x2={round(at)} y1={PAD_TOP - 4} y2={H - PAD_BOTTOM} style={{ stroke: arm.color }} />
             ))}
           </g>
-          {arms.map(arm => {
-            const d = pathFor(seriesUpTo(arm, metricKey, tick), x, y)
-            return d ? <path key={arm.label} className="nx-line" d={d} style={{ stroke: arm.color }} /> : null
-          })}
+          <g clipPath={`url(#${linesClipId})`}>
+            {arms.map(arm => {
+              const { warm, live } = splitWarmUp(seriesUpTo(arm, metricKey, tick))
+              const warmD = pathFor(warm, x, y)
+              const liveD = pathFor(live, x, y)
+              return (
+                <g key={arm.label}>
+                  {warmD && <path className="nx-warmline" d={warmD} style={{ stroke: arm.color }} />}
+                  {liveD && <path className="nx-line" d={liveD} style={{ stroke: arm.color }} />}
+                </g>
+              )
+            })}
+          </g>
           {note && <text className="nx-ann is-bold" x={padL} y={20}>{note}</text>}
+          {warmLabel && <text className="nx-warm-label" x={round(warmLabel.x)} y={round(warmLabel.y + 13)}>{COPY.chart.settingUp}</text>}
           {markers.map(({ key, arm, at, lines, spot }) => (
             <g key={key} className="nx-marker">
               <path d={`M${round(at - 5)} ${H - PAD_BOTTOM} L${round(at + 5)} ${H - PAD_BOTTOM} L${round(at)} ${H - PAD_BOTTOM + 7} Z`} style={{ fill: arm.color }} />
@@ -309,7 +363,7 @@ export default function StoryChart({ arms, metricKey, tick, horizon, onMetricCha
                 <path className="nx-leader" d={`M${round(cursorX + 5)} ${round(item.dotY)} L${round(cursorX + 9)} ${round(item.y)}`} style={{ stroke: item.arm.color }} />
               )}
               <circle className="nx-dot" cx={round(cursorX)} cy={round(item.dotY)} r={5} style={{ fill: item.arm.color }} />
-              <text className="nx-endl" x={round(cursorX + 12)} y={round(item.y + 4.5 - ((item.lines.length - 1) * LINE_H) / 2)} style={{ fill: item.arm.color }}>
+              <text className="nx-endl" x={round(cursorX + 12)} y={round(item.y + 4.5 - ((item.lines.length - 1) * LINE_H) / 2)} style={{ fill: townTextColor(item.arm.color) }}>
                 {item.lines.length === 1 ? item.lines[0] : item.lines.map((line, i) => (
                   <tspan key={line} x={round(cursorX + 12)} dy={i ? LINE_H : 0}>{line}</tspan>
                 ))}

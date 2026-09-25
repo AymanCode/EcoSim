@@ -19,6 +19,35 @@ describe('StoryChart', () => {
     expect(lines.map(line => line.style.stroke)).toEqual(['rgb(46, 111, 224)', 'rgb(224, 118, 44)'])
   })
 
+  test('the warm-up weeks sit in a band labelled "setting up", drawn dashed and faint', () => {
+    const { container } = draw({ tick: 24 })
+    const band = container.querySelector('.nx-warm')
+    expect(band).toBeInTheDocument()
+    expect(Number(band.getAttribute('width'))).toBeGreaterThan(0)
+    expect(container.querySelector('.nx-warm-label')).toHaveTextContent('setting up')
+    const warm = [...container.querySelectorAll('path.nx-warmline')]
+    expect(warm).toHaveLength(2)
+    // The dashed part runs to the first real week and no further; the solid part starts there.
+    const points = d => d.split(/[ML]/).filter(Boolean).map(pair => Number(pair.trim().split(' ')[0]))
+    const solid = container.querySelector('path.nx-line').getAttribute('d')
+    expect(points(warm[0].getAttribute('d')).at(-1)).toBe(points(solid)[0])
+  })
+
+  test('during warm-up there is only the dashed line', () => {
+    const { container } = draw({ tick: 6 })
+    expect(container.querySelectorAll('path.nx-line')).toHaveLength(0)
+    expect(container.querySelectorAll('path.nx-warmline')).toHaveLength(2)
+  })
+
+  test('the y-axis leaves out the warm-up weeks', () => {
+    const arm = fixtureArm(TOWN_A)
+    // A spike during warm-up must not stretch the axis.
+    arm.series[OUT] = arm.series[OUT].map((v, i) => (arm.ticks[i] === 3 ? 95 : Math.min(v, 45)))
+    const { container } = render(<StoryChart arms={[arm]} metricKey={OUT} tick={24} horizon={24} onMetricChange={() => {}} />)
+    const top = [...container.querySelectorAll('.nx-yaxis text')].map(text => parseInt(text.textContent, 10)).at(-1)
+    expect(top).toBeLessThan(60)
+  })
+
   test('marks each policy change once the week is reached', () => {
     const { container, rerender } = draw()
     const markers = [...container.querySelectorAll('.nx-marker')]

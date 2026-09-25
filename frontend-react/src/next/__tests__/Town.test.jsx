@@ -33,6 +33,20 @@ describe('Town', () => {
     expect(legend).toHaveTextContent('lost their home')
   })
 
+  test('houses looking for work carry a shape cue, and the legend shows it', () => {
+    const { container } = render(<Town arm={fixtureArm()} tick={11} />)
+    const houses = [...container.querySelectorAll('.nx-house')]
+    const looking = houses.filter(house => house.classList.contains('is-look'))
+    expect(looking.length).toBe(42)
+    looking.forEach(house => expect(house.querySelector('.nx-seek')).not.toBeNull())
+    houses.filter(house => !house.classList.contains('is-look'))
+      .forEach(house => expect(house.querySelector('.nx-seek')).toBeNull())
+    const keys = [...container.querySelectorAll('.nx-legend .nx-key')]
+    expect(keys).toHaveLength(3)
+    expect(keys[1].querySelector('.nx-seek')).not.toBeNull()
+    expect(keys[2].querySelector('.nx-lost')).not.toBeNull()
+  })
+
   test('colours houses from people out of work and homes lost', () => {
     const { container } = render(<Town arm={fixtureArm()} tick={11} />)
     // Week 11: 41.67 in 100 out of work, nobody homeless.

@@ -1,13 +1,14 @@
 // Numbers and events into plain sentences. Pure functions over arms from
 // data/session.js; all wording lives here or in catalog.js.
 
-import { METRICS, NO_CHANGES, describePolicy, formatMetric, formatMoney, joinPhrases, leverName, leverValuePhrase } from './catalog.js'
+import { METRICS, NO_CHANGES, WARMUP_TICKS, describePolicy, formatMetric, formatMoney, joinPhrases, leverName, leverValuePhrase, shownValue } from './catalog.js'
 import { firmDisplayName, householdName as defaultHouseholdName } from './names.js'
 import { householdState, snapshotAt, valueAt } from './data/derive.js'
 
 const WEEKS_PER_YEAR = 52
 const OUT = 'peopleOutOfWorkPer100'
 const PAY = 'typicalWeeklyPay'
+const FIRST_REAL_WEEK = WARMUP_TICKS + 1
 
 export function weekLabel(tick) {
   const t = Math.floor(Number(tick))
@@ -16,23 +17,25 @@ export function weekLabel(tick) {
 }
 
 const known = value => value !== null && value !== undefined
+const inWarmUp = tick => tick <= WARMUP_TICKS
+const towns = count => (count === 2 ? 'Both towns' : 'All the towns')
+const hasReported = (arm, tick) => known(arm?.ticks?.[0]) && arm.ticks[0] <= tick
 
-// Gaps under these read as "about the same".
-const OUT_SAME = 0.5
-const PAY_SAME = 0.01
-const isSame = (diff, threshold) => diff === 0 || Math.abs(diff) < threshold
-
+// The lead compares figures as the page shows them, so "42 in 100 vs 42 in 100"
+// always reads "about the same".
 function outClause(town, first, value, base) {
   const pair = `(${formatMetric(OUT, value)} vs ${formatMetric(OUT, base)})`
-  if (isSame(value - base, OUT_SAME)) return { tone: 0, text: `${town} has about the same number of people out of work as ${first} ${pair}` }
-  if (value < base) return { tone: 1, text: `${town} has fewer people out of work than ${first} ${pair}` }
+  const [shown, shownBase] = [shownValue(OUT, value), shownValue(OUT, base)]
+  if (shown === shownBase) return { tone: 0, text: `${town} has about the same number of people out of work as ${first} ${pair}` }
+  if (shown < shownBase) return { tone: 1, text: `${town} has fewer people out of work than ${first} ${pair}` }
   return { tone: -1, text: `${town} has more people out of work than ${first} ${pair}` }
 }
 
 function payClause(value, base) {
   const pair = `(${formatMetric(PAY, value)} vs ${formatMetric(PAY, base)})`
-  if (isSame(value - base, PAY_SAME * Math.abs(base))) return { tone: 0, text: `pays about the same ${pair}` }
-  if (value > base) return { tone: 1, text: `pays more ${pair}` }
+  const [shown, shownBase] = [shownValue(PAY, value), shownValue(PAY, base)]
+  if (shown === shownBase) return { tone: 0, text: `pays about the same ${pair}` }
+  if (shown > shownBase) return { tone: 1, text: `pays more ${pair}` }
   return { tone: -1, text: `pays less ${pair}` }
 }
 
@@ -50,14 +53,31 @@ function compareSentence(first, arm, tick) {
   return null
 }
 
+// How a sentence names a figure: `plain` before "went from", `measure` before "is".
+const SUBJECTS = {
+  [OUT]: { plain: 'people out of work', measure: 'the number of people out of work' },
+  [PAY]: { plain: 'typical weekly pay', measure: 'typical weekly pay' },
+}
+const capitalise = text => `${text.charAt(0).toUpperCase()}${text.slice(1)}`
+
+function currentPhrase(key, value) {
+  if (!known(value)) return `${SUBJECTS[key].measure} is not measured yet`
+  return key === OUT ? `${formatMetric(OUT, value)} people are out of work` : `${SUBJECTS[key].measure} is ${formatMetric(key, value)}`
+}
+
 export function leadSentence(arms, tick) {
   if (!arms?.length) return ''
   if (arms.length === 1) {
     const [arm] = arms
     const out = valueAt(arm, OUT, tick)
     const pay = valueAt(arm, PAY, tick)
-    if (!known(out) && !known(pay)) return `${weekLabel(tick)}. ${arm.label} hasn't reported yet.`
-    return `${weekLabel(tick)}. ${formatMetric(OUT, out)} people are out of work and typical weekly pay is ${formatMetric(PAY, pay)}.`
+    if (!hasReported(arm, tick) || (!known(out) && !known(pay))) return `${weekLabel(tick)}. ${arm.label} hasn't reported yet.`
+    if (inWarmUp(tick)) return `${weekLabel(tick)}. ${arm.label} is still being set up; the real economy starts in week ${FIRST_REAL_WEEK}.`
+    return `${weekLabel(tick)}. ${capitalise(currentPhrase(OUT, out))} and ${currentPhrase(PAY, pay)}.`
+  }
+  if (!arms.every(arm => hasReported(arm, tick))) return `${weekLabel(tick)}. The towns haven't reported yet.`
+  if (inWarmUp(tick)) {
+    return `${weekLabel(tick)}. ${towns(arms.length)} are still being set up and start the same; the real economy starts in week ${FIRST_REAL_WEEK}.`
   }
   const [first, ...rest] = arms
   const sentences = rest.map(arm => compareSentence(first, arm, tick)).filter(Boolean)
@@ -65,14 +85,25 @@ export function leadSentence(arms, tick) {
   return sentences.join(' ')
 }
 
+// The verdict weighs averages over the last three months of the real economy.
+const WINDOW = 13
+const OUT_SAME = 0.5
+const PAY_SAME = 0.01
+
 // What the verdict weighs, most important first. `threshold` is absolute, or
-// relative to the first town's value when `relative` is set.
+// relative to the first town's average when `relative` is set, or a function
+// of the town's households.
 const FINDINGS = [
   { key: OUT, threshold: OUT_SAME, more: 'more people out of work', less: 'fewer people out of work' },
   { key: PAY, threshold: PAY_SAME, relative: true, more: 'higher pay', less: 'lower pay' },
-  { key: 'priceFood', threshold: 0.01, relative: true, more: 'dearer food', less: 'cheaper food' },
+  { key: 'priceFood', threshold: 0.01, relative: true, more: 'higher food prices', less: 'lower food prices' },
   { key: 'gini', threshold: 0.01, more: 'a wider gap between rich and poor', less: 'a smaller gap between rich and poor' },
-  { key: 'homelessHouseholds', threshold: 1, more: 'more households without a home', less: 'fewer households without a home' },
+  {
+    key: 'homelessHouseholds',
+    threshold: ({ households }) => (known(households) ? 0.01 * households : 1),
+    more: 'more households without a home',
+    less: 'fewer households without a home',
+  },
   {
     key: 'firmsClosed',
     threshold: 1,
@@ -84,17 +115,31 @@ const FINDINGS = [
 ]
 const MAX_PER_SIDE = 3
 
-function findings(first, arm, tick) {
+function windowTicks(arm, tick) {
+  return (arm.ticks ?? []).filter(t => t > WARMUP_TICKS && t <= tick && t > tick - WINDOW)
+}
+
+function average(read, arm, ticks) {
+  const values = ticks.map(t => read(arm, t)).filter(known)
+  return values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : null
+}
+
+const readKey = key => (arm, tick) => valueAt(arm, key, tick)
+
+function findings(first, arm, ticks) {
   const goods = []
   const bads = []
+  const households = average(readKey('householdsTotal'), first, ticks) ?? first.setup?.num_households ?? null
   for (const finding of FINDINGS) {
-    const read = finding.read ?? ((a, t) => valueAt(a, finding.key, t))
-    const value = read(arm, tick)
-    const base = read(first, tick)
+    const read = finding.read ?? readKey(finding.key)
+    const value = average(read, arm, ticks)
+    const base = average(read, first, ticks)
     if (!known(value) || !known(base)) continue
     const diff = value - base
-    const threshold = finding.relative ? finding.threshold * Math.abs(base) : finding.threshold
-    if (isSame(diff, threshold)) continue
+    const threshold = typeof finding.threshold === 'function'
+      ? finding.threshold({ households })
+      : finding.relative ? finding.threshold * Math.abs(base) : finding.threshold
+    if (diff === 0 || Math.abs(diff) < threshold) continue
     const better = finding.better ?? METRICS[finding.key]?.better
     if (!better) continue
     const good = better === 'lower' ? diff < 0 : diff > 0
@@ -104,30 +149,41 @@ function findings(first, arm, tick) {
 }
 
 function movement(key, from, to) {
-  const a = formatMetric(key, from)
+  if (!known(to)) return `${SUBJECTS[key].measure} is not measured yet`
   const b = formatMetric(key, to)
-  return a === b ? `stayed at ${b}` : `went from ${a} to ${b}`
+  if (!known(from)) return `${SUBJECTS[key].measure} is ${b}`
+  const a = formatMetric(key, from)
+  return a === b ? `${SUBJECTS[key].plain} stayed at ${b}` : `${SUBJECTS[key].plain} went from ${a} to ${b}`
 }
 
 function singleTownVerdict(arm, tick) {
-  const start = arm.ticks?.[0]
-  if (!known(start) || tick <= start) return `${arm.label} has just started.`
-  return `So far in ${arm.label}, people out of work ${movement(OUT, valueAt(arm, OUT, start), valueAt(arm, OUT, tick))}`
-    + ` and typical weekly pay ${movement(PAY, valueAt(arm, PAY, start), valueAt(arm, PAY, tick))}.`
+  if (!hasReported(arm, tick)) return `${arm.label} has just started.`
+  if (inWarmUp(tick)) return `${arm.label} is still being set up. Its economy starts in week ${FIRST_REAL_WEEK}.`
+  const start = (arm.ticks ?? []).find(t => t > WARMUP_TICKS)
+  if (!known(start) || tick <= start) return `${arm.label}'s economy has just started.`
+  return `So far in ${arm.label}, ${movement(OUT, valueAt(arm, OUT, start), valueAt(arm, OUT, tick))}`
+    + ` and ${movement(PAY, valueAt(arm, PAY, start), valueAt(arm, PAY, tick))}.`
 }
 
-// Plain-words verdict on the second town against the first, ending with a
-// question about the second town's policy. One town gets a summary instead.
+// Plain-words verdict on the second town against the first over the last
+// three months, ending with a question about the second town's policy. One
+// town gets a summary instead.
 export function verdict(arms, tick) {
   if (!arms?.length) return ''
   if (arms.length === 1) return singleTownVerdict(arms[0], tick)
   const [first, second] = arms
-  const { goods, bads } = findings(first, second, tick)
-  let summary
-  if (!goods.length && !bads.length) summary = `So far, ${second.label} and ${first.label} look about the same.`
-  else if (!goods.length || !bads.length) summary = `So far, ${second.label} has ${joinPhrases(goods.length ? goods : bads)} than ${first.label}.`
-  else summary = `So far, ${second.label} has ${joinPhrases(goods)} than ${first.label}, but ${joinPhrases(bads)}.`
   const policy = describePolicy(second.setup?.initial_policy)
+  if (inWarmUp(tick)) {
+    const next = policy === NO_CHANGES ? 'how they compare' : `what ${policy} does`
+    return `${towns(arms.length)} are still being set up and start the same. From week ${FIRST_REAL_WEEK} you can see ${next}.`
+  }
+  const ticks = windowTicks(first, tick)
+  const { goods, bads } = findings(first, second, ticks)
+  const when = ticks.length >= WINDOW ? 'Over the last three months' : 'So far'
+  let summary
+  if (!goods.length && !bads.length) summary = `${when}, ${second.label} and ${first.label} look about the same.`
+  else if (!goods.length || !bads.length) summary = `${when}, ${second.label} has ${joinPhrases(goods.length ? goods : bads)} than ${first.label}.`
+  else summary = `${when}, ${second.label} has ${joinPhrases(goods)} than ${first.label}, but ${joinPhrases(bads)}.`
   const question = policy === NO_CHANGES ? 'Would you change anything?' : `Would you keep ${policy}?`
   return `${summary} ${question}`
 }
@@ -145,7 +201,9 @@ const SECTOR_NOUNS = {
 // Friendlier sentences for the regime events the economy emits; anything else
 // falls back to its type code read aloud.
 const REGIMES = {
-  eviction: ({ household }) => `${household ?? 'A household'} lost their home.`,
+  eviction: ({ household, lostHome }) => (lostHome
+    ? `${household ?? 'A household'} lost their home.`
+    : `${household ?? 'A household'} had to move after falling behind on rent.`),
   failed_hiring: ({ firm }) => (firm ? `${firm} couldn't fill its open jobs.` : null),
   firm_distress_enter: ({ firm }) => (firm ? `${firm} is struggling to pay its bills.` : null),
   firm_distress_exit: ({ firm }) => (firm ? `${firm} is back on its feet.` : null),
@@ -168,8 +226,10 @@ function resolve(resolver, fallback, ...args) {
   return fallback(...args)
 }
 
-// names = { householdName: id => string, firmName: firm => string }, each
-// optional (a plain string also works); defaults are the names.js names.
+// names = { householdName: id => string, firmName: firm => string, lostHome },
+// each optional (a plain string also works for a name); defaults are the
+// names.js names. An eviction only reads "lost their home" with `lostHome`
+// set, when the household has no home at that week.
 export function eventSentence(event, names = {}) {
   if (!event) return FALLBACK
   const household = known(event.householdId) ? resolve(names.householdName, defaultHouseholdName, event.householdId) : null
@@ -205,7 +265,7 @@ export function eventSentence(event, names = {}) {
       return SHOCKS[event.text] ?? 'Something unexpected happened.'
     case 'regime': {
       const sector = SECTOR_NOUNS[event.sector] ?? (event.sector ? String(event.sector).toLowerCase() : null)
-      return REGIMES[event.text]?.({ household, firm, sector }) ?? readAloud(event.text)
+      return REGIMES[event.text]?.({ household, firm, sector, lostHome: names.lostHome === true }) ?? readAloud(event.text)
     }
     default:
       return FALLBACK
@@ -214,18 +274,26 @@ export function eventSentence(event, names = {}) {
 
 // Several events of one kind in the same week read as one counted sentence.
 // Counts go by distinct household or business where the events name one.
+// Household events only reach the browser for the tracked sample.
+const FAMILIES = {
+  hired: 'found work',
+  laid_off: 'lost their jobs',
+  care_denied: "couldn't afford a doctor",
+  care_completed: 'saw a doctor',
+  loan_default: "couldn't repay a loan",
+}
+const FAMILY_REGIMES = {
+  eviction: 'had to move after falling behind on rent',
+}
+const families = (n, verb) => `${n} of the families we follow ${verb}.`
+
 const COUNTED = {
   firm_opened: n => `${n} new businesses opened.`,
   firm_closed: n => `${n} businesses closed.`,
-  hired: n => `${n} people found work.`,
-  laid_off: n => `${n} people lost their jobs.`,
-  care_denied: n => `${n} people couldn't afford a doctor.`,
-  care_completed: n => `${n} people saw a doctor.`,
   loan_default: n => `${n} loans went unpaid.`,
 }
 
 const COUNTED_REGIMES = {
-  eviction: n => `${n} households lost their home.`,
   failed_hiring: n => `${n} businesses couldn't fill their open jobs.`,
   firm_distress_enter: n => `${n} businesses are struggling to pay their bills.`,
   firm_distress_exit: n => `${n} businesses are back on their feet.`,
@@ -252,10 +320,25 @@ export function eventGroupSentence(events, names = {}) {
   }
   const n = distinctCount(list)
   if (n <= 1) return eventSentence(first, names)
+  const family = first.type === 'regime' ? FAMILY_REGIMES[first.text] : FAMILIES[first.type]
+  if (family && list.every(event => known(event.householdId))) return families(n, family)
   const counted = first.type === 'regime' ? COUNTED_REGIMES[first.text] : COUNTED[first.type]
   if (counted) return counted(n)
   if (first.type === 'policy_changed' || first.type === 'shock') return eventSentence(first, names)
   return `${eventSentence(first, names).replace(/\.$/, '')}, ${n} times.`
+}
+
+// Town-wide hires and lay-offs, from a week's `eventCounts`, when at least
+// `threshold` people were involved; otherwise null.
+export function townWideSentence(counts, threshold = 20) {
+  const hired = Number(counts?.hired) || 0
+  const laidOff = Number(counts?.laidOff) || 0
+  const found = hired >= threshold
+  const lost = laidOff >= threshold
+  if (found && lost) return `Across town, ${hired} people found work and ${laidOff} lost their jobs this week.`
+  if (found) return `Across town, ${hired} people found work this week.`
+  if (lost) return `Across town, ${laidOff} people lost their jobs this week.`
+  return null
 }
 
 // The question the header asks about an experiment.

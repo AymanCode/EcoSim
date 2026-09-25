@@ -25,6 +25,18 @@
   --nx-home: #D64A5E;
   --nx-slate: #B6BFC9;
   --nx-slate2: #8B96A2;
+  /* Text tones: every colour used for text reads at 4.5:1 or better on the
+     page (#F3F5F7), the panels (#FFFFFF) and panel2 (#EEF1F4). The lighter
+     tokens above stay for strokes, fills and swatches. */
+  --nx-ink3-text: #5E6975;
+  --nx-ink4-text: #646F7B;
+  --nx-a-text: #2B68D3;
+  --nx-b-text: #A65721;
+  --nx-c-text: #137B57;
+  --nx-d-text: #6B62AC;
+  --nx-work-text: #1E7A4F;
+  --nx-look-text: #8A5A0C;
+  --nx-home-text: #A22F41;
   --nx-disp: 'Bricolage Grotesque';
   --nx-body: 'Instrument Sans';
   --nx-ease: cubic-bezier(.2, .7, .2, 1);
@@ -72,10 +84,10 @@
   min-width: 0;
 }
 .nx .nx-card h3 { font-size: 16px }
-.nx .nx-card .cs { color: var(--nx-ink3); font-size: 13px; margin-top: 2px }
+.nx .nx-card .cs { color: var(--nx-ink3-text); font-size: 13px; margin-top: 2px }
 .nx .nx-bh { display: flex; justify-content: space-between; align-items: baseline; gap: 12px }
 .nx .nx-bh h3 { font-size: 16px }
-.nx .nx-bh > span { font-size: 12.5px; color: var(--nx-ink3); text-align: right }
+.nx .nx-bh > span { font-size: 12.5px; color: var(--nx-ink3-text); text-align: right }
 .nx .nx-more {
   display: inline-block;
   margin-top: 10px;
@@ -83,12 +95,12 @@
   border: 0;
   background: none;
   font-size: 13px;
-  color: var(--nx-ink3);
+  color: var(--nx-ink3-text);
   text-decoration: underline;
   text-underline-offset: 3px;
 }
 .nx .nx-more:hover { color: var(--nx-ink) }
-.nx .nx-empty { font-size: 13px; color: var(--nx-ink3); padding: 10px 0 2px }
+.nx .nx-empty { font-size: 13px; color: var(--nx-ink3-text); padding: 10px 0 2px }
 
 /* Town drawing */
 /* Capped so one town never draws taller than about 420 px (784 x 300/560). */
@@ -96,21 +108,24 @@
 .nx .nx-town .nx-ground { fill: var(--nx-panel2) }
 .nx .nx-town .nx-civic { fill: #fff; stroke: var(--nx-slate2); stroke-width: 1.2 }
 .nx .nx-town .nx-pillar { fill: var(--nx-slate) }
-.nx .nx-town .nx-label { font-family: var(--nx-body), sans-serif; font-size: 11.5px; fill: var(--nx-ink3) }
+.nx .nx-town .nx-label { font-family: var(--nx-body), sans-serif; font-size: 11.5px; fill: var(--nx-ink3-text) }
 .nx .nx-town .nx-street { stroke: var(--nx-slate); stroke-width: 1 }
 .nx .nx-town .nx-bldg-body { fill: var(--nx-slate) }
 .nx .nx-town .nx-bldg-roof { fill: var(--nx-slate2) }
 .nx .nx-town .nx-window { fill: #fff; opacity: .85 }
 .nx .nx-town .nx-bldg.is-struggling .nx-bldg-body { stroke: var(--nx-look); stroke-width: 2 }
-.nx .nx-town .nx-flag { fill: var(--nx-look) }
+.nx .nx-town .nx-flag { fill: var(--nx-look-text) }
 .nx .nx-town .nx-flag-mark { font-family: var(--nx-body), sans-serif; font-size: 10px; font-weight: 700; fill: #fff }
 .nx .nx-town .nx-lot { fill: none; stroke: var(--nx-slate); stroke-dasharray: 3 3 }
 .nx .nx-town .nx-cross { stroke: var(--nx-slate2); stroke-width: 1.5; fill: none }
-.nx .nx-town .nx-bldg-more { font-family: var(--nx-body), sans-serif; font-size: 11.5px; font-weight: 600; fill: var(--nx-ink3) }
-.nx .nx-town .nx-house { fill: var(--nx-work); transition: fill var(--nx-change) var(--nx-ease) }
-.nx .nx-town .nx-house.is-look { fill: var(--nx-look) }
-.nx .nx-town .nx-house.is-home { fill: var(--nx-home) }
-.nx .nx-town .nx-lost {
+.nx .nx-town .nx-bldg-more { font-family: var(--nx-body), sans-serif; font-size: 11.5px; font-weight: 600; fill: var(--nx-ink3-text) }
+/* Houses: colour plus a shape cue (an empty window when looking for work, a
+   dashed outline when the home is lost), in the drawing and the legend. */
+.nx .nx-house, .nx .nx-keyhouse { fill: var(--nx-work); transition: fill var(--nx-change) var(--nx-ease) }
+.nx .nx-house.is-look, .nx .nx-keyhouse.is-look { fill: var(--nx-look) }
+.nx .nx-house.is-home, .nx .nx-keyhouse.is-home { fill: var(--nx-home) }
+.nx .nx-seek { fill: #fff }
+.nx .nx-house .nx-lost, .nx .nx-keyhouse .nx-lost {
   fill: none;
   stroke: #fff;
   stroke-width: 1.2;
@@ -118,12 +133,12 @@
   opacity: 0;
   transition: opacity var(--nx-change) var(--nx-ease);
 }
-.nx .nx-town .nx-house.is-home .nx-lost { opacity: 1 }
+.nx .nx-house.is-home .nx-lost, .nx .nx-keyhouse.is-home .nx-lost { opacity: 1 }
 
-.nx .nx-legend { display: flex; gap: 16px; font-size: 12.5px; color: var(--nx-ink3); margin-top: 8px; flex-wrap: wrap }
+.nx .nx-legend { display: flex; gap: 16px; font-size: 12.5px; color: var(--nx-ink3-text); margin-top: 8px; flex-wrap: wrap }
 .nx .nx-legend span { display: inline-flex; align-items: center; gap: 6px }
-.nx .nx-legend i { width: 10px; height: 10px; border-radius: 3px; display: inline-block }
-.nx .nx-legend .nx-scale { color: var(--nx-ink4) }
+.nx .nx-legend .nx-key { width: 20px; height: 16px; display: block; flex: none; overflow: visible }
+.nx .nx-legend .nx-scale { color: var(--nx-ink4-text) }
 .nx .is-work-bg { background: var(--nx-work) }
 .nx .is-look-bg { background: var(--nx-look) }
 .nx .is-home-bg { background: var(--nx-home) }
@@ -138,7 +153,7 @@
   line-height: 1.1;
   font-variant-numeric: tabular-nums;
 }
-.nx .nx-fact .k { font-size: 12.5px; color: var(--nx-ink3); margin-top: 2px }
+.nx .nx-fact .k { font-size: 12.5px; color: var(--nx-ink3-text); margin-top: 2px }
 
 /* Businesses */
 .nx .nx-biz { margin-top: 14px; container-type: inline-size }
@@ -153,7 +168,7 @@
   font-size: 13.5px;
 }
 .nx .nx-brow:last-child { border-bottom: 0 }
-.nx .nx-brow .rk { font-family: var(--nx-disp), var(--nx-body), sans-serif; font-weight: 600; color: var(--nx-ink4); font-size: 13px }
+.nx .nx-brow .rk { font-family: var(--nx-disp), var(--nx-body), sans-serif; font-weight: 600; color: var(--nx-ink4-text); font-size: 13px }
 .nx .nx-brow .nm { min-width: 0 }
 .nx .nx-brow .nx-bname {
   display: block;
@@ -163,7 +178,7 @@
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.nx .nx-brow .nm small { display: block; font-weight: 400; color: var(--nx-ink3); font-size: 12px }
+.nx .nx-brow .nm small { display: block; font-weight: 400; color: var(--nx-ink3-text); font-size: 12px }
 .nx .nx-brow .bar { height: 8px; border-radius: 4px; background: var(--nx-panel2); position: relative }
 .nx .nx-brow .bar b {
   position: absolute;
@@ -174,8 +189,8 @@
   background: var(--nx-slate2);
   transition: width var(--nx-change) var(--nx-ease);
 }
-.nx .nx-brow .bar span { position: absolute; right: 0; top: -17px; font-size: 11.5px; color: var(--nx-ink3); white-space: nowrap; font-variant-numeric: tabular-nums }
-.nx .nx-brow .st { font-size: 12.5px; color: var(--nx-ink3); text-align: right; white-space: nowrap }
+.nx .nx-brow .bar span { position: absolute; right: 0; top: -17px; font-size: 11.5px; color: var(--nx-ink3-text); white-space: nowrap; font-variant-numeric: tabular-nums }
+.nx .nx-brow .st { font-size: 12.5px; color: var(--nx-ink3-text); text-align: right; white-space: nowrap }
 .nx .nx-tag {
   display: inline-flex;
   align-items: center;
@@ -187,10 +202,10 @@
   white-space: nowrap;
   justify-self: end;
 }
-.nx .nx-tag.is-growing { background: #E4F4EC; color: #1E7A4F }
-.nx .nx-tag.is-steady { background: var(--nx-panel2); color: var(--nx-ink3) }
-.nx .nx-tag.is-struggling { background: #FBF0DC; color: #8A5A0C }
-.nx .nx-tag.is-closed { background: #FBE5E8; color: #A22F41 }
+.nx .nx-tag.is-growing { background: #E4F4EC; color: var(--nx-work-text) }
+.nx .nx-tag.is-steady { background: var(--nx-panel2); color: var(--nx-ink3-text) }
+.nx .nx-tag.is-struggling { background: #FBF0DC; color: var(--nx-look-text) }
+.nx .nx-tag.is-closed { background: #FBE5E8; color: var(--nx-home-text) }
 .nx .nx-brow.is-closed .nm, .nx .nx-brow.is-closed .bar, .nx .nx-brow.is-closed .st { opacity: .55 }
 
 @container (max-width: 520px) {
@@ -232,6 +247,10 @@
   color: #fff;
   transition: background-color var(--nx-change) var(--nx-ease);
 }
+.nx .nx-hc .av.is-work-bg { background: var(--nx-work-text) }
+.nx .nx-hc .av.is-look-bg { background: var(--nx-look-text) }
+.nx .nx-hc .av.is-home-bg { background: var(--nx-home-text) }
+.nx .nx-hc .av.is-idle-bg { background: var(--nx-ink3-text) }
 .nx .nx-hc .n { font-weight: 600; color: var(--nx-ink); display: flex; justify-content: space-between; align-items: center; gap: 8px }
 .nx .nx-hc .nx-hname { white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
 .nx .nx-hc .pin {
@@ -239,24 +258,24 @@
   border: 0;
   background: none;
   padding: 0 2px;
-  color: var(--nx-ink4);
+  color: var(--nx-ink4-text);
   font-size: 12px;
   font-weight: 500;
 }
 .nx .nx-hc .pin:hover { color: var(--nx-ink2) }
-.nx .nx-hc .pin[aria-pressed='true'] { color: var(--nx-ink); font-weight: 600 }
+.nx .nx-hc .pin[aria-pressed='true'] { color: #fff; background: var(--nx-ink); border-radius: 999px; padding: 1px 8px; font-weight: 600 }
 .nx .nx-hc .j { font-size: 13px; color: var(--nx-ink2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
 .nx .nx-hc .m { display: flex; gap: 8px; align-items: center; margin-top: 6px; flex-wrap: wrap }
 .nx .nx-chip { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; padding: 2px 8px; border-radius: 999px }
 .nx .nx-chip i { width: 7px; height: 7px; border-radius: 50%; display: inline-block; background: currentColor }
-.nx .nx-chip.is-work { background: #E4F4EC; color: #1E7A4F }
-.nx .nx-chip.is-look { background: #FBF0DC; color: #8A5A0C }
-.nx .nx-chip.is-home { background: #FBE5E8; color: #A22F41 }
-.nx .nx-chip.is-idle { background: var(--nx-panel2); color: var(--nx-ink3) }
-.nx .nx-hc .cash { font-size: 12.5px; color: var(--nx-ink3) }
+.nx .nx-chip.is-work { background: #E4F4EC; color: var(--nx-work-text) }
+.nx .nx-chip.is-look { background: #FBF0DC; color: var(--nx-look-text) }
+.nx .nx-chip.is-home { background: #FBE5E8; color: var(--nx-home-text) }
+.nx .nx-chip.is-idle { background: var(--nx-panel2); color: var(--nx-ink3-text) }
+.nx .nx-hc .cash { font-size: 12.5px; color: var(--nx-ink3-text) }
 .nx .nx-hc .cash b { color: var(--nx-ink); font-weight: 600; font-variant-numeric: tabular-nums }
-.nx .nx-hc .ev { font-size: 12.5px; color: var(--nx-ink3); margin-top: 6px; line-height: 1.4 }
-.nx .nx-hc .ev .when { color: var(--nx-ink4); white-space: nowrap }
+.nx .nx-hc .ev { font-size: 12.5px; color: var(--nx-ink3-text); margin-top: 6px; line-height: 1.4 }
+.nx .nx-hc .ev .when { color: var(--nx-ink4-text); white-space: nowrap }
 
 /* Stat cards */
 .nx .nx-stat { background: var(--nx-panel); border: 1px solid var(--nx-line); border-radius: 14px; padding: 12px 14px; min-width: 0 }
@@ -275,14 +294,41 @@
   font-variant-numeric: tabular-nums;
 }
 .nx .nx-pv b i { width: 9px; height: 9px; border-radius: 3px; display: inline-block; flex: none }
-.nx .nx-pv small { font-size: 11.5px; color: var(--nx-ink3); display: block; margin-top: 2px }
-.nx .nx-mini { display: block; width: 100%; height: 36px; margin-top: 6px; overflow: visible }
+.nx .nx-pv small { font-size: 11.5px; color: var(--nx-ink3-text); display: block; margin-top: 2px }
+.nx .nx-mini-wrap { position: relative; height: 36px; margin-top: 6px }
+.nx .nx-mini { position: relative; display: block; width: 100%; height: 36px; overflow: visible }
+.nx .nx-mini path.is-warm { stroke-dasharray: 2 3; opacity: .45 }
+.nx .nx-mini-warm {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  border-radius: 4px;
+  background: repeating-linear-gradient(135deg, var(--nx-panel2) 0 3px, transparent 3px 6px);
+  container-type: inline-size;
+}
+.nx .nx-mini-warm span {
+  display: none;
+  position: absolute;
+  left: 3px;
+  top: 1px;
+  padding: 0 3px;
+  border-radius: 3px;
+  background: var(--nx-panel);
+  font-size: 10.5px;
+  line-height: 14px;
+  color: var(--nx-ink4-text);
+  white-space: nowrap;
+}
+@container (min-width: 64px) {
+  .nx .nx-mini-warm span { display: block }
+}
 .nx .nx-mini path { fill: none; stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; vector-effect: non-scaling-stroke }
-.nx .nx-stat .def { font-size: 12px; color: var(--nx-ink3); margin-top: 6px; line-height: 1.4 }
+.nx .nx-stat .def { font-size: 12px; color: var(--nx-ink3-text); margin-top: 6px; line-height: 1.4 }
 
 /* Feed and first-timer notes */
 .nx .nx-sect h3 { font-size: 16px }
-.nx .nx-sect h3 span { color: var(--nx-ink3); font-weight: 500; font-size: 13.5px; margin-left: 8px; font-family: var(--nx-body), sans-serif; letter-spacing: 0 }
+.nx .nx-sect h3 span { color: var(--nx-ink3-text); font-weight: 500; font-size: 13.5px; margin-left: 8px; font-family: var(--nx-body), sans-serif; letter-spacing: 0 }
 .nx .nx-feed { padding: 0; margin: 8px 0 0; list-style: none }
 .nx .nx-feed li {
   display: grid;
@@ -295,8 +341,9 @@
 }
 .nx .nx-feed li:last-child { border-bottom: 0 }
 .nx .nx-feed li > i { width: 10px; height: 10px; border-radius: 3px; margin-top: 5px; display: inline-block }
-.nx .nx-feed .w { color: var(--nx-ink4); font-size: 12px; display: block }
+.nx .nx-feed .w { color: var(--nx-ink4-text); font-size: 12px; display: block }
 .nx .nx-feed b { color: var(--nx-ink); font-weight: 600 }
+.nx .nx-feed li.is-town > div { color: var(--nx-ink); font-weight: 500 }
 .nx .nx-howto li > i { background: var(--nx-ink4) }
 
 /* App shell */
@@ -310,7 +357,7 @@
   background: var(--nx-panel);
 }
 .nx .nx-brand { font-family: var(--nx-disp), var(--nx-body), sans-serif; font-weight: 700; font-size: 18px; color: var(--nx-ink); letter-spacing: -.02em }
-.nx .nx-question { font-size: 14px; font-weight: 500; color: var(--nx-ink2); padding-left: 22px; border-left: 1px solid var(--nx-line) }
+.nx .nx-question { font-size: 15px; font-weight: 600; line-height: 1.3; color: var(--nx-ink); padding-left: 22px; border-left: 1px solid var(--nx-line) }
 .nx .nx-sp { flex: 1 }
 .nx .nx-abtn {
   display: inline-flex;
@@ -329,12 +376,12 @@
   white-space: nowrap;
 }
 .nx .nx-abtn.is-dark { background: var(--nx-ink); color: #fff; border-color: var(--nx-ink) }
-.nx .nx-abtn.is-link { border-color: transparent; background: none; color: var(--nx-ink3); text-decoration: underline; text-underline-offset: 3px }
+.nx .nx-abtn.is-link { border-color: transparent; background: none; color: var(--nx-ink3-text); text-decoration: underline; text-underline-offset: 3px }
 .nx .nx-abtn.is-link:hover { color: var(--nx-ink) }
 .nx a:focus-visible { outline: 2px solid var(--nx-a); outline-offset: 2px; border-radius: 6px }
 .nx .nx-status { font-size: 15px; color: var(--nx-ink2) }
 .nx .nx-status .nx-error { color: var(--nx-ink); font-weight: 600 }
-.nx .nx-status .nx-detail { color: var(--nx-ink3); font-size: 13px; margin-top: 6px }
+.nx .nx-status .nx-detail { color: var(--nx-ink3-text); font-size: 13px; margin-top: 6px }
 
 /* Timeline: sticks to the top while the page scrolls under it */
 .nx .nx-hbar {
@@ -351,7 +398,7 @@
 .nx .nx-clock i { width: 8px; height: 8px; border-radius: 50%; background: var(--nx-ink4); display: inline-block; align-self: center; transition: background-color var(--nx-change) var(--nx-ease) }
 .nx .nx-clock i.is-on { background: var(--nx-work) }
 .nx .nx-week { font-weight: 600; color: var(--nx-ink); font-variant-numeric: tabular-nums }
-.nx .nx-of { color: var(--nx-ink4) }
+.nx .nx-of { color: var(--nx-ink4-text) }
 .nx .nx-scrubber { position: relative; flex: 1; min-width: 160px; padding-bottom: 15px }
 .nx .nx-scrub {
   -webkit-appearance: none;
@@ -403,7 +450,7 @@
   border-left: 1px solid var(--nx-line2);
   font-size: 11px;
   line-height: 12px;
-  color: var(--nx-ink4);
+  color: var(--nx-ink4-text);
   white-space: nowrap;
 }
 .nx .nx-speed { display: flex; gap: 2px; padding: 2px; border-radius: 8px; background: var(--nx-panel2) }
@@ -414,7 +461,7 @@
   border-radius: 6px;
   font-size: 12.5px;
   font-weight: 500;
-  color: var(--nx-ink3);
+  color: var(--nx-ink3-text);
   font-variant-numeric: tabular-nums;
 }
 .nx .nx-speed button:hover { color: var(--nx-ink) }
@@ -437,7 +484,7 @@
 .nx .nx-colhead { display: flex; align-items: baseline; gap: 10px; margin-bottom: 8px }
 .nx .nx-colhead i { width: 12px; height: 12px; border-radius: 4px; display: inline-block; transform: translateY(1px); flex: none }
 .nx .nx-colhead h2 { font-size: 20px }
-.nx .nx-colhead span { color: var(--nx-ink3); font-size: 13.5px }
+.nx .nx-colhead span { color: var(--nx-ink3-text); font-size: 13.5px }
 /* One town: the drawing and the businesses side by side, households below. */
 .nx .nx-solo { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); gap: 14px; align-items: start }
 .nx .nx-solo > .nx-biz { margin-top: 0 }
@@ -458,7 +505,7 @@
 .nx .nx-mchip[aria-pressed='true'] { background: var(--nx-ink); border-color: var(--nx-ink); color: #fff }
 .nx .nx-chart { position: relative; width: 100%; margin-top: 8px }
 .nx .nx-chart svg { display: block; overflow: visible }
-.nx .nx-chart .nx-yaxis text, .nx .nx-chart .nx-xaxis text { font-family: var(--nx-body), sans-serif; font-size: 12px; fill: var(--nx-ink4) }
+.nx .nx-chart .nx-yaxis text, .nx .nx-chart .nx-xaxis text { font-family: var(--nx-body), sans-serif; font-size: 12px; fill: var(--nx-ink4-text) }
 .nx .nx-chart .nx-yaxis line { stroke: var(--nx-line); stroke-width: 1 }
 .nx .nx-chart .nx-xaxis line { stroke: var(--nx-line2); stroke-width: 1 }
 .nx .nx-chart .nx-xaxis .nx-bound { stroke: var(--nx-line); stroke-dasharray: 2 3 }
@@ -466,11 +513,17 @@
 .nx .nx-chart .nx-now { stroke: var(--nx-line2); stroke-width: 1 }
 .nx .nx-chart .nx-cursor { transition: transform 320ms var(--nx-ease) }
 .nx .nx-chart.is-playing .nx-cursor { transition: none }
-.nx .nx-chart .nx-ahead { font-family: var(--nx-body), sans-serif; font-size: 12px; fill: var(--nx-ink4) }
+.nx .nx-chart .nx-ahead { font-family: var(--nx-body), sans-serif; font-size: 12px; fill: var(--nx-ink4-text) }
 .nx .nx-chart .nx-line { fill: none; stroke-width: 2.5; stroke-linejoin: round; stroke-linecap: round }
+.nx .nx-chart .nx-warmline { fill: none; stroke-width: 2; stroke-dasharray: 3 4; stroke-linejoin: round; stroke-linecap: round; opacity: .45 }
+.nx .nx-chart .nx-hatch-bg { fill: var(--nx-panel2); opacity: .5 }
+.nx .nx-chart .nx-hatch { stroke: var(--nx-line2); stroke-width: 1.2 }
+.nx .nx-chart .nx-warm-label { font-family: var(--nx-body), sans-serif; font-size: 12px; fill: var(--nx-ink3-text) }
 .nx .nx-chart .nx-rules line { stroke-width: 1.2; stroke-dasharray: 3 3 }
 .nx .nx-chart .nx-ann,
-.nx .nx-chart .nx-endl {
+.nx .nx-chart .nx-endl,
+.nx .nx-chart .nx-warm-label,
+.nx .nx-chart .nx-ahead {
   paint-order: stroke;
   stroke: var(--nx-panel);
   stroke-width: 4px;
@@ -516,6 +569,12 @@
 @media (max-width: 520px) {
   .nx .nx-stats { grid-template-columns: minmax(0, 1fr) }
 }
+
+/* The page behind the app. NextApp adds .nx-page to <html> while it is
+   mounted, so these are the only rules outside .nx; the classic dashboard's
+   styles are not loaded on this view. */
+html.nx-page, html.nx-page body, html.nx-page #root { background: #F3F5F7; height: auto; min-height: 100% }
+html.nx-page body { margin: 0 }
 
 /* Motion only shows change, and none at all when the viewer asks for less. */
 @media (prefers-reduced-motion: reduce) {

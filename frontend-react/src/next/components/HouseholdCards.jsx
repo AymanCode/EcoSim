@@ -22,9 +22,11 @@ function HouseholdCard({ subject, arm, tick, pinned, onTogglePin }) {
     : null
   const event = latestEventFor(arm, subject.id, tick)
   const sentence = event
-    ? eventSentence(event, { firmName: firm => firmDisplayName(directory?.byId?.[firm.id] ?? firm) })
+    ? eventSentence(event, {
+      firmName: firm => firmDisplayName(directory?.byId?.[firm.id] ?? firm),
+      lostHome: subject.housingSecurity === false,
+    })
     : householdStateSentence(subject, { employerName: employer })
-  const visible = pinned ? COPY.households.following : COPY.households.follow
 
   return (
     <li className={`nx-hc${pinned ? ' is-pinned' : ''}`}>
@@ -36,10 +38,10 @@ function HouseholdCard({ subject, arm, tick, pinned, onTogglePin }) {
             type="button"
             className="pin"
             aria-pressed={pinned}
-            aria-label={COPY.households.followLabel(visible, name)}
+            aria-label={COPY.households.followLabel(name)}
             onClick={() => onTogglePin(subject.id)}
           >
-            {visible}
+            {COPY.households.follow}
           </button>
         </div>
         <div className="j">{jobLine(subject, employer)}</div>

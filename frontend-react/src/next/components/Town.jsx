@@ -116,6 +116,19 @@ function Building({ kind, x, y, w, h }) {
   )
 }
 
+// One house. Looking-for-work houses get an empty window and lost homes a
+// dashed outline, so the three states read without colour too.
+function House({ x, y, state, className }) {
+  return (
+    <g className={`${className} is-${state}`}>
+      <rect x={round(x - 7)} y={y} width={14} height={11} rx={1.5} />
+      <path d={`M${round(x - 9)} ${y} L${x} ${round(y - 7)} L${round(x + 9)} ${y} Z`} />
+      {state === 'look' && <rect className="nx-seek" x={round(x - 2.5)} y={round(y + 3)} width={5} height={5} />}
+      <rect className="nx-lost" x={round(x - 7)} y={y} width={14} height={11} />
+    </g>
+  )
+}
+
 function Civic({ x, label, hall, color }) {
   return (
     <g>
@@ -159,11 +172,7 @@ export default function Town({ arm, tick }) {
         <line className="nx-street" x1={16} x2={W - 16} y1={STREET_Y + 1} y2={STREET_Y + 1} />
         <text className="nx-label" x={26} y={158}>{COPY.town.mainStreet}</text>
         {layout.spots.map((spot, i) => (
-          <g key={i} className={`nx-house is-${stateOf(layout.rank[i])}`}>
-            <rect x={round(spot.x - 7)} y={spot.y} width={14} height={11} rx={1.5} />
-            <path d={`M${round(spot.x - 9)} ${spot.y} L${spot.x} ${round(spot.y - 7)} L${round(spot.x + 9)} ${spot.y} Z`} />
-            <rect className="nx-lost" x={round(spot.x - 7)} y={spot.y} width={14} height={11} />
-          </g>
+          <House key={i} className="nx-house" x={spot.x} y={spot.y} state={stateOf(layout.rank[i])} />
         ))}
       </svg>
       <ul className="nx-sr">
@@ -172,7 +181,10 @@ export default function Town({ arm, tick }) {
       </ul>
       <div className="nx-legend" aria-hidden="true">
         {['work', 'look', 'home'].map(state => (
-          <span key={state}><i className={`is-${state}-bg`} />{HOUSEHOLD_STATES[state].legend}</span>
+          <span key={state}>
+            <svg className="nx-key" viewBox="0 0 20 16" focusable="false"><House className="nx-keyhouse" x={10} y={4.5} state={state} /></svg>
+            {HOUSEHOLD_STATES[state].legend}
+          </span>
         ))}
         <span className="nx-scale">{COPY.town.houseScale(total)}</span>
       </div>

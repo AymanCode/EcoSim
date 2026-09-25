@@ -1,7 +1,9 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { COPY, TOWN_COLORS } from './catalog.js'
+import { commonTicks } from './data/derive.js'
 import { buildArm, parseSession } from './data/session.js'
 import { experimentQuestion } from './narration.js'
+import useReplay from './useReplay.js'
 import RunScreen from './RunScreen.jsx'
 import './next.css'
 
@@ -17,7 +19,8 @@ async function loadTown(file, index) {
   return arm
 }
 
-// The new Run screen, opened at ?view=next, playing the recorded demo.
+// The new Run screen, opened at ?view=next, playing the recorded demo. It owns
+// the replay clock and hands it down.
 export default function NextApp() {
   const [state, setState] = useState({ status: 'loading', arms: null, reason: null })
 
@@ -29,19 +32,40 @@ export default function NextApp() {
     return () => { live = false }
   }, [])
 
+  // The page behind the app takes the new screen's colour while it is open.
+  useEffect(() => {
+    const page = document.documentElement
+    page.classList.add('nx-page')
+    return () => page.classList.remove('nx-page')
+  }, [])
+
+  const ticks = useMemo(() => commonTicks(state.arms ?? []), [state.arms])
+  const maxTick = ticks.length ? ticks[ticks.length - 1] : 1
+  const clock = useReplay({ maxTick })
   const question = state.arms ? experimentQuestion(state.arms) : null
 
   return (
     <div className="nx nx-app">
       <header className="nx-appbar">
         <div className="nx-brand">{COPY.app.brand}</div>
-        {question && <p className="nx-question">{question}</p>}
+        {question && <h1 className="nx-question">{question}</h1>}
         <div className="nx-sp" />
         <a className="nx-abtn is-link" href="?view=classic">{COPY.app.classic}</a>
       </header>
-      {state.status === 'ready' && <RunScreen arms={state.arms} />}
+      {state.status === 'ready' && (
+        <RunScreen
+          arms={state.arms}
+          tick={clock.tick}
+          maxTick={maxTick}
+          playing={clock.playing}
+          onToggle={clock.toggle}
+          onScrub={clock.scrub}
+          speed={clock.speed}
+          onSpeed={clock.setSpeed}
+        />
+      )}
       {state.status === 'loading' && (
-        <main className="nx-wrap nx-status"><p>{COPY.app.loading}</p></main>
+        <main className="nx-wrap nx-status"><p role="status">{COPY.app.loading}</p></main>
       )}
       {state.status === 'error' && (
         <main className="nx-wrap nx-status">

@@ -1,8 +1,6 @@
-import { useMemo, useState } from 'react'
-import { STAT_METRICS, STORY_METRICS, describePolicy } from './catalog.js'
-import { commonTicks } from './data/derive.js'
+import { useState } from 'react'
+import { STAT_METRICS, STORY_METRICS, describePolicy, townTextColor } from './catalog.js'
 import { leadSentence, verdict } from './narration.js'
-import useReplay from './useReplay.js'
 import BusinessList from './components/BusinessList.jsx'
 import Feed from './components/Feed.jsx'
 import HorizonBar from './components/HorizonBar.jsx'
@@ -19,7 +17,7 @@ const escapeRegExp = text => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 function Lead({ text, arms }) {
   const labels = arms.map(arm => arm.label).filter(Boolean)
   if (!labels.length) return text
-  const colors = Object.fromEntries(arms.map(arm => [arm.label, arm.color]))
+  const colors = Object.fromEntries(arms.map(arm => [arm.label, townTextColor(arm.color)]))
   const parts = text.split(new RegExp(`(${labels.map(escapeRegExp).join('|')})`))
   return parts.map((part, i) => (colors[part] && i % 2 === 1
     ? <span key={i} className="nx-tname" style={{ color: colors[part] }}>{part}</span>
@@ -42,12 +40,9 @@ function TownColumn({ arm, tick, single }) {
   )
 }
 
-// The Run screen for recorded towns: every panel reads the same week.
-export default function RunScreen({ arms }) {
-  const ticks = useMemo(() => commonTicks(arms), [arms])
-  const maxTick = ticks.length ? ticks[ticks.length - 1] : 1
+// The Run screen: every panel reads the week its parent's clock is on.
+export default function RunScreen({ arms, tick, maxTick, playing, onToggle, onScrub, speed, onSpeed }) {
   const horizon = Math.max(maxTick, ...arms.map(arm => arm.horizon || 0))
-  const { tick, playing, toggle, scrub, speed, setSpeed } = useReplay({ maxTick })
   const [metricKey, setMetricKey] = useState(STORY_METRICS[0])
   const single = arms.length === 1
 
@@ -58,10 +53,10 @@ export default function RunScreen({ arms }) {
         horizon={horizon}
         maxTick={maxTick}
         playing={playing}
-        onToggle={toggle}
-        onScrub={scrub}
+        onToggle={onToggle}
+        onScrub={onScrub}
         speed={speed}
-        onSpeed={setSpeed}
+        onSpeed={onSpeed}
       />
       <main className="nx-wrap">
         <p className="nx-lead"><Lead text={leadSentence(arms, tick)} arms={arms} /></p>
@@ -89,7 +84,7 @@ export default function RunScreen({ arms }) {
 
         <div className="nx-feedwrap">
           <Feed arms={arms} tick={tick} />
-          <HowToRead armCount={arms.length} />
+          <HowToRead arms={arms} tick={tick} />
         </div>
       </main>
     </div>

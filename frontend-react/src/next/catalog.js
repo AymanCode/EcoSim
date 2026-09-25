@@ -154,6 +154,18 @@ export function formatMetric(key, value) {
   return format(value)
 }
 
+// Weeks 1 to 10 set the town up (the server's `warmup_ticks`); the real
+// economy starts in week 11.
+export const WARMUP_TICKS = 10
+
+// A figure rounded the way formatMetric shows it, as a number.
+export function shownValue(key, value) {
+  if (!isNumber(value)) return null
+  const format = METRICS[key]?.format
+  if (format === 'price' || format === 'ratio') return Math.round(value * 100) / 100
+  return Math.round(value)
+}
+
 // Tight labels for chart axes and end labels: big sums of money go short
 // ("$1.3m"), everything else reads as formatMetric.
 export function formatMetricShort(key, value) {
@@ -166,8 +178,16 @@ export function formatMetricShort(key, value) {
 export const STORY_METRICS = ['peopleOutOfWorkPer100', 'typicalWeeklyPay', 'foodSpendPerHousehold', 'gini', 'townHallCash']
 export const STAT_METRICS = ['peopleOutOfWorkPer100', 'typicalWeeklyPay', 'foodSpendPerHousehold', 'gini']
 
-// Town colours, in arm order (the spec's town A to D tokens).
+// Town colours, in arm order (the spec's town A to D tokens), for lines,
+// swatches and drawings. Text in a town's colour uses its darker text tone
+// from next.css, which reads at 4.5:1 on the page and the panels.
 export const TOWN_COLORS = ['#2E6FE0', '#E0762C', '#199E70', '#9085E9']
+const TOWN_TEXT = ['var(--nx-a-text)', 'var(--nx-b-text)', 'var(--nx-c-text)', 'var(--nx-d-text)']
+
+export function townTextColor(color) {
+  const index = TOWN_COLORS.findIndex(town => town.toLowerCase() === String(color ?? '').toLowerCase())
+  return index < 0 ? 'var(--nx-ink)' : TOWN_TEXT[index]
+}
 
 // Percent with at most one decimal: 0.2 -> "20%", 0.225 -> "22.5%".
 function percent(rate) {
@@ -374,18 +394,27 @@ export const FIRM_STATES = {
 
 const counted = (n, one, many = `${one}s`) => `${n} ${n === 1 ? one : many}`
 
+// How many households one house in the drawing stands for, as a phrase.
+export function householdsPerHouse(total) {
+  if (!isNumber(total) || total <= 0) return '1 in 100 households'
+  const per = total / 100
+  const shown = Math.max(1, Math.round(per))
+  return `${Number.isInteger(per) ? '' : 'about '}${counted(shown, 'household')}`
+}
+
 // Notes use **word** for the bold lead-in the panel renders.
-function howToNotes(armCount) {
+function howToNotes({ armCount = 2, perHouse = householdsPerHouse(null), firstPolicy = NO_CHANGES } = {}) {
   const tick = armCount >= 2
     ? `A **tick** is one week. ${armCount === 2 ? 'Both towns' : 'All the towns'} run the same week at the same time, from the same starting point, so any difference you see is caused by the rules.`
     : 'A **tick** is one week. The town moves forward a week at a time, and the timeline takes you back to any week you have already seen.'
+  const first = firstPolicy === NO_CHANGES ? 'keeps the usual rules' : `runs with ${firstPolicy}`
   const rules = armCount >= 2
-    ? `The **first town** keeps the usual rules. ${armCount === 2 ? 'The second changes' : 'Each of the others changes'} the ones named under its title, and that change is what the towns are testing.`
+    ? `The **first town** ${first}. ${armCount === 2 ? 'The second changes' : 'Each of the others changes'} the ones named under its title, and that change is what the towns are testing.`
     : "The **town hall** sets the rules: taxes, benefits, the minimum wage. The ones in force are named under the town's title."
   return [
     tick,
     rules,
-    'Every **house** is 1 in 100 households. Green ones have someone working, amber ones are looking for work, red ones have lost their home. The household cards introduce a few of the families.',
+    `Every **house** stands for ${perHouse}. Amber houses, with an empty window, show the share of working-age people looking for work. Red houses, with a dashed outline, are households that lost their home. Green houses are the rest.`,
     "Every building on **Main street** is a firm. Taller means more staff. A flag means it's struggling to pay wages or rent, a cross means it closed.",
   ]
 }
@@ -426,8 +455,7 @@ export const COPY = {
     notWorking: 'Not working',
     saved: 'saved',
     follow: 'Follow',
-    following: 'Following',
-    followLabel: (visible, name) => `${visible} ${name}`,
+    followLabel: name => `Follow ${name}`,
     showOthers: 'Show me four others',
     empty: 'No households in the sample yet.',
   },
@@ -440,6 +468,7 @@ export const COPY = {
   chart: {
     chips: 'Chart a different number',
     weeksAhead: 'the weeks ahead',
+    settingUp: 'setting up',
     year: n => `Year ${n}`,
     week: n => `Week ${n}`,
     endLabel: (town, value) => `${town}  ${value}`,

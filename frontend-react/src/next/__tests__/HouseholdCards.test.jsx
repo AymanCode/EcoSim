@@ -30,10 +30,15 @@ describe('HouseholdCards', () => {
     const arm = fixtureArm()
     const { container } = render(<HouseholdCards arm={arm} tick={24} />)
     const third = cardNames(container)[2]
-    const follow = screen.getAllByRole('button', { name: /^Follow/ })[2]
+    const follow = screen.getAllByRole('button', { name: /^Follow / })[2]
+    const name = follow.getAttribute('aria-label')
+    expect(follow).toHaveAttribute('aria-pressed', 'false')
     fireEvent.click(follow)
     expect(cardNames(container)[0]).toBe(third)
-    expect(screen.getByRole('button', { name: /^Following/ })).toHaveAttribute('aria-pressed', 'true')
+    // The label stays put; the pressed state carries the change.
+    const pinned = screen.getByRole('button', { name })
+    expect(pinned).toHaveAttribute('aria-pressed', 'true')
+    expect(pinned).toHaveTextContent(/^Follow$/)
     fireEvent.click(screen.getByRole('button', { name: 'Show me four others' }))
     expect(cardNames(container)[0]).toBe(third)
     expect(container.querySelectorAll('.nx-hc')).toHaveLength(4)
@@ -47,5 +52,32 @@ describe('HouseholdCards', () => {
     expect(card).toHaveTextContent('saved')
     expect(card.querySelector('.nx-chip')).toBeTruthy()
     expect(card.querySelector('.ev').textContent).toMatch(/\.\s|\.$/)
+  })
+})
+
+describe('HouseholdCards evictions', () => {
+  function withEviction(housingSecurity) {
+    const arm = fixtureArm()
+    const subject = arm.snapshots[24].subjects[0]
+    arm.snapshots[24] = {
+      ...arm.snapshots[24],
+      subjects: [{ ...subject, housingSecurity }, ...arm.snapshots[24].subjects.slice(1)],
+    }
+    arm.events = [...arm.events, { id: 'evict', tick: 24, type: 'regime', text: 'eviction', householdId: subject.id, firmId: null, firmName: null, sector: null, value: null }]
+    return { arm, subject }
+  }
+
+  test('a household that still has a home "had to move"', () => {
+    const { arm, subject } = withEviction(true)
+    const { container } = render(<HouseholdCards arm={arm} tick={24} />)
+    const card = container.querySelector('.nx-hc')
+    expect(card.querySelector('.ev')).toHaveTextContent(`${householdName(subject.id)} had to move after falling behind on rent.`)
+    expect(card).not.toHaveTextContent('lost their home')
+  })
+
+  test('a household with no home now "lost their home"', () => {
+    const { arm, subject } = withEviction(false)
+    const { container } = render(<HouseholdCards arm={arm} tick={24} />)
+    expect(container.querySelector('.nx-hc .ev')).toHaveTextContent(`${householdName(subject.id)} lost their home.`)
   })
 })

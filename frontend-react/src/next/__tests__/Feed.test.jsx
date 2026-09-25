@@ -40,6 +40,27 @@ describe('Feed', () => {
     expect(new Set(lines).size).toBe(lines.length)
   })
 
+  test('grouped household lines speak of the families we follow', () => {
+    const { container } = render(<Feed arms={[fixtureArm(TOWN_A)]} tick={1} limit={50} />)
+    const hires = fixtureArm(TOWN_A).events.filter(event => event.tick === 1 && event.type === 'hired')
+    expect(container).toHaveTextContent(`${hires.length} of the families we follow found work.`)
+  })
+
+  test('adds one town-wide line for a week with many hires or lay-offs', () => {
+    const arm = fixtureArm(TOWN_A)
+    arm.eventCounts[8] = { ...arm.eventCounts[8], hired: 2, laidOff: 233 }
+    arm.eventCounts[9] = { ...arm.eventCounts[9], hired: 19, laidOff: 19 }
+    const { container } = render(<Feed arms={[arm]} tick={9} limit={50} />)
+    const town = [...container.querySelectorAll('.nx-feed li.is-town')]
+    const week8 = town.filter(row => row.dataset.tick === '8')
+    expect(week8).toHaveLength(1)
+    expect(week8[0]).toHaveTextContent('Across town, 233 people lost their jobs this week.')
+    expect(town.some(row => row.dataset.tick === '9')).toBe(false)
+    // The town-wide line leads its week.
+    const rows = [...container.querySelectorAll('.nx-feed li')]
+    expect(rows.find(row => row.dataset.tick === '8')).toBe(week8[0])
+  })
+
   test('says so when nothing has happened yet', () => {
     render(<Feed arms={[fixtureArm()]} tick={0} />)
     expect(screen.getByText('Nothing has happened yet.')).toBeInTheDocument()
