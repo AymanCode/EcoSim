@@ -1,5 +1,8 @@
 import { describe, expect, test } from 'vitest'
-import { commonTicks, valueAt, snapshotAt, seriesUpTo, compareAt, eventsUpTo, householdState, latestEventFor } from '../data/derive.js'
+import {
+  commonTicks, valueAt, snapshotAt, seriesUpTo, compareAt, eventsUpTo, householdState, latestEventFor, countedAt, countedSeriesUpTo, rangeSoFar,
+  cumulativeUpTo, weeklyCounts, firmStatesAt, rulesTable,
+} from '../data/derive.js'
 import { fixtureArm, TOWN_A, TOWN_B } from './fixture.js'
 
 const KEY = 'peopleOutOfWorkPer100'
@@ -104,5 +107,180 @@ describe('latestEventFor', () => {
     expect(latestEventFor(arm, 13, 24)).toMatchObject({ type: 'laid_off', tick: 11 })
     expect(latestEventFor(arm, 13, 0)).toBeNull()
     expect(latestEventFor(arm, 9999, 24)).toBeNull()
+  })
+})
+
+// A hand-built arm for weeks 60 to 72 whose gap between rich and poor was
+// counted at weeks 65 and 70.
+function countedArm() {
+  const ticks = Array.from({ length: 13 }, (_, i) => 60 + i)
+  return { ticks, series: { gini: ticks.map(t => (t < 65 ? 0.4 : t < 70 ? 0.45 : 0.5)) }, eventCounts: {} }
+}
+
+describe('countedAt', () => {
+  test('gives the last count at or before the tick, with the week it was made', () => {
+    const arm = countedArm()
+    expect(countedAt(arm, 'gini', 72)).toEqual({ value: 0.5, asOfTick: 70 })
+    expect(countedAt(arm, 'gini', 70)).toEqual({ value: 0.5, asOfTick: 70 })
+    expect(countedAt(arm, 'gini', 69)).toEqual({ value: 0.45, asOfTick: 65 })
+    expect(countedAt(arm, 'gini', 64)).toEqual({ value: 0.4, asOfTick: 60 })
+    expect(countedAt(arm, 'gini', 59)).toBeNull()
+  })
+
+  test('a recount that repeats the value still moves the count, read from wealthAsOfTick', () => {
+    const arm = countedArm()
+    arm.series.gini = arm.ticks.map(() => 0.4)
+    arm.series.wealthAsOfTick = arm.ticks.map(t => (t < 65 ? 60 : t < 70 ? 65 : 70))
+    expect(countedAt(arm, 'gini', 72)).toEqual({ value: 0.4, asOfTick: 70 })
+    expect(countedSeriesUpTo(arm, 'gini', 72)).toEqual([{ tick: 60, value: 0.4 }, { tick: 65, value: 0.4 }, { tick: 70, value: 0.4 }])
+  })
+
+  test('is null for a missing value or key', () => {
+    const arm = countedArm()
+    arm.series.topTenthShare = arm.ticks.map(() => null)
+    expect(countedAt(arm, 'topTenthShare', 72)).toBeNull()
+    expect(countedAt(arm, 'bottomHalfShare', 72)).toBeNull()
+    expect(countedAt(null, 'gini', 72)).toBeNull()
+  })
+
+  test('countedSeriesUpTo keeps only the counted weeks', () => {
+    expect(countedSeriesUpTo(countedArm(), 'gini', 72)).toEqual([{ tick: 60, value: 0.4 }, { tick: 65, value: 0.45 }, { tick: 70, value: 0.5 }])
+    expect(countedSeriesUpTo(countedArm(), 'gini', 67)).toEqual([{ tick: 60, value: 0.4 }, { tick: 65, value: 0.45 }])
+  })
+})
+
+describe('rangeSoFar', () => {
+  // Weeks 1 to 14: extreme values during warm-up, the real economy after.
+  const town = after => ({ ticks: Array.from({ length: 14 }, (_, i) => i + 1), series: { priceFood: [0, 100, 0, 100, 0, 100, 0, 100, 0, 100, ...after] } })
+  const arms = [town([30, 40, 35, 20]), town([25, 45, null, 60])]
+
+  test('spans every town, ignoring warm-up weeks and missing values', () => {
+    expect(rangeSoFar(arms, 'priceFood', 13)).toEqual({ min: 25, max: 45 })
+    expect(rangeSoFar(arms, 'priceFood', 14)).toEqual({ min: 20, max: 60 })
+    expect(rangeSoFar(arms, 'priceFood', 11)).toEqual({ min: 25, max: 30 })
+  })
+
+  test('is null during warm-up or with nothing measured', () => {
+    expect(rangeSoFar(arms, 'priceFood', 10)).toBeNull()
+    expect(rangeSoFar(arms, 'noSuchMetric', 14)).toBeNull()
+    expect(rangeSoFar([], 'priceFood', 14)).toBeNull()
+  })
+})
+
+describe('cumulativeUpTo', () => {
+  const arm = { ticks: [1, 2, 3, 4], series: { bankDefaultAmountThisTick: [0, 5, null, 10] } }
+
+  test('sums the series up to the tick, skipping missing weeks', () => {
+    expect(cumulativeUpTo(arm, 'bankDefaultAmountThisTick', 1)).toBe(0)
+    expect(cumulativeUpTo(arm, 'bankDefaultAmountThisTick', 3)).toBe(5)
+    expect(cumulativeUpTo(arm, 'bankDefaultAmountThisTick', 4)).toBe(15)
+    expect(cumulativeUpTo(arm, 'bankDefaultAmountThisTick', 99)).toBe(15)
+  })
+
+  test('is null when nothing was measured', () => {
+    expect(cumulativeUpTo(arm, 'bankDefaultAmountThisTick', 0)).toBeNull()
+    expect(cumulativeUpTo(arm, 'noSuchMetric', 4)).toBeNull()
+    expect(cumulativeUpTo({ ticks: [1], series: { x: [null] } }, 'x', 1)).toBeNull()
+  })
+})
+
+describe('weeklyCounts', () => {
+  test('reads each week of the window from eventCounts, oldest first', () => {
+    const arm = fixtureArm()
+    const rows = weeklyCounts(arm, ['hired', 'laidOff'], 24, 4)
+    expect(rows.map(row => row.tick)).toEqual([21, 22, 23, 24])
+    expect(rows[3]).toEqual({ tick: 24, hired: arm.eventCounts[24].hired, laidOff: arm.eventCounts[24].laidOff })
+    expect(weeklyCounts(arm, ['hired'], 5)).toHaveLength(5)
+    expect(weeklyCounts(arm, ['hired'], 0)).toEqual([])
+  })
+
+  test('a week without counts reads as missing, not zero', () => {
+    const arm = { ticks: [1, 2], eventCounts: { 1: { hired: 2 }, 2: null } }
+    expect(weeklyCounts(arm, ['hired', 'laidOff'], 3, 3)).toEqual([
+      { tick: 1, hired: 2, laidOff: null },
+      { tick: 2, hired: null, laidOff: null },
+      { tick: 3, hired: null, laidOff: null },
+    ])
+  })
+})
+
+describe('firmStatesAt', () => {
+  test('reads the curated firm counts, or null when one is missing', () => {
+    const arm = { ticks: [1, 2], series: { firmsGrowing: [1, 2], firmsSteady: [3, 4], firmsStruggling: [0, null] } }
+    expect(firmStatesAt(arm, 1)).toEqual({ growing: 1, steady: 3, struggling: 0 })
+    expect(firmStatesAt(arm, 2)).toBeNull()
+    expect(firmStatesAt(arm, 0)).toBeNull()
+  })
+})
+
+describe('rulesTable', () => {
+  // The fixture's Town A raises help for people out of work in week 7.
+  function towns() {
+    const a = fixtureArm(TOWN_A)
+    const b = fixtureArm(TOWN_B)
+    b.policyChanges = []
+    return [a, b]
+  }
+  const row = (table, lever) => table.flatMap(group => group.rows).find(r => r.lever === lever)
+
+  test('lists the lever groups in order and collapses the ones where the towns agree', () => {
+    const table = rulesTable(towns(), 6)
+    expect(table.map(group => group.group)).toEqual(['taxes', 'people', 'spending', 'business', 'prices'])
+    expect(table.every(group => group.same)).toBe(true)
+    expect(row(table, 'benefit_level')).toEqual({
+      lever: 'benefit_level', values: ['neutral', 'neutral'], differs: false, changedAt: null, was: null, changes: [null, null],
+    })
+    expect(table.flatMap(group => group.rows)).toHaveLength(17)
+  })
+
+  test('reports a change made mid-run, in the town that made it', () => {
+    const table = rulesTable(towns(), 10)
+    expect(table.find(group => group.group === 'people').same).toBe(false)
+    expect(row(table, 'benefit_level')).toEqual({
+      lever: 'benefit_level',
+      values: ['high', 'neutral'],
+      differs: true,
+      changedAt: 7,
+      was: 'neutral',
+      changes: [{ changedAt: 7, was: 'neutral' }, null],
+    })
+  })
+
+  test('reads numbers back as numbers and ignores a change to the value already in force', () => {
+    const [a, b] = towns()
+    a.policyChanges = [
+      { tick: 12, policy: 'social_spending', value: 'medium' },
+      { tick: 12, policy: 'wage_tax_rate', value: '0.2' },
+    ]
+    const table = rulesTable([a, b], 20)
+    expect(row(table, 'social_spending')).toMatchObject({ differs: false, changedAt: null, changes: [null, null] })
+    expect(row(table, 'wage_tax_rate')).toMatchObject({ values: [0.2, 0.15], differs: true, changedAt: 12, was: 0.15 })
+    expect(rulesTable([a, b], 11).find(group => group.group === 'taxes').same).toBe(true)
+  })
+
+  test('two changes of a lever in one week read as one change from the value before that week', () => {
+    const [a, b] = towns()
+    a.policyChanges = [
+      { tick: 12, policy: 'benefit_level', value: 'high' },
+      { tick: 12, policy: 'benefit_level', value: 'low' },
+      { tick: 15, policy: 'bailout_budget', value: '5000' },
+      { tick: 15, policy: 'bailout_budget', value: '0' },
+    ]
+    const table = rulesTable([a, b], 20)
+    expect(row(table, 'benefit_level')).toMatchObject({ values: ['low', 'neutral'], changedAt: 12, was: 'neutral' })
+    expect(row(table, 'bailout_budget')).toMatchObject({ values: [0, 0], differs: false, changedAt: null })
+  })
+
+  test('picks the latest change across towns for the row, and keeps each town\'s own', () => {
+    const [a, b] = towns()
+    b.policyChanges = [{ tick: 30, policy: 'benefit_level', value: 'low' }]
+    expect(row(rulesTable([a, b], 40), 'benefit_level')).toMatchObject({
+      values: ['high', 'low'], changedAt: 30, was: 'neutral', changes: [{ changedAt: 7, was: 'neutral' }, { changedAt: 30, was: 'neutral' }],
+    })
+  })
+
+  test('one town agrees with itself', () => {
+    expect(rulesTable([fixtureArm()], 10).every(group => group.same)).toBe(true)
+    expect(rulesTable([], 10).every(group => group.same && group.rows.every(r => r.values.length === 0))).toBe(true)
   })
 })

@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'vitest'
 import {
-  COPY, DEFAULT_POLICY, LEVER_GROUPS, LEVERS, METRICS, QUESTIONS, capitalise, describePolicy, formatMetric, formatMoneyShort, leverValuePhrase,
+  COPY, COUNTED_EVERY_5, DEFAULT_POLICY, GLANCE_KEYS, LEVER_GROUPS, LEVERS, METRICS, NUMBER_GROUPS, QUESTIONS, capitalise, describePolicy, formatMetric,
+  formatMetricShort, formatMoneyShort, leverValuePhrase, shownValue,
 } from '../catalog.js'
 import { policyProblems } from '../policyRules.js'
 
@@ -47,10 +48,36 @@ describe('formatMetric', () => {
   test('formats each unit', () => {
     expect(formatMetric('peopleOutOfWorkPer100', 9.2)).toBe('9 in 100')
     expect(formatMetric('typicalWeeklyPay', 2144.4)).toBe('$2,144')
-    expect(formatMetric('townHallCash', -1200.2)).toBe('-$1,200')
+    expect(formatMetric('townHallCash', -1200.2)).toBe('owes $1,200')
     expect(formatMetric('priceFood', 4.7149)).toBe('$4.71')
     expect(formatMetric('gini', 0.4128)).toBe('0.41')
     expect(formatMetric('firmsOpen', 12)).toBe('12')
+  })
+
+  test('reads the new units: a score out of 100, a percent, and a town hall that owes', () => {
+    expect(formatMetric('happiness', 40.6)).toBe('41 of 100')
+    expect(formatMetric('topTenthShare', 41.577)).toBe('42%')
+    expect(formatMetric('bottomHalfShare', 18.4)).toBe('18%')
+    expect(formatMetric('townHallCash', -11276.486)).toBe('owes $11,276')
+    expect(formatMetric('townHallCash', 80602.696)).toBe('$80,603')
+    expect(formatMetric('townHallCash', -0.4)).toBe('$0')
+    expect(formatMetric('salesExceptRentThisWeek', 17559.265)).toBe('$17,559')
+    expect(formatMetric('priceHealthcare', 10.8)).toBe('$10.80')
+    expect(shownValue('happiness', 40.6)).toBe(41)
+    expect(shownValue('topTenthShare', 41.577)).toBe(42)
+  })
+
+  test('shownValue is the number formatMetric shows', () => {
+    for (const value of [10.795, 1.005, 4.345, -4.345, 0.405, 2.675]) {
+      expect(`$${shownValue('priceFood', Math.abs(value)).toFixed(2)}`, String(value)).toBe(formatMetric('priceFood', Math.abs(value)))
+      expect(shownValue('gini', value).toFixed(2), String(value)).toBe(formatMetric('gini', value))
+    }
+  })
+
+  test('short labels keep the sign, so chart axes read as before', () => {
+    expect(formatMetricShort('townHallCash', -11276.486)).toBe('-$11k')
+    expect(formatMetricShort('townHallCash', -5000)).toBe('-$5,000')
+    expect(formatMetricShort('townHallCash', 1_346_184)).toBe('$1.3m')
   })
 
   test('says "not measured" for missing values', () => {
@@ -65,6 +92,69 @@ describe('formatMetric', () => {
     expect(formatMoneyShort(850.4)).toBe('$850')
     expect(formatMoneyShort(-8200)).toBe('-$8.2k')
     expect(formatMoneyShort(1_250_000)).toBe('$1.3m')
+  })
+})
+
+describe('the numbers sheet catalog', () => {
+  const FORMATS = ['per100', 'money', 'price', 'ratio', 'count', 'outOf100', 'percent']
+
+  test('every metric has a name, a one-sentence meaning, a known format and a direction', () => {
+    for (const [key, m] of Object.entries(METRICS)) {
+      expect(m.name.length, key).toBeGreaterThan(2)
+      expect(m.meaning, key).toMatch(/^[A-Z0-9].*\.$/)
+      expect(FORMATS, key).toContain(m.format)
+      expect(['lower', 'higher', null], key).toContain(m.better)
+    }
+  })
+
+  test('names the new numbers in plain words', () => {
+    expect(METRICS.happiness).toMatchObject({ name: 'How people feel', format: 'outOf100' })
+    expect(METRICS.salesExceptRentThisWeek).toMatchObject({ name: 'Sales this week, not counting rent', format: 'money' })
+    expect(METRICS.townHallIncome).toMatchObject({ name: 'Taxes collected this week', format: 'money' })
+    expect(METRICS.familySupportPaid).toMatchObject({ name: 'Help paid to families this week', format: 'money' })
+    expect(METRICS.topTenthShare.format).toBe('percent')
+    expect(METRICS.bottomHalfShare.format).toBe('percent')
+    for (const key of ['priceHousing', 'priceServices', 'priceHealthcare']) expect(METRICS[key].format, key).toBe('price')
+    expect(METRICS.bankDefaultAmountThisTick.format).toBe('money')
+  })
+
+  test('never calls sales "everything sold", nor any figure "net"', () => {
+    const text = JSON.stringify([METRICS, COPY.numbers])
+    expect(text).not.toMatch(/everything sold/i)
+    expect(text).not.toMatch(/\bnet\b/i)
+    expect(METRICS.salesExceptRentThisWeek.meaning).toMatch(/rent is not counted/i)
+    expect(METRICS.townHallIncome.meaning).toMatch(/taxes/i)
+    expect(METRICS.familySupportPaid.meaning).toMatch(/welcome payment/i)
+  })
+
+  test('six groups, each with a title and blurb, and every key a metric', () => {
+    expect(NUMBER_GROUPS).toEqual([
+      { id: 'work', keys: ['peopleOutOfWorkPer100', 'typicalWeeklyPay', 'publicWorksJobs'], extras: ['hiresAndLayoffs'] },
+      { id: 'prices', keys: ['priceFood', 'priceHousing', 'priceServices', 'priceHealthcare', 'foodSpendPerHousehold'] },
+      { id: 'richpoor', keys: ['gini', 'topTenthShare', 'bottomHalfShare'], extras: ['wealthLadder'] },
+      { id: 'business', keys: ['firmsOpen'], extras: ['firmStates', 'openedClosed'] },
+      { id: 'money', keys: ['townHallCash', 'salesExceptRentThisWeek', 'bankActiveLoans'], extras: ['moneyInOut', 'loansWrittenOff'] },
+      { id: 'wellbeing', keys: ['homelessHouseholds', 'careDenials', 'happiness'] },
+    ])
+    for (const group of NUMBER_GROUPS) {
+      expect(COPY.numbers.groups[group.id].title.length, group.id).toBeGreaterThan(2)
+      expect(COPY.numbers.groups[group.id].blurb, group.id).toMatch(/^[A-Z].*\.$/)
+      for (const key of group.keys) expect(METRICS[key], key).toBeTruthy()
+    }
+    expect(Object.keys(COPY.numbers.groups)).toEqual(NUMBER_GROUPS.map(group => group.id))
+  })
+
+  test('eight numbers at a glance, all metrics', () => {
+    expect(GLANCE_KEYS).toEqual([
+      'peopleOutOfWorkPer100', 'typicalWeeklyPay', 'foodSpendPerHousehold', 'gini', 'townHallCash', 'firmsOpen', 'happiness', 'salesExceptRentThisWeek',
+    ])
+    for (const key of GLANCE_KEYS) expect(METRICS[key], key).toBeTruthy()
+  })
+
+  test('the numbers counted every 5 weeks', () => {
+    expect(COUNTED_EVERY_5).toEqual(['gini', 'wealthP10', 'wealthP50', 'wealthP90', 'topTenthShare', 'bottomHalfShare'])
+    for (const key of COUNTED_EVERY_5) expect(METRICS[key], key).toBeTruthy()
+    expect(COPY.numbers.notMeasured).toBe('Not measured in this run')
   })
 })
 

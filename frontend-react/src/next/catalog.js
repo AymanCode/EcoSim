@@ -20,6 +20,24 @@ export const METRICS = {
     format: 'price',
     better: 'lower',
   },
+  priceHousing: {
+    name: 'Price of housing',
+    meaning: "The average price the town's housing businesses ask this week.",
+    format: 'price',
+    better: 'lower',
+  },
+  priceServices: {
+    name: 'Price of services',
+    meaning: "The average price the town's service businesses ask this week.",
+    format: 'price',
+    better: 'lower',
+  },
+  priceHealthcare: {
+    name: 'Price of healthcare',
+    meaning: "The average price the town's healthcare businesses ask this week.",
+    format: 'price',
+    better: 'lower',
+  },
   foodSpendPerHousehold: {
     name: 'A week of groceries',
     meaning: 'What a household paid for food this week, after any help from the town hall.',
@@ -34,9 +52,11 @@ export const METRICS = {
   },
   townHallCash: {
     name: 'Town hall cash',
-    meaning: 'What the town hall has in the bank; negative means it owes.',
+    meaning: 'What the town hall has in the bank; below zero, it owes.',
     format: 'money',
     better: null,
+    // A balance below zero reads "owes $11,276" (formatMetric).
+    owes: true,
   },
   homelessHouseholds: {
     name: 'Homes without a roof',
@@ -116,6 +136,52 @@ export const METRICS = {
     format: 'money',
     better: null,
   },
+  // The meanings below say no more than docs/WEBSOCKET_PROTOCOL.md's curated
+  // table. Sales leave out rent, the town hall's income is only the taxes it
+  // collected, and the help it paid is only what went to families: the two
+  // flows together are not the change in its cash.
+  bankDefaultAmountThisTick: {
+    name: 'Loans written off this week',
+    meaning: 'Money the bank wrote off this week on loans that went unpaid.',
+    format: 'money',
+    better: 'lower',
+  },
+  happiness: {
+    name: 'How people feel',
+    meaning: 'Average happiness across every household this week, from 0 to 100.',
+    format: 'outOf100',
+    better: 'higher',
+  },
+  salesExceptRentThisWeek: {
+    name: 'Sales this week, not counting rent',
+    meaning: 'What the open businesses sold this week in food, services and healthcare visits; rent is not counted.',
+    format: 'money',
+    better: null,
+  },
+  townHallIncome: {
+    name: 'Taxes collected this week',
+    meaning: 'The taxes on wages, profits, property and investment that the town hall collected this week.',
+    format: 'money',
+    better: null,
+  },
+  familySupportPaid: {
+    name: 'Help paid to families this week',
+    meaning: 'Benefits and top-ups the town hall paid to families out of work this week, plus the welcome payment every household gets in the six weeks after the town is set up.',
+    format: 'money',
+    better: null,
+  },
+  topTenthShare: {
+    name: 'Share held by the richest tenth',
+    meaning: 'Of all the cash households have, the percent held by the richest tenth of households.',
+    format: 'percent',
+    better: null,
+  },
+  bottomHalfShare: {
+    name: 'Share held by the poorer half',
+    meaning: 'Of all the cash households have, the percent held by the poorer half of households.',
+    format: 'percent',
+    better: null,
+  },
 }
 
 export const NOT_MEASURED = 'not measured'
@@ -146,10 +212,13 @@ const FORMATTERS = {
   price: value => `${value < 0 ? '-' : ''}$${Math.abs(value).toFixed(2)}`,
   ratio: value => value.toFixed(2),
   count: value => grouped.format(Math.round(value)),
+  outOf100: value => `${Math.round(value)} of 100`,
+  percent: value => `${Math.round(value)}%`,
 }
 
 export function formatMetric(key, value) {
   if (!isNumber(value)) return NOT_MEASURED
+  if (METRICS[key]?.owes && Math.round(value) < 0) return `owes ${formatMoney(-value)}`
   const format = FORMATTERS[METRICS[key]?.format] ?? FORMATTERS.count
   return format(value)
 }
@@ -158,21 +227,46 @@ export function formatMetric(key, value) {
 // economy starts in week 11.
 export const WARMUP_TICKS = 10
 
-// A figure rounded the way formatMetric shows it, as a number.
+// A figure rounded the way formatMetric shows it, as a number. Prices and
+// ratios round as toFixed does, so 10.795 (stored just below it) is 10.79 as
+// on the page, not 10.8.
 export function shownValue(key, value) {
   if (!isNumber(value)) return null
   const format = METRICS[key]?.format
-  if (format === 'price' || format === 'ratio') return Math.round(value * 100) / 100
+  if (format === 'price' || format === 'ratio') return Number(value.toFixed(2))
   return Math.round(value)
 }
 
 // Tight labels for chart axes and end labels: big sums of money go short
-// ("$1.3m"), everything else reads as formatMetric.
+// ("$1.3m") and money keeps its sign ("-$5,000", never "owes"); everything
+// else reads as formatMetric.
 export function formatMetricShort(key, value) {
   if (!isNumber(value)) return NOT_MEASURED
-  if (METRICS[key]?.format === 'money' && Math.abs(value) >= 1e4) return formatMoneyShort(value)
+  if (METRICS[key]?.format === 'money') return Math.abs(value) >= 1e4 ? formatMoneyShort(value) : formatMoney(value)
   return formatMetric(key, value)
 }
+
+// The "Show me all the numbers" sheet. Each group lists the metrics drawn as
+// tiles (`keys`) and the special visuals beside them (`extras`), in order;
+// titles and blurbs are in COPY.numbers.groups.
+export const NUMBER_GROUPS = [
+  { id: 'work', keys: ['peopleOutOfWorkPer100', 'typicalWeeklyPay', 'publicWorksJobs'], extras: ['hiresAndLayoffs'] },
+  { id: 'prices', keys: ['priceFood', 'priceHousing', 'priceServices', 'priceHealthcare', 'foodSpendPerHousehold'] },
+  { id: 'richpoor', keys: ['gini', 'topTenthShare', 'bottomHalfShare'], extras: ['wealthLadder'] },
+  { id: 'business', keys: ['firmsOpen'], extras: ['firmStates', 'openedClosed'] },
+  { id: 'money', keys: ['townHallCash', 'salesExceptRentThisWeek', 'bankActiveLoans'], extras: ['moneyInOut', 'loansWrittenOff'] },
+  { id: 'wellbeing', keys: ['homelessHouseholds', 'careDenials', 'happiness'] },
+]
+
+// The sheet's "This week at a glance" rows, in order.
+export const GLANCE_KEYS = [
+  'peopleOutOfWorkPer100', 'typicalWeeklyPay', 'foodSpendPerHousehold', 'gini', 'townHallCash', 'firmsOpen', 'happiness', 'salesExceptRentThisWeek',
+]
+
+// Figures the server counts every 5 weeks (and on the first week) and repeats
+// in between; `wealthAsOfTick` says when (docs/WEBSOCKET_PROTOCOL.md). They
+// are drawn only at the weeks they were counted (data/derive.js `countedAt`).
+export const COUNTED_EVERY_5 = ['gini', 'wealthP10', 'wealthP50', 'wealthP90', 'topTenthShare', 'bottomHalfShare']
 
 // The numbers the story chart can show, and the four stat cards beside it.
 export const STORY_METRICS = ['peopleOutOfWorkPer100', 'typicalWeeklyPay', 'foodSpendPerHousehold', 'gini', 'townHallCash']
@@ -828,5 +922,23 @@ export const COPY = {
     addYear: 'Add a year',
     backToEnd: 'Back to the end',
     another: 'Try another question',
+  },
+  // The "Show me all the numbers" sheet. Differences between towns and the
+  // counted-every-5-weeks note are narration.js `differencePhrase` and `countedNote`.
+  numbers: {
+    // A tile whose number this recording never carried, never a zero.
+    notMeasured: 'Not measured in this run',
+    // Titles and blurbs of NUMBER_GROUPS, from mockup 06.
+    groups: {
+      work: { title: 'Work and pay', blurb: 'Who has a job, what it pays, and how many people were hired or let go.' },
+      prices: { title: 'Prices', blurb: 'What things cost in the shops this week, and what a household spent on food.' },
+      richpoor: { title: 'Rich and poor', blurb: 'How evenly savings are spread between households.' },
+      business: { title: 'Businesses', blurb: 'How many businesses are open, how they are doing, and when they opened or closed.' },
+      money: {
+        title: 'Money',
+        blurb: "The town hall's bank balance, the taxes it collects and the help it pays families, what businesses sell, and the bank's loans.",
+      },
+      wellbeing: { title: 'Wellbeing', blurb: 'Signs of hardship, and how people feel.' },
+    },
   },
 }

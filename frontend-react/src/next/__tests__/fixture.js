@@ -15,3 +15,15 @@ export const TOWN_B = { label: 'Town B', color: '#E0762C' }
 export function fixtureArm(meta = TOWN_A) {
   return buildArm(parseSession(FIXTURE_TEXT), meta)
 }
+
+// The recorded demo (seed 1337, 500 households, 104 weeks; Town B has a higher
+// minimum wage), read from disk on first use. It carries every curated key,
+// including the ones the older fixture above lacks. Fresh arms per call:
+// build them once per test file, they are about 2 MB each.
+const DEMO_FILES = ['../../../public/demo/town-a.jsonl', '../../../public/demo/town-b.jsonl']
+let demoTexts = null
+
+export function demoArms() {
+  demoTexts ??= DEMO_FILES.map(path => fs.readFileSync(new URL(path, here), 'utf8'))
+  return [buildArm(parseSession(demoTexts[0]), TOWN_A), buildArm(parseSession(demoTexts[1]), TOWN_B)]
+}
