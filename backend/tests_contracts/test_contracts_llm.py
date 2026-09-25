@@ -13,6 +13,7 @@ from tools.llm.llm_government import (
     _audit_evidence,
     _build_recent_policy_memory,
     _build_system_prompt,
+    _enforce_cross_lever_consistency,
     apply_info_constraints_node,
     build_allowed_government_actions,
     computed_fiscal_mode_from_state,
@@ -751,6 +752,41 @@ def test_contract_grouped_bailout_is_atomic():
         "bailout_budget": 5000,
     }
     assert valid["rejected_changes"] == []
+
+
+def test_contract_all_bailout_with_a_sector_target_is_normalised_to_none():
+    # The prompt's rule: bailout_policy=all requires bailout_target=none. The intent (bail out
+    # every sector) is unambiguous, so the firewall clears the target instead of dropping the move.
+    government = GovernmentAgent(cash_balance=100_000.0)
+    government.set_lever("bailout_policy", "sector")
+    government.set_lever("bailout_target", "food")
+    government.set_lever("bailout_budget", 5000)
+
+    detailed = sanitize_llm_government_changes_detailed(
+        {"bailout_policy": "all", "bailout_target": "food", "bailout_budget": 10000},
+        government.to_dict(),
+        government,
+        gdp=10_000.0,
+        unemployment_rate=0.10,
+    )
+
+    assert detailed["rejected_changes"] == []
+    assert detailed["mechanical_corrections"] == {"bailout_target": "none"}
+    assert detailed["applied_changes"] == {
+        "bailout_policy": "all",
+        "bailout_target": "none",
+        "bailout_budget": 10000,
+    }
+
+    # The older cross-lever helper states the same rule.
+    current = {"bailout_policy": "sector", "bailout_target": "food", "bailout_budget": 5000}
+    expected = {"bailout_policy": "all", "bailout_target": "none", "bailout_budget": 10000}
+    for proposal in (
+        {"bailout_policy": "all", "bailout_target": "food", "bailout_budget": 10000},
+        {"bailout_policy": "all", "bailout_budget": 10000},
+    ):
+        validated = _enforce_cross_lever_consistency(dict(proposal), current)
+        assert {lever: validated.get(lever) for lever in expected} == expected
 
 
 def test_contract_grouped_regression_no_partial_bailout_policy_accept():

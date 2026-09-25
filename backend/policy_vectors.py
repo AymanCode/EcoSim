@@ -11,6 +11,8 @@ from typing import Any, Dict, Optional
 
 from policy_schema import ORDERED_LEVERS, SIMPLE_ENUM_LEVERS, TAX_LIMITS, VALID_LEVERS
 
+BAILOUT_SECTORS = frozenset(SIMPLE_ENUM_LEVERS["bailout_target"]) - {"none"}
+
 
 class PolicyVectorError(ValueError):
     """A lever vector that does not fit the schema; ``group`` names a broken group rule (see POLICY_GROUPS)."""
@@ -61,11 +63,26 @@ def policy_group_errors(vector: Dict[str, Any]) -> Dict[str, str]:
     level = vector.get("sector_subsidy_level", 0)
     if level and vector.get("sector_subsidy_target", "none") == "none":
         errors["sector_subsidy"] = "sector_subsidy_level above 0 needs a sector_subsidy_target other than 'none'"
-    if vector.get("bailout_policy", "off") != "off":
-        if vector.get("bailout_target", "none") == "none":
-            errors["bailout"] = "bailout_policy needs a bailout_target other than 'none'"
-        elif not vector.get("bailout_budget", 0):
-            errors["bailout"] = "bailout_policy needs a bailout_budget above 0"
+    # The AI mayor's rule (llm_government.py CONSISTENCY RULES): off lends nothing, sector names
+    # one sector, all names none; sector and all need a budget. Target rule first, then budget.
+    bailout_policy = vector.get("bailout_policy", "off")
+    bailout_target = vector.get("bailout_target", "none")
+    bailout_budget = vector.get("bailout_budget", 0)
+    if bailout_policy == "off":
+        if bailout_target != "none":
+            errors["bailout"] = "bailout_policy 'off' lends nothing, so bailout_target must be 'none'"
+        elif bailout_budget:
+            errors["bailout"] = "bailout_policy 'off' lends nothing, so bailout_budget must be 0"
+    elif bailout_policy == "sector":
+        if bailout_target not in BAILOUT_SECTORS:
+            errors["bailout"] = "bailout_policy 'sector' needs a bailout_target of food, housing, services or healthcare"
+        elif not bailout_budget:
+            errors["bailout"] = "bailout_policy 'sector' needs a bailout_budget above 0"
+    elif bailout_policy == "all":
+        if bailout_target != "none":
+            errors["bailout"] = "bailout_policy 'all' covers every sector, so bailout_target must be 'none'"
+        elif not bailout_budget:
+            errors["bailout"] = "bailout_policy 'all' needs a bailout_budget above 0"
     return errors
 
 

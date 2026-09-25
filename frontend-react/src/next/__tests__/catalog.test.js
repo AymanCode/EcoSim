@@ -107,7 +107,22 @@ describe('describePolicy', () => {
     expect(describePolicy({ sector_subsidy_target: 'food', sector_subsidy_level: 25 })).toBe('a 25% subsidy for food firms')
     expect(describePolicy({ price_stabilization_target: 'food', price_stabilization_level: 'strict' })).toBe('strict price controls on food')
     expect(describePolicy({ bailout_policy: 'sector', bailout_target: 'food', bailout_budget: 25000 }))
-      .toBe('bailouts for food firms up to $25,000')
+      .toBe('bailouts for food firms with a $25,000 budget')
+  })
+
+  test('reads each bailout choice as one phrase, with no sector for any business', () => {
+    expect(describePolicy({ bailout_policy: 'all', bailout_budget: 10000 })).toBe('bailouts for any business with a $10,000 budget')
+    expect(describePolicy({ bailout_policy: 'all', bailout_target: 'none', bailout_budget: 10000 }))
+      .toBe('bailouts for any business with a $10,000 budget')
+    expect(describePolicy({ minimum_wage_policy: 'high', bailout_policy: 'all', bailout_budget: 5000 }))
+      .toBe('a higher minimum wage and bailouts for any business with a $5,000 budget')
+    // A Town hall receipt that leaves the budget as it was.
+    expect(describePolicy({ bailout_policy: 'all', bailout_target: 'none' })).toBe('bailouts for any business')
+    expect(describePolicy({ bailout_policy: 'sector', bailout_target: 'housing' })).toBe('bailouts for housing firms')
+    // Turning bailouts off clears the sector and the budget with them.
+    expect(describePolicy({ bailout_policy: 'off', bailout_target: 'none', bailout_budget: 0 })).toBe('no bailouts')
+    // A $0 budget is named rather than folded away.
+    expect(describePolicy({ bailout_policy: 'all', bailout_budget: 0 })).toBe('bailouts for any business and no bailout budget')
   })
 })
 

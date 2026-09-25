@@ -463,15 +463,28 @@ const GROUPS = [
     phrase: p => `${leverPolicy('price_stabilization_level', p.price_stabilization_level)} on ${leverValuePhrase('price_stabilization_target', p.price_stabilization_target)}`,
   },
   {
+    // Only the choice itself must be there: the sector and budget join the
+    // phrase when they fit the bailout rule (policyRules.js).
     levers: ['bailout_policy', 'bailout_target', 'bailout_budget'],
-    applies: p => p.bailout_policy !== 'off' && p.bailout_target != null,
-    phrase: p => {
-      const who = p.bailout_policy === 'all' ? 'any business' : (FIRM_TARGETS[p.bailout_target] ?? p.bailout_target)
-      const budget = Number(p.bailout_budget)
-      return `bailouts for ${who}${budget > 0 ? ` up to ${formatMoney(budget)}` : ''}`
-    },
+    needs: ['bailout_policy'],
+    applies: p => bailoutPhrase(p) !== null,
+    phrase: p => bailoutPhrase(p),
   },
 ]
+
+// The bailout levers as one phrase, or null when they break the bailout rule:
+// off with no sector or budget, one sector with its sector, any business with
+// none. A budget left out of the vector is left out of the phrase.
+function bailoutPhrase(p) {
+  const target = p.bailout_target ?? 'none'
+  const budget = p.bailout_budget === undefined ? null : Number(p.bailout_budget)
+  if (p.bailout_policy === 'off') return target === 'none' && !budget ? 'no bailouts' : null
+  if (budget === 0) return null
+  const withBudget = budget ? ` with a ${formatMoney(budget)} budget` : ''
+  if (p.bailout_policy === 'all') return target === 'none' ? `bailouts for any business${withBudget}` : null
+  if (p.bailout_policy === 'sector' && target !== 'none' && FIRM_TARGETS[target]) return `bailouts for ${FIRM_TARGETS[target]}${withBudget}`
+  return null
+}
 
 export const NO_CHANGES = 'no changes'
 
@@ -491,7 +504,7 @@ export function describePolicy(initialPolicy) {
   const phrases = []
   for (const lever of [...present, ...unknown]) {
     if (used.has(lever)) continue
-    const group = GROUPS.find(g => g.levers.includes(lever) && g.levers.every(l => l === 'bailout_budget' || policy[l] !== undefined))
+    const group = GROUPS.find(g => g.levers.includes(lever) && (g.needs ?? g.levers).every(l => policy[l] !== undefined))
     if (group && group.applies(policy)) {
       group.levers.forEach(l => used.add(l))
       phrases.push(group.phrase(policy))
@@ -666,12 +679,15 @@ export const COPY = {
       prices: { title: 'Prices and rent', blurb: 'Limits on how fast prices and rents can rise.' },
     },
     // The group rules of backend/policy_vectors.py `policy_group_errors`, for a
-    // newcomer (policyRules.js). The backend asks for a bailout target even
-    // when bailouts cover any business.
+    // newcomer (policyRules.js). Bailouts that are off lend nothing, bailouts
+    // for one sector name it, bailouts for any business name none, and both
+    // need a budget.
     rules: {
       sector_subsidy: 'The subsidy needs a kind of business to go to. Pick one, or set the subsidy to none.',
-      bailout_target: 'Bailouts need a kind of business picked, even when they cover any business. Pick one, or turn bailouts off.',
-      bailout_budget: 'Bailouts need money to lend. Pick a budget above $0, or turn bailouts off.',
+      bailout_off: 'Turn bailouts on before setting a sector or budget.',
+      bailout_target: 'Pick which kind of business to help.',
+      bailout_all: "Bailouts for any business don't need a sector.",
+      bailout_budget: "Set a budget, or the town hall can't lend anything.",
     },
     changed: '(changed)',
   },

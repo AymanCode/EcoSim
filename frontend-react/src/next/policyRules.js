@@ -1,7 +1,10 @@
 // The lever group rules of backend/policy_vectors.py `policy_group_errors`,
 // ported check for check and in the same order, so the Set up screen and the
 // Town hall can stop a vector the server would refuse. Pure: no React.
-import { COPY } from './catalog.js'
+import { COPY, LEVER_OPTIONS } from './catalog.js'
+
+// The sectors one-sector bailouts can name.
+const BAILOUT_SECTORS = LEVER_OPTIONS.bailout_target.filter(target => target !== 'none')
 
 // Each problem group and the levers it ties together; the editor shows a
 // problem under the section that holds these levers.
@@ -27,9 +30,19 @@ export function policyProblems(vector) {
   if (truthy(get(levers, 'sector_subsidy_level', 0)) && get(levers, 'sector_subsidy_target', 'none') === 'none') {
     problems.sector_subsidy = COPY.levers.rules.sector_subsidy
   }
-  if (get(levers, 'bailout_policy', 'off') !== 'off') {
-    if (get(levers, 'bailout_target', 'none') === 'none') problems.bailout = COPY.levers.rules.bailout_target
-    else if (!truthy(get(levers, 'bailout_budget', 0))) problems.bailout = COPY.levers.rules.bailout_budget
+  // Off lends nothing, one sector names its sector, any business names none;
+  // the sector rule comes first, then the budget.
+  const bailoutPolicy = get(levers, 'bailout_policy', 'off')
+  const bailoutTarget = get(levers, 'bailout_target', 'none')
+  const bailoutBudget = truthy(get(levers, 'bailout_budget', 0))
+  if (bailoutPolicy === 'off') {
+    if (bailoutTarget !== 'none' || bailoutBudget) problems.bailout = COPY.levers.rules.bailout_off
+  } else if (bailoutPolicy === 'sector') {
+    if (!BAILOUT_SECTORS.includes(bailoutTarget)) problems.bailout = COPY.levers.rules.bailout_target
+    else if (!bailoutBudget) problems.bailout = COPY.levers.rules.bailout_budget
+  } else if (bailoutPolicy === 'all') {
+    if (bailoutTarget !== 'none') problems.bailout = COPY.levers.rules.bailout_all
+    else if (!bailoutBudget) problems.bailout = COPY.levers.rules.bailout_budget
   }
   return problems
 }

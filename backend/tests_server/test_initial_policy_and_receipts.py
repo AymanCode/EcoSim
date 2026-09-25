@@ -79,7 +79,8 @@ def test_config_while_paused_returns_receipt_with_applied_and_rejected(monkeypat
 
 
 SUBSIDY_RULE = "sector_subsidy_level above 0 needs a sector_subsidy_target other than 'none'"
-BUDGET_RULE = "bailout_policy needs a bailout_budget above 0"
+ALL_TARGET_RULE = "bailout_policy 'all' covers every sector, so bailout_target must be 'none'"
+ALL_BUDGET_RULE = "bailout_policy 'all' needs a bailout_budget above 0"
 
 
 def _config(ws, config):
@@ -103,11 +104,15 @@ def test_lean_group_rule_rejects_only_the_levers_of_the_failing_group(monkeypatc
 
         receipt = _config(ws, {"bailoutPolicy": "all", "bailoutTarget": "food", "benefitLevel": "high"})
         assert receipt["applied"] == {"benefit_level": "high"}
-        assert receipt["rejected"] == {"bailout_policy": BUDGET_RULE, "bailout_target": BUDGET_RULE}
+        assert receipt["rejected"] == {"bailout_policy": ALL_TARGET_RULE, "bailout_target": ALL_TARGET_RULE}
         assert manager._snapshot_government_levers()["bailout_policy"] == "off"
 
-        receipt = _config(ws, {"bailoutPolicy": "all", "bailoutTarget": "food", "bailoutBudget": 5000})
-        assert receipt["rejected"] == {} and receipt["applied"]["bailout_policy"] == "all"
+        receipt = _config(ws, {"bailoutPolicy": "all"})
+        assert receipt["applied"] == {} and receipt["rejected"] == {"bailout_policy": ALL_BUDGET_RULE}
+
+        receipt = _config(ws, {"bailoutPolicy": "all", "bailoutBudget": 5000})
+        assert receipt["rejected"] == {} and receipt["applied"] == {"bailout_policy": "all", "bailout_budget": 5000}
+        assert manager._snapshot_government_levers()["bailout_target"] == "none"
 
 
 def test_legacy_applies_levers_one_by_one_without_group_rules(monkeypatch):

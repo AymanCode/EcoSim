@@ -32,6 +32,22 @@ function complete(vector) {
   return full
 }
 
+// The bailout rule (policyRules.js), kept as the choice changes: off lends
+// nothing, and bailouts for any business name no sector.
+const BAILOUT_RESETS = {
+  off: { bailout_target: 'none', bailout_budget: 0 },
+  all: { bailout_target: 'none' },
+}
+
+// Whether a lever's control shows under these rules: the sector only for
+// bailouts for one sector, the budget only while bailouts are on. A hidden
+// lever keeps its value in the vector.
+function shows(lever, rules) {
+  if (lever === 'bailout_target') return rules.bailout_policy === 'sector'
+  if (lever === 'bailout_budget') return rules.bailout_policy !== 'off'
+  return true
+}
+
 const same = (a, b) => (typeof a === 'number' && typeof b === 'number' ? Math.abs(a - b) < 1e-9 : String(a) === String(b))
 const toCents = value => Math.round(value * 100) / 100
 
@@ -132,28 +148,33 @@ function Lever({ lever, value, changed, id, onPick }) {
 // Every lever of the town hall in five sections. `value` is the rules being
 // edited, `base` the rules to mark changes against; onChange always gets all
 // 17 levers, numbers as numbers. A group rule the rules break shows under its
-// section.
+// section. The bailout sector and budget show only when they apply.
 export default function LeverEditor({ value, base = DEFAULT_POLICY, onChange, idPrefix = 'levers' }) {
   const current = complete(value)
   const baseline = complete(base)
   const problems = Object.entries(policyProblems(current))
-  const pick = lever => next => onChange({ ...current, [lever]: asOption(lever, next) })
+  const pick = lever => next => {
+    const option = asOption(lever, next)
+    const resets = lever === 'bailout_policy' ? BAILOUT_RESETS[option] : null
+    onChange({ ...current, [lever]: option, ...resets })
+  }
 
   return (
     <div className="nx-levers">
       {LEVER_GROUPS.map(group => {
         const copy = COPY.levers.groups[group.id]
         const blurbId = `${idPrefix}-${group.id}-blurb`
-        // A broken rule shows right after the last of its levers in this section.
+        const shown = group.levers.filter(lever => shows(lever, current))
+        // A broken rule shows right after the last of its levers in view in this section.
         const after = lever => problems.filter(([key]) => {
-          const tied = (PROBLEM_LEVERS[key] ?? []).filter(l => group.levers.includes(l))
+          const tied = (PROBLEM_LEVERS[key] ?? []).filter(l => shown.includes(l))
           return tied[tied.length - 1] === lever
         })
         return (
           <fieldset key={group.id} className="nx-lgroup" aria-describedby={blurbId}>
             <legend>{copy.title}</legend>
             <p className="nx-lblurb" id={blurbId}>{copy.blurb}</p>
-            {group.levers.map(lever => (
+            {shown.map(lever => (
               <Fragment key={lever}>
                 <Lever
                   lever={lever}

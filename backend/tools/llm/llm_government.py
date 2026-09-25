@@ -1676,7 +1676,8 @@ def _enforce_cross_lever_consistency(
         validated.pop("sector_subsidy_target", None)
         validated.pop("sector_subsidy_level", None)
 
-    # Bailout coherence: policy=off with non-none target, or policy=sector with none target
+    # Bailout coherence: policy=off with non-none target, policy=sector with none target, or
+    # policy=all with a sector target (normalised: the intent, every sector, is unambiguous)
     policy = merged.get("bailout_policy")
     bailout_target = merged.get("bailout_target")
     budget = merged.get("bailout_budget")
@@ -1691,6 +1692,9 @@ def _enforce_cross_lever_consistency(
         validated.pop("bailout_policy", None)
         validated.pop("bailout_target", None)
         validated.pop("bailout_budget", None)
+    elif policy == "all" and bailout_target != "none":
+        logger.warning("Cross-lever: bailout_policy=all with target=%s — setting bailout_target=none.", bailout_target)
+        validated["bailout_target"] = "none"
 
     price_level = merged.get("price_stabilization_level", "off")
     price_target = merged.get("price_stabilization_target", "none")

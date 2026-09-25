@@ -1,7 +1,12 @@
+import { useState } from 'react'
 import { describe, expect, test, vi } from 'vitest'
 import { fireEvent, render, screen, within } from '@testing-library/react'
 import LeverEditor from '../components/LeverEditor.jsx'
 import { COPY, DEFAULT_POLICY, LEVER_GROUPS, LEVERS } from '../catalog.js'
+
+// Rules under which every lever control shows: bailouts for one sector.
+const SECTOR_BAILOUTS = { ...DEFAULT_POLICY, bailout_policy: 'sector', bailout_target: 'food', bailout_budget: 5000 }
+const ANY_BAILOUTS = { ...DEFAULT_POLICY, bailout_policy: 'all', bailout_budget: 5000 }
 
 function editor(props = {}) {
   const onChange = vi.fn()
@@ -9,9 +14,24 @@ function editor(props = {}) {
   return { ...view, onChange }
 }
 
+// The editor as Set up and the Town hall hold it: every change becomes the new value.
+function Held({ initial, onChange }) {
+  const [value, setValue] = useState(initial)
+  return <LeverEditor value={value} base={DEFAULT_POLICY} idPrefix="town-b" onChange={next => { onChange(next); setValue(next) }} />
+}
+
+function held(initial) {
+  const onChange = vi.fn()
+  const view = render(<Held initial={initial} onChange={onChange} />)
+  return { ...view, onChange, last: () => onChange.mock.calls.at(-1)[0] }
+}
+
+const choose = (name, option) => fireEvent.click(within(screen.getByRole('group', { name })).getByRole('button', { name: option }))
+const row = (container, lever) => container.querySelector(`[data-lever="${lever}"]`)
+
 describe('LeverEditor', () => {
   test('all 17 levers render inside 5 fieldsets, in the catalog groups', () => {
-    const { container } = editor()
+    const { container } = editor({ value: SECTOR_BAILOUTS })
     const fieldsets = [...container.querySelectorAll('fieldset')]
     expect(fieldsets).toHaveLength(5)
     LEVER_GROUPS.forEach((group, i) => {
@@ -55,7 +75,7 @@ describe('LeverEditor', () => {
   })
 
   test('numeric levers stay numbers', () => {
-    const { onChange, rerender } = editor()
+    const { onChange, rerender } = editor({ value: ANY_BAILOUTS, base: ANY_BAILOUTS })
     fireEvent.click(within(screen.getByRole('group', { name: 'The business subsidy' })).getByRole('button', { name: '25%' }))
     expect(onChange.mock.calls[0][0].sector_subsidy_level).toBe(25)
     fireEvent.click(within(screen.getByRole('group', { name: 'The bailout budget' })).getByRole('button', { name: '$10,000' }))
@@ -102,5 +122,62 @@ describe('LeverEditor', () => {
     )
     const ids = [...container.querySelectorAll('[id]')].map(node => node.id)
     expect(new Set(ids).size).toBe(ids.length)
+  })
+})
+
+// The bailout rule of policyRules.js: off lends nothing, one sector names its
+// sector, any business names none, and both need a budget.
+describe('LeverEditor bailouts', () => {
+  test('with bailouts off, only the bailout choice shows', () => {
+    const { container } = editor()
+    expect(row(container, 'bailout_policy')).not.toBeNull()
+    expect(row(container, 'bailout_target')).toBeNull()
+    expect(row(container, 'bailout_budget')).toBeNull()
+  })
+
+  test('choosing any business clears the sector and hides it, and keeps the budget', () => {
+    const { container, last } = held(SECTOR_BAILOUTS)
+    choose(/^Bailouts/, 'any business')
+    expect(last()).toEqual({ ...SECTOR_BAILOUTS, bailout_policy: 'all', bailout_target: 'none' })
+    expect(Object.keys(last()).sort()).toEqual(Object.keys(DEFAULT_POLICY).sort())
+    expect(row(container, 'bailout_target')).toBeNull()
+    expect(row(container, 'bailout_budget')).not.toBeNull()
+    expect(container.querySelector('.nx-lproblem')).toBeNull()
+  })
+
+  test('choosing off resets the sector and the budget and hides both', () => {
+    const { container, last } = held(SECTOR_BAILOUTS)
+    choose(/^Bailouts/, 'off')
+    expect(last()).toEqual(DEFAULT_POLICY)
+    expect(row(container, 'bailout_target')).toBeNull()
+    expect(row(container, 'bailout_budget')).toBeNull()
+    expect(container.querySelector('.nx-lproblem')).toBeNull()
+  })
+
+  test('choosing one sector shows the sector choice and asks for a sector until one is picked', () => {
+    const { container, last } = held(DEFAULT_POLICY)
+    choose(/^Bailouts/, 'one sector only')
+    expect(last()).toEqual({ ...DEFAULT_POLICY, bailout_policy: 'sector' })
+    expect(row(container, 'bailout_target')).not.toBeNull()
+    expect(row(container, 'bailout_budget')).not.toBeNull()
+    expect(screen.getByText(COPY.levers.rules.bailout_target)).toHaveAttribute('role', 'status')
+
+    choose(/^The bailout target/, 'food firms')
+    expect(last().bailout_target).toBe('food')
+    expect(screen.queryByText(COPY.levers.rules.bailout_target)).toBeNull()
+    expect(screen.getByText(COPY.levers.rules.bailout_budget)).toBeInTheDocument()
+
+    choose(/^The bailout budget/, '$5,000')
+    expect(last()).toEqual(SECTOR_BAILOUTS)
+    expect(container.querySelector('.nx-lproblem')).toBeNull()
+  })
+
+  test('a hidden control keeps its value, and its rule shows under the controls still in view', () => {
+    const { container, onChange } = editor({ value: { ...DEFAULT_POLICY, bailout_target: 'food' } })
+    expect(row(container, 'bailout_target')).toBeNull()
+    const line = screen.getByText(COPY.levers.rules.bailout_off)
+    expect(row(container, 'bailout_policy').nextElementSibling).toBe(line)
+    fireEvent.click(within(screen.getByRole('group', { name: 'The minimum wage' })).getByRole('button', { name: 'high' }))
+    expect(onChange).toHaveBeenCalledWith({ ...DEFAULT_POLICY, bailout_target: 'food', minimum_wage_policy: 'high' })
   })
 })
