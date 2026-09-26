@@ -8,6 +8,7 @@
 
 .nx {
   --nx-page: #F3F5F7;
+  --nx-backdrop: #979CA2;
   --nx-panel: #FFFFFF;
   --nx-panel2: #EEF1F4;
   --nx-ink: #17202B;
@@ -1028,7 +1029,7 @@
 }
 /* While it is open the towns are hidden under it; the Run screen around the
    sheet is the mockup's dimmed backdrop, and the timeline above stays lit. */
-.nx .nx-run.has-sheet { background: #979CA2 }
+.nx .nx-run.has-sheet { background: var(--nx-backdrop) }
 .nx .nx-sheet [hidden] { display: none }
 .nx .nx-sheet h2:focus:not(:focus-visible), .nx .nx-sheet h3:focus:not(:focus-visible) { outline: none }
 .nx .nx-sheet h2:focus-visible, .nx .nx-sheet h3:focus-visible { outline: 2px solid var(--nx-a); outline-offset: 3px; border-radius: 6px }
@@ -1067,10 +1068,10 @@
   background: rgba(243, 245, 247, .96);
   border-top: 1px solid var(--nx-line);
   border-bottom: 1px solid var(--nx-line);
-  overflow-x: auto;
-  scrollbar-width: none;
 }
-.nx .nx-jump::-webkit-scrollbar { display: none }
+/* Only the links scroll sideways; the labelled way back always stays in view. */
+.nx .nx-jump-links { display: flex; flex: 1; min-width: 0; gap: 6px; overflow-x: auto; scrollbar-width: none; padding: 3px }
+.nx .nx-jump-links::-webkit-scrollbar { display: none }
 .nx .nx-jump a {
   flex: none;
   border: 1px solid var(--nx-line2);
@@ -1083,7 +1084,6 @@
   text-decoration: none;
 }
 .nx .nx-jump a:hover { border-color: var(--nx-ink4); color: var(--nx-ink) }
-.nx .nx-jump .nx-sp { min-width: 12px }
 .nx .nx-jump .nx-abtn { flex: none }
 
 /* The chart key */
@@ -1387,7 +1387,7 @@
   .nx .nx-s8 { grid-column: span 12 }
 }
 @media (max-width: 900px) {
-  .nx .nx-jump { position: static; padding: 9px 16px }
+  .nx .nx-jump { padding: 9px 16px }
   .nx .nx-sheet-head, .nx .nx-ckey { padding-left: 16px; padding-right: 16px }
   .nx .nx-sheet-body { padding: 14px 12px 0 }
   .nx .nx-tap { margin-left: 16px; margin-right: 16px }

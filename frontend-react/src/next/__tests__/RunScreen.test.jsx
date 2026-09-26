@@ -152,6 +152,31 @@ describe('RunScreen', () => {
     expect(container.querySelectorAll('.nx-col')).toHaveLength(2)
   })
 
+  test('opening from the stat cards scrolls to the top; closing restores the towns position', () => {
+    const scroller = document.documentElement
+    const original = Object.getOwnPropertyDescriptor(scroller, 'scrollTop')
+    let position = 900
+    const writes = []
+    Object.defineProperty(scroller, 'scrollTop', {
+      configurable: true, get: () => position,
+      set: value => { position = value; writes.push(value) },
+    })
+    try {
+      const { container } = render(<Clocked arms={[fixtureArm(TOWN_A), townB()]} />)
+      const link = sheetLink(container)
+      fireEvent.click(link)
+      expect(writes).toEqual([0])
+      scroller.scrollTop = 1800
+      writes.length = 0
+      fireEvent.click(within(sheet()).getByRole('button', { name: 'Back to the towns' }))
+      expect(writes).toEqual([900])
+      expect(link).toHaveFocus()
+    } finally {
+      if (original) Object.defineProperty(scroller, 'scrollTop', original)
+      else delete scroller.scrollTop
+    }
+  })
+
   test('the timeline button opens and closes it, Escape closes it, and focus comes back to the button', () => {
     render(<Clocked arms={[fixtureArm(TOWN_A), townB()]} />)
     const toggle = sheetToggle()

@@ -294,7 +294,7 @@ export default function RunScreen({
                     {COPY.numbers.more}{' '}
                     <button type="button" className="nx-more" onClick={event => openNumbers(event.currentTarget)}>
                       {COPY.numbers.open}
-                    </button>.
+                    </button>{COPY.numbers.moreEnd}
                   </p>
                 </div>
               </div>

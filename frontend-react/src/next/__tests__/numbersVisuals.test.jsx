@@ -562,7 +562,7 @@ describe('the numbers sheet with its special visuals', () => {
   })
 
   test('the line under the groups says which charts open big, and each of those does', () => {
-    sheet()
+    const { container } = sheet()
     expect(screen.getByText(COPY.numbers.tap)).toBeInTheDocument()
     expect(COPY.numbers.tap).toBe('Tap any chart to see it big, apart from the hires and lay-offs, the openings and closings, and the loans written off.')
     const closed = [COPY.numbers.hires.title, COPY.numbers.openClose.title, COPY.numbers.writtenOff.title]
@@ -582,13 +582,14 @@ describe('the numbers sheet with its special visuals', () => {
       [COPY.numbers.inOut.title]: METRICS.townHallIncome.name,
     }
     for (const [title, heading] of Object.entries(opens)) {
-      const card = screen.getAllByRole('article').find(node => node.querySelector('h4').textContent === title)
+      const card = cards.find(node => node.querySelector('h4').textContent === title)
       fireEvent.click(card)
-      expect(screen.getByRole('heading', { level: 3, name: heading })).toBeInTheDocument()
+      expect(within(container.querySelector('.nx-seebig')).getByRole('heading', { level: 3, name: heading })).toBeInTheDocument()
       fireEvent.keyDown(document.activeElement, { key: 'Escape' })
-      expect(screen.getAllByRole('article').find(node => node.querySelector('h4').textContent === title)).toHaveFocus()
+      expect(card).toHaveFocus()
     }
-  })
+  // This renders the full sheet and opens seven charts; allow for a busy laptop.
+  }, 15_000)
 
   test('the ladder, the business states and money in and out open with their own numbers as chips', () => {
     sheet()

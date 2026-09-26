@@ -99,6 +99,20 @@ function lostNote(live, index) {
   return COPY.numbers.lost(town.lastTick ? weekLabel(town.lastTick) : null)
 }
 
+function liveStatus(live, arms) {
+  if (live?.phase === 'lost') {
+    const label = live.error?.town ?? live.towns?.find(town => town.status === 'lost')?.label
+    const town = live.towns?.find(town => town.label === label)
+    const describe = live.error?.kind === 'crashed' ? COPY.live.crashed : COPY.live.lost
+    return `${describe(label, town?.lastTick ? weekLabel(town.lastTick) : null, arms.length > 1)} ${COPY.numbers.continue}`
+  }
+  if (live?.phase === 'horizon' || live?.phase === 'finished') {
+    const horizon = Math.max(0, ...arms.map(arm => arm.horizon || arm.ticks.at(-1) || 0))
+    return `${COPY.end.up(horizon)} ${COPY.numbers.continue}`
+  }
+  return null
+}
+
 // "Show me all the numbers": a sheet over the Run screen, on the same clock
 // (`tick`). A header with the week and each town's rules, jump chips and a
 // chart key, then the rules in force, this week at a glance, and one card per
@@ -196,6 +210,7 @@ export default function NumbersSheet({ id, arms, tick, onClose, live, playing = 
           <h2 id={titleId} ref={headingRef} tabIndex={-1}>{COPY.numbers.title}</h2>
           <p className="nx-sheet-lead">{COPY.numbers.lead(arms.length, weekLabel(tick))}</p>
           <p className="nx-sheet-hint">{COPY.numbers.hint}</p>
+          {live && <p className="nx-notice" role="status" aria-live="polite">{liveStatus(live, arms)}</p>}
           <ul className="nx-sheet-towns" aria-label={COPY.numbers.towns}>
             {arms.map((arm, i) => (
               <li key={arm.label} className="nx-tchip">
@@ -211,10 +226,11 @@ export default function NumbersSheet({ id, arms, tick, onClose, live, playing = 
       </header>
 
       <nav className="nx-jump" aria-label={COPY.numbers.jump} hidden={Boolean(big)}>
-        {sections.map(section => (
-          <a key={section.id} href={`#${section.id}`} onClick={jump(section.id)}>{section.label}</a>
-        ))}
-        <span className="nx-sp" />
+        <div className="nx-jump-links">
+          {sections.map(section => (
+            <a key={section.id} href={`#${section.id}`} onClick={jump(section.id)}>{section.label}</a>
+          ))}
+        </div>
         <button type="button" className="nx-abtn" style={{ visibility: stuck ? 'visible' : 'hidden' }} onClick={onClose}>
           <BackIcon />{COPY.numbers.back}
         </button>

@@ -92,6 +92,24 @@ describe('NumbersSheet', () => {
     expect(screen.getAllByRole('button', { name: 'Back to the towns' })).toHaveLength(1)
   })
 
+  test('the phone back button stays outside the horizontally scrolling jump links', () => {
+    const style = document.createElement('style')
+    style.textContent = CSS
+    document.head.appendChild(style)
+    try {
+      sheet({ top: 135 })
+      const nav = screen.getByRole('navigation', { name: 'Jump to a group' })
+      const links = nav.querySelector('.nx-jump-links')
+      expect(links).not.toBeNull()
+      expect(links).not.toContainElement(nav.querySelector('button'))
+      expect(getComputedStyle(nav).position).toBe('sticky')
+      expect(getComputedStyle(links).overflowX).toBe('auto')
+      const phone = [...style.sheet.cssRules].find(rule => rule.conditionText === '(max-width: 900px)' && [...rule.cssRules].some(child => child.selectorText === '.nx .nx-jump'))
+      const jump = [...phone.cssRules].find(rule => rule.selectorText === '.nx .nx-jump')
+      expect(jump.style.position).not.toBe('static')
+    } finally { style.remove() }
+  })
+
   test('the way back hides behind the bar above: the jump bar sticks at `top` and the observer insets the view by it', () => {
     const observers = []
     globalThis.IntersectionObserver = class {

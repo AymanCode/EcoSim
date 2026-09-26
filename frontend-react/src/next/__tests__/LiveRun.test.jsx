@@ -427,6 +427,86 @@ describe('NextApp live', () => {
     expect(screen.getByRole('alert')).toHaveTextContent('Town B lost its connection to the simulation in Year 1, week 12.')
   })
 
+  test('live weeks update the open sheet without remounting, moving focus or resetting scroll', () => {
+    const { sockets } = app()
+    start()
+    connect(sockets)
+    run(sockets, 0, 6)
+    fireEvent.click(numbersToggle())
+    const dialog = numbers()
+    const tile = within(dialog).getByRole('article', { name: 'People out of work' })
+    const shown = () => [...tile.querySelectorAll('.nx-pv b')].map(value => value.textContent)
+    expect(shown()).toEqual(['0 in 100', '0 in 100'])
+    tile.focus()
+    const scroll = vi.spyOn(document.documentElement, 'scrollTop', 'set')
+    try {
+      run(sockets, 6, 16)
+      expect(numbers()).toBe(dialog)
+      expect(within(dialog).getByRole('article', { name: 'People out of work' })).toBe(tile)
+      expect(dialog).toHaveTextContent('Everything we measure in both towns, in Year 1, week 16.')
+      expect(shown()).toEqual(['20 in 100', '20 in 100'])
+      expect(tile).toHaveFocus()
+      expect(scroll).not.toHaveBeenCalled()
+    } finally {
+      scroll.mockRestore()
+    }
+  })
+
+  test('the stat-card link closes an open Town hall and gets focus back when the sheet closes', () => {
+    const { sockets, container } = app()
+    start()
+    connect(sockets)
+    run(sockets)
+    fireEvent.click(screen.getByRole('button', { name: 'Town hall' }))
+    const link = within(container.querySelector('.nx-side')).getByRole('button', { name: 'Show me all the numbers' })
+    fireEvent.click(link)
+    expect(screen.queryByRole('complementary', { name: 'Town hall' })).toBeNull()
+    expect(container.querySelector('.has-hall')).toBeNull()
+    expect(within(numbers()).getByRole('heading', { name: 'All the numbers' })).toHaveFocus()
+    fireEvent.keyDown(document.activeElement, { key: 'Escape' })
+    expect(link).toHaveFocus()
+  })
+
+  test.each(['lost', 'crashed'])('the open sheet politely announces a town that is %s', kind => {
+    const { sockets } = app()
+    start()
+    connect(sockets)
+    run(sockets)
+    fireEvent.click(numbersToggle())
+    const status = within(numbers()).getByRole('status')
+    expect(status).toBeEmptyDOMElement()
+    act(() => {
+      if (kind === 'lost') sockets[1].serverClose()
+      else sockets[1].receive({ error: 'float division by zero' })
+    })
+    flush()
+    expect(within(numbers()).getByRole('status')).toBe(status)
+    expect(status).toHaveAttribute('aria-live', 'polite')
+    expect(status).toHaveTextContent(kind === 'lost'
+      ? 'Town B lost its connection to the simulation in Year 1, week 12. The other towns are paused.'
+      : 'Town B stopped because the simulation hit an error in Year 1, week 12. The other towns are paused.')
+    expect(status).toHaveTextContent('Go back to the towns to choose what happens next.')
+  })
+
+  test('the open sheet announces the end even while the viewer is looking at an earlier week', () => {
+    const { sockets } = app()
+    start()
+    connect(sockets)
+    run(sockets)
+    fireEvent.click(numbersToggle())
+    const status = within(numbers()).getByRole('status')
+    fireEvent.change(screen.getByRole('slider', { name: 'Week of the run' }), { target: { value: '5' } })
+    act(() => { sockets.forEach(socket => socket.receive({ type: 'HORIZON_REACHED', tick: 12 })) })
+    flush()
+    expect(status).toHaveTextContent('24 weeks are up.')
+    expect(status).toHaveTextContent('Go back to the towns to choose what happens next.')
+    act(() => { sockets.forEach(socket => socket.receive({ type: 'FINISHED', tick: 12, analysisReady: true, runId: 'r', drained: 0 })) })
+    flush()
+    expect(within(numbers()).getByRole('status')).toBe(status)
+    expect(status).toHaveTextContent('24 weeks are up.')
+    expect(numbers()).toHaveTextContent('Everything we measure in both towns, in Year 1, week 5.')
+  })
+
   test('the Town hall and all the numbers are never open together', () => {
     const { sockets } = app()
     start()
