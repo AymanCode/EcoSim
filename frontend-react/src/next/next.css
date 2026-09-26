@@ -403,7 +403,9 @@
   background: var(--nx-panel);
   border-bottom: 1px solid var(--nx-line);
 }
-.nx .nx-hbar-in { max-width: 1340px; margin: 0 auto; padding: 10px 32px; display: flex; align-items: center; gap: 20px }
+/* It wraps whenever its controls outgrow it (the scrubber keeps at least
+   160 px), so no button runs off the page or under the Town hall drawer. */
+.nx .nx-hbar-in { max-width: 1340px; margin: 0 auto; padding: 10px 32px; display: flex; flex-wrap: wrap; align-items: center; gap: 10px 20px }
 .nx .nx-play { min-width: 112px }
 .nx .nx-play svg { width: 11px; height: 11px; fill: currentColor; flex: none }
 .nx .nx-clock { display: flex; align-items: baseline; gap: 8px; font-size: 14px; color: var(--nx-ink2); white-space: nowrap; min-width: 196px }
@@ -1000,6 +1002,11 @@
 .nx .nx-receipts li.is-failed, .nx .nx-receipts .is-rejected { color: var(--nx-home-text) }
 @media (min-width: 1100px) {
   .nx.nx-app.has-hall { padding-right: 380px }
+}
+/* Narrower, the drawer lies over the page; the timeline's controls end
+   before it. On a phone the drawer covers the whole screen instead. */
+@media (min-width: 721px) and (max-width: 1099px) {
+  .nx.nx-app.has-hall .nx-hbar { padding-right: 380px }
 }
 @media (max-width: 720px) {
   .nx .nx-hall { width: 100%; border-left: 0 }
