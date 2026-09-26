@@ -1188,8 +1188,9 @@
 .nx .nx-rrow.has-help > th { padding-bottom: 0 }
 .nx .nx-rhelp > td { padding: 0 12px 8px; text-align: left; vertical-align: top }
 .nx .nx-rrow:last-child > th, .nx .nx-rrow:last-child > td, .nx .nx-rhelp:last-child > td { padding-bottom: 10px }
-/* The rule names stay put while the town columns scroll. */
-.nx .nx-rules thead th:first-child, .nx .nx-rrow > th, .nx .nx-rhelp > td { position: sticky; left: 0; z-index: 1; background: var(--nx-panel) }
+/* The rule names stay put while the town columns scroll, opaque, with a
+   divider on their right edge so no sliver of a scrolled column shows. */
+.nx .nx-rules thead th:first-child, .nx .nx-rrow > th, .nx .nx-rhelp > td { position: sticky; left: 0; z-index: 1; background: var(--nx-panel); box-shadow: 1px 0 0 var(--nx-line) }
 .nx .nx-rn { color: var(--nx-ink2) }
 .nx .nx-rrow > .nx-rn { font-weight: 400 }
 .nx .nx-rv { color: var(--nx-ink) }
@@ -1228,6 +1229,9 @@
   flex-direction: column;
   justify-content: center;
   background: var(--nx-panel);
+  /* Also covers the 18px gap beside it, with a divider at the gap's edge, so
+     no sliver of a scrolled town column shows next to the names. */
+  box-shadow: 17px 0 0 var(--nx-panel), 18px 0 0 var(--nx-line);
 }
 .nx .nx-sname b { display: block; color: var(--nx-ink); font-weight: 600; font-size: 14px }
 .nx .nx-sname small { display: block; font-size: 12.5px; color: var(--nx-ink3-text); line-height: 1.35 }
@@ -1274,6 +1278,97 @@
 .nx .nx-tap { display: flex; align-items: center; justify-content: center; gap: 10px; margin: 26px 32px 0; font-size: 14px; color: var(--nx-ink2) }
 .nx .nx-tap svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round }
 
+/* The special visuals (numbers/): cards in the tile's look, each chart drawn
+   at its measured width. Ported from mockup 06. */
+.nx .nx-tile .def.is-top { margin-top: 3px }
+.nx .nx-skey { display: flex; gap: 6px 14px; flex-wrap: wrap; font-size: 12px; color: var(--nx-ink3-text); margin-top: 6px }
+.nx .nx-skey li { display: inline-flex; align-items: center; gap: 6px }
+.nx .nx-skey i { width: 10px; height: 10px; border-radius: 3px; display: inline-block; flex: none }
+.nx .nx-skey i.is-hired, .nx .nx-skey i.is-growing, .nx .nx-sbar b.is-growing { background: var(--nx-work) }
+.nx .nx-skey i.is-laid-off, .nx .nx-skey i.is-struggling, .nx .nx-sbar b.is-struggling { background: var(--nx-look) }
+.nx .nx-skey i.is-steady, .nx .nx-sbar b.is-steady { background: var(--nx-slate) }
+.nx .nx-skey i.is-in { background: var(--nx-ink3) }
+.nx .nx-skey i.is-out { background: var(--nx-ink3); opacity: .35 }
+.nx .nx-vtown { display: inline-flex; align-items: center; gap: 7px; font-weight: 600; font-size: 13px; color: var(--nx-ink) }
+.nx .nx-vtown i { width: 10px; height: 10px; border-radius: 3px; display: inline-block; flex: none }
+.nx .nx-vtown span { font-weight: 400; color: var(--nx-ink3-text) }
+.nx .nx-vpair { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px 18px; margin-top: 10px }
+.nx .nx-vpanel { min-width: 0; margin-top: 12px }
+.nx .nx-vpair > .nx-vpanel { margin-top: 0 }
+.nx .nx-vhead { display: flex; justify-content: space-between; align-items: baseline; gap: 2px 8px; flex-wrap: wrap; font-size: 12.5px; color: var(--nx-ink3-text) }
+.nx .nx-vhead b, .nx .nx-vline b { color: var(--nx-ink); font-weight: 600 }
+.nx .nx-vline { font-size: 12.5px; color: var(--nx-ink3-text); margin-top: 5px }
+.nx .nx-vaxis { display: flex; justify-content: space-between; gap: 8px; font-size: 11px; color: var(--nx-ink4-text); margin-top: 3px }
+.nx .nx-vchart { margin-top: 8px; min-height: 20px }
+.nx .nx-vchart svg { display: block; overflow: visible }
+.nx .nx-vchart .nx-hatch-bg { fill: var(--nx-panel2) }
+.nx .nx-vchart .nx-hatch { stroke: var(--nx-line2); stroke-width: 1.3 }
+.nx .nx-vchart .nx-vfuture { fill: var(--nx-future) }
+.nx .nx-vchart .nx-vnow { stroke: var(--nx-slate2); stroke-width: 1 }
+.nx .nx-vchart .nx-vmid { stroke: var(--nx-slate2); stroke-width: 1 }
+.nx .nx-vchart .nx-vmid.is-light { stroke: var(--nx-line2) }
+.nx .nx-vchart .nx-vgrid { stroke: var(--nx-line); stroke-width: 1 }
+.nx .nx-vchart .nx-vgrid.is-zero { stroke: var(--nx-slate2) }
+.nx .nx-vchart .nx-vbound { stroke: var(--nx-line2); stroke-dasharray: 2 3 }
+.nx .nx-vchart text { font-family: var(--nx-body), sans-serif; font-size: 11.5px; fill: var(--nx-ink4-text) }
+.nx .nx-vchart text.nx-vrowl { font-size: 13px; font-weight: 600; fill: var(--nx-ink) }
+.nx .nx-vchart text.nx-vval { font-size: 12px; fill: var(--nx-ink2); font-variant-numeric: tabular-nums }
+.nx .nx-vchart text.nx-vval.is-mid { font-family: var(--nx-disp), var(--nx-body), sans-serif; font-size: 13px; font-weight: 600 }
+/* Hired above the line, laid off below; this week's bars solid. */
+.nx .nx-vchart .nx-hl-up { fill: var(--nx-work); fill-opacity: .72 }
+.nx .nx-vchart .nx-hl-down { fill: var(--nx-look); fill-opacity: .72 }
+.nx .nx-vchart .nx-hl-up.is-now, .nx .nx-vchart .nx-hl-down.is-now { fill-opacity: 1 }
+/* Opened above the line, closed below. */
+.nx .nx-vchart .nx-oc-open { stroke: var(--nx-work); stroke-width: 2.4; stroke-linecap: round }
+.nx .nx-vchart .nx-oc-close { stroke: var(--nx-home); stroke-width: 2.4; stroke-linecap: round }
+.nx .nx-vchart text.nx-oc-count { font-size: 11px; font-weight: 600 }
+.nx .nx-vchart text.nx-oc-count.is-open { fill: var(--nx-work-text) }
+.nx .nx-vchart text.nx-oc-count.is-close { fill: var(--nx-home-text) }
+/* Taxes collected (solid) beside help paid to families (light). */
+.nx .nx-vchart .nx-io-out { fill-opacity: .35 }
+/* The savings ladder */
+.nx .nx-vchart .nx-wbar { fill-opacity: .2; stroke-width: 1.5 }
+.nx .nx-vchart .nx-wdot { stroke: #fff; stroke-width: 2 }
+/* Town hall cash: the "owes" band below zero, the ring at the first week of a debt. */
+.nx .nx-vchart .nx-owes { fill: #FBE9EC }
+.nx .nx-vchart text.nx-owes-label { fill: var(--nx-home-text); paint-order: stroke; stroke: #FBE9EC; stroke-width: 3px; stroke-linejoin: round }
+.nx .nx-vchart .nx-cline { fill: none; stroke-width: 2.5; stroke-linejoin: round; stroke-linecap: round }
+.nx .nx-vchart .nx-cwarm { fill: none; stroke-width: 1.6; stroke-dasharray: 2 3; stroke-linejoin: round; opacity: .5 }
+.nx .nx-vchart .nx-cring { fill: var(--nx-panel); stroke-width: 2 }
+.nx .nx-vchart .nx-cdot { stroke: #fff; stroke-width: 1.5 }
+.nx .nx-vchart text.nx-cend { font-family: var(--nx-disp), var(--nx-body), sans-serif; font-size: 13px; font-weight: 600; font-variant-numeric: tabular-nums; paint-order: stroke; stroke: var(--nx-page); stroke-width: 4px; stroke-linejoin: round }
+/* Stacked bars: shares of savings, businesses by how they are doing. */
+.nx .nx-vbars { margin-top: 2px }
+.nx .nx-sbar { display: flex; height: 16px; border-radius: 5px; overflow: hidden; margin-top: 5px; background: var(--nx-panel2) }
+.nx .nx-sbar b { display: block; height: 100%; flex: none }
+.nx .nx-sbar b + b { box-shadow: inset 2px 0 0 var(--nx-page) }
+.nx .nx-sbar b.is-part0 { opacity: .3 }
+.nx .nx-sbar b.is-part1 { opacity: .55 }
+/* A price as a tag: the tile in a tag shape with a hole; the outline turns
+   blue while the tag has focus, as the clipped tile cannot show its own. */
+.nx .nx-ptag { position: relative; min-width: 0; padding: 1px; background: var(--nx-line2); border-radius: 0 12px 12px 0; clip-path: polygon(16px 0, 100% 0, 100% 100%, 16px 100%, 0 50%) }
+.nx .nx-ptag > .nx-tile { height: 100%; padding-left: 30px; border: 0; border-radius: 0 11px 11px 0; clip-path: polygon(16px 0, 100% 0, 100% 100%, 16px 100%, 0 50%) }
+.nx .nx-ptag > .nx-tile::before { content: ''; position: absolute; left: 14px; top: 50%; width: 8px; height: 8px; margin-top: -4px; border-radius: 50%; background: var(--nx-panel); box-shadow: inset 0 0 0 1.5px var(--nx-line2) }
+.nx .nx-ptag:focus-within { padding: 2px; background: var(--nx-a) }
+/* How people feel: a 0 to 100 meter per town, a mark where it started. */
+.nx .nx-meters { display: flex; flex-direction: column; gap: 12px; margin-top: 12px }
+.nx .nx-meter-row { display: grid; grid-template-columns: minmax(0, 88px) minmax(0, 1fr) 84px; gap: 12px; align-items: center }
+.nx .nx-meter-row.is-scale { margin-top: -8px }
+.nx .nx-meter { position: relative; height: 10px; border-radius: 5px; background: var(--nx-line) }
+.nx .nx-meter-fill { position: absolute; top: 0; bottom: 0; left: 0; border-radius: 5px; transition: width var(--nx-change) var(--nx-ease) }
+.nx .nx-sheet.is-playing .nx-meter-fill { transition: none }
+.nx .nx-meter-tick { position: absolute; top: 0; bottom: 0; z-index: 1; width: 2px; margin-left: -1px; background: var(--nx-panel) }
+.nx .nx-meter-start { position: absolute; top: -4px; bottom: -4px; z-index: 2; width: 2px; margin-left: -1px; border-radius: 1px; background: var(--nx-ink); box-shadow: 0 0 0 1px var(--nx-panel) }
+.nx .nx-meter-v { font-family: var(--nx-disp), var(--nx-body), sans-serif; font-size: 16px; font-weight: 600; color: var(--nx-ink); text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums }
+.nx .nx-meter-scale { display: flex; justify-content: space-between; font-size: 11px; color: var(--nx-ink4-text); font-variant-numeric: tabular-nums }
+/* Loans written off so far: a pile of blocks, one per week. */
+.nx .nx-piles { display: flex; flex-direction: column; gap: 8px; margin-top: 10px }
+.nx .nx-pile-row { display: grid; grid-template-columns: minmax(0, 88px) minmax(0, 1fr); gap: 12px; align-items: center }
+.nx .nx-pile-track { display: block; height: 14px; border-radius: 4px; background: var(--nx-panel2) }
+.nx .nx-pile { display: flex; height: 100%; border-radius: 4px; overflow: hidden }
+.nx .nx-pile b { display: block; height: 100%; flex: none }
+.nx .nx-pile b + b { box-shadow: inset 2px 0 0 var(--nx-page) }
+
 @media (max-width: 1100px) {
   .nx .nx-s3, .nx .nx-s4 { grid-column: span 6 }
   .nx .nx-s8 { grid-column: span 12 }
@@ -1291,6 +1386,10 @@
   /* The name, meaning and track span the row: they stay in the visible box
      and wrap there while the towns' values scroll. */
   .nx .nx-glance .nx-sname, .nx .nx-glance .nx-db { position: sticky; left: 0; max-width: 100cqi }
+  /* The name spans the row here: no divider. */
+  .nx .nx-glance .nx-sname { box-shadow: none }
+  /* A dot is 12px wide, centred on its place: room for one at 0% or 100%. */
+  .nx .nx-glance .nx-dbt { margin-left: 7px; margin-right: 7px }
   .nx .nx-srow.is-head {
     position: absolute;
     width: 1px;
@@ -1315,6 +1414,13 @@
   .nx .nx-rules thead th, .nx .nx-rrow > th, .nx .nx-rrow > td { padding-left: 6px; padding-right: 6px }
   .nx .nx-rg-sum { grid-template-columns: minmax(0, 1fr) auto; padding: 12px 6px }
   .nx .nx-rg-s { grid-column: 1 / -1; grid-row: 2 }
+  .nx .nx-vpair { grid-template-columns: minmax(0, 1fr) }
+  /* A meter gets the card's full width, under its town and value. */
+  .nx .nx-meter-row { grid-template-columns: minmax(0, 1fr) auto; row-gap: 6px }
+  .nx .nx-meter { grid-column: 1 / -1; grid-row: 2 }
+  .nx .nx-meter-scale { grid-column: 1 / -1 }
+  .nx .nx-meter-row.is-scale { margin-top: -8px }
+  .nx .nx-meter-row.is-scale > span:not(.nx-meter-scale) { display: none }
 }
 
 /* The page behind the app. NextApp adds .nx-page to <html> while it is

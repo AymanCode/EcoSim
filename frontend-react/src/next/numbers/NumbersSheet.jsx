@@ -1,34 +1,84 @@
 import { Activity, useEffect, useEffectEvent, useId, useRef, useState } from 'react'
 import { COPY, NUMBER_GROUPS, capitalise, describePolicy } from '../catalog.js'
 import { rulesAt, rulesDiff } from '../data/derive.js'
-import { weekLabel } from '../narration.js'
+import { hardshipNote, weekLabel } from '../narration.js'
 import AtAGlance from './AtAGlance.jsx'
+import CashChart from './CashChart.jsx'
+import FeelMeter from './FeelMeter.jsx'
+import FirmStates from './FirmStates.jsx'
+import HiresAndLayoffs from './HiresAndLayoffs.jsx'
+import LoansWrittenOff from './LoansWrittenOff.jsx'
+import MoneyInOut from './MoneyInOut.jsx'
+import OpenedClosed from './OpenedClosed.jsx'
+import PriceTag from './PriceTag.jsx'
 import RulesInForce from './RulesInForce.jsx'
 import SeeItBig from './SeeItBig.jsx'
+import ShareBars from './ShareBars.jsx'
 import Tile from './Tile.jsx'
+import WealthLadder from './WealthLadder.jsx'
 import '../next.css'
 
 // The special visuals of each group (NUMBER_GROUPS `extras`), by id, each
-// drawn as <Extra arms tick />. Task K fills this; until then an extra draws
-// nothing.
-const EXTRAS = {}
+// drawn as <Extra arms tick onSeeBig className />.
+const EXTRAS = {
+  hiresAndLayoffs: HiresAndLayoffs,
+  wealthLadder: WealthLadder,
+  firmStates: FirmStates,
+  openedClosed: OpenedClosed,
+  moneyInOut: MoneyInOut,
+  loansWrittenOff: LoansWrittenOff,
+}
 
-// How many of the 12 grid columns a tile spans, from mockup 06; 4 otherwise.
-const TILE_SPAN = {
+// Numbers drawn by a special visual instead of a Tile, each as <Visual
+// metricKey arms tick onSeeBig className />; null when the visual of another
+// number already draws it (the share bars hold both shares).
+const KEY_VISUALS = {
+  priceFood: PriceTag,
+  priceHousing: PriceTag,
+  priceServices: PriceTag,
+  priceHealthcare: PriceTag,
+  townHallCash: CashChart,
+  happiness: FeelMeter,
+  topTenthShare: ShareBars,
+  bottomHalfShare: null,
+}
+
+// An extra that sits right after a number of its group, as in mockup 06; the
+// others follow the group's numbers.
+const AFTER = { wealthLadder: 'gini', moneyInOut: 'townHallCash' }
+
+// How many of the 12 grid columns a card spans, from mockup 06; 4 otherwise.
+const SPAN = {
   peopleOutOfWorkPer100: 3,
   typicalWeeklyPay: 3,
   publicWorksJobs: 6,
+  hiresAndLayoffs: 12,
   priceFood: 3,
   priceHousing: 3,
   priceServices: 3,
   priceHealthcare: 3,
   foodSpendPerHousehold: 12,
+  wealthLadder: 8,
+  topTenthShare: 12,
   townHallCash: 8,
   homelessHouseholds: 3,
   careDenials: 3,
   happiness: 6,
 }
-const TILE_HEIGHT = { peopleOutOfWorkPer100: 90, typicalWeeklyPay: 90, gini: 90, firmsOpen: 80, townHallCash: 120, foodSpendPerHousehold: 90 }
+const TILE_HEIGHT = { peopleOutOfWorkPer100: 90, typicalWeeklyPay: 90, gini: 90, firmsOpen: 80, foodSpendPerHousehold: 90 }
+
+// A group's cards in order: each number (or the visual that draws it), with
+// the extras placed after their number, then the other extras.
+function cardsOf(group) {
+  const extras = group.extras ?? []
+  const cards = []
+  for (const key of group.keys) {
+    if (KEY_VISUALS[key] !== null) cards.push({ id: key, extra: false })
+    extras.filter(extra => AFTER[extra] === key).forEach(extra => cards.push({ id: extra, extra: true }))
+  }
+  extras.filter(extra => !group.keys.includes(AFTER[extra])).forEach(extra => cards.push({ id: extra, extra: true }))
+  return cards
+}
 
 function BackIcon() {
   return <svg viewBox="0 0 12 12" aria-hidden="true" focusable="false"><path d="M7.5 2 L3.5 6 L7.5 10" /></svg>
@@ -52,7 +102,8 @@ function lostNote(live, index) {
 // "Show me all the numbers": a sheet over the Run screen, on the same clock
 // (`tick`). A header with the week and each town's rules, jump chips and a
 // chart key, then the rules in force, this week at a glance, and one card per
-// NUMBER_GROUPS entry with a Tile per number. Focus moves to the heading when
+// NUMBER_GROUPS entry: a Tile per number, or the special visual that draws it,
+// and the group's extras. Focus moves to the heading when
 // it opens and back to whatever had it when it closes; Escape closes it (or
 // the big chart first, when one is open), as do both "Back to the towns"
 // buttons. The jump bar's button shows once the header's has scrolled away.
@@ -182,20 +233,20 @@ export default function NumbersSheet({ arms, tick, onClose, live, playing = fals
                     <p>{copy.blurb}</p>
                   </div>
                   <div className="nx-ngrid">
-                    {group.keys.map(key => (
-                      <Tile
-                        key={key}
-                        metricKey={key}
-                        arms={arms}
-                        tick={tick}
-                        onSeeBig={setBig}
-                        className={`nx-s${TILE_SPAN[key] ?? 4}`}
-                        height={TILE_HEIGHT[key]}
-                      />
-                    ))}
-                    {(group.extras ?? []).map(extra => {
-                      const Extra = EXTRAS[extra]
-                      return Extra ? <Extra key={extra} arms={arms} tick={tick} /> : null
+                    {cardsOf(group).map(({ id, extra }) => {
+                      const span = `nx-s${SPAN[id] ?? 4}`
+                      if (extra) {
+                        const Extra = EXTRAS[id]
+                        return Extra ? <Extra key={id} arms={arms} tick={tick} onSeeBig={setBig} className={span} /> : null
+                      }
+                      const Visual = KEY_VISUALS[id]
+                      if (Visual) return <Visual key={id} metricKey={id} arms={arms} tick={tick} onSeeBig={setBig} className={span} />
+                      const note = hardshipNote(id, arms, tick)
+                      return (
+                        <Tile key={id} metricKey={id} arms={arms} tick={tick} onSeeBig={setBig} className={span} height={TILE_HEIGHT[id]}>
+                          {note && <p className="nx-quiet">{note}</p>}
+                        </Tile>
+                      )
                     })}
                   </div>
                 </section>

@@ -3,6 +3,7 @@ import useMeasured from '../../charts/useMeasured.js'
 import { COPY, COUNTED_EVERY_5, METRICS, WARMUP_TICKS, formatMetric } from '../catalog.js'
 import { countedAt, countedSeriesUpTo, everMeasured, valueAt } from '../data/derive.js'
 import { countedNote, weekLabel } from '../narration.js'
+import Card, { Values } from './Card.jsx'
 import '../next.css'
 
 // Port of mockup 06's tile: a number's name, each town's value with its colour
@@ -124,60 +125,36 @@ function trendText(arms, metricKey, lines) {
   }).filter(Boolean).join(' ')
 }
 
-function BigIcon() {
-  return (
-    <svg viewBox="0 0 10 10" aria-hidden="true" focusable="false">
-      <path d="M6 1.5h2.5V4M8.5 1.5 5 5M4 8.5H1.5V6M1.5 8.5 5 5" />
-    </svg>
-  )
-}
-
 // Clicking the tile, or Enter or Space on it, calls onSeeBig(metricKey). A
 // number the recording never carried says so, and opens nothing.
-export default function Tile({ metricKey, arms, tick, onSeeBig, className = '', height = 56 }) {
-  const uid = useId().replace(/:/g, '')
-  const titleId = `nx-tile-${uid}`
-  const bigId = `nx-tile-big-${uid}`
+// `chartNote`, when given, is a sentence drawn in place of the sparkline (a
+// price that has not moved); `children` go under the meaning.
+export default function Tile({ metricKey, arms, tick, onSeeBig, className = '', height = 56, chartNote = null, children }) {
   const metric = METRICS[metricKey] ?? { name: metricKey, meaning: '', format: 'count' }
   const measured = everMeasured(arms, metricKey)
-  const opens = measured && typeof onSeeBig === 'function'
   const horizon = Math.max(1, tick, ...arms.map(arm => arm.horizon || 0))
   const counted = COUNTED_EVERY_5.includes(metricKey)
   const asOf = counted ? arms.map(arm => countedAt(arm, metricKey, tick)?.asOfTick).find(Number.isFinite) ?? null : null
-  const lines = measured ? arms.map(arm => countedSeriesUpTo(arm, metricKey, tick)) : []
-
-  const open = () => onSeeBig(metricKey)
-  const onKeyDown = event => {
-    if (event.target !== event.currentTarget || (event.key !== 'Enter' && event.key !== ' ')) return
-    event.preventDefault()
-    open()
-  }
-  const interactive = opens
-    ? { tabIndex: 0, 'aria-describedby': bigId, onClick: open, onKeyDown, 'data-metric': metricKey }
-    : {}
+  const lines = measured && !chartNote ? arms.map(arm => countedSeriesUpTo(arm, metricKey, tick)) : []
 
   return (
-    <article className={`nx-tile${opens ? ' is-open' : ''}${className ? ` ${className}` : ''}`} aria-labelledby={titleId} {...interactive}>
-      {opens && <span className="nx-big" id={bigId} aria-hidden="true"><BigIcon />{COPY.numbers.seeBig}</span>}
-      <div className="nx-th"><h4 id={titleId}>{metric.name}</h4></div>
+    <Card title={metric.name} metricKey={metricKey} measured={measured} onSeeBig={onSeeBig} className={className}>
       {measured ? (
         <>
-          <div className="pair">
-            {arms.map(arm => (
-              <div className="nx-pv" key={arm.label}>
-                <b><i style={{ background: arm.color }} aria-hidden="true" />{formatMetric(metricKey, valueAt(arm, metricKey, tick))}</b>
-                <small>{arm.label}</small>
-              </div>
-            ))}
-          </div>
-          <Sparkline arms={arms} metricKey={metricKey} tick={tick} horizon={horizon} height={height} lines={lines} />
-          <p className="nx-sr">{trendText(arms, metricKey, lines)}</p>
+          <Values arms={arms} texts={arms.map(arm => formatMetric(metricKey, valueAt(arm, metricKey, tick)))} />
+          {chartNote ? <p className="nx-quiet">{chartNote}</p> : (
+            <>
+              <Sparkline arms={arms} metricKey={metricKey} tick={tick} horizon={horizon} height={height} lines={lines} />
+              <p className="nx-sr">{trendText(arms, metricKey, lines)}</p>
+            </>
+          )}
         </>
       ) : (
         <p className="nx-quiet">{COPY.numbers.notMeasured}</p>
       )}
       <p className="def">{metric.meaning}</p>
+      {children}
       {measured && counted && <p className="nx-foot">{countedNote(asOf)}</p>}
-    </article>
+    </Card>
   )
 }

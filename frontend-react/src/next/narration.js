@@ -5,7 +5,7 @@ import {
   COPY, METRICS, NO_CHANGES, WARMUP_TICKS, describePolicy, formatMetric, formatMoney, joinPhrases, leverName, leverValuePhrase, shownValue,
 } from './catalog.js'
 import { firmDisplayName, householdName as defaultHouseholdName } from './names.js'
-import { householdState, rulesAt, rulesDiff, snapshotAt, tickIndexAt, valueAt } from './data/derive.js'
+import { householdState, rulesAt, rulesDiff, seriesUpTo, snapshotAt, tickIndexAt, valueAt } from './data/derive.js'
 
 const WEEKS_PER_YEAR = 52
 const OUT = 'peopleOutOfWorkPer100'
@@ -592,6 +592,23 @@ export function countedNote(asOfTick) {
   const week = Math.floor(Number(asOfTick))
   if (!known(asOfTick) || !(week >= 1)) return 'Counted every 5 weeks.'
   return `Counted every 5 weeks; last count ${weekLabel(week)}.`
+}
+
+// The hardship tiles' sentence (mockup 06). While no town has had a household
+// lose its home, or a doctor's visit turned away, it says so; once visits have
+// been turned away, how many so far in each town. Null when a town has no
+// record of the number (its tile says so) or once a home has been lost (the
+// tile's numbers tell it).
+export function hardshipNote(key, arms, tick) {
+  if (key !== 'homelessHouseholds' && key !== 'careDenials') return null
+  const towns = arms ?? []
+  const values = towns.map(arm => seriesUpTo(arm, key, tick).map(point => point.value).filter(isFiniteNumber))
+  if (!towns.length || values.some(list => !list.length)) return null
+  const copy = COPY.numbers.empty
+  if (key === 'homelessHouseholds') return values.every(list => list.every(value => value === 0)) ? copy.homeless(towns.length) : null
+  const sums = values.map(list => list.reduce((sum, value) => sum + value, 0))
+  if (sums.every(sum => sum === 0)) return copy.care(towns.length)
+  return copy.careSoFar(towns.map((arm, i) => copy.countIn(countWords.format(sums[i]), arm.label)))
 }
 
 // The story chart's opening note for matched towns.

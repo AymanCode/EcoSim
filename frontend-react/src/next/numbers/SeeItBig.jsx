@@ -5,23 +5,33 @@ import { countedNote } from '../narration.js'
 import StoryChart from '../components/StoryChart.jsx'
 import '../next.css'
 
+// Numbers that are not tiles but open big from a special visual, each with
+// its neighbours as chips: the savings ladder, the businesses by how they are
+// doing, and money in and out.
+const BIG_SETS = [
+  ['wealthP10', 'wealthP50', 'wealthP90'],
+  ['firmsGrowing', 'firmsSteady', 'firmsStruggling'],
+  ['townHallIncome', 'familySupportPaid'],
+]
+
 function BackIcon() {
   return <svg viewBox="0 0 12 12" aria-hidden="true" focusable="false"><path d="M7.5 2 L3.5 6 L7.5 10" /></svg>
 }
 
 // One number drawn big: the Run screen's story chart for any METRICS key, on
 // the same clock. Its chips are the other measured numbers of the same group
-// in the sheet (NUMBER_GROUPS), and a counted-every-5-weeks number is drawn
-// only at its counts, with the week of the last one. Focus moves to the way
-// back when it opens; the sheet brings focus back to the tile that opened it.
+// in the sheet (NUMBER_GROUPS, or BIG_SETS for a special visual's numbers),
+// and a counted-every-5-weeks number is drawn only at its counts, with the
+// week of the last one. Focus moves to the way back when it opens; the sheet
+// brings focus back to the card that opened it.
 // `playing` stops the cursor easing while the clock runs, as on the Run screen.
 export default function SeeItBig({ metricKey, arms, tick, onClose, playing = false }) {
   const [shown, setShown] = useState(metricKey)
   const backRef = useRef(null)
   useEffect(() => { backRef.current?.focus() }, [])
 
-  const group = NUMBER_GROUPS.find(entry => entry.keys.includes(metricKey))
-  const keys = (group?.keys ?? [metricKey]).filter(key => key === metricKey || everMeasured(arms, key))
+  const group = NUMBER_GROUPS.find(entry => entry.keys.includes(metricKey))?.keys ?? BIG_SETS.find(set => set.includes(metricKey))
+  const keys = (group ?? [metricKey]).filter(key => key === metricKey || everMeasured(arms, key))
   const metric = METRICS[shown] ?? { name: shown, meaning: '' }
   const horizon = Math.max(1, tick, ...arms.map(arm => arm.horizon || 0))
   const measured = everMeasured(arms, shown)

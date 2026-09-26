@@ -2,7 +2,7 @@ import fs from 'node:fs'
 import { afterEach, beforeAll, describe, expect, test, vi } from 'vitest'
 import { act, fireEvent, render, screen, within } from '@testing-library/react'
 import NumbersSheet from '../numbers/NumbersSheet.jsx'
-import { COPY, METRICS, NUMBER_GROUPS, TOWN_COLORS } from '../catalog.js'
+import { COPY, NUMBER_GROUPS, TOWN_COLORS } from '../catalog.js'
 import { demoArms } from './fixture.js'
 
 // See fixture.js: keep import.meta.url in a variable so Vite leaves it a file: URL.
@@ -17,6 +17,12 @@ function sheet(props = {}) {
 }
 
 const GROUP_TITLES = NUMBER_GROUPS.map(group => COPY.numbers.groups[group.id].title)
+
+// The rules table and the glance scoreboard; the special visuals' text
+// alternatives are visually hidden tables of their own.
+const shownTables = () => screen.getAllByRole('table').filter(table => !table.closest('.nx-sr'))
+// The two shares are drawn together, as "Who holds the savings".
+const TOGETHER = { bottomHalfShare: 'topTenthShare' }
 
 describe('NumbersSheet', () => {
   afterEach(() => { delete globalThis.IntersectionObserver })
@@ -36,8 +42,13 @@ describe('NumbersSheet', () => {
     NUMBER_GROUPS.forEach(group => {
       const card = screen.getByRole('region', { name: COPY.numbers.groups[group.id].title })
       expect(card).toHaveTextContent(COPY.numbers.groups[group.id].blurb)
-      const tiles = within(card).getAllByRole('article').map(tile => tile.querySelector('h4').textContent)
-      expect(tiles).toEqual(group.keys.map(key => METRICS[key].name))
+      const cards = within(card).getAllByRole('article')
+      // Every number has its card: a tile, or the special visual that draws it.
+      group.keys.forEach(key => {
+        const drawnBy = TOGETHER[key] ?? key
+        expect(cards.some(node => node.dataset.metric === drawnBy), key).toBe(true)
+      })
+      expect(cards.length).toBe(group.keys.filter(key => !TOGETHER[key]).length + (group.extras ?? []).length)
     })
   })
 
@@ -142,7 +153,7 @@ describe('NumbersSheet', () => {
     const chips = screen.getAllByRole('listitem').filter(item => item.classList.contains('nx-tchip'))
     expect(chips[1]).toHaveTextContent(note)
     expect(chips[0]).not.toHaveTextContent('lost')
-    screen.getAllByRole('table').forEach(table => {
+    shownTables().forEach(table => {
       expect(within(table).getAllByRole('columnheader').find(head => head.textContent.startsWith('Town B'))).toHaveTextContent(note)
     })
   })
@@ -158,7 +169,7 @@ describe('NumbersSheet', () => {
     document.head.appendChild(style)
     try {
       render(<div className="nx"><NumbersSheet arms={four} tick={72} onClose={() => {}} /></div>)
-      const tables = screen.getAllByRole('table')
+      const tables = shownTables()
       expect(tables).toHaveLength(2)
       for (const table of tables) {
         const heads = within(table).getAllByRole('columnheader').map(head => head.textContent)
@@ -219,6 +230,34 @@ describe('NumbersSheet', () => {
         expect(row.querySelector(':scope > .nx-sname')).not.toBeNull()
         expect(row.querySelector(':scope > .nx-db')).not.toBeNull()
       })
+    } finally {
+      style.remove()
+    }
+  })
+
+  test('at phone width a glance dot at either end stays in view; pinned names cover what scrolls under them', () => {
+    const style = document.createElement('style')
+    style.textContent = CSS
+    document.head.appendChild(style)
+    try {
+      const rules = [...style.sheet.cssRules]
+      const top = rules.filter(rule => rule.selectorText)
+      const narrow = rules.filter(rule => rule.media?.mediaText.includes('max-width: 900px')).flatMap(rule => [...rule.cssRules])
+      const find = (list, selector) => list.find(rule => rule.selectorText === selector)
+      // A dot is 12px wide and centred on its place, so 0% and 100% need 6px each side.
+      const track = find(narrow, '.nx .nx-glance .nx-dbt')
+      expect(track, 'an inset track under 900px').toBeTruthy()
+      for (const side of ['margin-left', 'margin-right']) expect(parseFloat(track.style.getPropertyValue(side))).toBeGreaterThanOrEqual(6)
+      // The pinned name cells are opaque and end in a divider line.
+      const names = find(top, '.nx .nx-rules thead th:first-child, .nx .nx-rrow > th, .nx .nx-rhelp > td')
+      expect(names.style.getPropertyValue('background')).toBe('var(--nx-panel)')
+      expect(names.style.getPropertyValue('box-shadow')).toContain('var(--nx-line)')
+      // The glance's name column also covers the 18px gap beside it, with the divider at its edge.
+      const glance = find(top, '.nx .nx-glance .nx-sname')
+      expect(glance.style.getPropertyValue('background')).toBe('var(--nx-panel)')
+      expect(glance.style.getPropertyValue('box-shadow')).toMatch(/17px 0(px)? 0(px)? var\(--nx-panel\), 18px 0(px)? 0(px)? var\(--nx-line\)/)
+      // Stacked at phone width the name spans the row, so no divider there.
+      expect(find(narrow, '.nx .nx-glance .nx-sname').style.getPropertyValue('box-shadow')).toBe('none')
     } finally {
       style.remove()
     }

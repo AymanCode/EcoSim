@@ -131,4 +131,12 @@ describe('text contrast in next.css', () => {
     expect(resolve(badge.decls.color)).toBe('#FFFFFF')
     expect(contrast(resolve(badge.decls.background), '#FFFFFF')).toBeGreaterThanOrEqual(4.5)
   })
+
+  test('the town hall cash chart\'s "owes" band keeps its label readable', () => {
+    const band = RULES.find(({ selector }) => selector === '.nx .nx-vchart .nx-owes')
+    const label = RULES.find(({ selector }) => selector === '.nx .nx-vchart text.nx-owes-label')
+    expect(band && label).toBeTruthy()
+    expect(label.decls.fill).toBe('var(--nx-home-text)')
+    expect(contrast(resolve(label.decls.fill), resolve(band.decls.fill))).toBeGreaterThanOrEqual(4.5)
+  })
 })

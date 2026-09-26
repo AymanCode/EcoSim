@@ -958,7 +958,10 @@ export const COPY = {
       now: 'This week',
       future: 'Weeks still to come',
     },
-    tap: 'Tap any chart to see it big.',
+    // Three special visuals have no weekly number of their own to draw big.
+    tap: 'Tap any chart to see it big, apart from the hires and lay-offs, the openings and closings, and the loans written off.',
+    // A visual that needs a recorded week, before the first one is in.
+    noWeeks: 'Shown once the first week is in.',
     seeBig: 'See it big',
     backToNumbers: 'Back to all the numbers',
     // A tile chart's text alternative, one sentence per town: its first real
@@ -1047,6 +1050,110 @@ export const COPY = {
         blurb: "The town hall's bank balance, the main taxes it collects and the help it pays families, what businesses sell apart from rent, and the bank's loans.",
       },
       wellbeing: { title: 'Wellbeing', blurb: 'Signs of hardship, and how people feel.' },
+    },
+    // The special visuals (numbers/), from mockup 06. Copy given as parts
+    // draws its odd parts bold: ['this week ', 6, ' hired'].
+    hires: {
+      title: 'Hired and laid off, week by week',
+      lead: weeks => `${weeks === 1 ? 'This week only' : `The last ${weeks} weeks`}. Bars above the line are people hired that week, bars below are people laid off.`,
+      hired: 'hired',
+      laidOff: 'laid off',
+      thisWeek: (hired, laidOff) => ['this week ', hired, ' hired, ', laidOff, ' laid off'],
+      thisWeekMissing: 'this week not recorded',
+      inThese: (hired, laidOff) => `In these weeks: ${hired} hired, ${laidOff} laid off.`,
+      table: 'People hired and laid off each week',
+    },
+    // Under a chart of the last weeks: its first week, then this week.
+    thisWeek: 'this week',
+    week: 'Week',
+    column: (town, what) => `${town}, ${what}`,
+    notRecorded: 'not recorded',
+    // A sector price that has not moved, in place of a flat line.
+    price: {
+      steady: (townCount, week) => (townCount < 2
+        ? `Unchanged since ${week}.`
+        : `Same in ${townCount === 2 ? 'both towns' : 'every town'}, and unchanged since ${week}.`),
+    },
+    ladder: {
+      title: 'The savings ladder',
+      lead: 'Cash each household has saved. The bar runs from the poorest tenth of households to the richest tenth; the dot is the household in the middle.',
+      alt: (town, p10, p50, p90) => `${town}: nine in ten households have more than ${p10}, the household in the middle has ${p50}, and one in ten has more than ${p90}.`,
+    },
+    shares: {
+      title: 'Who holds the savings',
+      lead: 'Out of every $100 that households have saved, how much sits with the poorest half, the next 40%, and the richest tenth.',
+      line: (bottom, middle, top) => ['Poorest half ', `$${bottom}`, ' · the next 40% ', `$${middle}`, ' · richest tenth ', `$${top}`],
+    },
+    states: {
+      title: 'How they are doing',
+      lead: 'Growing means planning to hire. Struggling means out of cash or cutting back to survive.',
+      growing: 'growing',
+      steady: 'steady',
+      struggling: 'struggling',
+      open: count => `${count} open`,
+      line: (growing, steady, struggling) => ['', growing, ' growing · ', steady, ' steady · ', struggling, ' struggling'],
+    },
+    openClose: {
+      title: 'Opened and closed',
+      lead: weeks => `${weeks === 1 ? 'This week only' : `The last ${weeks} weeks`}. A mark above the line is a week a business opened; below, a week one closed.`,
+      soFar: (opened, closed) => ['so far ', opened, ' opened, ', closed, ' closed'],
+      inThese: (opened, closed) => `In these weeks: ${opened} opened, ${closed} closed.`,
+      // One sentence per town: the weeks with an opening, then with a closing.
+      alt: (town, opened, closed) => `${town}, in these weeks. Opened: ${opened.length ? opened.join('; ') : 'none'}. Closed: ${closed.length ? closed.join('; ') : 'none'}.`,
+      weekCount: (week, count) => (count > 1 ? `${week} (${count})` : week),
+    },
+    // Taxes collected against help paid to families. Neither is the whole of
+    // what the town hall takes in or pays out, so their gap is never named.
+    inOut: {
+      title: 'Money in and out, week by week',
+      lead: weeks => `${weeks === 1 ? 'This week only' : `The last ${weeks} weeks`}. Each week, the taxes the town hall collected beside the help it paid to families.`,
+      in: 'in: taxes collected',
+      out: 'out: help paid to families, including the welcome payments in the first weeks',
+      thisWeek: (collected, paid) => ['this week in ', collected, ', out ', paid],
+      note: "Other town hall spending isn't included, and neither is every kind of income, so in and out don't add up to the change in its cash.",
+      table: 'Taxes collected and help paid to families each week',
+      inColumn: 'in',
+      outColumn: 'out',
+    },
+    cash: {
+      band: 'below the line: owes money',
+      owed: (town, week, ringed) => `${town} has owed money since ${week}${ringed ? ', the ring on its line' : ''}.`,
+      // "Both towns started with about $1.35 million", or each town's start.
+      started: (towns, amounts) => {
+        if (amounts.every(amount => amount === amounts[0])) {
+          return `${everyTown(towns.length, 'the town', 'both towns', 'every town')} started with about ${amounts[0]}`
+        }
+        return joinPhrases(towns.map((town, i) => `${town} started with about ${amounts[i]}`))
+      },
+      startNote: (started, lastYear) => (lastYear
+        ? `The chart shows the last year; ${started}.`
+        : `${capitalise(started)}, above the top of this chart.`),
+      million: amount => `$${amount} million`,
+    },
+    feel: {
+      started: (towns, values) => {
+        if (values.every(value => value === values[0])) {
+          return `The mark on each bar is where ${everyTown(towns.length, 'the town', 'both towns', 'every town')} started, at ${values[0]}.`
+        }
+        return `The mark on each bar is where its town started: ${joinPhrases(towns.map((town, i) => `${values[i]} in ${town}`))}.`
+      },
+    },
+    writtenOff: {
+      title: 'Loans written off so far',
+      lead: 'Money the bank lost on loans that will never be paid back, added up since week 1. Each block is one week.',
+      noCount: "The number of unpaid loans isn't recorded in this run, so this shows the money instead.",
+      counts: parts => `Loans that went unpaid so far: ${parts.join(', ')}.`,
+      countIn: (count, town) => `${count} in ${town}`,
+      none: townCount => `Nothing has been written off yet in ${everyTown(townCount, 'the town', 'either town', 'any town')}.`,
+      alt: (town, total, weeks) => `${town}: ${total} so far.${weeks.length ? ` Written off in ${weeks.join('; ')}.` : ''}`,
+      weekAmount: (week, amount) => `${week} (${amount})`,
+    },
+    // The hardship tiles when nothing has happened yet, from mockup 06.
+    empty: {
+      homeless: townCount => `No household has lost its home in ${everyTown(townCount, 'the town', 'either town', 'any town')} so far.`,
+      care: townCount => `Nobody has been turned away yet in ${everyTown(townCount, 'the town', 'either town', 'any town')}.`,
+      careSoFar: parts => `So far: ${parts.join(', ')}.`,
+      countIn: (count, town) => `${count} in ${town}`,
     },
   },
 }
