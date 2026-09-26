@@ -98,28 +98,14 @@ Added `backend/tools/benchmarks/run_newcomer_smoke.py`, a matched-seed policy-ar
 - **Set up and Town hall.** Choosing "off" also clears the sector and budget, and choosing "any business" clears the sector. The sector choice shows only for bailouts for one sector, the budget only while bailouts are on. Rules read "bailouts for any business with a $10,000 budget". The story chart draws one marker per town per week of change, reading the levers of that week as one rule, as the Moments strip already did.
 - **Unaffected.** The classic dashboard runs the `legacy` profile, where CONFIG applies levers one by one without group rules, and it sends no `initial_policy`.
 
-### 2026-09-25: Phase 2, slice 3 in progress (Show me all the numbers)
+### 2026-09-25: Phase 2, slice 3 (Show me all the numbers)
 
-- **Design.** Mockup `docs/superpowers/specs/2026-09-25-mockups/06-all-the-numbers.html` is built on the recorded demo's real numbers. It has a rules-in-force table, an at-a-glance scoreboard, and six groups, each drawn in a way that suits its numbers. The plan is `docs/superpowers/plans/2026-09-25-frontend-redesign-phase2-slice3.md`.
-- **Backend.** Six new curated numbers, each checked against the code: `happiness`, `salesExceptRentThisWeek`, `townHallIncome`, `familySupportPaid`, `topTenthShare` and `bottomHalfShare`.
-  - `salesExceptRentThisWeek` excludes rent, so it is not called "everything sold".
-  - `townHallIncome` is four named taxes.
-  - `familySupportPaid` includes the six-week welcome payment.
-  - The two wealth shares are counted every 5 weeks.
-
-  The demo was re-recorded with them.
-- **Frontend.** Built and reviewed so far:
-  - the numbers layer: counted-every-5-weeks handling, and neutral differences that read correctly when both towns owe money;
-  - the sheet, rules table, glance and tiles, readable with four towns at phone width;
-  - the special visuals: hires and lay-offs, price tags, savings ladder, share bars, business states, town hall money and cash, and the feel meter.
-
-  Opening the sheet from the Run screen is implemented. Its review's layout fix (the timeline wraps and never sits under the Town hall drawer) is in `ae5f659`; that commit's message also names announcements and test changes that were not made yet. Each task had its own Opus review.
-- **Remaining:**
-  - the rest of Task L's fix round: three tests, a phone-width "Back to the towns", sheet announcements, one colour token, and a sturdier slow test;
-  - the scoped re-review of the last fix;
-  - a whole-slice review;
-  - a visual and live check;
-  - this entry's final version.
+- **The numbers sheet.** Rules in force, eight numbers at a glance, and six groups: work and pay, prices, rich and poor, businesses, money, and wellbeing. Hires and lay-offs, price tags, the savings ladder, share bars, business states, town hall cash and flows, and the feel meter give the numbers pictures. The sheet follows the Run screen's clock, opens from its timeline or the line under the stat cards, and closes with Escape or a sticky "Back to the towns". The demo opens directly on it at `?view=next&demo&numbers`.
+- **Six new curated numbers.** Happiness is measured every week; sales exclude rent; town hall income means four named taxes collected; help paid to families includes the six-week welcome payment; the richest tenth's and poorest half's wealth shares are counted every 5 weeks and labelled with their last count. The recorded demo now includes all six. Missing measurements stay missing, and comparisons remain neutral, including when both towns owe money.
+- **Review.** Every task had an Opus review and a fix round, followed by Codex's remaining Task L fixes and review of those fixes and the whole slice. No new Critical or Important source issue was found. The final browser checks needed no further source fixes.
+- **Checks.** 583 frontend tests pass; 609 backend tests pass with one expected failure. ESLint, Vite build and Ruff pass. Browser checks covered the sheet, Run, Set up and classic dashboard at 1280px and 390px, plus four-town tables at 390px with scrolling confined to each card. A real two-town run with 200 households each completed one year, extended another year, updated the open sheet, paused for a Town B rule change, and showed it from the next week. No browser errors or live-backend errors; one development-proxy `EPIPE` occurred on the classic dashboard's opening connection. Details and mockup notes: [browser verification](docs/reviews/2026-09-25-frontend-redesign-slice3-browser-check.md).
+- **Parked and deferred.** K-M9: `homelessHouseholds` reads 0.0 when housing diagnostics are absent, so an unusual run could falsely say nobody lost their home; a backend null-when-absent change remains outside this slice. K-M7: the neutral grey money-in/out key and blank space under the cash card at 1280px remain cosmetic follow-ups. The tile cache still assumes append-only ticks; a repeated week in a legacy RESET recording can leave its scale stale until the next week. Earlier slice-2 deferrals remain parked, including the AI mayor and making the new frontend the default.
+- **OpenWiki.** A refresh is due once this branch reaches `main`; generated pages were not edited.
 
 ### 2026-09-24: Phase 1 branch status
 
