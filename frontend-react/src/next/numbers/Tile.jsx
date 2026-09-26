@@ -21,10 +21,26 @@ const pathOf = (points, x, y) => points.map((point, i) => `${i ? 'L' : 'M'}${r1(
 
 const sameLine = (a, b) => a.length === b.length && a.every((point, i) => point.tick === b[i].tick && point.value === b[i].value)
 
+// A town's whole recording of a number as chart points, cached on the
+// number's series array and the count of recorded weeks: the arrays only grow
+// (data/session.js), so a new week recomputes and a replayed week does not.
+const RECORDED = new WeakMap()
+
+function recordedPoints(arm, metricKey) {
+  const values = arm?.series?.[metricKey]
+  if (!values) return []
+  const length = arm.ticks?.length ?? 0
+  const cached = RECORDED.get(values)
+  if (cached && cached.ticks === arm.ticks && cached.length === length) return cached.points
+  const points = countedSeriesUpTo(arm, metricKey, Infinity)
+  RECORDED.set(values, { ticks: arm.ticks, length, points })
+  return points
+}
+
 // The y range from the real weeks of the whole recording, so the lines keep
 // their places while the clock moves; warm-up values may fall outside it.
 function yRange(arms, metricKey) {
-  const all = arms.flatMap(arm => countedSeriesUpTo(arm, metricKey, Infinity))
+  const all = arms.flatMap(arm => recordedPoints(arm, metricKey))
   const live = all.filter(point => point.tick > WARMUP_TICKS)
   const values = (live.length ? live : all).map(point => point.value)
   let lo = Math.min(...values)
@@ -35,7 +51,7 @@ function yRange(arms, metricKey) {
   return { lo, hi }
 }
 
-function Sparkline({ arms, metricKey, tick, horizon, height }) {
+function Sparkline({ arms, metricKey, tick, horizon, height, lines }) {
   const [ref, size] = useMeasured()
   const uid = useId().replace(/:/g, '')
   const clipId = `nx-tclip-${uid}`
@@ -48,7 +64,6 @@ function Sparkline({ arms, metricKey, tick, horizon, height }) {
   const clampY = v => Math.max(PAD.t - 2, Math.min(H - PAD.b + 2, y(v)))
   const top = PAD.t - 3
   const plotH = H - PAD.t - PAD.b + 6
-  const lines = arms.map(arm => countedSeriesUpTo(arm, metricKey, tick))
 
   return (
     <div ref={ref} className="nx-tchart" aria-hidden="true">
@@ -95,10 +110,10 @@ function Sparkline({ arms, metricKey, tick, horizon, height }) {
 }
 
 // One sentence per town for screen readers: its first real week (or its
-// first week, before then) and the week shown.
-function trendText(arms, metricKey, tick) {
-  return arms.map(arm => {
-    const line = countedSeriesUpTo(arm, metricKey, tick)
+// first week, before then) and the week shown. `lines` are the drawn points.
+function trendText(arms, metricKey, lines) {
+  return arms.map((arm, index) => {
+    const line = lines[index]
     if (!line.length) return null
     const first = line.find(point => point.tick > WARMUP_TICKS) ?? line[0]
     const last = line[line.length - 1]
@@ -129,6 +144,7 @@ export default function Tile({ metricKey, arms, tick, onSeeBig, className = '', 
   const horizon = Math.max(1, tick, ...arms.map(arm => arm.horizon || 0))
   const counted = COUNTED_EVERY_5.includes(metricKey)
   const asOf = counted ? arms.map(arm => countedAt(arm, metricKey, tick)?.asOfTick).find(Number.isFinite) ?? null : null
+  const lines = measured ? arms.map(arm => countedSeriesUpTo(arm, metricKey, tick)) : []
 
   const open = () => onSeeBig(metricKey)
   const onKeyDown = event => {
@@ -154,8 +170,8 @@ export default function Tile({ metricKey, arms, tick, onSeeBig, className = '', 
               </div>
             ))}
           </div>
-          <Sparkline arms={arms} metricKey={metricKey} tick={tick} horizon={horizon} height={height} />
-          <p className="nx-sr">{trendText(arms, metricKey, tick)}</p>
+          <Sparkline arms={arms} metricKey={metricKey} tick={tick} horizon={horizon} height={height} lines={lines} />
+          <p className="nx-sr">{trendText(arms, metricKey, lines)}</p>
         </>
       ) : (
         <p className="nx-quiet">{COPY.numbers.notMeasured}</p>

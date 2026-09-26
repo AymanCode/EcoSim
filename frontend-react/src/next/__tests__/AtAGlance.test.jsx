@@ -2,7 +2,7 @@ import { beforeAll, describe, expect, test } from 'vitest'
 import { render, screen, within } from '@testing-library/react'
 import AtAGlance from '../numbers/AtAGlance.jsx'
 import { GLANCE_KEYS, METRICS, formatEndLabel, formatMetric } from '../catalog.js'
-import { rangeSoFar, valueAt } from '../data/derive.js'
+import { countedSeriesUpTo, rangeSoFar, valueAt } from '../data/derive.js'
 import { differencePhrase } from '../narration.js'
 import { demoArms, fixtureArm, TOWN_A, TOWN_B } from './fixture.js'
 
@@ -71,8 +71,25 @@ describe('AtAGlance', () => {
     const ends = rowOf(OUT).querySelector('.nx-dbe').textContent
     expect(ends).toContain(formatEndLabel(OUT, range.min))
     expect(ends).toContain(formatEndLabel(OUT, range.max))
-    // Its text alternative names the same range.
-    expect(within(rowOf(OUT)).getByText(new RegExp(`lowest so far is ${formatEndLabel(OUT, range.min)}`))).toHaveClass('nx-sr')
+    // Its text alternative names the same range, and where each town sits in it.
+    const alt = within(rowOf(OUT)).getByText(new RegExp(`lowest so far is ${formatEndLabel(OUT, range.min)}`))
+    expect(alt).toHaveClass('nx-sr')
+    expect(alt).toHaveTextContent('Town A: 42 in 100, near the top of the range so far.')
+    const where = at => (at <= 0 ? 'the lowest so far' : at >= 100 ? 'the highest so far'
+      : at < 34 ? 'near the bottom of the range so far' : at > 66 ? 'near the top of the range so far' : 'in the middle of the range so far')
+    arms.forEach(arm => {
+      const value = valueAt(arm, OUT, 72)
+      expect(alt).toHaveTextContent(`${arm.label}: ${formatMetric(OUT, value)}, ${where(((value - range.min) / (range.max - range.min)) * 100)}.`)
+    })
+  })
+
+  test('the gap between rich and poor spans only counts made after setting up, as its tile does', () => {
+    draw()
+    const counts = arms.flatMap(arm => countedSeriesUpTo(arm, 'gini', 72)).filter(point => point.tick > 10).map(point => point.value)
+    const ends = rowOf('gini').querySelector('.nx-dbe').textContent
+    expect(ends).toBe(`${formatEndLabel('gini', Math.min(...counts))}${formatEndLabel('gini', Math.max(...counts))}`)
+    // The week-10 count, made while setting up, is the higher one in Town A.
+    expect(ends).not.toContain(formatEndLabel('gini', valueAt(arms[0], 'gini', 10)))
   })
 
   test('the gap between rich and poor says when it was last counted', () => {

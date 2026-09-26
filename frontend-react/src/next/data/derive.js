@@ -116,10 +116,22 @@ export function everMeasured(arms, key) {
 }
 
 // { min, max } of every town's recorded values of `key` after warm-up, up to
-// `tick`; null during warm-up or when none was measured.
+// `tick`; null during warm-up or when none was measured. A COUNTED_EVERY_5
+// number spans its counts made after warm-up, so the week-10 count that the
+// frames of weeks 11 to 14 still carry is left out, as the charts leave it out.
 export function rangeSoFar(arms, key, tick) {
   let min = Infinity
   let max = -Infinity
+  if (COUNTED.has(key)) {
+    for (const arm of arms ?? []) {
+      for (const point of countedSeriesUpTo(arm, key, tick)) {
+        if (point.tick <= WARMUP_TICKS || !isNumber(point.value)) continue
+        min = Math.min(min, point.value)
+        max = Math.max(max, point.value)
+      }
+    }
+    return min <= max ? { min, max } : null
+  }
   for (const arm of arms ?? []) {
     const values = arm?.series?.[key] ?? []
     for (let i = indexAtOrBefore(arm?.ticks ?? [], tick); i >= 0 && arm.ticks[i] > WARMUP_TICKS; i -= 1) {

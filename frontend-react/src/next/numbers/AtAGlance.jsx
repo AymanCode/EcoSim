@@ -20,6 +20,12 @@ function DotTrack({ metricKey, arms, tick }) {
   const at = readings.map(item => position(item.value, range))
   const low = formatEndLabel(metricKey, range.min)
   const high = formatEndLabel(metricKey, range.max)
+  const flat = !(range.max > range.min)
+  const towns = readings.map((item, i) => ({
+    label: item.arm.label,
+    value: formatMetric(metricKey, item.value),
+    where: COPY.numbers.glance.where(at[i], flat),
+  }))
   return (
     <>
       <div aria-hidden="true">
@@ -29,7 +35,7 @@ function DotTrack({ metricKey, arms, tick }) {
         </div>
         <div className="nx-dbe"><span>{low}</span><span>{high}</span></div>
       </div>
-      <span className="nx-sr">{COPY.numbers.glance.trackAlt(low, high)}</span>
+      <span className="nx-sr">{COPY.numbers.glance.trackAlt(low, high, towns)}</span>
     </>
   )
 }

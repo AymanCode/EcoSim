@@ -149,22 +149,28 @@ function MetricChips({ metricKey, metricKeys, onMetricChange }) {
   )
 }
 
-// The weeks of the counts up to `tick`, at least TABLE_EVERY weeks apart, and the last one.
-function countWeeks(arms, metricKey, tick) {
-  const counts = [...new Set(arms.flatMap(arm => countedSeriesUpTo(arm, metricKey, tick).map(point => point.tick)))].sort((a, b) => a - b)
+// The weeks of the counts up to `tick`, at least TABLE_EVERY weeks apart, and
+// the last one, with each town's count made that week (null when a town has no
+// count that week). A row never shows an earlier count under a later week,
+// even when the frame of a count's week is missing.
+function countRows(arms, metricKey, tick) {
+  const byTown = arms.map(arm => new Map(countedSeriesUpTo(arm, metricKey, tick).map(point => [point.tick, point.value])))
+  const counts = [...new Set(byTown.flatMap(points => [...points.keys()]))].sort((a, b) => a - b)
   const weeks = []
   for (const week of counts) if (!weeks.length || week - weeks[weeks.length - 1] >= TABLE_EVERY) weeks.push(week)
   if (counts.length && weeks[weeks.length - 1] !== counts[counts.length - 1]) weeks.push(counts[counts.length - 1])
-  return weeks
+  return weeks.map(week => ({ week, values: byTown.map(points => points.get(week) ?? null) }))
+}
+
+function weeklyRows(arms, metricKey, tick) {
+  const weeks = []
+  for (let week = TABLE_EVERY; week <= tick; week += TABLE_EVERY) weeks.push(week)
+  if (tick >= 1 && weeks[weeks.length - 1] !== tick) weeks.push(tick)
+  return weeks.map(week => ({ week, values: arms.map(arm => valueAt(arm, metricKey, week)) }))
 }
 
 function ValueTable({ arms, metricKey, tick, name, counted }) {
-  let weeks = []
-  if (counted) weeks = countWeeks(arms, metricKey, tick)
-  else {
-    for (let week = TABLE_EVERY; week <= tick; week += TABLE_EVERY) weeks.push(week)
-    if (tick >= 1 && weeks[weeks.length - 1] !== tick) weeks.push(tick)
-  }
+  const rows = counted ? countRows(arms, metricKey, tick) : weeklyRows(arms, metricKey, tick)
   return (
     <table className="nx-sr">
       <caption>{counted ? COPY.chart.countedCaption(name) : COPY.chart.tableCaption(name)}</caption>
@@ -175,10 +181,10 @@ function ValueTable({ arms, metricKey, tick, name, counted }) {
         </tr>
       </thead>
       <tbody>
-        {weeks.map(week => (
+        {rows.map(({ week, values }) => (
           <tr key={week}>
             <th scope="row">{weekLabel(week)}</th>
-            {arms.map(arm => <td key={arm.label}>{formatMetric(metricKey, valueAt(arm, metricKey, week))}</td>)}
+            {arms.map((arm, i) => <td key={arm.label}>{formatMetric(metricKey, values[i])}</td>)}
           </tr>
         ))}
       </tbody>

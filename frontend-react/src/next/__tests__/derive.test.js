@@ -179,6 +179,16 @@ describe('rangeSoFar', () => {
     expect(rangeSoFar(arms, 'priceFood', 11)).toEqual({ min: 25, max: 30 })
   })
 
+  test('a counted-every-5-weeks number spans only the counts made after setting up', () => {
+    // The frames of weeks 10 to 14 carry the week-10 count, made while the towns were set up.
+    const ticks = Array.from({ length: 16 }, (_, i) => i + 1)
+    const asOf = ticks.map(t => (t < 5 ? 1 : t < 10 ? 5 : t < 15 ? 10 : 15))
+    const counts = { 1: 0.2, 5: 0.3, 10: 0.9, 15: 0.5 }
+    const counted = { ticks, series: { gini: asOf.map(week => counts[week]), wealthAsOfTick: asOf } }
+    expect(rangeSoFar([counted], 'gini', 14)).toBeNull()
+    expect(rangeSoFar([counted], 'gini', 16)).toEqual({ min: 0.5, max: 0.5 })
+  })
+
   test('is null during warm-up or with nothing measured', () => {
     expect(rangeSoFar(arms, 'priceFood', 10)).toBeNull()
     expect(rangeSoFar(arms, 'noSuchMetric', 14)).toBeNull()

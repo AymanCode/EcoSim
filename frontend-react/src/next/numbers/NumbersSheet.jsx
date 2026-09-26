@@ -1,4 +1,4 @@
-import { useEffect, useEffectEvent, useId, useRef, useState } from 'react'
+import { Activity, useEffect, useEffectEvent, useId, useRef, useState } from 'react'
 import { COPY, NUMBER_GROUPS, capitalise, describePolicy } from '../catalog.js'
 import { rulesAt, rulesDiff } from '../data/derive.js'
 import { weekLabel } from '../narration.js'
@@ -165,39 +165,44 @@ export default function NumbersSheet({ arms, tick, onClose, live, playing = fals
 
       <div className="nx-sheet-body">
         {big && <SeeItBig key={big} metricKey={big} arms={arms} tick={tick} onClose={closeBig} playing={playing} />}
-        <div className="nx-sheet-secs" hidden={Boolean(big)}>
-          <RulesInForce id={sections[0].id} arms={arms} tick={tick} notes={notes} />
-          <AtAGlance id={sections[1].id} arms={arms} tick={tick} notes={notes} />
-          {NUMBER_GROUPS.map(group => {
-            const copy = COPY.numbers.groups[group.id] ?? { title: group.id, blurb: '' }
-            const headId = `${sectionId(group.id)}-title`
-            return (
-              <section key={group.id} id={sectionId(group.id)} className="nx-nsec" aria-labelledby={headId}>
-                <div className="nx-sh">
-                  <h3 id={headId} tabIndex={-1}>{copy.title}</h3>
-                  <p>{copy.blurb}</p>
-                </div>
-                <div className="nx-ngrid">
-                  {group.keys.map(key => (
-                    <Tile
-                      key={key}
-                      metricKey={key}
-                      arms={arms}
-                      tick={tick}
-                      onSeeBig={setBig}
-                      className={`nx-s${TILE_SPAN[key] ?? 4}`}
-                      height={TILE_HEIGHT[key]}
-                    />
-                  ))}
-                  {(group.extras ?? []).map(extra => {
-                    const Extra = EXTRAS[extra]
-                    return Extra ? <Extra key={extra} arms={arms} tick={tick} /> : null
-                  })}
-                </div>
-              </section>
-            )
-          })}
-        </div>
+        {/* While a chart is big the sections are hidden, keep their state (an
+            open rules group, the tile to come back to) and update only when
+            React is idle. */}
+        <Activity mode={big ? 'hidden' : 'visible'}>
+          <div className="nx-sheet-secs">
+            <RulesInForce id={sections[0].id} arms={arms} tick={tick} notes={notes} />
+            <AtAGlance id={sections[1].id} arms={arms} tick={tick} notes={notes} />
+            {NUMBER_GROUPS.map(group => {
+              const copy = COPY.numbers.groups[group.id] ?? { title: group.id, blurb: '' }
+              const headId = `${sectionId(group.id)}-title`
+              return (
+                <section key={group.id} id={sectionId(group.id)} className="nx-nsec" aria-labelledby={headId}>
+                  <div className="nx-sh">
+                    <h3 id={headId} tabIndex={-1}>{copy.title}</h3>
+                    <p>{copy.blurb}</p>
+                  </div>
+                  <div className="nx-ngrid">
+                    {group.keys.map(key => (
+                      <Tile
+                        key={key}
+                        metricKey={key}
+                        arms={arms}
+                        tick={tick}
+                        onSeeBig={setBig}
+                        className={`nx-s${TILE_SPAN[key] ?? 4}`}
+                        height={TILE_HEIGHT[key]}
+                      />
+                    ))}
+                    {(group.extras ?? []).map(extra => {
+                      const Extra = EXTRAS[extra]
+                      return Extra ? <Extra key={extra} arms={arms} tick={tick} /> : null
+                    })}
+                  </div>
+                </section>
+              )
+            })}
+          </div>
+        </Activity>
       </div>
       <p className="nx-tap" hidden={Boolean(big)}><TapIcon />{COPY.numbers.tap}</p>
     </section>

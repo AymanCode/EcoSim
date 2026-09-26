@@ -23,28 +23,41 @@ function GroupSummary({ group, townCount }) {
   )
 }
 
+// A rule's row: its name heads the row, so each value is announced with the
+// rule and the town alone. A rule that differs says what it does in a second
+// row under its name; the values span both rows.
 function RuleRow({ row, arms }) {
   const base = arms[0]?.label
+  const help = row.differs ? LEVERS[row.lever]?.help : null
   return (
-    <tr className={`nx-rrow${row.differs ? ' is-diff' : ''}`}>
-      <th scope="row" className="nx-rn">
-        {ruleName(row.lever)}
-        {row.differs && LEVERS[row.lever]?.help && <small>{LEVERS[row.lever].help}</small>}
-      </th>
-      {row.values.map((value, i) => {
-        const differs = i > 0 && !same(value, row.values[0])
-        const change = row.changes[i]
-        return (
-          <td key={arms[i].label} className={`nx-rv${differs ? ' is-diff' : ''}`} style={differs ? { color: townTextColor(arms[i].color) } : undefined}>
-            {leverValuePhrase(row.lever, value)}
-            {differs && <small>{COPY.numbers.rules.differentFrom(base)}</small>}
-            {change && (
-              <small>{COPY.numbers.rules.changed(weekLabel(change.changedAt), leverValuePhrase(row.lever, change.was), change.changedAt <= WARMUP_TICKS)}</small>
-            )}
-          </td>
-        )
-      })}
-    </tr>
+    <>
+      <tr className={`nx-rrow${row.differs ? ' is-diff' : ''}${help ? ' has-help' : ''}`}>
+        <th scope="row" className="nx-rn">{ruleName(row.lever)}</th>
+        {row.values.map((value, i) => {
+          const differs = i > 0 && !same(value, row.values[0])
+          const change = row.changes[i]
+          return (
+            <td
+              key={arms[i].label}
+              rowSpan={help ? 2 : undefined}
+              className={`nx-rv${differs ? ' is-diff' : ''}`}
+              style={differs ? { color: townTextColor(arms[i].color) } : undefined}
+            >
+              {leverValuePhrase(row.lever, value)}
+              {differs && <small>{COPY.numbers.rules.differentFrom(base)}</small>}
+              {change && (
+                <small>{COPY.numbers.rules.changed(weekLabel(change.changedAt), leverValuePhrase(row.lever, change.was), change.changedAt <= WARMUP_TICKS)}</small>
+              )}
+            </td>
+          )
+        })}
+      </tr>
+      {help && (
+        <tr className="nx-rhelp is-diff">
+          <td className="nx-rn"><small>{help}</small></td>
+        </tr>
+      )}
+    </>
   )
 }
 
@@ -92,10 +105,12 @@ export default function RulesInForce({ arms, tick, id, notes = [] }) {
             return (
               <tbody key={group.group} id={bodyId} className={`nx-rg${open ? ' is-open' : ''}`}>
                 <tr>
-                  <th colSpan={townCount + 1} scope="rowgroup" className="nx-rg-head">
+                  {/* A plain cell, so screen readers do not read the whole line as
+                      the header of every value; the group's name is a heading. */}
+                  <td colSpan={townCount + 1} className="nx-rg-head">
                     {/* The whole line opens and folds the group for a mouse; the button is the keyboard's way. */}
                     <div className="nx-rg-sum" onClick={flip}>
-                      <span className="nx-rg-t">{title}</span>
+                      <h4 className="nx-rg-t">{title}</h4>
                       <GroupSummary group={group} townCount={townCount} />
                       <button type="button" className="nx-rg-tog" aria-expanded={open} aria-controls={bodyId}>
                         {open ? COPY.numbers.rules.hide : COPY.numbers.rules.show}
@@ -103,7 +118,7 @@ export default function RulesInForce({ arms, tick, id, notes = [] }) {
                         <span className="nx-sr">{title}</span>
                       </button>
                     </div>
-                  </th>
+                  </td>
                 </tr>
                 {open && group.rows.map(row => <RuleRow key={row.lever} row={row} arms={arms} />)}
               </tbody>

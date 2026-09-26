@@ -71,7 +71,7 @@ export const METRICS = {
     better: null,
   },
   firmsOpen: {
-    name: 'Firms open',
+    name: 'Businesses open',
     meaning: 'Businesses trading this week.',
     format: 'count',
     better: 'higher',
@@ -1020,7 +1020,20 @@ export const COPY = {
       },
       number: 'Number',
       track: townCount => `Where this week sits, from the lowest to the highest ${everyTown(townCount, 'the town', 'either town', 'any town')} has seen`,
-      trackAlt: (low, high) => `The lowest so far is ${low} and the highest is ${high}.`,
+      // The track for screen readers: the range, then where each town sits in it.
+      trackAlt: (low, high, towns = []) => [
+        `The lowest so far is ${low} and the highest is ${high}.`,
+        ...towns.map(town => `${town.label}: ${town.value}, ${town.where}.`),
+      ].join(' '),
+      // `at` is the town's place in the range, 0 (lowest) to 100 (highest).
+      where: (at, flat) => {
+        if (flat) return 'unchanged so far'
+        if (at <= 0) return 'the lowest so far'
+        if (at >= 100) return 'the highest so far'
+        if (at < 34) return 'near the bottom of the range so far'
+        if (at > 66) return 'near the top of the range so far'
+        return 'in the middle of the range so far'
+      },
       trackWait: 'Shown once the towns are set up.',
     },
     // Titles and blurbs of NUMBER_GROUPS, from mockup 06.

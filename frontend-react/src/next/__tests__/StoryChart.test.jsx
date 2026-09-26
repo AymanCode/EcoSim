@@ -1,8 +1,8 @@
 import { describe, expect, test, vi } from 'vitest'
 import { fireEvent, render, screen, within } from '@testing-library/react'
 import StoryChart from '../components/StoryChart.jsx'
-import { METRICS, STORY_METRICS } from '../catalog.js'
-import { countedSeriesUpTo } from '../data/derive.js'
+import { METRICS, STORY_METRICS, formatMetric } from '../catalog.js'
+import { countedSeriesUpTo, valueAt } from '../data/derive.js'
 import { demoArms, fixtureArm, TOWN_A, TOWN_B } from './fixture.js'
 
 const OUT = 'peopleOutOfWorkPer100'
@@ -183,6 +183,23 @@ describe('StoryChart for the numbers sheet', () => {
     // The table gives the counts, about every 13 weeks, and the last one.
     const rows = within(screen.getByRole('table')).getAllByRole('row').slice(1).map(row => row.firstChild.textContent)
     expect(rows).toEqual(['Year 1, week 1', 'Year 1, week 15', 'Year 1, week 30', 'Year 1, week 45', 'Year 2, week 8', 'Year 2, week 18'])
+  })
+
+  test('with countedWeeks, each table row holds the count made that week, even when its frame is missing', () => {
+    const demo = demoArms()
+    // Week 70's frame never arrived; week 71 carries the week-70 count.
+    const dropWeek = (arm, week) => {
+      const keep = arm.ticks.map(t => t !== week)
+      const series = Object.fromEntries(Object.entries(arm.series).map(([key, values]) => [key, values.filter((_, i) => keep[i])]))
+      return { ...arm, ticks: arm.ticks.filter((_, i) => keep[i]), series }
+    }
+    const count70 = formatMetric('gini', valueAt(demo[0], 'gini', 70))
+    const count65 = formatMetric('gini', valueAt(demo[0], 'gini', 69))
+    expect(count70).not.toBe(count65)
+    render(<StoryChart arms={demo.map(arm => dropWeek(arm, 70))} metricKey="gini" tick={72} horizon={104} onMetricChange={() => {}} countedWeeks />)
+    const last = within(screen.getByRole('table')).getAllByRole('row').at(-1)
+    expect(last.firstChild).toHaveTextContent('Year 2, week 18')
+    expect(within(last).getAllByRole('cell')[0]).toHaveTextContent(count70)
   })
 
   test('without countedWeeks the gap between rich and poor draws as before', () => {

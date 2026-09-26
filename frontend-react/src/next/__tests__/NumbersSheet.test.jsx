@@ -177,4 +177,50 @@ describe('NumbersSheet', () => {
       style.remove()
     }
   })
+
+  test('many towns at phone width: the lines that span a table stay in its visible box; values get room', () => {
+    const four = [
+      ...arms,
+      { ...arms[0], label: 'Town C', color: TOWN_COLORS[2] },
+      { ...arms[1], label: 'Town D', color: TOWN_COLORS[3] },
+    ]
+    const style = document.createElement('style')
+    style.textContent = CSS
+    document.head.appendChild(style)
+    try {
+      // jsdom does no layout, so the guard is the stylesheet: the scroll box is
+      // a size container, and the full-width lines stick to its left edge at
+      // most its width wide, so they wrap in view while the town columns scroll.
+      const rules = [...style.sheet.cssRules]
+      const top = rules.filter(rule => rule.selectorText)
+      const narrow = rules.filter(rule => rule.media?.mediaText.includes('max-width: 900px')).flatMap(rule => [...rule.cssRules])
+      const find = (list, selector) => list.find(rule => rule.selectorText === selector)
+      expect(find(top, '.nx .nx-scroll').style.getPropertyValue('container-type')).toBe('inline-size')
+      const pinned = rule => {
+        expect(rule, 'a pinned rule').toBeTruthy()
+        expect(rule.style.getPropertyValue('position')).toBe('sticky')
+        expect(rule.style.getPropertyValue('left')).toMatch(/^0(px)?$/)
+        expect(rule.style.getPropertyValue('max-width')).toContain('100cqi')
+      }
+      pinned(find(top, '.nx .nx-rg-sum'))
+      pinned(find(narrow, '.nx .nx-glance .nx-sname, .nx .nx-glance .nx-db'))
+      // On wider screens the scoreboard keeps a width for every town and
+      // scrolls in its card before a value can run into the next column.
+      expect(find(top, '.nx .nx-glance').style.getPropertyValue('min-width')).toContain('var(--nx-towns')
+      expect(find(top, '.nx .nx-sv').style.getPropertyValue('white-space')).not.toBe('nowrap')
+
+      render(<div className="nx"><NumbersSheet arms={four} tick={72} onClose={() => {}} /></div>)
+      const [rulesBox, glanceBox] = document.querySelectorAll('.nx-scroll')
+      expect(rulesBox.querySelector('table')).not.toBeNull()
+      expect(rulesBox.querySelectorAll('.nx-rg-sum')).toHaveLength(5)
+      const rows = [...glanceBox.querySelectorAll('.nx-glance > .nx-srow:not(.is-head)')]
+      expect(rows).toHaveLength(8)
+      rows.forEach(row => {
+        expect(row.querySelector(':scope > .nx-sname')).not.toBeNull()
+        expect(row.querySelector(':scope > .nx-db')).not.toBeNull()
+      })
+    } finally {
+      style.remove()
+    }
+  })
 })

@@ -47,8 +47,23 @@ describe('RulesInForce', () => {
     expect(cells[1]).toHaveTextContent('different from Town A')
     expect(cells[1].style.color).toBe('var(--nx-b-text)')
     expect(cells[0].style.color).toBe('')
-    // A row that differs says what the rule does.
-    expect(row('Minimum wage')).toHaveTextContent('Sets the lowest weekly wage a business is allowed to pay.')
+    // A row that differs says what the rule does, under its name.
+    const help = screen.getByText('Sets the lowest weekly wage a business is allowed to pay.')
+    expect(help.closest('tr').previousElementSibling).toBe(row('Minimum wage'))
+  })
+
+  test('each value is headed by its rule and its town alone, not by the group line', () => {
+    draw()
+    const table = screen.getByRole('table')
+    expect(within(table).getAllByRole('columnheader').map(cell => cell.textContent)).toEqual(['Rule', 'Town A', 'Town B'])
+    // Only the open group's rules head rows; the help sentence is not part of a header.
+    expect(within(table).getAllByRole('rowheader').map(cell => cell.textContent))
+      .toEqual(['Minimum wage', 'Help for people out of work', 'Social spending'])
+    // The group lines are plain cells, with the group's name as a heading.
+    for (const title of ['Taxes', 'Families and work']) {
+      expect(group(title).querySelector('th')?.textContent ?? '').not.toContain(title)
+      expect(within(group(title)).getByRole('heading', { level: 4, name: title })).toBeInTheDocument()
+    }
   })
 
   test('"Show" expands a collapsed group and "Hide" folds it again', () => {
