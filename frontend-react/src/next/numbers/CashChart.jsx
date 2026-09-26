@@ -16,20 +16,22 @@ const PAD_BOTTOM = 24
 const LINE_H = 15
 const FALLBACK_WIDTH = 640
 
-// The first week of the stretch below zero that runs up to `tick`, after
-// setting up; null when the town has money this week.
+// The first week of the stretch below zero that runs up to `tick` (setting
+// up included: a debt from week 5 is owed since week 5); null when the town
+// has money this week.
 function owingSince(arm, tick) {
   if (!(valueAt(arm, KEY, tick) < 0)) return null
   const points = countedSeriesUpTo(arm, KEY, tick)
   let since = null
-  for (let i = points.length - 1; i >= 0 && points[i].tick > WARMUP_TICKS && points[i].value < 0; i -= 1) since = points[i].tick
+  for (let i = points.length - 1; i >= 0 && points[i].value < 0; i -= 1) since = points[i].tick
   return since
 }
 
-// "$1.35 million" for a start of a million or more, else to the thousand.
+// "$1.35 million" for a start of a million or more, else to the thousand
+// ("$446,000"), and a start under a thousand as it is.
 function about(value) {
   if (Math.abs(value) >= 1e6) return COPY.numbers.cash.million((value / 1e6).toFixed(2))
-  return formatMoney(Math.round(value / 1000) * 1000)
+  return formatMoney(Math.abs(value) >= 1000 ? Math.round(value / 1000) * 1000 : value)
 }
 
 function Lines({ arms, lines, first, tick, scale, rings }) {
@@ -79,9 +81,10 @@ function Lines({ arms, lines, first, tick, scale, rings }) {
         ))}
         {bounds.map(week => (
           <g key={week}>
-            <line className="nx-vbound" x1={r1(x(week))} x2={r1(x(week))} y1={top} y2={bottom} />
-            {x(week) + 4 > left + textWidth(startLabel, 11.5) + 10 && (
-              <text className="nx-cx" x={r1(x(week) + 4)} y={H - 6}>{COPY.chart.year(week / WEEKS_PER_YEAR + 1)}</text>
+            {/* Between the last week of a year and the first of the next. */}
+            <line className="nx-vbound" x1={r1(x(week + 0.5))} x2={r1(x(week + 0.5))} y1={top} y2={bottom} />
+            {x(week + 0.5) + 4 > left + textWidth(startLabel, 11.5) + 10 && (
+              <text className="nx-cx" x={r1(x(week + 0.5) + 4)} y={H - 6}>{COPY.chart.year(week / WEEKS_PER_YEAR + 1)}</text>
             )}
           </g>
         ))}

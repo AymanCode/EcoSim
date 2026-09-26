@@ -3,7 +3,7 @@ import useMeasured from '../../charts/useMeasured.js'
 import { COPY, WARMUP_TICKS } from '../catalog.js'
 import { weeklyCounts } from '../data/derive.js'
 import { weekLabel } from '../narration.js'
-import Card, { Bolded, Hatch, TownName } from './Card.jsx'
+import Card, { Bolded, Hatch, TownName, WindowAxis } from './Card.jsx'
 import { everCounted, r1, total } from './chartKit.js'
 import '../next.css'
 
@@ -42,6 +42,7 @@ function Strip({ rows, tick }) {
   const x = week => 2 + (week - first + 0.5) * slot
   const reach = count => Math.min(20, 8 + 3 * count)
   const warmEnd = Math.min(WARMUP_TICKS, tick)
+  const edge = 2 + (tick - first + 1) * slot
 
   return (
     <div ref={ref} className="nx-vchart" aria-hidden="true">
@@ -50,6 +51,7 @@ function Strip({ rows, tick }) {
         {first <= WARMUP_TICKS && (
           <rect className="nx-vwarm" x={2} y={2} width={r1((warmEnd - first + 1) * slot)} height={H - 4} fill={`url(#${hatchId})`} />
         )}
+        {tick < first + WEEKS - 1 && <rect className="nx-vfuture" x={r1(edge)} y={2} width={r1(W - 2 - edge)} height={H - 4} />}
         <line className="nx-vnow" x1={r1(x(tick))} x2={r1(x(tick))} y1={2} y2={H - 2} />
         <line className="nx-vmid is-light" x1={2} x2={W - 2} y1={MID} y2={MID} />
         {rows.map(row => (
@@ -97,7 +99,7 @@ export default function OpenedClosed({ arms, tick, className = '' }) {
                 <span><Bolded parts={copy.soFar(total(soFar[i], OPENED), total(soFar[i], CLOSED))} /></span>
               </div>
               <Strip rows={rows} tick={tick} />
-              <div className="nx-vaxis" aria-hidden="true"><span>{weekLabel(rows[0].tick)}</span><span>{COPY.numbers.thisWeek}</span></div>
+              <WindowAxis first={rows[0].tick} weeks={WEEKS} tick={tick} />
               <p className="nx-foot">{copy.inThese(total(rows, OPENED), total(rows, CLOSED))}</p>
             </div>
           )

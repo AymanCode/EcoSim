@@ -1,5 +1,6 @@
 import { useId } from 'react'
 import { COPY } from '../catalog.js'
+import { weekLabel } from '../narration.js'
 import '../next.css'
 
 function BigIcon() {
@@ -76,6 +77,19 @@ export function Hatch({ id }) {
       <rect className="nx-hatch-bg" width={6} height={6} />
       <line className="nx-hatch" x1={0} y1={0} x2={0} y2={6} />
     </pattern>
+  )
+}
+
+// Under a chart of `weeks` weeks from `first`: its first week, and at the
+// right edge "this week", or that week's name while the window reaches past
+// this week (the weeks still to come are shaded).
+export function WindowAxis({ first, weeks, tick }) {
+  const end = first + weeks - 1
+  return (
+    <div className="nx-vaxis" aria-hidden="true">
+      <span>{weekLabel(first)}</span>
+      <span>{tick >= end ? COPY.numbers.thisWeek : weekLabel(end)}</span>
+    </div>
   )
 }
 

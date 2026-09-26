@@ -13,6 +13,7 @@ import LoansWrittenOff from '../numbers/LoansWrittenOff.jsx'
 import NumbersSheet from '../numbers/NumbersSheet.jsx'
 import { COPY, METRICS, TOWN_COLORS, formatMetric, formatMoney } from '../catalog.js'
 import { countedAt, cumulativeUpTo, valueAt, weeklyCounts } from '../data/derive.js'
+import { hardshipNote, weekLabel } from '../narration.js'
 import { demoArms, fixtureArm, TOWN_A, TOWN_B } from './fixture.js'
 
 // The recorded demo (Town B has a higher minimum wage). At week 72 (Year 2,
@@ -93,6 +94,24 @@ describe('HiresAndLayoffs', () => {
     expect([...rows.at(-1).children].map(cell => cell.textContent)).toEqual(['Year 2, week 20', '6', '18', '23', '5'])
   })
 
+  test('before 26 weeks have passed, the weeks to come are shaded and the right edge is named', () => {
+    const early = draw(<HiresAndLayoffs arms={arms} tick={20} />)
+    const panel = early.container.querySelector('.nx-vpanel')
+    const future = panel.querySelector('rect.nx-vfuture')
+    expect(future).not.toBeNull()
+    const width = num(panel.querySelector('svg'), 'width')
+    // Slots 21 to 26 of 26 are still to come.
+    expect(num(future, 'x')).toBeCloseTo((20 / 26) * width, 0)
+    expect(num(future, 'x') + num(future, 'width')).toBeCloseTo(width, 0)
+    expect(num(panel.querySelector('line.nx-vnow'), 'x1')).toBeCloseTo((20 / 26) * width, 0)
+    expect([...panel.querySelectorAll('.nx-vaxis span')].map(span => span.textContent)).toEqual(['Year 1, week 1', 'Year 1, week 26'])
+    early.unmount()
+    const full = draw(<HiresAndLayoffs arms={arms} tick={72} />)
+    expect(full.container.querySelector('rect.nx-vfuture')).toBeNull()
+    expect([...full.container.querySelectorAll('.nx-vpanel')[0].querySelectorAll('.nx-vaxis span')].map(span => span.textContent))
+      .toEqual(['Year 1, week 47', 'this week'])
+  })
+
   test('warm-up weeks in the window are shaded as setting up', () => {
     const early = draw(<HiresAndLayoffs arms={arms} tick={20} />)
     expect(early.container.querySelectorAll('rect.nx-vwarm')).toHaveLength(2)
@@ -136,6 +155,31 @@ describe('PriceTag', () => {
     const late = draw(<PriceTag metricKey="priceHousing" arms={[handArm(TOWN_A, { priceHousing: moved }), handArm(TOWN_B, { priceHousing: moved })]} tick={40} />)
     expect(late.container.querySelector('.nx-tchart')).not.toBeNull()
     expect(late.container).not.toHaveTextContent('unchanged')
+  })
+
+  test('prices that differ by less than a cent are not "the same": drawn as usual', () => {
+    const near = draw(<PriceTag metricKey="priceHealthcare" arms={[handArm(TOWN_A, { priceHealthcare: Array(40).fill(10.801) }), handArm(TOWN_B, { priceHealthcare: Array(40).fill(10.799) })]} tick={40} />)
+    const tag = screen.getByRole('article', { name: METRICS.priceHealthcare.name })
+    expect(tag).toHaveTextContent('$10.80')
+    expect(tag).not.toHaveTextContent('unchanged')
+    expect(near.container.querySelector('.nx-tchart')).not.toBeNull()
+    near.unmount()
+    // A float's last digits are not a change.
+    const twin = draw(<PriceTag metricKey="priceHealthcare" arms={[handArm(TOWN_A, { priceHealthcare: Array(40).fill(5) }), handArm(TOWN_B, { priceHealthcare: Array(40).fill(5 + 1e-12) })]} tick={40} />)
+    expect(twin.container).toHaveTextContent('Same in both towns, and unchanged since Year 1, week 1.')
+  })
+
+  test('only a price flat for at least 13 weeks is summed up: healthcare jumps in week 11', () => {
+    const at = tick => {
+      const view = draw(<PriceTag metricKey="priceHealthcare" arms={arms} tick={tick} />)
+      const said = view.container.textContent.includes('unchanged since Year 1, week 11')
+      const drawn = view.container.querySelector('.nx-tchart') !== null
+      view.unmount()
+      return { said, drawn }
+    }
+    expect(at(11)).toEqual({ said: false, drawn: true })
+    expect(at(23)).toEqual({ said: false, drawn: true })
+    expect(at(24)).toEqual({ said: true, drawn: false })
   })
 
   test('three towns read "every town"; it opens big for its own price', () => {
@@ -218,6 +262,41 @@ describe('ShareBars', () => {
   })
 })
 
+describe('ShareBars, when the savings cannot be split', () => {
+  const armsWith = (top, bottom) => [
+    handArm(TOWN_A, { topTenthShare: Array(20).fill(42), bottomHalfShare: Array(20).fill(19) }),
+    handArm(TOWN_B, { topTenthShare: Array(20).fill(top), bottomHalfShare: Array(20).fill(bottom) }),
+  ]
+  const townB = container => container.querySelectorAll('.nx-vpanel')[1]
+
+  test('households\' cash adding up to nothing or less (both shares 0): a sentence, no bar and no dollars', () => {
+    const { container } = draw(<ShareBars arms={armsWith(0, 0)} tick={20} onSeeBig={() => {}} />)
+    expect(townB(container)).toHaveTextContent(COPY.numbers.shares.none)
+    expect(COPY.numbers.shares.none).toBe('Added together, households had no savings at the last count, so there is nothing to share out.')
+    expect(townB(container).querySelector('.nx-sbar')).toBeNull()
+    expect(townB(container)).not.toHaveTextContent('$')
+    expect(container.querySelectorAll('.nx-vpanel')[0]).toHaveTextContent('Poorest half $19 · the next 40% $39 · richest tenth $42')
+  })
+
+  test('a group owing more than it has (a share below 0, or the rest below 0): a sentence, no bar', () => {
+    for (const [top, bottom] of [[113, -3], [60.5, 40], [101, 0.2]]) {
+      const view = draw(<ShareBars arms={armsWith(top, bottom)} tick={20} onSeeBig={() => {}} />)
+      expect(townB(view.container), `${top}/${bottom}`).toHaveTextContent(COPY.numbers.shares.owing)
+      expect(townB(view.container).querySelector('.nx-sbar')).toBeNull()
+      expect(townB(view.container)).not.toHaveTextContent('$-')
+      view.unmount()
+    }
+    expect(COPY.numbers.shares.owing).toBe("Some households owed more than they had at the last count, so the savings can't be split this way.")
+  })
+
+  test('whole dollars always add up to 100, none below 0', () => {
+    const { container } = draw(<ShareBars arms={armsWith(60.5, 39.5)} tick={20} onSeeBig={() => {}} />)
+    const dollars = [...townB(container).querySelectorAll('p b')].map(b => Number(b.textContent.replace('$', '')))
+    expect(sum(dollars)).toBe(100)
+    dollars.forEach(value => expect(value).toBeGreaterThanOrEqual(0))
+  })
+})
+
 describe('FirmStates', () => {
   test('a stacked bar per town whose growing, steady and struggling counts add up to the businesses open', () => {
     const { container } = draw(<FirmStates arms={arms} tick={72} onSeeBig={() => {}} />)
@@ -265,6 +344,18 @@ describe('OpenedClosed', () => {
     const alt = card.querySelector('p.nx-sr')
     expect(alt).toHaveTextContent('Town A, in these weeks. Opened: Year 2, week 20. Closed: Year 1, week 49; Year 2, week 13; Year 2, week 18; Year 2, week 19; Year 2, week 20.')
     expect(alt).toHaveTextContent('Town B, in these weeks. Opened: none. Closed: Year 2, week 10; Year 2, week 17.')
+  })
+})
+
+describe('the other 26-week charts before 26 weeks have passed', () => {
+  test('the strip and the paired bars shade the weeks to come and name the right edge', () => {
+    for (const node of [<OpenedClosed key="oc" arms={arms} tick={20} />, <MoneyInOut key="io" arms={arms} tick={20} onSeeBig={() => {}} />]) {
+      const view = draw(node)
+      const panel = view.container.querySelector('.nx-vpanel')
+      expect(panel.querySelector('rect.nx-vfuture')).not.toBeNull()
+      expect([...panel.querySelectorAll('.nx-vaxis span')].map(span => span.textContent)).toEqual(['Year 1, week 1', 'Year 1, week 26'])
+      view.unmount()
+    }
   })
 })
 
@@ -358,6 +449,30 @@ describe('CashChart', () => {
     expect(top).toBeGreaterThanOrEqual(valueAt(arms[1], 'townHallCash', 11))
   })
 
+  test('a debt that began while the towns were being set up is dated from its first week', () => {
+    const cash = [100, -5, ...Array(38).fill(-10)]
+    draw(<CashChart arms={[handArm(TOWN_A, { townHallCash: cash }), handArm(TOWN_B, { townHallCash: Array(40).fill(50) })]} tick={40} onSeeBig={() => {}} />)
+    expect(screen.getByRole('article', { name: METRICS.townHallCash.name })).toHaveTextContent('Town A has owed money since Year 1, week 2, the ring on its line.')
+  })
+
+  test('the year boundary falls between week 52 and week 53', () => {
+    const { container } = draw(<CashChart arms={arms} tick={72} onSeeBig={() => {}} />)
+    const line = lineOf(container, 0)
+    const bound = num(container.querySelector('line.nx-vbound'), 'x1')
+    expect(bound).toBeCloseTo((line[52 - 21][0] + line[53 - 21][0]) / 2, 0)
+  })
+
+  test('Enter or Space on the card opens it big, as a click does', () => {
+    const onSeeBig = vi.fn()
+    draw(<CashChart arms={arms} tick={72} onSeeBig={onSeeBig} />)
+    const card = screen.getByRole('article', { name: METRICS.townHallCash.name })
+    expect(card).toHaveAttribute('tabindex', '0')
+    fireEvent.keyDown(card, { key: 'Enter' })
+    fireEvent.keyDown(card, { key: ' ' })
+    expect(onSeeBig).toHaveBeenCalledTimes(2)
+    expect(onSeeBig).toHaveBeenLastCalledWith('townHallCash')
+  })
+
   test('a text alternative for each town and it opens big', () => {
     const onSeeBig = vi.fn()
     draw(<CashChart arms={arms} tick={72} onSeeBig={onSeeBig} />)
@@ -432,7 +547,7 @@ describe('the numbers sheet with its special visuals', () => {
   const sheet = (props = {}) => draw(<NumbersSheet arms={arms} tick={72} onClose={() => {}} {...props} />)
   const titles = region => within(region).getAllByRole('article').map(card => card.querySelector('h4').textContent)
 
-  test('each group\'s tiles and special visuals, in the mockup\'s order', () => {
+  test('each group\'s tiles and special visuals, in the sheet\'s order', () => {
     sheet()
     const group = name => screen.getByRole('region', { name })
     expect(titles(group('Work and pay'))).toEqual(['People out of work', 'Typical weekly pay', 'Public works jobs', COPY.numbers.hires.title])
@@ -484,7 +599,7 @@ describe('the numbers sheet with its special visuals', () => {
       return chips
     }
     expect(chipsFor(COPY.numbers.ladder.title)).toEqual(['wealthP10', 'wealthP50', 'wealthP90'].map(key => METRICS[key].name))
-    expect(chipsFor(COPY.numbers.states.title)).toEqual(['firmsGrowing', 'firmsSteady', 'firmsStruggling'].map(key => METRICS[key].name))
+    expect(chipsFor(COPY.numbers.states.title)).toEqual(['Businesses growing', 'Businesses steady', 'Businesses struggling'])
     expect(chipsFor(COPY.numbers.inOut.title)).toEqual(['townHallIncome', 'familySupportPaid'].map(key => METRICS[key].name))
   })
 
@@ -498,6 +613,17 @@ describe('the numbers sheet with its special visuals', () => {
     expect(card('Homes without a roof')).toHaveTextContent('No household has lost its home in either town so far.')
     expect(card('Doctor visits turned away')).toHaveTextContent('So far: 4 in Town A, 1 in Town B.')
     expect(card('Doctor visits turned away')).not.toHaveTextContent('Nobody has been turned away')
+  })
+
+  test('once a household has lost its home the sentence goes, and a town with no record of the number gets none', () => {
+    const towns = [handArm(TOWN_A, { homelessHouseholds: [0, 0, 1, 0] }), handArm(TOWN_B, { homelessHouseholds: [0, 0, 0, 0] })]
+    expect(hardshipNote('homelessHouseholds', towns, 2)).toBe('No household has lost its home in either town so far.')
+    expect(hardshipNote('homelessHouseholds', towns, 3)).toBeNull()
+    expect(hardshipNote('homelessHouseholds', towns, 4)).toBeNull()
+    const unrecorded = [towns[1], handArm(TOWN_B, { homelessHouseholds: [null, null, null, null] })]
+    expect(hardshipNote('homelessHouseholds', unrecorded, 4)).toBeNull()
+    expect(hardshipNote('careDenials', towns, 4)).toBeNull()
+    expect(weekLabel(4)).toBe('Year 1, week 4')
   })
 
   test('an older recording without the new numbers: they say "Not measured in this run" and nothing breaks', () => {

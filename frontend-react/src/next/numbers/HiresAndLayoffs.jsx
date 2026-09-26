@@ -3,7 +3,7 @@ import useMeasured from '../../charts/useMeasured.js'
 import { COPY, WARMUP_TICKS } from '../catalog.js'
 import { weeklyCounts } from '../data/derive.js'
 import { weekLabel } from '../narration.js'
-import Card, { Bolded, Hatch, SwatchKey, TownName } from './Card.jsx'
+import Card, { Bolded, Hatch, SwatchKey, TownName, WindowAxis } from './Card.jsx'
 import { everCounted, r1, total } from './chartKit.js'
 import '../next.css'
 
@@ -15,7 +15,8 @@ const KEYS = ['hired', 'laidOff']
 
 // One town's weeks as mirrored bars: people hired above the line, laid off
 // below, on a scale shared by every town (`max`). Each week has a slot of
-// the same width, so a window shorter than 26 weeks fills from the left; the
+// the same width, so a window shorter than 26 weeks fills from the left and
+// the weeks still to come are shaded after a line at this week; the
 // setting-up weeks in it are hatched and this week's bars are solid.
 function MirroredBars({ rows, max, tick }) {
   const [ref, size] = useMeasured()
@@ -27,6 +28,7 @@ function MirroredBars({ rows, max, tick }) {
   const x = week => (week - first) * slot
   const height = count => (count > 0 ? Math.max(1, (count / max) * (MID - 3)) : 0)
   const warmEnd = Math.min(WARMUP_TICKS, tick)
+  const ahead = tick < first + WEEKS - 1
 
   return (
     <div ref={ref} className="nx-vchart" aria-hidden="true">
@@ -35,6 +37,7 @@ function MirroredBars({ rows, max, tick }) {
         {first <= WARMUP_TICKS && (
           <rect className="nx-vwarm" x={0} y={0} width={r1(x(warmEnd + 1))} height={H} fill={`url(#${hatchId})`} />
         )}
+        {ahead && <rect className="nx-vfuture" x={r1(x(tick + 1))} y={0} width={r1(W - x(tick + 1))} height={H} />}
         {rows.map(row => {
           const x0 = r1(x(row.tick) + (slot - barWidth) / 2)
           const now = row.tick === tick ? ' is-now' : ''
@@ -48,6 +51,7 @@ function MirroredBars({ rows, max, tick }) {
           )
         })}
         <line className="nx-vmid" x1={0} x2={W} y1={MID} y2={MID} />
+        {ahead && <line className="nx-vnow" x1={r1(x(tick + 1))} x2={r1(x(tick + 1))} y1={0} y2={H} />}
       </svg>
     </div>
   )
@@ -119,7 +123,7 @@ export default function HiresAndLayoffs({ arms, tick, className = '' }) {
                   <span>{known ? <Bolded parts={copy.thisWeek(now.hired ?? 0, now.laidOff ?? 0)} /> : copy.thisWeekMissing}</span>
                 </div>
                 <MirroredBars rows={rows} max={max} tick={tick} />
-                <div className="nx-vaxis" aria-hidden="true"><span>{weekLabel(rows[0].tick)}</span><span>{COPY.numbers.thisWeek}</span></div>
+                <WindowAxis first={rows[0].tick} weeks={WEEKS} tick={tick} />
                 <p className="nx-foot">{copy.inThese(total(rows, 'hired'), total(rows, 'laidOff'))}</p>
               </div>
             )

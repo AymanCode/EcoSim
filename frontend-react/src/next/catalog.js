@@ -77,19 +77,19 @@ export const METRICS = {
     better: 'higher',
   },
   firmsStruggling: {
-    name: 'Firms struggling',
+    name: 'Businesses struggling',
     meaning: 'Open businesses out of cash or cutting back to survive.',
     format: 'count',
     better: 'lower',
   },
   firmsGrowing: {
-    name: 'Firms growing',
+    name: 'Businesses growing',
     meaning: 'Open businesses that plan to hire.',
     format: 'count',
     better: 'higher',
   },
   firmsSteady: {
-    name: 'Firms holding steady',
+    name: 'Businesses steady',
     meaning: 'Open businesses neither hiring nor struggling.',
     format: 'count',
     better: null,
@@ -1083,6 +1083,11 @@ export const COPY = {
       title: 'Who holds the savings',
       lead: 'Out of every $100 that households have saved, how much sits with the poorest half, the next 40%, and the richest tenth.',
       line: (bottom, middle, top) => ['Poorest half ', `$${bottom}`, ' · the next 40% ', `$${middle}`, ' · richest tenth ', `$${top}`],
+      // In place of the bar when households' cash adds up to nothing or less
+      // (the server sends both shares as 0), or when a group's share is below
+      // zero (some households owe more than they have).
+      none: 'Added together, households had no savings at the last count, so there is nothing to share out.',
+      owing: "Some households owed more than they had at the last count, so the savings can't be split this way.",
     },
     states: {
       title: 'How they are doing',

@@ -3,7 +3,7 @@ import useMeasured from '../../charts/useMeasured.js'
 import { COPY, WARMUP_TICKS, formatMoney } from '../catalog.js'
 import { everMeasured, valueAt } from '../data/derive.js'
 import { weekLabel } from '../narration.js'
-import Card, { Bolded, Hatch, SwatchKey, TownName } from './Card.jsx'
+import Card, { Bolded, Hatch, SwatchKey, TownName, WindowAxis } from './Card.jsx'
 import { isNumber, r1, windowStart } from './chartKit.js'
 import '../next.css'
 
@@ -36,6 +36,8 @@ function PairedBars({ rows, max, tick, color }) {
   const x = week => (week - first) * slot + (slot - 2 * barWidth - 1) / 2
   const height = value => (isNumber(value) && value > 0 ? Math.max(1, (value / max) * (BASE - 4)) : 0)
   const warmEnd = Math.min(WARMUP_TICKS, tick)
+  const ahead = tick < first + WEEKS - 1
+  const edge = (tick + 1 - first) * slot
 
   return (
     <div ref={ref} className="nx-vchart" aria-hidden="true">
@@ -44,6 +46,7 @@ function PairedBars({ rows, max, tick, color }) {
         {first <= WARMUP_TICKS && (
           <rect className="nx-vwarm" x={0} y={0} width={r1((warmEnd - first + 1) * slot)} height={BASE} fill={`url(#${hatchId})`} />
         )}
+        {ahead && <rect className="nx-vfuture" x={r1(edge)} y={0} width={r1(W - edge)} height={BASE} />}
         {rows.map(row => {
           const inHeight = height(row.in)
           const outHeight = height(row.out)
@@ -55,6 +58,7 @@ function PairedBars({ rows, max, tick, color }) {
           )
         })}
         <line className="nx-vmid" x1={0} x2={W} y1={BASE} y2={BASE} />
+        {ahead && <line className="nx-vnow" x1={r1(edge)} x2={r1(edge)} y1={0} y2={BASE} />}
       </svg>
     </div>
   )
@@ -131,7 +135,7 @@ export default function MoneyInOut({ arms, tick, onSeeBig, className = '' }) {
                 </span>
               </div>
               <PairedBars rows={rows} max={max} tick={tick} color={arm.color} />
-              <div className="nx-vaxis" aria-hidden="true"><span>{weekLabel(first)}</span><span>{COPY.numbers.thisWeek}</span></div>
+              <WindowAxis first={first} weeks={WEEKS} tick={last} />
             </div>
           )
         })}
