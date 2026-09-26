@@ -1,8 +1,9 @@
 import { describe, expect, test, vi } from 'vitest'
-import { fireEvent, render, screen } from '@testing-library/react'
+import { fireEvent, render, screen, within } from '@testing-library/react'
 import RunScreen from '../RunScreen.jsx'
 import useReplay from '../useReplay.js'
-import { commonTicks } from '../data/derive.js'
+import { formatMetric } from '../catalog.js'
+import { commonTicks, valueAt } from '../data/derive.js'
 import { leadSentence, verdict } from '../narration.js'
 import { fixtureArm, TOWN_A, TOWN_B } from './fixture.js'
 
@@ -35,6 +36,10 @@ function Clocked({ arms }) {
 
 const weekShown = container => container.querySelector('.nx-clock .nx-week').textContent
 const scrubTo = week => fireEvent.change(screen.getByRole('slider', { name: 'Week of the run' }), { target: { value: String(week) } })
+// The two ways into "All the numbers": the line under the stat cards and the timeline's button.
+const sheetLink = container => within(container.querySelector('.nx-side')).getByRole('button', { name: 'Show me all the numbers' })
+const sheetToggle = () => within(screen.getByRole('region', { name: 'Timeline' })).getByRole('button', { name: 'Show me all the numbers' })
+const sheet = () => screen.queryByRole('dialog', { name: 'All the numbers' })
 
 describe('RunScreen', () => {
   test('two towns: two matching columns, the lead sentence and the verdict', () => {
@@ -121,5 +126,87 @@ describe('RunScreen', () => {
     expect(shown).toBe(verdict(arms, 18))
     expect(shown).not.toContain('?')
     expect(container.querySelectorAll('path.nx-line')).toHaveLength(1)
+  })
+
+  test('a line under the stat cards names more numbers and opens all of them; focus goes in and back to the link', () => {
+    const arms = [fixtureArm(TOWN_A), townB()]
+    const { container } = render(<Clocked arms={arms} />)
+    expect(sheet()).toBeNull()
+    expect(container.querySelector('.nx-side .nx-morestats')).toHaveTextContent(
+      "Also: prices in every shop, savings, businesses opening and closing, the town hall's money. Show me all the numbers.",
+    )
+    const link = sheetLink(container)
+    fireEvent.click(link)
+    const dialog = sheet()
+    expect(dialog).toBeInTheDocument()
+    expect(within(dialog).getByRole('heading', { level: 2, name: 'All the numbers' })).toHaveFocus()
+    // The sheet takes the towns' place under the timeline, which stays in view.
+    expect(container.querySelector('main')).not.toBeVisible()
+    expect(screen.getByRole('slider', { name: 'Week of the run' })).toBeVisible()
+    expect(dialog.compareDocumentPosition(screen.getByRole('region', { name: 'Timeline' })) & Node.DOCUMENT_POSITION_PRECEDING).toBeTruthy()
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Back to the towns' }))
+    expect(sheet()).toBeNull()
+    expect(container.querySelector('main')).toBeVisible()
+    expect(link).toHaveFocus()
+    // The Run screen is as it was.
+    expect(container.querySelectorAll('.nx-col')).toHaveLength(2)
+  })
+
+  test('the timeline button opens and closes it, Escape closes it, and focus comes back to the button', () => {
+    render(<Clocked arms={[fixtureArm(TOWN_A), townB()]} />)
+    const toggle = sheetToggle()
+    expect(toggle).toHaveAttribute('aria-pressed', 'false')
+    expect(toggle).toHaveAttribute('aria-expanded', 'false')
+    fireEvent.click(toggle)
+    expect(toggle).toHaveAttribute('aria-pressed', 'true')
+    expect(toggle).toHaveAttribute('aria-expanded', 'true')
+    expect(toggle).toHaveAttribute('aria-controls', sheet().id)
+    fireEvent.keyDown(document.activeElement, { key: 'Escape' })
+    expect(sheet()).toBeNull()
+    expect(toggle).toHaveFocus()
+    expect(toggle).toHaveAttribute('aria-pressed', 'false')
+    fireEvent.click(toggle)
+    expect(sheet()).toBeInTheDocument()
+    fireEvent.click(toggle)
+    expect(sheet()).toBeNull()
+    expect(toggle).toHaveFocus()
+  })
+
+  test('the sheet runs on the same clock: scrubbing while it is open moves its numbers', () => {
+    const arms = [fixtureArm(TOWN_A), townB()]
+    const { container } = render(<Clocked arms={arms} />)
+    fireEvent.click(sheetLink(container))
+    const tile = within(sheet()).getByRole('article', { name: 'People out of work' })
+    const shown = () => [...tile.querySelectorAll('.nx-pv b')].map(value => value.textContent)
+    const expected = week => arms.map(arm => formatMetric('peopleOutOfWorkPer100', valueAt(arm, 'peopleOutOfWorkPer100', week)))
+    scrubTo(5)
+    expect(shown()).toEqual(expected(5))
+    scrubTo(15)
+    expect(expected(15)).not.toEqual(expected(5))
+    expect(shown()).toEqual(expected(15))
+    expect(sheet()).toHaveTextContent('Everything we measure in both towns, in Year 1, week 15.')
+    expect(weekShown(container)).toBe('Year 1, week 15')
+  })
+
+  test('the sheet\'s jump bar sticks right under the timeline, at the timeline\'s measured height', () => {
+    const realObserver = globalThis.ResizeObserver
+    globalThis.ResizeObserver = class {
+      constructor(callback) { this.callback = callback }
+      observe(node) { this.callback([{ target: node }]) }
+      unobserve() {}
+      disconnect() {}
+    }
+    const rect = vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function measured() {
+      const height = this.classList.contains('nx-hbar') ? 131.6 : 0
+      return { x: 0, y: 0, top: 0, left: 0, right: 0, bottom: height, width: 0, height }
+    })
+    try {
+      const { container } = render(<Clocked arms={[fixtureArm(TOWN_A), townB()]} />)
+      fireEvent.click(sheetLink(container))
+      expect(sheet().style.getPropertyValue('--nx-sheet-top')).toBe('131px')
+    } finally {
+      rect.mockRestore()
+      globalThis.ResizeObserver = realObserver
+    }
   })
 })

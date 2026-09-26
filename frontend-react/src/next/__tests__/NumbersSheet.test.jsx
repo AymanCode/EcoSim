@@ -92,6 +92,29 @@ describe('NumbersSheet', () => {
     expect(screen.getAllByRole('button', { name: 'Back to the towns' })).toHaveLength(1)
   })
 
+  test('the way back hides behind the bar above: the jump bar sticks at `top` and the observer insets the view by it', () => {
+    const observers = []
+    globalThis.IntersectionObserver = class {
+      constructor(callback, options) { this.callback = callback; this.options = options; observers.push(this) }
+      observe(target) { this.target = target }
+      disconnect() { this.disconnected = true }
+    }
+    const { rerender } = render(<div className="nx"><NumbersSheet id="numbers" arms={arms} tick={72} onClose={() => {}} top={64} /></div>)
+    const dialog = screen.getByRole('dialog', { name: 'All the numbers' })
+    expect(dialog).toHaveAttribute('id', 'numbers')
+    expect(dialog.style.getPropertyValue('--nx-sheet-top')).toBe('64px')
+    expect(observers.at(-1).options.rootMargin).toBe('-64px 0px 0px 0px')
+    // The bar above wraps to a new height: both follow it.
+    rerender(<div className="nx"><NumbersSheet id="numbers" arms={arms} tick={72} onClose={() => {}} top={131} /></div>)
+    expect(dialog.style.getPropertyValue('--nx-sheet-top')).toBe('131px')
+    expect(observers.at(-2).disconnected).toBe(true)
+    expect(observers.at(-1).options.rootMargin).toBe('-131px 0px 0px 0px')
+    // With nothing above it, nothing hides it.
+    rerender(<div className="nx"><NumbersSheet id="numbers" arms={arms} tick={72} onClose={() => {}} /></div>)
+    expect(dialog.style.getPropertyValue('--nx-sheet-top')).toBe('0px')
+    expect(observers.at(-1).options.rootMargin).toBe('0px 0px 0px 0px')
+  })
+
   test('jump chips name every section and take the reader to it', () => {
     const scroll = vi.fn()
     Element.prototype.scrollIntoView = scroll

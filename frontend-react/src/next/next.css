@@ -582,6 +582,10 @@
 .nx .nx-stats .nx-stat { padding: 12px 13px }
 .nx .nx-stats .pair { gap: 10px }
 .nx .nx-stats .nx-pv b { letter-spacing: -.01em }
+/* The line naming more numbers, ending in the way into all of them */
+.nx .nx-morestats { margin-top: 10px; font-size: 13px; line-height: 1.45; color: var(--nx-ink3-text) }
+.nx .nx-morestats .nx-more { display: inline; margin-top: 0; font-size: inherit; color: var(--nx-ink2) }
+.nx .nx-morestats .nx-more:hover { color: var(--nx-ink) }
 
 /* Feed beside the first-timer notes */
 .nx .nx-feedwrap { margin-top: 28px; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 22px }
@@ -922,7 +926,7 @@
    lost panels, and the household sample's second button. */
 .nx .nx-abtn:disabled { cursor: not-allowed; opacity: .55 }
 .nx .nx-follow { flex: none }
-.nx .nx-hall-toggle { flex: none }
+.nx .nx-hall-toggle, .nx .nx-numbers-toggle { flex: none }
 .nx .nx-notice { margin: -2px 0 8px 22px; font-size: 12.5px; line-height: 1.4; color: var(--nx-ink3-text) }
 .nx .nx-notice:empty { margin: 0 }
 .nx .nx-hh .nx-more + .nx-more { margin-left: 18px }
@@ -1003,10 +1007,9 @@
 
 /* "Show me all the numbers": a sheet over the Run screen (numbers/), on the
    same clock. Ported from docs/superpowers/specs/2026-09-25-mockups/06-all-the-numbers.html.
-   The timeline stays above it; --nx-sheet-top is the timeline's height, where
-   the jump bar sticks. */
+   The timeline stays above it; --nx-sheet-top is the timeline's measured
+   height (NumbersSheet's `top`, set inline), where the jump bar sticks. */
 .nx .nx-sheet {
-  --nx-sheet-top: 57px;
   position: relative;
   max-width: 1240px;
   margin: 14px auto 0;
@@ -1016,6 +1019,9 @@
   padding-bottom: 56px;
   min-width: 0;
 }
+/* While it is open the towns are hidden under it; the Run screen around the
+   sheet is the mockup's dimmed backdrop, and the timeline above stays lit. */
+.nx .nx-run.has-sheet { background: #979CA2 }
 .nx .nx-sheet [hidden] { display: none }
 .nx .nx-sheet h2:focus:not(:focus-visible), .nx .nx-sheet h3:focus:not(:focus-visible) { outline: none }
 .nx .nx-sheet h2:focus-visible, .nx .nx-sheet h3:focus-visible { outline: 2px solid var(--nx-a); outline-offset: 3px; border-radius: 6px }

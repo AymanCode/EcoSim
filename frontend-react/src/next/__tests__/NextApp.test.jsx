@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test, vi } from 'vitest'
-import { fireEvent, render, screen } from '@testing-library/react'
+import { fireEvent, render, screen, within } from '@testing-library/react'
 import NextApp from '../NextApp.jsx'
 import { FIXTURE_TEXT } from './fixture.js'
 
@@ -55,5 +55,35 @@ describe('NextApp', () => {
     vi.stubGlobal('fetch', serve({ 'town-a.jsonl': '<!doctype html>', 'town-b.jsonl': '<!doctype html>' }))
     render(<NextApp search="?view=next&demo" />)
     expect(await screen.findByText(/^Demo data missing/)).toBeInTheDocument()
+  })
+
+  test('?view=next&demo&numbers opens the demo on all the numbers, once', async () => {
+    vi.stubGlobal('fetch', serve({ 'town-a.jsonl': FIXTURE_TEXT, 'town-b.jsonl': TOWN_B_TEXT }))
+    const { container } = render(<NextApp search="?view=next&demo&numbers" />)
+    // The sheet is the heaviest screen to draw; give it time on a busy machine.
+    const dialog = await screen.findByRole('dialog', { name: 'All the numbers' }, { timeout: 4000 })
+    expect(within(dialog).getByRole('heading', { level: 2, name: 'All the numbers' })).toHaveFocus()
+    const toggle = within(screen.getByRole('region', { name: 'Timeline' })).getByRole('button', { name: 'Show me all the numbers' })
+    expect(toggle).toHaveAttribute('aria-pressed', 'true')
+    // The same clock: the timeline above moves the sheet.
+    fireEvent.change(screen.getByRole('slider', { name: 'Week of the run' }), { target: { value: '15' } })
+    expect(dialog).toHaveTextContent('Everything we measure in both towns, in Year 1, week 15.')
+    // Closed, focus goes to the button that opens it again.
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Back to the towns' }))
+    expect(screen.queryByRole('dialog')).toBeNull()
+    expect(container.querySelectorAll('.nx-col')).toHaveLength(2)
+    expect(toggle).toHaveFocus()
+    // Watching the example again from Set up starts on the towns.
+    fireEvent.click(screen.getByRole('button', { name: 'Set up' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Watch the example' }))
+    expect(await screen.findByRole('slider', { name: 'Week of the run' })).toBeInTheDocument()
+    expect(screen.queryByRole('dialog')).toBeNull()
+  })
+
+  test('?view=next&demo opens on the towns', async () => {
+    vi.stubGlobal('fetch', serve({ 'town-a.jsonl': FIXTURE_TEXT, 'town-b.jsonl': TOWN_B_TEXT }))
+    render(<NextApp search="?view=next&demo" />)
+    expect(await screen.findByRole('slider', { name: 'Week of the run' })).toBeInTheDocument()
+    expect(screen.queryByRole('dialog')).toBeNull()
   })
 })

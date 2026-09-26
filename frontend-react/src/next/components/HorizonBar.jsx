@@ -27,10 +27,15 @@ const STEERABLE = ['running', 'paused']
 // resumes the towns, "Back to live" returns to the newest week while
 // `following` is false, and a Town hall button opens and closes the drawer
 // (`onHallToggle(open)`, else `live.onHall`); `hallToggleRef` lets focus come
-// back to it, and `hallId` is the drawer it controls.
+// back to it, and `hallId` is the drawer it controls. With `onNumbersToggle`,
+// a "Show me all the numbers" button opens and closes that sheet
+// (`onNumbersToggle(open, button)`), likewise with `numbersToggleRef` and
+// `numbersId`; `numbersDisabled` while there is nothing to show. `barRef`
+// reaches the bar itself, so what sits under it can be measured against it.
 export default function HorizonBar({
   tick, horizon, maxTick, playing, onToggle, onScrub, speed, onSpeed, live, following = true, onFollow,
   hallToggleRef, hallId, onHallToggle,
+  numbersOpen = false, onNumbersToggle, numbersToggleRef, numbersId, numbersDisabled = false, barRef,
 }) {
   const last = Math.max(1, maxTick)
   const length = Math.max(last, horizon || 0)
@@ -48,7 +53,7 @@ export default function HorizonBar({
   const hasSpeed = speed !== undefined && onSpeed !== undefined
 
   return (
-    <div className="nx-hbar" role="region" aria-label={COPY.horizon.region}>
+    <div ref={barRef} className="nx-hbar" role="region" aria-label={COPY.horizon.region}>
       <div className="nx-hbar-in">
         <button type="button" className="nx-abtn is-dark nx-play" disabled={!steerable} onClick={onToggle}>
           <PlayIcon playing={pauseShown} />
@@ -112,6 +117,20 @@ export default function HorizonBar({
             onClick={() => (onHallToggle ?? live.onHall)(!live.hallOpen)}
           >
             {COPY.hall.title}
+          </button>
+        )}
+        {onNumbersToggle && (
+          <button
+            ref={numbersToggleRef}
+            type="button"
+            className={`nx-abtn nx-numbers-toggle${numbersOpen ? ' is-dark' : ''}`}
+            disabled={numbersDisabled}
+            aria-pressed={numbersOpen}
+            aria-expanded={numbersOpen}
+            aria-controls={numbersOpen && numbersId ? numbersId : undefined}
+            onClick={event => onNumbersToggle(!numbersOpen, event.currentTarget)}
+          >
+            {COPY.numbers.open}
           </button>
         )}
       </div>

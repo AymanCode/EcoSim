@@ -52,6 +52,9 @@ function expectedArms(sockets, weeks) {
 }
 
 const weekShown = container => container.querySelector('.nx-clock .nx-week').textContent
+const numbersToggle = () => within(screen.getByRole('region', { name: 'Timeline' })).getByRole('button', { name: 'Show me all the numbers' })
+const numbers = () => screen.queryByRole('dialog', { name: 'All the numbers' })
+const townChips = dialog => within(dialog).getAllByRole('listitem').filter(item => item.classList.contains('nx-tchip'))
 
 describe('NextApp live', () => {
   beforeEach(() => vi.useFakeTimers())
@@ -392,5 +395,78 @@ describe('NextApp live', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Back to the end' }))
     expect(weekShown(container)).toBe('Year 1, week 12')
     expect(container.querySelector('.nx-endp-v')).not.toBeNull()
+  })
+
+  test('all the numbers in a live run: a town lost mid-run keeps its last numbers and its column says when', () => {
+    const { sockets } = app()
+    start()
+    flush()
+    // Nothing to show while the towns are being built.
+    expect(numbersToggle()).toBeDisabled()
+    connect(sockets)
+    run(sockets)
+    fireEvent.click(numbersToggle())
+    const dialog = numbers()
+    expect(dialog).toHaveTextContent('Everything we measure in both towns, in Year 1, week 12.')
+    const tile = within(dialog).getByRole('article', { name: 'People out of work' })
+    const shown = () => [...tile.querySelectorAll('.nx-pv b')].map(value => value.textContent)
+    const before = shown()
+    act(() => { sockets[1].serverClose() })
+    flush()
+    expect(numbers()).toBe(dialog)
+    const chips = townChips(dialog)
+    expect(chips[1]).toHaveTextContent('lost its connection in Year 1, week 12')
+    expect(chips[0]).not.toHaveTextContent('lost its connection')
+    within(dialog).getAllByRole('table').filter(table => !table.closest('.nx-sr')).forEach(table => {
+      expect(within(table).getAllByRole('columnheader').find(head => head.textContent.startsWith('Town B'))).toHaveTextContent('lost its connection in Year 1, week 12')
+    })
+    expect(shown()).toEqual(before)
+    // Back on the towns, the lost panel is there as before.
+    fireEvent.keyDown(document.activeElement, { key: 'Escape' })
+    expect(numbers()).toBeNull()
+    expect(screen.getByRole('alert')).toHaveTextContent('Town B lost its connection to the simulation in Year 1, week 12.')
+  })
+
+  test('the Town hall and all the numbers are never open together', () => {
+    const { sockets } = app()
+    start()
+    connect(sockets)
+    run(sockets)
+    const hallToggle = screen.getByRole('button', { name: 'Town hall' })
+    fireEvent.click(numbersToggle())
+    expect(numbers()).toBeInTheDocument()
+    // Opening the Town hall closes the sheet, and focus goes into the drawer.
+    fireEvent.click(hallToggle)
+    const hall = screen.getByRole('complementary', { name: 'Town hall' })
+    expect(numbers()).toBeNull()
+    expect(numbersToggle()).toHaveAttribute('aria-pressed', 'false')
+    expect(hall).toContainElement(document.activeElement)
+    // Opening the sheet closes the Town hall.
+    fireEvent.click(numbersToggle())
+    expect(screen.queryByRole('complementary', { name: 'Town hall' })).toBeNull()
+    expect(hallToggle).toHaveAttribute('aria-pressed', 'false')
+    expect(within(numbers()).getByRole('heading', { level: 2, name: 'All the numbers' })).toHaveFocus()
+    // One Escape closes the sheet and leaves the Town hall shut.
+    fireEvent.keyDown(document.activeElement, { key: 'Escape' })
+    expect(numbers()).toBeNull()
+    expect(screen.queryByRole('complementary', { name: 'Town hall' })).toBeNull()
+    expect(numbersToggle()).toHaveFocus()
+  })
+
+  test('a new experiment closes all the numbers', () => {
+    const { sockets } = app()
+    start()
+    connect(sockets)
+    run(sockets)
+    fireEvent.click(numbersToggle())
+    expect(numbers()).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'New experiment' }))
+    expect(numbers()).toBeNull()
+    expect(screen.getByRole('heading', { level: 1, name: 'What do you want to find out?' })).toBeInTheDocument()
+    start()
+    connect(sockets.slice(2))
+    run(sockets.slice(2))
+    expect(screen.getAllByRole('region', { name: /^Town [AB]$/ })).toHaveLength(2)
+    expect(numbers()).toBeNull()
   })
 })

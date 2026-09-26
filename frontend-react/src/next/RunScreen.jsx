@@ -1,4 +1,4 @@
-import { useId, useRef, useState } from 'react'
+import { Activity, useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from 'react'
 import { COPY, STAT_METRICS, STORY_METRICS, describePolicy, townTextColor } from './catalog.js'
 import { rulesAt, rulesDiff } from './data/derive.js'
 import { leadSentence, verdict } from './narration.js'
@@ -10,6 +10,7 @@ import HouseholdCards from './components/HouseholdCards.jsx'
 import HowToRead from './components/HowToRead.jsx'
 import LostPanel from './components/LostPanel.jsx'
 import Moments from './components/Moments.jsx'
+import NumbersSheet from './numbers/NumbersSheet.jsx'
 import StatCard from './components/StatCard.jsx'
 import StoryChart from './components/StoryChart.jsx'
 import Town from './components/Town.jsx'
@@ -101,11 +102,32 @@ function LivePanel({ live, arms, maxTick, horizon }) {
   return null
 }
 
+// An element's height in whole px, kept up to date as it wraps and resizes;
+// 0 until it has been measured. Returns the ref to put on the element.
+function useHeight() {
+  const [height, setHeight] = useState(0)
+  const ref = useCallback(node => {
+    if (!node || typeof ResizeObserver === 'undefined') return undefined
+    const observer = new ResizeObserver(() => setHeight(Math.floor(node.getBoundingClientRect().height)))
+    observer.observe(node)
+    return () => observer.disconnect()
+  }, [])
+  return [ref, height]
+}
+
+const page = () => document.scrollingElement ?? document.documentElement
+
 // The Run screen: every panel reads the week its parent's clock is on. With
 // `live` (NextApp's live experiment) it also steers the towns: pause and
 // resume, the end and lost panels, the Town hall drawer and the household
 // sample. Without it, it replays recorded towns.
-export default function RunScreen({ arms, tick, maxTick, playing, onToggle, onScrub, speed, onSpeed, live }) {
+// "Show me all the numbers" (the line under the stat cards, or the timeline's
+// button) opens the numbers sheet in the towns' place, under the timeline that
+// still drives it; `numbersOpen` opens the screen on it. The sheet and the Town
+// hall drawer are never open together.
+export default function RunScreen({
+  arms, tick, maxTick, playing, onToggle, onScrub, speed, onSpeed, live, numbersOpen: numbersAtStart = false,
+}) {
   const horizon = Math.max(maxTick, ...arms.map(arm => arm.horizon || 0))
   const [metricKey, setMetricKey] = useState(STORY_METRICS[0])
   // The Town hall toggle, so focus can return to it when the drawer closes,
@@ -121,8 +143,54 @@ export default function RunScreen({ arms, tick, maxTick, playing, onToggle, onSc
   // running town and the viewer on the newest week.
   const canReshuffle = live?.phase === 'running' && live.following !== false
 
+  // The numbers sheet: whether it is open, what opened it (focus goes back
+  // there when the viewer closes it, else to the timeline's button), and the
+  // page's scroll on the towns, given back when it closes.
+  const [numbersOpen, setNumbersOpen] = useState(numbersAtStart)
+  const numbersToggleRef = useRef(null)
+  const numbersOpener = useRef(null)
+  const numbersClosing = useRef(null)
+  const numbersId = `${useId()}-numbers`
+  const [barRef, barHeight] = useHeight()
+
+  const openNumbers = opener => {
+    numbersOpener.current = opener ?? null
+    if (live?.hallOpen) live.onHall(false)
+    setNumbersOpen(true)
+  }
+  // `refocus` false when something else takes focus (the Town hall drawer).
+  const closeNumbers = ({ refocus = true } = {}) => {
+    if (!numbersOpen) return
+    numbersClosing.current = { refocus }
+    setNumbersOpen(false)
+  }
+
+  // The sheet starts at its top; closing it goes back to where the towns were.
+  // Leaving the Run screen with it open restores nothing.
+  useLayoutEffect(() => {
+    if (!numbersOpen) return undefined
+    const scroller = page()
+    const before = scroller.scrollTop
+    scroller.scrollTop = 0
+    return () => {
+      if (numbersClosing.current) scroller.scrollTop = before
+    }
+  }, [numbersOpen])
+
+  // Focus goes back to what opened the sheet, now visible again.
+  useEffect(() => {
+    const closing = numbersClosing.current
+    if (numbersOpen || !closing) return
+    numbersClosing.current = null
+    if (!closing.refocus) return
+    const opener = numbersOpener.current
+    const target = opener?.isConnected ? opener : numbersToggleRef.current
+    target?.focus()
+  }, [numbersOpen])
+
   const toggleHall = open => {
     setHallFocus(open)
+    if (open) closeNumbers({ refocus: false })
     live.onHall(open)
   }
   const closeHall = () => {
@@ -131,8 +199,9 @@ export default function RunScreen({ arms, tick, maxTick, playing, onToggle, onSc
   }
 
   return (
-    <div className="nx-run">
+    <div className={`nx-run${numbersOpen ? ' has-sheet' : ''}`}>
       <HorizonBar
+        barRef={barRef}
         tick={tick}
         horizon={horizon}
         maxTick={maxTick}
@@ -147,6 +216,11 @@ export default function RunScreen({ arms, tick, maxTick, playing, onToggle, onSc
         hallToggleRef={hallToggleRef}
         hallId={hallId}
         onHallToggle={live ? toggleHall : undefined}
+        numbersOpen={numbersOpen}
+        onNumbersToggle={(open, button) => (open ? openNumbers(button) : closeNumbers())}
+        numbersToggleRef={numbersToggleRef}
+        numbersId={numbersId}
+        numbersDisabled={building}
       />
       {/* The drawer is fixed to the right; it comes right after the timeline so
           the keyboard reaches it before the columns. */}
@@ -161,57 +235,78 @@ export default function RunScreen({ arms, tick, maxTick, playing, onToggle, onSc
           autoFocus={hallFocus}
         />
       )}
-      <main className="nx-wrap">
-        {building ? (
-          <>
-            {panel}
-            {live.phase !== 'lost' && <p className="nx-status" role="status">{COPY.live.building}</p>}
-          </>
-        ) : (
-          <>
-            <p className="nx-lead"><Lead text={leadSentence(arms, tick)} arms={arms} /></p>
-            <Moments arms={arms} tick={tick} />
-            {panel}
+      {numbersOpen && (
+        <NumbersSheet
+          id={numbersId}
+          arms={arms}
+          tick={tick}
+          onClose={() => closeNumbers()}
+          live={live}
+          playing={playing}
+          top={barHeight}
+        />
+      )}
+      {/* Under the sheet the towns are hidden but kept as they were (the chart
+          picked, the families met), and catch up when React is idle. */}
+      <Activity mode={numbersOpen ? 'hidden' : 'visible'}>
+        <main className="nx-wrap">
+          {building ? (
+            <>
+              {panel}
+              {live.phase !== 'lost' && <p className="nx-status" role="status">{COPY.live.building}</p>}
+            </>
+          ) : (
+            <>
+              <p className="nx-lead"><Lead text={leadSentence(arms, tick)} arms={arms} /></p>
+              <Moments arms={arms} tick={tick} />
+              {panel}
 
-            <div className={`nx-cols${single ? ' is-single' : ''}`}>
-              {arms.map((arm, i) => (
-                <TownColumn
-                  key={arm.label}
-                  arm={arm}
+              <div className={`nx-cols${single ? ' is-single' : ''}`}>
+                {arms.map((arm, i) => (
+                  <TownColumn
+                    key={arm.label}
+                    arm={arm}
+                    tick={tick}
+                    single={single}
+                    live={Boolean(live)}
+                    notice={live?.towns?.[i]?.notice}
+                    onTrack={live ? (action, householdId) => live.onTrack(i, action, householdId) : undefined}
+                    canReshuffle={canReshuffle}
+                  />
+                ))}
+              </div>
+
+              <div className="nx-story">
+                <StoryChart
+                  arms={arms}
+                  metricKey={metricKey}
                   tick={tick}
-                  single={single}
-                  live={Boolean(live)}
-                  notice={live?.towns?.[i]?.notice}
-                  onTrack={live ? (action, householdId) => live.onTrack(i, action, householdId) : undefined}
-                  canReshuffle={canReshuffle}
+                  horizon={horizon}
+                  onMetricChange={setMetricKey}
+                  playing={playing}
                 />
-              ))}
-            </div>
-
-            <div className="nx-story">
-              <StoryChart
-                arms={arms}
-                metricKey={metricKey}
-                tick={tick}
-                horizon={horizon}
-                onMetricChange={setMetricKey}
-                playing={playing}
-              />
-              <div className="nx-side">
-                <p className="nx-verdict">{verdict(arms, tick)}</p>
-                <div className="nx-stats">
-                  {STAT_METRICS.map(key => <StatCard key={key} metricKey={key} arms={arms} tick={tick} />)}
+                <div className="nx-side">
+                  <p className="nx-verdict">{verdict(arms, tick)}</p>
+                  <div className="nx-stats">
+                    {STAT_METRICS.map(key => <StatCard key={key} metricKey={key} arms={arms} tick={tick} />)}
+                  </div>
+                  <p className="nx-morestats">
+                    {COPY.numbers.more}{' '}
+                    <button type="button" className="nx-more" onClick={event => openNumbers(event.currentTarget)}>
+                      {COPY.numbers.open}
+                    </button>.
+                  </p>
                 </div>
               </div>
-            </div>
 
-            <div className="nx-feedwrap">
-              <Feed arms={arms} tick={tick} />
-              <HowToRead arms={arms} tick={tick} />
-            </div>
-          </>
-        )}
-      </main>
+              <div className="nx-feedwrap">
+                <Feed arms={arms} tick={tick} />
+                <HowToRead arms={arms} tick={tick} />
+              </div>
+            </>
+          )}
+        </main>
+      </Activity>
     </div>
   )
 }

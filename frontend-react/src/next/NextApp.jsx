@@ -25,8 +25,9 @@ async function loadTown(file, index) {
   return arm
 }
 
-// The recorded demo on the Run screen, with its own replay clock.
-function DemoRun({ arms }) {
+// The recorded demo on the Run screen, with its own replay clock;
+// `numbersOpen` opens it on all the numbers.
+function DemoRun({ arms, numbersOpen = false }) {
   const ticks = useMemo(() => commonTicks(arms), [arms])
   const maxTick = ticks.length ? ticks[ticks.length - 1] : 1
   const clock = useReplay({ maxTick })
@@ -40,6 +41,7 @@ function DemoRun({ arms }) {
       onScrub={clock.scrub}
       speed={clock.speed}
       onSpeed={clock.setSpeed}
+      numbersOpen={numbersOpen}
     />
   )
 }
@@ -76,9 +78,12 @@ function LiveRun({ state, experiment, hallOpen, onHall, onRestart, onNewExperime
 }
 
 // The new app at ?view=next: Set up, live towns on the Run screen, or the
-// recorded demo (?view=next&demo). Sockets open only when Start is pressed.
+// recorded demo (?view=next&demo), opened on all the numbers with
+// ?view=next&demo&numbers. Sockets open only when Start is pressed.
 export default function NextApp({ search = window.location.search, WebSocketImpl = globalThis.WebSocket }) {
   const [screen, setScreen] = useState(() => pickScreen(search))
+  // The link's `numbers` applies to the demo it opens, not to a later one.
+  const [demoOnNumbers, setDemoOnNumbers] = useState(() => new URLSearchParams(search ?? '').has('numbers'))
   const [problem, setProblem] = useState(null)
   const [plan, setPlan] = useState(null)
   const [hallOpen, setHallOpen] = useState(false)
@@ -129,6 +134,7 @@ export default function NextApp({ search = window.location.search, WebSocketImpl
   const watchExample = () => {
     experiment.leave()
     setProblem(null)
+    setDemoOnNumbers(false)
     setScreen('demo')
   }
 
@@ -162,7 +168,7 @@ export default function NextApp({ search = window.location.search, WebSocketImpl
         />
       )}
 
-      {screen === 'demo' && demoStatus === 'ready' && <DemoRun arms={demo.arms} />}
+      {screen === 'demo' && demoStatus === 'ready' && <DemoRun arms={demo.arms} numbersOpen={demoOnNumbers} />}
       {screen === 'demo' && demoStatus === 'loading' && (
         <main className="nx-wrap nx-status"><p role="status">{COPY.app.loading}</p></main>
       )}

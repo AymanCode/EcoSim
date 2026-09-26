@@ -947,6 +947,10 @@ export const COPY = {
     hint: 'The timeline above still works: drag it and every number here follows.',
     towns: 'The towns and their rules',
     back: 'Back to the towns',
+    // The Run screen's ways in: the timeline's button, and a line under the
+    // stat cards naming some of what is inside, ending in the same words.
+    open: 'Show me all the numbers',
+    more: "Also: prices in every shop, savings, businesses opening and closing, the town hall's money.",
     // Under a live town's name once its connection is gone; its numbers stay as they were.
     lost: week => (week ? `lost its connection in ${week}` : 'lost its connection before its first week'),
     jump: 'Jump to a group',

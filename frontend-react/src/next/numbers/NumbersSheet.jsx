@@ -108,8 +108,11 @@ function lostNote(live, index) {
 // the big chart first, when one is open), as do both "Back to the towns"
 // buttons. The jump bar's button shows once the header's has scrolled away.
 // `live` (RunScreen's live prop) marks a lost town's columns; `playing` stops
-// the big chart's cursor easing while the clock runs.
-export default function NumbersSheet({ arms, tick, onClose, live, playing = false }) {
+// the big chart's cursor easing while the clock runs. `top` is the height in
+// px of the sticky bar above the sheet (RunScreen's timeline, measured): the
+// jump bar sticks right under it, and the header's way back counts as gone
+// once it has slid under it. `id` names the sheet for the button that opens it.
+export default function NumbersSheet({ id, arms, tick, onClose, live, playing = false, top = 0 }) {
   const uid = useId().replace(/:/g, '')
   const titleId = `nx-sheet-${uid}`
   const headingRef = useRef(null)
@@ -154,14 +157,16 @@ export default function NumbersSheet({ arms, tick, onClose, live, playing = fals
     tile?.focus()
   }, [big])
 
-  // One way back at a time: the jump bar's button once the header's is gone.
+  // One way back at a time: the jump bar's button once the header's is gone,
+  // that is, once it has slid under the bar above the sheet.
   useEffect(() => {
     const target = headBackRef.current
     if (!target || typeof IntersectionObserver === 'undefined') return undefined
-    const observer = new IntersectionObserver(([entry]) => setStuck(!entry.isIntersecting), { rootMargin: '-110px 0px 0px 0px' })
+    const rootMargin = `${top > 0 ? `-${top}px` : '0px'} 0px 0px 0px`
+    const observer = new IntersectionObserver(([entry]) => setStuck(!entry.isIntersecting), { rootMargin })
     observer.observe(target)
     return () => observer.disconnect()
-  }, [])
+  }, [top])
 
   const sectionId = name => `nx-numbers-${uid}-${name}`
   const sections = [
@@ -178,7 +183,14 @@ export default function NumbersSheet({ arms, tick, onClose, live, playing = fals
   const notes = arms.map((_, i) => lostNote(live, i))
 
   return (
-    <section ref={sheetRef} className={`nx-sheet${playing ? ' is-playing' : ''}`} role="dialog" aria-labelledby={titleId}>
+    <section
+      ref={sheetRef}
+      id={id}
+      className={`nx-sheet${playing ? ' is-playing' : ''}`}
+      style={{ '--nx-sheet-top': `${top}px` }}
+      role="dialog"
+      aria-labelledby={titleId}
+    >
       <header className="nx-sheet-head">
         <div>
           <h2 id={titleId} ref={headingRef} tabIndex={-1}>{COPY.numbers.title}</h2>
