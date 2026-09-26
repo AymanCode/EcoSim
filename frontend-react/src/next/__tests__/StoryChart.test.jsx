@@ -83,6 +83,17 @@ describe('StoryChart', () => {
     expect(ys[1] - ys[0]).toBeGreaterThanOrEqual(16)
   })
 
+  test('town hall cash below zero reads "owes" at the end of the line; the axis keeps its sign', () => {
+    const [a, b] = arms()
+    b.series.townHallCash = b.series.townHallCash.map(() => -11276.486)
+    const { container } = render(<StoryChart arms={[a, b]} metricKey="townHallCash" tick={24} horizon={24} onMetricChange={() => {}} />)
+    const labels = [...container.querySelectorAll('.nx-endl')].map(label => label.textContent)
+    expect(labels.find(text => text.startsWith('Town B'))).toMatch(/owes \$11k$/)
+    const axis = [...container.querySelectorAll('.nx-yaxis text')].map(text => text.textContent)
+    expect(axis.some(text => text.startsWith('-$'))).toBe(true)
+    expect(axis.some(text => text.startsWith('owes'))).toBe(false)
+  })
+
   test('a narrow chart puts each town and its value on two lines', () => {
     const measure = vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({ width: 340, height: 320, top: 0, left: 0, right: 340, bottom: 320 })
     try {

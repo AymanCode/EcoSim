@@ -88,7 +88,6 @@ describe('differencePhrase', () => {
     expect(differencePhrase('peopleOutOfWorkPer100', 31.263, 42.2, at)).toBe('11 fewer in 100 than Town A')
     expect(differencePhrase('peopleOutOfWorkPer100', 45.4, 42.2, at)).toBe('3 more in 100 than Town A')
     expect(differencePhrase('typicalWeeklyPay', 58.227, 46.449, at)).toBe('$12 more than Town A')
-    expect(differencePhrase('townHallCash', -11276.486, 80602.696, at)).toBe('$91,879 less than Town A')
     expect(differencePhrase('foodSpendPerHousehold', 4.71, 4.59, at)).toBe('$0.12 more than Town A')
     expect(differencePhrase('priceFood', 4.59, 4.71, at)).toBe('$0.12 less than Town A')
     expect(differencePhrase('gini', 0.551, 0.498, at)).toBe('0.05 higher than Town A')
@@ -98,8 +97,24 @@ describe('differencePhrase', () => {
     expect(differencePhrase('firmsOpen', 17, 19, at)).toBe('2 fewer than Town A')
     expect(differencePhrase('happiness', 40.295, 22.345, at)).toBe('18 points higher than Town A')
     expect(differencePhrase('happiness', 22.6, 24.1, at)).toBe('1 point lower than Town A')
-    expect(differencePhrase('topTenthShare', 49.715, 41.577, at)).toBe('8 percentage points higher than Town A')
-    expect(differencePhrase('bottomHalfShare', 16.863, 18.4, at)).toBe('1 percentage point lower than Town A')
+    expect(differencePhrase('topTenthShare', 49.715, 41.577, at)).toBe('$8 more out of every $100 than Town A')
+    expect(differencePhrase('bottomHalfShare', 16.863, 18.4, at)).toBe('$1 less out of every $100 than Town A')
+  })
+
+  test('town hall cash compares debts as debts', () => {
+    // Both have money: the plain difference.
+    expect(differencePhrase('townHallCash', 80602.696, 70000, at)).toBe('$10,603 more than Town A')
+    expect(differencePhrase('townHallCash', 5000, 8000, at)).toBe('$3,000 less than Town A')
+    // Both owe: the difference in what they owe.
+    expect(differencePhrase('townHallCash', -5000, -8000, at)).toBe('owes $3,000 less than Town A')
+    expect(differencePhrase('townHallCash', -8000, -5000, at)).toBe('owes $3,000 more than Town A')
+    expect(differencePhrase('townHallCash', -2.6, -1.6, at)).toBe('owes $1 more than Town A')
+    // One owes and the other does not: the gap, and what the first town has or owes.
+    expect(differencePhrase('townHallCash', -11276.486, 80602.696, at)).toBe('$91,879 less than Town A, which has $80,603')
+    expect(differencePhrase('townHallCash', 5000, -3000, at)).toBe('$8,000 more than Town A, which owes $3,000')
+    expect(differencePhrase('townHallCash', -500, 0, at)).toBe('$500 less than Town A, which has $0')
+    // A debt of exactly half a dollar rounds the way the page shows it.
+    expect(differencePhrase('townHallCash', -2.5, -1.6, at)).toBe('about the same as Town A')
   })
 
   test('says "about the same" when the shown values tie', () => {
@@ -124,9 +139,10 @@ describe('differencePhrase', () => {
     expect(differencePhrase('typicalWeeklyPay', 30, 21.6, { tick: 11 })).toBe('$8 more than Town A')
   })
 
-  test('has nothing to say when either value is missing', () => {
+  test('has nothing to say when either value is missing, even during warm-up', () => {
     expect(differencePhrase('happiness', null, 40, at)).toBeNull()
     expect(differencePhrase('happiness', 40, undefined, at)).toBeNull()
+    expect(differencePhrase('happiness', null, null, { tick: 5 })).toBeNull()
   })
 })
 

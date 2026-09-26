@@ -550,25 +550,39 @@ export function moments(arms, tick) {
 // either figure is missing (its own cell says it was not measured).
 // options = { tick, baseLabel }: the week shown, and the first town's name.
 const countWords = new Intl.NumberFormat('en-US', { maximumFractionDigits: 0 })
-const points = (n, unit) => `${n} ${unit}${n === 1 ? '' : 's'}`
 const DIFFERENCES = {
   per100: (n, up) => `${n} ${up ? 'more' : 'fewer'} in 100`,
   money: (n, up) => `${formatMoney(n)} ${up ? 'more' : 'less'}`,
   price: (n, up) => `$${n.toFixed(2)} ${up ? 'more' : 'less'}`,
   ratio: (n, up) => `${n.toFixed(2)} ${up ? 'higher' : 'lower'}`,
   count: (n, up) => `${countWords.format(n)} ${up ? 'more' : 'fewer'}`,
-  outOf100: (n, up) => `${points(n, 'point')} ${up ? 'higher' : 'lower'}`,
-  percent: (n, up) => `${points(n, 'percentage point')} ${up ? 'higher' : 'lower'}`,
+  outOf100: (n, up) => `${n} ${n === 1 ? 'point' : 'points'} ${up ? 'higher' : 'lower'}`,
+  // The percent metrics are shares of household cash (catalog.js), read the
+  // way the share bars show them: dollars out of every $100.
+  percent: (n, up) => `$${n} ${up ? 'more' : 'less'} out of every $100`,
 }
 const isFiniteNumber = value => typeof value === 'number' && Number.isFinite(value)
 
+// A balance that can owe (METRICS `owes`, the town hall's cash), compared as
+// the page shows it: two debts by what they owe, and across zero by the gap
+// plus what the first town has or owes.
+function owesPhrase(shown, shownBase, baseLabel) {
+  const gap = shown - shownBase
+  if (shown < 0 && shownBase < 0) return `owes ${formatMoney(Math.abs(gap))} ${gap < 0 ? 'more' : 'less'} than ${baseLabel}`
+  const phrase = `${DIFFERENCES.money(Math.abs(gap), gap > 0)} than ${baseLabel}`
+  if (shown >= 0 && shownBase >= 0) return phrase
+  return `${phrase}, which ${shownBase < 0 ? `owes ${formatMoney(-shownBase)}` : `has ${formatMoney(shownBase)}`}`
+}
+
 export function differencePhrase(key, value, base, { tick = null, baseLabel = 'Town A' } = {}) {
-  if (known(tick) && inWarmUp(tick)) return 'still being set up'
   if (!isFiniteNumber(value) || !isFiniteNumber(base)) return null
-  const gap = shownValue(key, value) - shownValue(key, base)
+  if (known(tick) && inWarmUp(tick)) return 'still being set up'
+  const [shown, shownBase] = [shownValue(key, value), shownValue(key, base)]
+  const gap = shown - shownBase
   const format = METRICS[key]?.format
   const size = format === 'price' || format === 'ratio' ? Math.round(Math.abs(gap) * 100) / 100 : Math.round(Math.abs(gap))
   if (formatMetric(key, value) === formatMetric(key, base) || size === 0) return `about the same as ${baseLabel}`
+  if (METRICS[key]?.owes) return owesPhrase(shown, shownBase, baseLabel)
   const phrase = DIFFERENCES[format] ?? DIFFERENCES.count
   return `${phrase(size, gap > 0)} than ${baseLabel}`
 }

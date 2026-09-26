@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'vitest'
 import {
   COPY, COUNTED_EVERY_5, DEFAULT_POLICY, GLANCE_KEYS, LEVER_GROUPS, LEVERS, METRICS, NUMBER_GROUPS, QUESTIONS, capitalise, describePolicy, formatMetric,
-  formatMetricShort, formatMoneyShort, leverValuePhrase, shownValue,
+  formatEndLabel, formatMetricShort, formatMoneyShort, leverValuePhrase, shownValue,
 } from '../catalog.js'
 import { policyProblems } from '../policyRules.js'
 
@@ -80,6 +80,21 @@ describe('formatMetric', () => {
     expect(formatMetricShort('townHallCash', 1_346_184)).toBe('$1.3m')
   })
 
+  test('end labels say "owes" the way the values do', () => {
+    expect(formatEndLabel('townHallCash', -11276.486)).toBe('owes $11k')
+    expect(formatEndLabel('townHallCash', -5000)).toBe('owes $5,000')
+    expect(formatEndLabel('townHallCash', -2.5)).toBe('owes $2')
+    expect(formatEndLabel('townHallCash', -0.4)).toBe('$0')
+    expect(formatEndLabel('townHallCash', 80602.696)).toBe('$81k')
+    expect(formatEndLabel('peopleOutOfWorkPer100', 42.2)).toBe('42 in 100')
+    expect(formatEndLabel('gini', null)).toBe('not measured')
+  })
+
+  test('a debt of exactly half a dollar shows as it rounds', () => {
+    expect(formatMetric('townHallCash', -2.5)).toBe('owes $2')
+    expect(shownValue('townHallCash', -2.5)).toBe(-2)
+  })
+
   test('says "not measured" for missing values', () => {
     expect(formatMetric('gini', null)).toBe('not measured')
     expect(formatMetric('gini', undefined)).toBe('not measured')
@@ -116,6 +131,8 @@ describe('the numbers sheet catalog', () => {
     expect(METRICS.bottomHalfShare.format).toBe('percent')
     for (const key of ['priceHousing', 'priceServices', 'priceHealthcare']) expect(METRICS[key].format, key).toBe('price')
     expect(METRICS.bankDefaultAmountThisTick.format).toBe('money')
+    // narration.js differencePhrase reads a percent as dollars out of every $100 of household cash.
+    expect(Object.keys(METRICS).filter(key => METRICS[key].format === 'percent')).toEqual(['topTenthShare', 'bottomHalfShare'])
   })
 
   test('never calls sales "everything sold", nor any figure "net"', () => {
@@ -125,6 +142,9 @@ describe('the numbers sheet catalog', () => {
     expect(METRICS.salesExceptRentThisWeek.meaning).toMatch(/rent is not counted/i)
     expect(METRICS.townHallIncome.meaning).toMatch(/taxes/i)
     expect(METRICS.familySupportPaid.meaning).toMatch(/welcome payment/i)
+    // The money group's blurb says no more than its tiles.
+    expect(COPY.numbers.groups.money.blurb).toMatch(/main taxes/)
+    expect(COPY.numbers.groups.money.blurb).toMatch(/apart from rent/)
   })
 
   test('six groups, each with a title and blurb, and every key a metric', () => {

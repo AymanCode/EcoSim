@@ -135,6 +135,25 @@ describe('countedAt', () => {
     expect(countedSeriesUpTo(arm, 'gini', 72)).toEqual([{ tick: 60, value: 0.4 }, { tick: 65, value: 0.4 }, { tick: 70, value: 0.4 }])
   })
 
+  test('the count\'s week comes from wealthAsOfTick, so a missing week cannot mislabel it', () => {
+    // Week 70's frame never arrived; week 71 carries the week-70 count.
+    const ticks = [60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 71, 72]
+    const arm = {
+      ticks,
+      series: {
+        gini: ticks.map(t => (t < 65 ? 0.4 : t < 70 ? 0.45 : 0.5)),
+        wealthAsOfTick: ticks.map(t => (t < 65 ? 60 : t < 70 ? 65 : 70)),
+      },
+    }
+    expect(countedAt(arm, 'gini', 72)).toEqual({ value: 0.5, asOfTick: 70 })
+    expect(countedAt(arm, 'gini', 71)).toEqual({ value: 0.5, asOfTick: 70 })
+    expect(countedAt(arm, 'gini', 70)).toEqual({ value: 0.45, asOfTick: 65 })
+    expect(countedSeriesUpTo(arm, 'gini', 72)).toEqual([{ tick: 60, value: 0.4 }, { tick: 65, value: 0.45 }, { tick: 70, value: 0.5 }])
+    // Without wealthAsOfTick the first week that shows the count is the best there is.
+    delete arm.series.wealthAsOfTick
+    expect(countedAt(arm, 'gini', 72)).toEqual({ value: 0.5, asOfTick: 71 })
+  })
+
   test('is null for a missing value or key', () => {
     const arm = countedArm()
     arm.series.topTenthShare = arm.ticks.map(() => null)

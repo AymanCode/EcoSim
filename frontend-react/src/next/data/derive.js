@@ -52,9 +52,9 @@ export function seriesUpTo(arm, key, tick) {
 const isNumber = value => typeof value === 'number' && Number.isFinite(value)
 
 // Counted-every-5-weeks figures (COUNTED_EVERY_5) repeat between counts; the
-// frame's `wealthAsOfTick` names the week of the count. A week is a count when
-// the figure changed or `wealthAsOfTick` moved (a recount can repeat the
-// value); the first recorded week is one too.
+// frame's `wealthAsOfTick` names the week of the count. A recorded week shows
+// a new count when the figure changed or `wealthAsOfTick` moved (a recount can
+// repeat the value); the first recorded week does too.
 const COUNTED = new Set(COUNTED_EVERY_5)
 const AS_OF = 'wealthAsOfTick'
 
@@ -63,6 +63,17 @@ function isCount(arm, key, index) {
   const values = arm.series?.[key] ?? []
   const asOf = arm.series?.[AS_OF] ?? []
   return (values[index] ?? null) !== (values[index - 1] ?? null) || (asOf[index] ?? null) !== (asOf[index - 1] ?? null)
+}
+
+// The week a count shown at recorded index `index` was made: the server's
+// `wealthAsOfTick` when the frame carries it, so a missing or late week cannot
+// move it; else the recorded week that first showed it.
+function countWeek(arm, key, index) {
+  const asOf = arm.series?.[AS_OF]?.[index]
+  if (isNumber(asOf)) return asOf
+  let at = index
+  while (!isCount(arm, key, at)) at -= 1
+  return arm.ticks[at]
 }
 
 // A figure as of `tick`, with the week it describes: { value, asOfTick }. For
@@ -74,14 +85,12 @@ export function countedAt(arm, key, tick) {
   if (index < 0) return null
   const value = arm.series?.[key]?.[index] ?? null
   if (value === null) return null
-  let at = index
-  if (COUNTED.has(key)) while (!isCount(arm, key, at)) at -= 1
-  return { value, asOfTick: arm.ticks[at] }
+  return { value, asOfTick: COUNTED.has(key) ? countWeek(arm, key, index) : arm.ticks[index] }
 }
 
 // [{ tick, value }] at the weeks a figure was counted, through `tick`: what a
-// chart draws. A COUNTED_EVERY_5 key has a point at each count only; any other
-// key at every recorded week. A missing value is left out.
+// chart draws. A COUNTED_EVERY_5 key has a point at each count, at the week it
+// was made; any other key at every recorded week. A missing value is left out.
 export function countedSeriesUpTo(arm, key, tick) {
   const index = indexAtOrBefore(arm?.ticks ?? [], tick)
   const values = arm?.series?.[key] ?? []
@@ -89,7 +98,13 @@ export function countedSeriesUpTo(arm, key, tick) {
   const points = []
   for (let i = 0; i <= index; i += 1) {
     const value = values[i] ?? null
-    if (value !== null && (!counted || isCount(arm, key, i))) points.push({ tick: arm.ticks[i], value })
+    if (value === null) continue
+    if (!counted) points.push({ tick: arm.ticks[i], value })
+    else if (isCount(arm, key, i)) {
+      const week = countWeek(arm, key, i)
+      if (points.length && points[points.length - 1].tick === week) points[points.length - 1] = { tick: week, value }
+      else points.push({ tick: week, value })
+    }
   }
   return points
 }

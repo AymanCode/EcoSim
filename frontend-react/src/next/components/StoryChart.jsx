@@ -1,6 +1,6 @@
 import { useId } from 'react'
 import useMeasured from '../../charts/useMeasured.js'
-import { COPY, METRICS, STORY_METRICS, WARMUP_TICKS, formatMetric, formatMetricShort, townTextColor } from '../catalog.js'
+import { COPY, METRICS, STORY_METRICS, WARMUP_TICKS, formatEndLabel, formatMetric, formatMetricShort, townTextColor } from '../catalog.js'
 import { seriesUpTo, valueAt } from '../data/derive.js'
 import { policyChangesByWeek, policyMarkerLabel, startNote, weekLabel } from '../narration.js'
 import '../next.css'
@@ -190,7 +190,7 @@ export default function StoryChart({ arms, metricKey, tick, horizon, onMetricCha
   const yLabels = scale.ticks.map(value => formatMetricShort(metricKey, value))
   const padL = Math.max(44, Math.ceil(Math.max(...yLabels.map(label => textWidth(label, 12))) + 14))
   const endLines = item => {
-    const value = formatMetricShort(metricKey, item.value)
+    const value = formatEndLabel(metricKey, item.value)
     return compact ? [item.arm.label, value] : [COPY.chart.endLabel(item.arm.label, value)]
   }
   const readings = arms
@@ -199,7 +199,7 @@ export default function StoryChart({ arms, metricKey, tick, horizon, onMetricCha
   // Sized for the widest label the whole recording could need, so the plot
   // keeps its width while the replay plays.
   const endWidth = compact
-    ? Math.max(0, ...arms.map(arm => textWidth(arm.label, 13, true)), ...values.map(value => textWidth(formatMetricShort(metricKey, value), 13, true)))
+    ? Math.max(0, ...arms.map(arm => textWidth(arm.label, 13, true)), ...values.map(value => textWidth(formatEndLabel(metricKey, value), 13, true)))
     : 0
   const plotRight = W - (compact ? Math.ceil(endWidth) + 20 : PAD_RIGHT)
   const x = t => padL + (t / end) * (plotRight - padL)

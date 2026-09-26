@@ -218,7 +218,7 @@ const FORMATTERS = {
 
 export function formatMetric(key, value) {
   if (!isNumber(value)) return NOT_MEASURED
-  if (METRICS[key]?.owes && Math.round(value) < 0) return `owes ${formatMoney(-value)}`
+  if (METRICS[key]?.owes && Math.round(value) < 0) return `owes ${formatMoney(-Math.round(value))}`
   const format = FORMATTERS[METRICS[key]?.format] ?? FORMATTERS.count
   return format(value)
 }
@@ -244,6 +244,13 @@ export function formatMetricShort(key, value) {
   if (!isNumber(value)) return NOT_MEASURED
   if (METRICS[key]?.format === 'money') return Math.abs(value) >= 1e4 ? formatMoneyShort(value) : formatMoney(value)
   return formatMetric(key, value)
+}
+
+// A chart's end label: formatMetricShort, except that a balance below zero
+// reads "owes $11k" as the values do. Axis labels stay signed.
+export function formatEndLabel(key, value) {
+  if (isNumber(value) && METRICS[key]?.owes && Math.round(value) < 0) return `owes ${formatMetricShort(key, -Math.round(value))}`
+  return formatMetricShort(key, value)
 }
 
 // The "Show me all the numbers" sheet. Each group lists the metrics drawn as
@@ -936,7 +943,7 @@ export const COPY = {
       business: { title: 'Businesses', blurb: 'How many businesses are open, how they are doing, and when they opened or closed.' },
       money: {
         title: 'Money',
-        blurb: "The town hall's bank balance, the taxes it collects and the help it pays families, what businesses sell, and the bank's loans.",
+        blurb: "The town hall's bank balance, the main taxes it collects and the help it pays families, what businesses sell apart from rent, and the bank's loans.",
       },
       wellbeing: { title: 'Wellbeing', blurb: 'Signs of hardship, and how people feel.' },
     },
