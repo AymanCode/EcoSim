@@ -109,6 +109,12 @@ export function countedSeriesUpTo(arm, key, tick) {
   return points
 }
 
+// Whether any town recorded a value of `key` in any week. An older recording
+// that never carried a number reads "Not measured in this run", never zero.
+export function everMeasured(arms, key) {
+  return (arms ?? []).some(arm => (arm?.series?.[key] ?? []).some(isNumber))
+}
+
 // { min, max } of every town's recorded values of `key` after warm-up, up to
 // `tick`; null during warm-up or when none was measured.
 export function rangeSoFar(arms, key, tick) {

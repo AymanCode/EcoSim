@@ -237,9 +237,9 @@ export function shownValue(key, value) {
   return Math.round(value)
 }
 
-// Tight labels for chart axes and end labels: big sums of money go short
-// ("$1.3m") and money keeps its sign ("-$5,000", never "owes"); everything
-// else reads as formatMetric.
+// Tight labels for chart axes: big sums of money go short ("$1.3m") and money
+// keeps its sign ("-$5,000", never "owes"); everything else reads as
+// formatMetric. End labels use formatEndLabel below.
 export function formatMetricShort(key, value) {
   if (!isNumber(value)) return NOT_MEASURED
   if (METRICS[key]?.format === 'money') return Math.abs(value) >= 1e4 ? formatMoneyShort(value) : formatMoney(value)
@@ -644,6 +644,9 @@ const counted = (n, one, many = `${one}s`, format = String) => `${format(n)} ${n
 const NUMBER_WORDS = ['zero', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten']
 const numberWord = n => NUMBER_WORDS[n] ?? grouped.format(n)
 
+// A phrase for one town, two towns or more: everyTown(2, 'the town', 'either town', 'any town').
+const everyTown = (townCount, one, two, more) => (townCount < 2 ? one : townCount === 2 ? two : more)
+
 // How many households one house in the drawing stands for, as a phrase.
 export function householdsPerHouse(total) {
   if (!isNumber(total) || total <= 0) return '1 in 100 households'
@@ -733,6 +736,8 @@ export const COPY = {
     week: n => `Week ${n}`,
     endLabel: (town, value) => `${town}  ${value}`,
     tableCaption: name => `${name}, every 13 weeks`,
+    // The same table for a number counted every 5 weeks: its counts, not every week.
+    countedCaption: name => `${name}, as counted every 5 weeks`,
     weekColumn: 'Week',
   },
   horizon: {
@@ -930,11 +935,94 @@ export const COPY = {
     backToEnd: 'Back to the end',
     another: 'Try another question',
   },
-  // The "Show me all the numbers" sheet. Differences between towns and the
-  // counted-every-5-weeks note are narration.js `differencePhrase` and `countedNote`.
+  // The "Show me all the numbers" sheet (numbers/). Differences between towns
+  // and the counted-every-5-weeks note are narration.js `differencePhrase` and
+  // `countedNote`. Wording follows mockup 06.
   numbers: {
     // A tile whose number this recording never carried, never a zero.
     notMeasured: 'Not measured in this run',
+    title: 'All the numbers',
+    // "Everything we measure in both towns, in Year 2, week 20."
+    lead: (townCount, week) => `Everything we measure ${everyTown(townCount, 'in the town', 'in both towns', 'in every town')}, in ${week}.`,
+    hint: 'The timeline above still works: drag it and every number here follows.',
+    towns: 'The towns and their rules',
+    back: 'Back to the towns',
+    // Under a live town's name once its connection is gone; its numbers stay as they were.
+    lost: week => (week ? `lost its connection in ${week}` : 'lost its connection before its first week'),
+    jump: 'Jump to a group',
+    jumpRules: 'Rules in force',
+    jumpGlance: 'This week',
+    key: {
+      label: 'How to read the charts',
+      warm: `Setting up: weeks 1 to ${WARMUP_TICKS}`,
+      now: 'This week',
+      future: 'Weeks still to come',
+    },
+    tap: 'Tap any chart to see it big.',
+    seeBig: 'See it big',
+    backToNumbers: 'Back to all the numbers',
+    // A tile chart's text alternative, one sentence per town: its first real
+    // week (or first week) and the week shown.
+    trend: (town, from, fromWeek, to, toWeek) => `${town}: ${from} in ${fromWeek}, ${to} in ${toWeek}.`,
+    trendOne: (town, value, week) => `${town}: ${value} in ${week}.`,
+    rules: {
+      title: 'Rules in force',
+      lead: (townCount, differences) => {
+        if (townCount < 2) return "The town hall's rules this week."
+        const intro = "The town hall's rules in each town this week."
+        if (!differences.length) return `${intro} ${townCount === 2 ? 'Both towns run' : 'Every town runs'} the same rules.`
+        const count = differences.length === 1 ? 'one rule' : `${numberWord(differences.length)} rules`
+        return `${intro} The towns differ in ${count}: ${joinPhrases(differences)}.`
+      },
+      rule: 'Rule',
+      // Each lever's row name, from mockup 06; its help is LEVERS[lever].help.
+      names: {
+        wage_tax_rate: 'Tax on wages',
+        profit_tax_rate: 'Tax on profits',
+        investment_tax_rate: 'Tax on investment',
+        minimum_wage_policy: 'Minimum wage',
+        benefit_level: 'Help for people out of work',
+        social_spending: 'Social spending',
+        public_works: 'Public works jobs',
+        infrastructure_spending: 'Spending on roads and buildings',
+        technology_spending: 'Spending on technology',
+        sector_subsidy_target: 'Subsidy goes to',
+        sector_subsidy_level: 'Business subsidy',
+        bailout_policy: 'Bailouts',
+        bailout_target: 'Bailouts go to',
+        bailout_budget: 'Bailout budget',
+        price_stabilization_target: 'Price controls apply to',
+        price_stabilization_level: 'Price controls',
+        rent_stabilization_level: 'Rent controls',
+      },
+      // A folded group: "Same in both towns:" then "Tax on wages: 15% · …".
+      same: townCount => (townCount === 2 ? 'Same in both towns:' : 'Same in every town:'),
+      setting: (name, value) => `${name}: ${value}`,
+      settingsJoin: ' · ',
+      differ: n => (n === 1 ? '1 rule is different' : `${n} rules are different`),
+      show: 'Show',
+      hide: 'Hide',
+      differentFrom: town => `different from ${town}`,
+      // A change during warm-up is a real change; the story skips it, the table does not.
+      changed: (week, was, settingUp) => (settingUp
+        ? `changed in ${week}, while the towns were being set up (was ${was})`
+        : `changed in ${week} (was ${was})`),
+    },
+    glance: {
+      title: 'This week at a glance',
+      // "Eight headline numbers for Year 2, week 20. Town B's differences are
+      // counted from Town A, the town with no changes."
+      lead: (week, labels, firstUnchanged) => {
+        const intro = `${capitalise(numberWord(GLANCE_KEYS.length))} headline numbers for ${week}.`
+        if (labels.length < 2) return intro
+        const others = labels.length === 2 ? `${labels[1]}'s` : "The other towns'"
+        return `${intro} ${others} differences are counted from ${labels[0]}${firstUnchanged ? ', the town with no changes' : ''}.`
+      },
+      number: 'Number',
+      track: townCount => `Where this week sits, from the lowest to the highest ${everyTown(townCount, 'the town', 'either town', 'any town')} has seen`,
+      trackAlt: (low, high) => `The lowest so far is ${low} and the highest is ${high}.`,
+      trackWait: 'Shown once the towns are set up.',
+    },
     // Titles and blurbs of NUMBER_GROUPS, from mockup 06.
     groups: {
       work: { title: 'Work and pay', blurb: 'Who has a job, what it pays, and how many people were hired or let go.' },

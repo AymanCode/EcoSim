@@ -25,6 +25,8 @@
   --nx-home: #D64A5E;
   --nx-slate: #B6BFC9;
   --nx-slate2: #8B96A2;
+  /* The weeks still to come, on a tile's page-tone background. */
+  --nx-future: #E4E8EC;
   /* Text tones: every colour used for text reads at 4.5:1 or better on the
      page (#F3F5F7), the panels (#FFFFFF) and panel2 (#EEF1F4). The lighter
      tokens above stay for strokes, fills and swatches. */
@@ -997,6 +999,287 @@
 }
 @media (max-width: 720px) {
   .nx .nx-hall { width: 100%; border-left: 0 }
+}
+
+/* "Show me all the numbers": a sheet over the Run screen (numbers/), on the
+   same clock. Ported from docs/superpowers/specs/2026-09-25-mockups/06-all-the-numbers.html.
+   The timeline stays above it; --nx-sheet-top is the timeline's height, where
+   the jump bar sticks. */
+.nx .nx-sheet {
+  --nx-sheet-top: 57px;
+  position: relative;
+  max-width: 1240px;
+  margin: 14px auto 0;
+  background: var(--nx-page);
+  border-radius: 18px 18px 0 0;
+  box-shadow: 0 -4px 28px rgba(23, 32, 43, .22);
+  padding-bottom: 56px;
+  min-width: 0;
+}
+.nx .nx-sheet [hidden] { display: none }
+.nx .nx-sheet h2:focus:not(:focus-visible), .nx .nx-sheet h3:focus:not(:focus-visible) { outline: none }
+.nx .nx-sheet h2:focus-visible, .nx .nx-sheet h3:focus-visible { outline: 2px solid var(--nx-a); outline-offset: 3px; border-radius: 6px }
+.nx .nx-sheet .nx-abtn svg { width: 12px; height: 12px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; flex: none }
+.nx .nx-sheet-head { display: flex; align-items: flex-start; gap: 16px 24px; padding: 26px 32px 18px }
+.nx .nx-sheet-head h2 { font-size: 32px; line-height: 1.1; letter-spacing: -.02em }
+.nx .nx-sheet-head > .nx-abtn { margin-left: auto; padding: 9px 14px; font-size: 14px }
+.nx .nx-sheet-lead { font-family: var(--nx-disp), var(--nx-body), sans-serif; font-size: 18px; font-weight: 500; color: var(--nx-ink2); margin-top: 6px; letter-spacing: -.01em }
+.nx .nx-sheet-hint { font-size: 13px; color: var(--nx-ink3-text); margin-top: 4px }
+.nx .nx-sheet-towns { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 14px }
+.nx .nx-tchip {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px 8px;
+  padding: 5px 12px 5px 10px;
+  border: 1px solid var(--nx-line2);
+  border-radius: 999px;
+  background: var(--nx-panel);
+  font-size: 13px;
+  color: var(--nx-ink2);
+}
+.nx .nx-tchip b { color: var(--nx-ink); font-weight: 600 }
+.nx .nx-tchip-note { color: var(--nx-home-text) }
+.nx .nx-tchip i, .nx .nx-rules-town i, .nx .nx-shead i { width: 10px; height: 10px; border-radius: 3px; display: inline-block; flex: none }
+
+/* Jump chips; the bar sticks under the timeline */
+.nx .nx-jump {
+  position: sticky;
+  top: var(--nx-sheet-top);
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 9px 32px;
+  background: rgba(243, 245, 247, .96);
+  border-top: 1px solid var(--nx-line);
+  border-bottom: 1px solid var(--nx-line);
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.nx .nx-jump::-webkit-scrollbar { display: none }
+.nx .nx-jump a {
+  flex: none;
+  border: 1px solid var(--nx-line2);
+  background: var(--nx-panel);
+  color: var(--nx-ink2);
+  border-radius: 999px;
+  padding: 3px 11px;
+  font-size: 12.5px;
+  font-weight: 500;
+  text-decoration: none;
+}
+.nx .nx-jump a:hover { border-color: var(--nx-ink4); color: var(--nx-ink) }
+.nx .nx-jump .nx-sp { min-width: 12px }
+.nx .nx-jump .nx-abtn { flex: none }
+
+/* The chart key */
+.nx .nx-ckey { display: flex; gap: 8px 20px; flex-wrap: wrap; align-items: center; padding: 14px 32px 0; font-size: 12.5px; color: var(--nx-ink3-text) }
+.nx .nx-ckey li { display: inline-flex; align-items: center; gap: 7px }
+.nx .nx-ckey i { display: inline-block; flex: none; height: 14px }
+.nx .nx-ckey-warm { width: 22px; border-radius: 3px; background: repeating-linear-gradient(45deg, var(--nx-line2) 0 1.3px, var(--nx-panel2) 1.3px 6px) }
+.nx .nx-ckey-now { width: 2px; background: var(--nx-slate2) }
+.nx .nx-ckey-future { width: 22px; border-radius: 3px; background: var(--nx-future) }
+
+/* Section cards */
+.nx .nx-sheet-body { padding: 16px 32px 0 }
+.nx .nx-sheet-secs { display: flex; flex-direction: column; gap: 18px }
+.nx .nx-nsec {
+  background: var(--nx-panel);
+  border: 1px solid var(--nx-line);
+  border-radius: 16px;
+  padding: 20px 22px 22px;
+  scroll-margin-top: calc(var(--nx-sheet-top) + 60px);
+  min-width: 0;
+}
+.nx .nx-sh h3 { font-size: 21px; letter-spacing: -.015em }
+.nx .nx-sh p { font-size: 14px; color: var(--nx-ink3-text); margin-top: 2px }
+.nx .nx-ngrid { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: 12px; margin-top: 16px }
+.nx .nx-s3 { grid-column: span 3 }
+.nx .nx-s4 { grid-column: span 4 }
+.nx .nx-s6 { grid-column: span 6 }
+.nx .nx-s8 { grid-column: span 8 }
+.nx .nx-s12 { grid-column: span 12 }
+/* Wide tables and scoreboards scroll inside their card, never the page. It is
+   the containing block of the hidden text inside, so that text scrolls with
+   the table instead of widening the page. */
+.nx .nx-scroll { position: relative; overflow-x: auto; max-width: 100% }
+.nx .nx-foot { font-size: 11.5px; color: var(--nx-ink4-text); margin-top: 5px; line-height: 1.4 }
+.nx .nx-quiet { margin-top: 8px; font-size: 13px; color: var(--nx-ink); font-weight: 500 }
+
+/* Tiles: one number each, on the page tone inside the white card */
+.nx .nx-tile { position: relative; background: var(--nx-page); border: 1px solid transparent; border-radius: 12px; padding: 13px 14px 12px; min-width: 0 }
+.nx .nx-tile.is-open { cursor: zoom-in }
+.nx .nx-tile.is-open:hover, .nx .nx-tile.is-open:focus-visible { background: var(--nx-panel); border-color: var(--nx-line2); box-shadow: 0 6px 18px rgba(23, 32, 43, .08) }
+.nx .nx-tile:focus-visible { outline: 2px solid var(--nx-a); outline-offset: 2px }
+.nx .nx-big {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: #fff;
+  background: var(--nx-ink);
+  border-radius: 999px;
+  padding: 2px 9px;
+  box-shadow: 0 0 0 3px var(--nx-panel);
+  opacity: 0;
+  pointer-events: none;
+}
+.nx .nx-big svg { width: 10px; height: 10px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round }
+.nx .nx-tile:hover .nx-big, .nx .nx-tile:focus-visible .nx-big { opacity: 1 }
+.nx .nx-th { display: flex; align-items: baseline; gap: 4px; min-height: 21px }
+.nx .nx-th h4 { font-size: 14.5px }
+.nx .nx-tile .pair { display: flex; gap: 8px 18px; margin-top: 6px; align-items: flex-end; flex-wrap: wrap }
+.nx .nx-tile .nx-pv b { font-size: 21px; letter-spacing: -.01em }
+.nx .nx-tile .def { font-size: 12.5px; color: var(--nx-ink3-text); margin-top: 8px; line-height: 1.4 }
+.nx .nx-tchart { margin-top: 8px; min-height: 20px }
+.nx .nx-tchart svg { display: block; overflow: visible }
+.nx .nx-tchart .nx-hatch-bg { fill: var(--nx-panel2) }
+.nx .nx-tchart .nx-hatch { stroke: var(--nx-line2); stroke-width: 1.3 }
+.nx .nx-tchart .nx-tfuture { fill: var(--nx-future) }
+.nx .nx-tchart .nx-tnow { stroke: var(--nx-slate2); stroke-width: 1 }
+.nx .nx-tchart .nx-tline { fill: none; stroke-width: 2; stroke-linejoin: round; stroke-linecap: round }
+.nx .nx-tchart .nx-tline.is-same { stroke-dasharray: 5 5 }
+.nx .nx-tchart .nx-twarm { fill: none; stroke-width: 1.6; stroke-dasharray: 2 3; stroke-linejoin: round; opacity: .5 }
+.nx .nx-tchart .nx-tdot { stroke: #fff; stroke-width: 1.5 }
+
+/* Rules in force: a table, the towns as columns, a folding group per line */
+.nx .nx-rules {
+  --nx-rcol: 170px;
+  width: 100%;
+  min-width: calc(150px + var(--nx-towns, 2) * var(--nx-rcol));
+  table-layout: fixed;
+  border-collapse: separate;
+  border-spacing: 0;
+  margin-top: 14px;
+  font-size: 13.5px;
+}
+.nx .nx-rules col.nx-rules-town { width: var(--nx-rcol) }
+.nx .nx-rules thead th { padding: 0 12px 8px; font-size: 12.5px; font-weight: 600; color: var(--nx-ink3-text); text-align: left; vertical-align: bottom }
+.nx .nx-rules-town span { display: inline-flex; align-items: center; gap: 7px }
+.nx .nx-rules thead small { display: block; font-weight: 400; color: var(--nx-home-text); line-height: 1.35 }
+.nx .nx-rg-head { padding: 0; border-top: 1px solid var(--nx-line); text-align: left; font-weight: 400 }
+.nx .nx-rg-sum { display: grid; grid-template-columns: 170px minmax(0, 1fr) auto; gap: 12px; align-items: baseline; padding: 12px; cursor: pointer; border-radius: 8px }
+.nx .nx-rg-sum:hover { background: var(--nx-page) }
+.nx .nx-rg-t { font-family: var(--nx-disp), var(--nx-body), sans-serif; font-size: 15px; font-weight: 600; color: var(--nx-ink) }
+.nx .nx-rg-s { font-size: 13px; color: var(--nx-ink3-text) }
+.nx .nx-rg-s b { color: var(--nx-ink2); font-weight: 600 }
+.nx .nx-rg-s.is-diff { color: var(--nx-ink); font-weight: 600 }
+.nx .nx-rg-tog { border: 0; background: none; padding: 0; font-size: 12.5px; color: var(--nx-ink3-text); text-decoration: underline; text-underline-offset: 3px }
+.nx .nx-rg-tog:hover { color: var(--nx-ink) }
+.nx .nx-rrow > th, .nx .nx-rrow > td { padding: 8px 12px; text-align: left; vertical-align: top; font-weight: 500 }
+.nx .nx-rrow:last-child > th, .nx .nx-rrow:last-child > td { padding-bottom: 10px }
+.nx .nx-rn { color: var(--nx-ink2) }
+.nx .nx-rrow > .nx-rn { font-weight: 400 }
+.nx .nx-rv { color: var(--nx-ink) }
+.nx .nx-rn small, .nx .nx-rv small { display: block; font-size: 12px; font-weight: 400; color: var(--nx-ink3-text); line-height: 1.4 }
+.nx .nx-rules tr.is-diff > th, .nx .nx-rules tr.is-diff > td { background: #FDF3EA }
+.nx .nx-rules tr.is-diff > th { border-radius: 8px 0 0 8px }
+.nx .nx-rules tr.is-diff > td:last-child { border-radius: 0 8px 8px 0 }
+.nx .nx-rules tr.is-diff > .nx-rn { color: var(--nx-ink); font-weight: 600 }
+.nx .nx-rv.is-diff { font-weight: 700 }
+
+/* This week at a glance: a scoreboard; each row's dot track shows where this
+   week sits between the lowest and highest seen since setting up. */
+.nx .nx-glance { margin-top: 6px }
+.nx .nx-srow {
+  display: grid;
+  grid-template-columns: minmax(0, 1.55fr) repeat(var(--nx-towns, 2), minmax(0, 1.1fr)) minmax(0, 1.15fr);
+  gap: 18px;
+  align-items: center;
+  padding: 11px 4px;
+  border-top: 1px solid var(--nx-line);
+}
+.nx .nx-srow.is-head { border-top: 0; padding: 12px 4px 7px; font-size: 12px; font-weight: 600; color: var(--nx-ink3-text); align-items: end }
+.nx .nx-shead { display: inline-flex; align-items: center; gap: 7px }
+.nx .nx-srow.is-head small { display: block; font-weight: 400; color: var(--nx-home-text); line-height: 1.35 }
+.nx .nx-sname b { display: block; color: var(--nx-ink); font-weight: 600; font-size: 14px }
+.nx .nx-sname small { display: block; font-size: 12.5px; color: var(--nx-ink3-text); line-height: 1.35 }
+.nx .nx-sname .nx-foot { font-size: 11.5px; color: var(--nx-ink4-text); margin-top: 3px }
+.nx .nx-sv {
+  font-family: var(--nx-disp), var(--nx-body), sans-serif;
+  font-size: 20px;
+  font-weight: 600;
+  color: var(--nx-ink);
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -.01em;
+}
+.nx .nx-sv i { width: 9px; height: 9px; border-radius: 3px; flex: none }
+.nx .nx-sval.is-none { font-size: 13px; font-weight: 500; color: var(--nx-ink) }
+.nx .nx-diff { display: block; font-size: 12.5px; color: var(--nx-ink3-text); margin-top: 1px }
+.nx .nx-mlab { display: none; font-size: 11.5px; color: var(--nx-ink3-text) }
+.nx .nx-dbt { position: relative; height: 18px }
+.nx .nx-dbt::before { content: ''; position: absolute; left: 0; right: 0; top: 8px; height: 2px; border-radius: 1px; background: var(--nx-line) }
+.nx .nx-dbt .nx-dbseg { position: absolute; top: 8px; height: 2px; background: var(--nx-slate) }
+.nx .nx-dbt .nx-dot {
+  position: absolute;
+  top: 3px;
+  width: 12px;
+  height: 12px;
+  margin-left: -6px;
+  border-radius: 50%;
+  border: 2px solid #fff;
+  box-shadow: 0 0 0 1px rgba(23, 32, 43, .1);
+  transition: left var(--nx-change) var(--nx-ease);
+}
+.nx .nx-sheet.is-playing .nx-dbt .nx-dot { transition: none }
+.nx .nx-dbe { display: flex; justify-content: space-between; gap: 8px; font-size: 11px; color: var(--nx-ink4-text); font-variant-numeric: tabular-nums }
+.nx .nx-dbw { font-size: 12px; color: var(--nx-ink4-text) }
+
+/* See it big: the story chart for one number, in place of the groups */
+.nx .nx-seebig { display: flex; flex-direction: column; align-items: flex-start; gap: 12px }
+.nx .nx-seebig > .nx-card { align-self: stretch }
+.nx .nx-seebig .nx-card h3 { font-size: 21px; letter-spacing: -.015em }
+.nx .nx-seebig > .nx-foot { margin-top: 0 }
+.nx .nx-tap { display: flex; align-items: center; justify-content: center; gap: 10px; margin: 26px 32px 0; font-size: 14px; color: var(--nx-ink2) }
+.nx .nx-tap svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round }
+
+@media (max-width: 1100px) {
+  .nx .nx-s3, .nx .nx-s4 { grid-column: span 6 }
+  .nx .nx-s8 { grid-column: span 12 }
+}
+@media (max-width: 900px) {
+  .nx .nx-jump { position: static; padding: 9px 16px }
+  .nx .nx-sheet-head, .nx .nx-ckey { padding-left: 16px; padding-right: 16px }
+  .nx .nx-sheet-body { padding: 14px 12px 0 }
+  .nx .nx-tap { margin-left: 16px; margin-right: 16px }
+  /* The scoreboard stacks: the name, then the towns side by side, then the
+     track. With many towns it scrolls sideways inside its card. */
+  .nx .nx-glance { min-width: calc(var(--nx-towns, 2) * 104px + (var(--nx-towns, 2) - 1) * 14px) }
+  .nx .nx-srow { grid-template-columns: repeat(var(--nx-towns, 2), minmax(0, 1fr)); gap: 6px 14px; padding: 12px 2px; align-items: start }
+  .nx .nx-sname, .nx .nx-db { grid-column: 1 / -1 }
+  .nx .nx-srow.is-head {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+  }
+  .nx .nx-mlab { display: block }
+}
+@media (max-width: 640px) {
+  .nx .nx-s3, .nx .nx-s4, .nx .nx-s6, .nx .nx-s8 { grid-column: span 12 }
+  .nx .nx-sheet { margin-top: 8px; border-radius: 14px 14px 0 0 }
+  .nx .nx-sheet-head { flex-direction: column; gap: 12px; padding-top: 20px }
+  .nx .nx-sheet-head h2 { font-size: 26px }
+  .nx .nx-sheet-head > .nx-abtn { margin-left: 0; order: -1 }
+  .nx .nx-nsec { padding: 16px 14px }
+  .nx .nx-rules { --nx-rcol: 84px }
+  .nx .nx-rules thead th, .nx .nx-rrow > th, .nx .nx-rrow > td { padding-left: 6px; padding-right: 6px }
+  .nx .nx-rg-sum { grid-template-columns: minmax(0, 1fr) auto; padding: 12px 6px }
+  .nx .nx-rg-s { grid-column: 1 / -1; grid-row: 2 }
 }
 
 /* The page behind the app. NextApp adds .nx-page to <html> while it is

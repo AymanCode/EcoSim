@@ -2,7 +2,8 @@ import { describe, expect, test, vi } from 'vitest'
 import { fireEvent, render, screen, within } from '@testing-library/react'
 import StoryChart from '../components/StoryChart.jsx'
 import { METRICS, STORY_METRICS } from '../catalog.js'
-import { fixtureArm, TOWN_A, TOWN_B } from './fixture.js'
+import { countedSeriesUpTo } from '../data/derive.js'
+import { demoArms, fixtureArm, TOWN_A, TOWN_B } from './fixture.js'
 
 const OUT = 'peopleOutOfWorkPer100'
 const arms = () => [fixtureArm(TOWN_A), fixtureArm(TOWN_B)]
@@ -148,5 +149,47 @@ describe('StoryChart', () => {
     const rows = within(table).getAllByRole('row').slice(1)
     expect(rows.map(row => row.firstChild.textContent)).toEqual(['Year 1, week 13', 'Year 1, week 24'])
     expect(rows[0]).toHaveTextContent('in 100')
+  })
+})
+
+// "See it big" in the numbers sheet: any number, its own chips, and the
+// counted-every-5-weeks numbers drawn only at their counts.
+describe('StoryChart for the numbers sheet', () => {
+  test('metricKeys lists its own chips; the Run screen keeps STORY_METRICS by default', () => {
+    const keys = ['typicalWeeklyPay', 'bankActiveLoans']
+    draw({ metricKey: 'bankActiveLoans', metricKeys: keys })
+    const chips = within(screen.getByRole('group', { name: 'Chart a different number' })).getAllByRole('button')
+    expect(chips.map(chip => chip.textContent)).toEqual(keys.map(key => METRICS[key].name))
+    expect(screen.getByRole('heading', { name: METRICS.bankActiveLoans.name })).toBeInTheDocument()
+  })
+
+  test('a single number needs no chips', () => {
+    draw({ metricKey: 'bankActiveLoans', metricKeys: ['bankActiveLoans'] })
+    expect(screen.queryByRole('group', { name: 'Chart a different number' })).toBeNull()
+  })
+
+  test('with countedWeeks, a counted-every-5-weeks number is drawn at its counts only', () => {
+    const demo = demoArms()
+    const { container } = render(<StoryChart arms={demo} metricKey="gini" tick={72} horizon={104} onMetricChange={() => {}} countedWeeks />)
+    const band = container.querySelector('.nx-warm')
+    const x0 = Number(band.getAttribute('x'))
+    const perWeek = Number(band.getAttribute('width')) / 10
+    const weekAt = px => Math.round((px - x0) / perWeek)
+    const drawn = [...container.querySelectorAll('path.nx-warmline, path.nx-line')].slice(0, 2)
+      .flatMap(path => path.getAttribute('d').split(/[ML]/).map(part => part.trim()).filter(Boolean).map(pair => weekAt(Number(pair.split(' ')[0]))))
+    expect([...new Set(drawn)]).toEqual(countedSeriesUpTo(demo[0], 'gini', 72).map(point => point.tick))
+    // Each town's dot sits on its last count (week 70), not on this week.
+    container.querySelectorAll('.nx-dot').forEach(dot => expect(weekAt(Number(dot.getAttribute('cx')))).toBe(70))
+    // The table gives the counts, about every 13 weeks, and the last one.
+    const rows = within(screen.getByRole('table')).getAllByRole('row').slice(1).map(row => row.firstChild.textContent)
+    expect(rows).toEqual(['Year 1, week 1', 'Year 1, week 15', 'Year 1, week 30', 'Year 1, week 45', 'Year 2, week 8', 'Year 2, week 18'])
+  })
+
+  test('without countedWeeks the gap between rich and poor draws as before', () => {
+    const demo = demoArms()
+    const { container } = render(<StoryChart arms={demo} metricKey="gini" tick={72} horizon={104} onMetricChange={() => {}} />)
+    const cursor = container.querySelector('.nx-cursor').style.transform
+    const cursorX = Number(cursor.match(/translateX\(([\d.]+)px\)/)[1])
+    container.querySelectorAll('.nx-dot').forEach(dot => expect(Number(dot.getAttribute('cx'))).toBeCloseTo(cursorX, 1))
   })
 })

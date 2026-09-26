@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'vitest'
 import {
   commonTicks, valueAt, snapshotAt, seriesUpTo, compareAt, eventsUpTo, householdState, latestEventFor, countedAt, countedSeriesUpTo, rangeSoFar,
-  cumulativeUpTo, weeklyCounts, firmStatesAt, rulesTable,
+  cumulativeUpTo, weeklyCounts, firmStatesAt, rulesTable, everMeasured,
 } from '../data/derive.js'
 import { fixtureArm, TOWN_A, TOWN_B } from './fixture.js'
 
@@ -301,5 +301,17 @@ describe('rulesTable', () => {
   test('one town agrees with itself', () => {
     expect(rulesTable([fixtureArm()], 10).every(group => group.same)).toBe(true)
     expect(rulesTable([], 10).every(group => group.same && group.rows.every(r => r.values.length === 0))).toBe(true)
+  })
+})
+
+describe('everMeasured', () => {
+  test('true when any town has any value of the key; a missing key or only nulls is false', () => {
+    const [a, b] = twoTowns()
+    expect(everMeasured([a, b], KEY)).toBe(true)
+    expect(everMeasured([a, b], 'happiness')).toBe(false)
+    const nulls = { ...b, series: { ...b.series, [KEY]: b.series[KEY].map(() => null) } }
+    expect(everMeasured([nulls], KEY)).toBe(false)
+    expect(everMeasured([nulls, a], KEY)).toBe(true)
+    expect(everMeasured([], KEY)).toBe(false)
   })
 })

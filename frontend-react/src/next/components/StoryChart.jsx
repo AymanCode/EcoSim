@@ -1,7 +1,7 @@
 import { useId } from 'react'
 import useMeasured from '../../charts/useMeasured.js'
-import { COPY, METRICS, STORY_METRICS, WARMUP_TICKS, formatEndLabel, formatMetric, formatMetricShort, townTextColor } from '../catalog.js'
-import { seriesUpTo, valueAt } from '../data/derive.js'
+import { COPY, COUNTED_EVERY_5, METRICS, STORY_METRICS, WARMUP_TICKS, formatEndLabel, formatMetric, formatMetricShort, townTextColor } from '../catalog.js'
+import { countedAt, countedSeriesUpTo, seriesUpTo, valueAt } from '../data/derive.js'
 import { policyChangesByWeek, policyMarkerLabel, startNote, weekLabel } from '../narration.js'
 import '../next.css'
 
@@ -10,6 +10,10 @@ import '../next.css'
 // per policy change. The warm-up weeks sit in a hatched "setting up" band with
 // the lines dashed there, and the y-axis ignores them. Label widths are
 // estimated (no DOM measuring), so every label keeps a little slack.
+// The numbers sheet's "See it big" reuses it for any METRICS key: `metricKeys`
+// lists its chips (STORY_METRICS by default, as on the Run screen), and with
+// `countedWeeks` a COUNTED_EVERY_5 number is drawn only at the weeks it was
+// counted, its dot on the last count, and its table lists counts.
 const HEIGHT = 320
 const PAD_TOP = 44
 const PAD_RIGHT = 156
@@ -25,7 +29,7 @@ const round = value => Math.round(value * 10) / 10
 // Rough text widths for the two label styles, in px.
 const textWidth = (text, size = 12.5, bold = false) => String(text).length * size * (bold ? 0.56 : 0.52)
 
-const STEP_FLOOR = { per100: 1, count: 1, money: 1, price: 0.01, ratio: 0.01 }
+const STEP_FLOOR = { per100: 1, count: 1, money: 1, price: 0.01, ratio: 0.01, outOf100: 1, percent: 1 }
 
 function isMultiple(step, floor) {
   if (!floor) return true
@@ -126,10 +130,11 @@ function place(candidates, taken) {
   return free ?? null
 }
 
-function MetricChips({ metricKey, onMetricChange }) {
+function MetricChips({ metricKey, metricKeys, onMetricChange }) {
+  if (metricKeys.length < 2) return null
   return (
     <div className="nx-chips" role="group" aria-label={COPY.chart.chips}>
-      {STORY_METRICS.map(key => (
+      {metricKeys.map(key => (
         <button
           key={key}
           type="button"
@@ -144,13 +149,25 @@ function MetricChips({ metricKey, onMetricChange }) {
   )
 }
 
-function ValueTable({ arms, metricKey, tick, name }) {
+// The weeks of the counts up to `tick`, at least TABLE_EVERY weeks apart, and the last one.
+function countWeeks(arms, metricKey, tick) {
+  const counts = [...new Set(arms.flatMap(arm => countedSeriesUpTo(arm, metricKey, tick).map(point => point.tick)))].sort((a, b) => a - b)
   const weeks = []
-  for (let week = TABLE_EVERY; week <= tick; week += TABLE_EVERY) weeks.push(week)
-  if (tick >= 1 && weeks[weeks.length - 1] !== tick) weeks.push(tick)
+  for (const week of counts) if (!weeks.length || week - weeks[weeks.length - 1] >= TABLE_EVERY) weeks.push(week)
+  if (counts.length && weeks[weeks.length - 1] !== counts[counts.length - 1]) weeks.push(counts[counts.length - 1])
+  return weeks
+}
+
+function ValueTable({ arms, metricKey, tick, name, counted }) {
+  let weeks = []
+  if (counted) weeks = countWeeks(arms, metricKey, tick)
+  else {
+    for (let week = TABLE_EVERY; week <= tick; week += TABLE_EVERY) weeks.push(week)
+    if (tick >= 1 && weeks[weeks.length - 1] !== tick) weeks.push(tick)
+  }
   return (
     <table className="nx-sr">
-      <caption>{COPY.chart.tableCaption(name)}</caption>
+      <caption>{counted ? COPY.chart.countedCaption(name) : COPY.chart.tableCaption(name)}</caption>
       <thead>
         <tr>
           <th scope="col">{COPY.chart.weekColumn}</th>
@@ -169,7 +186,9 @@ function ValueTable({ arms, metricKey, tick, name }) {
   )
 }
 
-export default function StoryChart({ arms, metricKey, tick, horizon, onMetricChange, playing = false }) {
+export default function StoryChart({
+  arms, metricKey, tick, horizon, onMetricChange, playing = false, metricKeys = STORY_METRICS, countedWeeks = false,
+}) {
   const [ref, size] = useMeasured()
   const uid = useId().replace(/:/g, '')
   const clipId = `nx-plot-${uid}`
@@ -177,6 +196,7 @@ export default function StoryChart({ arms, metricKey, tick, horizon, onMetricCha
   const hatchId = `nx-hatch-${uid}`
   const metric = METRICS[metricKey] ?? { name: metricKey, meaning: '', format: 'count' }
   const end = Math.max(1, Number(horizon) || 0, tick)
+  const counted = countedWeeks && COUNTED_EVERY_5.includes(metricKey)
 
   const W = size.width || FALLBACK_WIDTH
   const H = HEIGHT
@@ -193,8 +213,13 @@ export default function StoryChart({ arms, metricKey, tick, horizon, onMetricCha
     const value = formatEndLabel(metricKey, item.value)
     return compact ? [item.arm.label, value] : [COPY.chart.endLabel(item.arm.label, value)]
   }
+  // A counted number's reading is its last count, drawn at the week it was made.
   const readings = arms
-    .map(arm => ({ arm, value: valueAt(arm, metricKey, tick) }))
+    .map(arm => {
+      if (!counted) return { arm, value: valueAt(arm, metricKey, tick), at: tick }
+      const count = countedAt(arm, metricKey, tick)
+      return { arm, value: count?.value ?? null, at: count?.asOfTick ?? tick }
+    })
     .filter(item => item.value !== null)
   // Sized for the widest label the whole recording could need, so the plot
   // keeps its width while the replay plays.
@@ -214,7 +239,7 @@ export default function StoryChart({ arms, metricKey, tick, horizon, onMetricCha
   // End labels first: they carry the numbers.
   const endHeight = compact ? 2 * LINE_H : END_GAP
   const ends = spread(
-    readings.map(item => ({ ...item, dotY: clampY(y(item.value)), y: clampY(y(item.value)) })),
+    readings.map(item => ({ ...item, dotX: x(item.at), dotY: clampY(y(item.value)), y: clampY(y(item.value)) })),
     endHeight,
     PAD_TOP - 4 + (compact ? LINE_H / 2 : 0),
     H - PAD_BOTTOM - 6 - (compact ? LINE_H / 2 : 0),
@@ -281,7 +306,7 @@ export default function StoryChart({ arms, metricKey, tick, horizon, onMetricCha
     <div className="nx-card nx-storyc">
       <h3>{metric.name}</h3>
       <p className="cs">{metric.meaning}</p>
-      <MetricChips metricKey={metricKey} onMetricChange={onMetricChange} />
+      <MetricChips metricKey={metricKey} metricKeys={metricKeys} onMetricChange={onMetricChange} />
       <div ref={ref} className={`nx-chart${playing ? ' is-playing' : ''}`} style={{ height: H }}>
         <svg width={W} height={H} viewBox={`0 0 ${W} ${H}`} aria-hidden="true" focusable="false">
           <defs>
@@ -328,7 +353,8 @@ export default function StoryChart({ arms, metricKey, tick, horizon, onMetricCha
           </g>
           <g clipPath={`url(#${linesClipId})`}>
             {arms.map(arm => {
-              const { warm, live } = splitWarmUp(seriesUpTo(arm, metricKey, tick))
+              const points = counted ? countedSeriesUpTo(arm, metricKey, tick) : seriesUpTo(arm, metricKey, tick)
+              const { warm, live } = splitWarmUp(points)
               const warmD = pathFor(warm, x, y)
               const liveD = pathFor(live, x, y)
               return (
@@ -360,9 +386,9 @@ export default function StoryChart({ arms, metricKey, tick, horizon, onMetricCha
           {ends.map(item => (
             <g key={item.arm.label}>
               {Math.abs(item.y - item.dotY) > 4 && (
-                <path className="nx-leader" d={`M${round(cursorX + 5)} ${round(item.dotY)} L${round(cursorX + 9)} ${round(item.y)}`} style={{ stroke: item.arm.color }} />
+                <path className="nx-leader" d={`M${round(item.dotX + 5)} ${round(item.dotY)} L${round(cursorX + 9)} ${round(item.y)}`} style={{ stroke: item.arm.color }} />
               )}
-              <circle className="nx-dot" cx={round(cursorX)} cy={round(item.dotY)} r={5} style={{ fill: item.arm.color }} />
+              <circle className="nx-dot" cx={round(item.dotX)} cy={round(item.dotY)} r={5} style={{ fill: item.arm.color }} />
               <text className="nx-endl" x={round(cursorX + 12)} y={round(item.y + 4.5 - ((item.lines.length - 1) * LINE_H) / 2)} style={{ fill: townTextColor(item.arm.color) }}>
                 {item.lines.length === 1 ? item.lines[0] : item.lines.map((line, i) => (
                   <tspan key={line} x={round(cursorX + 12)} dy={i ? LINE_H : 0}>{line}</tspan>
@@ -372,7 +398,7 @@ export default function StoryChart({ arms, metricKey, tick, horizon, onMetricCha
           ))}
         </svg>
       </div>
-      <ValueTable arms={arms} metricKey={metricKey} tick={tick} name={metric.name} />
+      <ValueTable arms={arms} metricKey={metricKey} tick={tick} name={metric.name} counted={counted} />
     </div>
   )
 }

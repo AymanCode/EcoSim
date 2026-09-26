@@ -10,7 +10,7 @@ const BACKGROUNDS = ['#FFFFFF', '#F3F5F7', '#EEF1F4']
 // Text drawn in white sits on a dark fill set elsewhere; each of these is checked below.
 const WHITE_ON_DARK = [
   '.nx-verdict', '.nx-abtn.is-dark', ".nx-mchip[aria-pressed='true']", '.nx-hc .av', '.nx-flag-mark', ".pin[aria-pressed='true']",
-  '.nx-start', ".nx-seg button[aria-pressed='true']",
+  '.nx-start', ".nx-seg button[aria-pressed='true']", '.nx-big',
 ]
 const TEXT_FILL = /\btext\b|nx-label|nx-flag-mark|nx-bldg-more|nx-ann|nx-ahead|nx-endl|nx-warm-label/
 
@@ -115,5 +115,20 @@ describe('text contrast in next.css', () => {
       for (const background of BACKGROUNDS) expect(contrast(resolve(value), background)).toBeGreaterThanOrEqual(4.5)
     })
     expect(townTextColor('#123456')).toBe('var(--nx-ink)')
+  })
+
+  test('a rule that differs between towns keeps every text tone readable on its tint', () => {
+    const tint = RULES.find(({ selector, decls }) => selector.includes('.nx-rules') && selector.includes('is-diff') && decls.background)
+    expect(tint).toBeTruthy()
+    const background = resolve(tint.decls.background)
+    for (const value of ['var(--nx-ink)', 'var(--nx-ink2)', 'var(--nx-ink3-text)', ...TOWN_COLORS.map(townTextColor)]) {
+      expect(contrast(resolve(value), background), `${value} on ${background}`).toBeGreaterThanOrEqual(4.5)
+    }
+  })
+
+  test('the "See it big" badge is white on a dark fill', () => {
+    const badge = RULES.find(({ selector }) => selector === '.nx .nx-big')
+    expect(resolve(badge.decls.color)).toBe('#FFFFFF')
+    expect(contrast(resolve(badge.decls.background), '#FFFFFF')).toBeGreaterThanOrEqual(4.5)
   })
 })
