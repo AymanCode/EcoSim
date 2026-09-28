@@ -222,3 +222,22 @@ def make_factory_namespace() -> SimpleNamespace:
         government=make_government,
         economy=make_economy,
     )
+
+
+def patch_agent_method(monkeypatch, agent, name, replacement):
+    """Replace one agent instance's method for a test.
+
+    Agent dataclasses use __slots__, so instance attributes cannot shadow
+    methods. This patches the class with a dispatcher that calls
+    ``replacement`` (with the instance's arguments, not ``self``) for
+    ``agent`` and the original method for every other instance.
+    """
+    cls = type(agent)
+    original = getattr(cls, name)
+
+    def dispatch(self, *args, **kwargs):
+        if self is agent:
+            return replacement(*args, **kwargs)
+        return original(self, *args, **kwargs)
+
+    monkeypatch.setattr(cls, name, dispatch)

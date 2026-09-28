@@ -94,6 +94,10 @@ def build_awareness_market_views(
 class AgentMixin:
     """Shared behaviour for all agent types."""
 
+    # Empty slots so that @dataclass(slots=True) on the agent classes takes
+    # effect: without this, every instance still carries a __dict__.
+    __slots__ = ()
+
 
 # -----------------------------------------------------------------------------
 # Section: HouseholdAgent state and tick accounting
@@ -1865,6 +1869,9 @@ class FirmAgent(AgentMixin):
     # (employees list, its length, actual_wages dict, its length, wage_offer, bill);
     # see _current_wage_bill. Cleared by _invalidate_wage_bill_cache.
     _wage_bill_cache: Optional[tuple] = field(default=None, init=False, repr=False, compare=False)
+    # Self-financed housing construction cost set by invest_in_unit_expansion and
+    # routed to the misc pool by Economy.step (phase 6.6), which resets it to 0.
+    _pending_construction_cost: float = field(default=0.0, init=False, repr=False, compare=False)
     last_tick_total_costs: float = 0.0  # Track costs for dividend calculation
     last_tick_operating_cash_cost_nonwage: float = 0.0
     payout_ratio: float = 0.0  # Fraction of net profit paid as dividends

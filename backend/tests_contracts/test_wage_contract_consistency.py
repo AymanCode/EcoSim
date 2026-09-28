@@ -2,6 +2,8 @@
 
 import pytest
 
+from tests_contracts.factories import patch_agent_method
+
 
 @pytest.mark.parametrize("performance_mode", [False, True])
 def test_step_uses_employer_floor_for_payroll_tax_and_receipt_then_keeps_late_cut(
@@ -30,7 +32,7 @@ def test_step_uses_employer_floor_for_payroll_tax_and_receipt_then_keeps_late_cu
     monkeypatch.setattr(economy, "_run_labor_matching", keep_job)
     # A low separately planned future offer allows the phase-9 cut to persist
     # at the next phase-4 boundary rather than intentionally re-flooring it.
-    monkeypatch.setattr(firm, "plan_wage", lambda *args, **kwargs: {"wage_offer_next": 20.0})
+    patch_agent_method(monkeypatch, firm, "plan_wage", lambda *args, **kwargs: {"wage_offer_next": 20.0})
 
     payroll = []
     original_production = firm.apply_production_and_costs
@@ -41,7 +43,7 @@ def test_step_uses_employer_floor_for_payroll_tax_and_receipt_then_keeps_late_cu
         original_production(result)
         payroll.append((wage_bill, cash_before - firm.cash_balance))
 
-    monkeypatch.setattr(firm, "apply_production_and_costs", record_production)
+    patch_agent_method(monkeypatch, firm, "apply_production_and_costs", record_production)
 
     tax_records = []
     original_taxes = government.plan_taxes
@@ -51,7 +53,7 @@ def test_step_uses_employer_floor_for_payroll_tax_and_receipt_then_keeps_late_cu
         tax_records.append((households[0]["wage_income"], plan["wage_taxes"][1]))
         return plan
 
-    monkeypatch.setattr(government, "plan_taxes", record_taxes)
+    patch_agent_method(monkeypatch, government, "plan_taxes", record_taxes)
 
     original_sales = firm.apply_sales_and_profit
     sales_calls = 0
@@ -64,7 +66,7 @@ def test_step_uses_employer_floor_for_payroll_tax_and_receipt_then_keeps_late_cu
             firm.adjust_wages_to_revenue_ratio(1.0)
         sales_calls += 1
 
-    monkeypatch.setattr(firm, "apply_sales_and_profit", cut_after_first_payday)
+    patch_agent_method(monkeypatch, firm, "apply_sales_and_profit", cut_after_first_payday)
 
     economy.step()
     first_contract = firm.actual_wages[1]
@@ -198,8 +200,8 @@ def test_healthcare_resets_keep_this_payday_and_mirror_future_contract(
             original_sales({**result, "revenue": max(1.0, result["revenue"])})
             assert firm.actual_wages[1] == pytest.approx(minimum)
 
-        monkeypatch.setattr(firm, "apply_sales_and_profit", profit_reset)
-        monkeypatch.setattr(firm, "apply_price_and_wage_updates", lambda *_args: None)
+        patch_agent_method(monkeypatch, firm, "apply_sales_and_profit", profit_reset)
+        patch_agent_method(monkeypatch, firm, "apply_price_and_wage_updates", lambda *_args: None)
 
     economy.step()
     assert doctor.last_wage_income == pytest.approx(80.0)

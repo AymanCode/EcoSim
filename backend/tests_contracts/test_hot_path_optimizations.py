@@ -4,10 +4,16 @@ import zlib
 
 from agents import HouseholdAgent, build_awareness_market_views
 from config import CONFIG
-from tests_contracts.factories import make_economy, make_firm, make_government, make_household
+from tests_contracts.factories import (
+    make_economy,
+    make_firm,
+    make_government,
+    make_household,
+    patch_agent_method,
+)
 
 
-def test_batch_household_updates_preserve_ledgers_without_method_calls():
+def test_batch_household_updates_preserve_ledgers_without_method_calls(monkeypatch):
     household = make_household(household_id=1, cash_balance=1_000.0)
     household.employer_id = 101
     household.wage = 100.0
@@ -18,7 +24,7 @@ def test_batch_household_updates_preserve_ledgers_without_method_calls():
     def fail_if_called(key: str, amount: float) -> None:
         raise AssertionError(f"hot batch path should not call add_ledger_flow({key!r}, {amount!r})")
 
-    household.add_ledger_flow = fail_if_called
+    patch_agent_method(monkeypatch, household, "add_ledger_flow", fail_if_called)
 
     economy._batch_apply_household_updates(
         transfer_plan={1: 25.0},

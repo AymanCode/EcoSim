@@ -85,6 +85,10 @@ def _make_minimal_economy_for_rent(household, rent, bank=None):
             self.housing_firm.current_tenants = [hh.household_id]
 
             self.firm_lookup = {hh.renting_from_firm_id: self.housing_firm}
+            # Withdrawal telemetry of the inlined path, kept on the stub:
+            # HouseholdAgent has no such fields (its slots reject new ones).
+            self.deposit_withdrawal_this_tick = 0.0
+            self.spending_from_deposits_this_tick = 0.0
 
         def run_rent_payment(self):
             household = self.household
@@ -106,8 +110,8 @@ def _make_minimal_economy_for_rent(household, rent, bank=None):
                         actual = self.bank.withdraw(household.household_id, withdraw_amount)
                         household.bank_deposit = max(0.0, household.bank_deposit - actual)
                         household.cash_balance += actual
-                        household.deposit_withdrawal_this_tick += actual
-                        household.spending_from_deposits_this_tick += actual
+                        self.deposit_withdrawal_this_tick += actual
+                        self.spending_from_deposits_this_tick += actual
 
             if housing_firm is not None and household.cash_balance >= rent_due:
                 household.cash_balance -= rent_due
@@ -125,8 +129,6 @@ def test_contract_rent_paid_from_deposits_when_cash_zero():
     hh = make_household(cash_balance=0.0, bank_deposit=500.0)
     hh.renting_from_firm_id = 99
     hh.monthly_rent = 200.0
-    hh.deposit_withdrawal_this_tick = 0.0
-    hh.spending_from_deposits_this_tick = 0.0
 
     bank = MagicMock(spec=BankAgent)
     bank.withdraw.return_value = 200.0  # bank has sufficient reserves
@@ -138,7 +140,7 @@ def test_contract_rent_paid_from_deposits_when_cash_zero():
     assert hh.owns_housing is True
     bank.withdraw.assert_called_once_with(hh.household_id, pytest.approx(200.0))
     assert hh.bank_deposit == pytest.approx(300.0)  # 500 - 200
-    assert hh.deposit_withdrawal_this_tick == pytest.approx(200.0)
+    assert eco.deposit_withdrawal_this_tick == pytest.approx(200.0)
 
 
 def test_contract_rent_not_paid_when_deposits_also_insufficient():
@@ -146,8 +148,6 @@ def test_contract_rent_not_paid_when_deposits_also_insufficient():
     hh = make_household(cash_balance=0.0, bank_deposit=100.0)
     hh.renting_from_firm_id = 99
     hh.monthly_rent = 200.0
-    hh.deposit_withdrawal_this_tick = 0.0
-    hh.spending_from_deposits_this_tick = 0.0
 
     bank = MagicMock(spec=BankAgent)
 
@@ -157,7 +157,7 @@ def test_contract_rent_not_paid_when_deposits_also_insufficient():
     # Stranding guard: cash + accessible = 0 + 90 = 90 < 200 → no withdrawal at all
     assert paid is False
     bank.withdraw.assert_not_called()
-    assert hh.deposit_withdrawal_this_tick == pytest.approx(0.0)
+    assert eco.deposit_withdrawal_this_tick == pytest.approx(0.0)
     assert hh.bank_deposit == pytest.approx(100.0)  # unchanged
 
 
@@ -166,8 +166,6 @@ def test_contract_rent_no_withdrawal_when_cash_sufficient():
     hh = make_household(cash_balance=500.0, bank_deposit=1_000.0)
     hh.renting_from_firm_id = 99
     hh.monthly_rent = 200.0
-    hh.deposit_withdrawal_this_tick = 0.0
-    hh.spending_from_deposits_this_tick = 0.0
 
     bank = MagicMock(spec=BankAgent)
 
@@ -176,7 +174,7 @@ def test_contract_rent_no_withdrawal_when_cash_sufficient():
 
     assert paid is True
     bank.withdraw.assert_not_called()
-    assert hh.deposit_withdrawal_this_tick == pytest.approx(0.0)
+    assert eco.deposit_withdrawal_this_tick == pytest.approx(0.0)
 
 
 # ---------------------------------------------------------------------------
@@ -209,8 +207,6 @@ def test_contract_withdrawal_capped_by_accessible_fraction():
     hh = make_household(cash_balance=0.0, bank_deposit=1_000.0)
     hh.renting_from_firm_id = 99
     hh.monthly_rent = 800.0
-    hh.deposit_withdrawal_this_tick = 0.0
-    hh.spending_from_deposits_this_tick = 0.0
 
     bank = MagicMock(spec=BankAgent)
     bank.withdraw.return_value = 800.0
@@ -222,7 +218,7 @@ def test_contract_withdrawal_capped_by_accessible_fraction():
     call_args = bank.withdraw.call_args
     requested = call_args[0][1]
     assert requested == pytest.approx(800.0)  # exactly the shortfall, not 900
-    assert hh.deposit_withdrawal_this_tick == pytest.approx(800.0)
+    assert eco.deposit_withdrawal_this_tick == pytest.approx(800.0)
 
 
 # ---------------------------------------------------------------------------

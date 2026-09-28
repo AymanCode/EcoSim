@@ -24,6 +24,7 @@ from tests_contracts.factories import (
     make_firms,
     make_government,
     make_households,
+    patch_agent_method,
 )
 
 MONEY_TOL = 1e-6
@@ -199,7 +200,7 @@ def test_a3_medical_loan_fallback_with_bank_conserves_money(fixed_seed, monkeypa
         return original_take(amount)
 
     monkeypatch.setattr(economy, "_issue_medical_loan", spy_issue)
-    monkeypatch.setattr(patient, "take_medical_loan", spy_take)
+    patch_agent_method(monkeypatch, patient, "take_medical_loan", spy_take)
 
     before = total_money_with_bank(economy)
     economy.step()
