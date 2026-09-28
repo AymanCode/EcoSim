@@ -1640,6 +1640,8 @@ class Economy:
         self._phase_household_planning(tick)
 
         self._phase_labor_matching(tick)
+
+        self._phase_apply_labor_outcomes(tick)
         payment_arm = tick.payment_arm
         audit_firm_states_before = tick.audit_firm_states_before
         audit_household_states_before = tick.audit_household_states_before
@@ -1655,79 +1657,6 @@ class Economy:
         household_consumption_plans = tick.household_consumption_plans
         firm_labor_outcomes = tick.firm_labor_outcomes
         household_labor_outcomes = tick.household_labor_outcomes
-
-        # Phase 4: Apply labor outcomes
-        # Use cached wage percentiles (update every 5 ticks for performance)
-        if self.current_tick - self.wage_percentile_cache_tick >= 5:
-            # Collect ALL currently-paid wages (not just new hires) for accurate percentiles.
-            market_paid_wages = []
-            for firm in self.firms:
-                for eid in firm.employees:
-                    market_paid_wages.append(firm.actual_wages.get(eid, firm.wage_offer))
-
-            if market_paid_wages:
-                # Use NumPy for fast percentile calculation
-                wages_arr = np.array(market_paid_wages, dtype=np.float32)
-                wage_anchor_low = float(np.percentile(wages_arr, 25))
-                wage_anchor_mid = float(np.percentile(wages_arr, 50))
-                wage_anchor_high = float(np.percentile(wages_arr, 75))
-            else:
-                wage_anchor_low = wage_anchor_mid = wage_anchor_high = None
-
-            self.cached_wage_percentiles = (wage_anchor_low, wage_anchor_mid, wage_anchor_high)
-            self.wage_percentile_cache_tick = self.current_tick
-        else:
-            wage_anchor_low, wage_anchor_mid, wage_anchor_high = self.cached_wage_percentiles
-
-        for firm in self.firms:
-            firm.apply_labor_outcome(firm_labor_outcomes[firm.firm_id])
-
-        for household in self.households:
-            anchor = None
-            if household.skills_level < 0.4:
-                anchor = wage_anchor_low
-            elif household.skills_level > 0.7:
-                anchor = wage_anchor_high
-            else:
-                anchor = wage_anchor_mid
-
-            hh_outcome = household_labor_outcomes[household.household_id]
-            new_employer_id = hh_outcome.get("employer_id")
-            if new_employer_id is not None and new_employer_id in self.firm_lookup:
-                employer_firm = self.firm_lookup[new_employer_id]
-                if household.household_id in employer_firm.actual_wages:
-                    resolved_wage = employer_firm.actual_wages[household.household_id]
-                    if resolved_wage != hh_outcome.get("wage"):
-                        hh_outcome = dict(hh_outcome)
-                        hh_outcome["wage"] = resolved_wage
-
-            household.apply_labor_outcome(
-                hh_outcome,
-                market_wage_anchor=anchor,
-                current_tick=self.current_tick
-            )
-
-        # Keep firm-side employee rosters aligned with household employment outcomes.
-        # This prevents stale counts in firm telemetry versus unemployment metrics.
-        self._sync_firm_employee_rosters()
-        if payment_arm:
-            self.payment_project_worker_by_firm = {}
-            if self.config.payment_services_project_enabled:
-                from payment_government import assign_payment_services_project_worker
-                self.payment_project_worker_by_firm = assign_payment_services_project_worker(
-                    self, {fid: outcome.get("hired_households_ids", []) for fid, outcome in firm_labor_outcomes.items()},
-                    baseline_hire_count=self.payment_project_baseline_hires,
-                )
-
-        # Update wages for continuing employees every 50 ticks (small 2-3% increases)
-        if self.current_tick % 50 == 0:
-            self._update_continuing_employee_wages()
-        if payment_arm and self.config.payment_services_project_enabled:
-            project = self.payment_state.get("services_project")
-            if project and project.get("status") == "assigned":
-                firm = self.firm_lookup.get(project["firm_id"])
-                if firm is not None:
-                    project["frozen_wage_due"] = float(firm.actual_wages.get(project["worker_id"], 0.0))
 
         # Freeze ordinary earned wages at the production boundary (currency per
         # tick, all households including zero-paid unemployed households).
@@ -2621,6 +2550,84 @@ class Economy:
                     if gross is not None:
                         diagnose_observed_offer(self, hid, float(gross), fid)
         self._record_failed_hiring_events(firm_production_plans, tick.firm_labor_outcomes)
+
+    def _phase_apply_labor_outcomes(self, tick: _TickScratch) -> None:
+        """Apply labor outcomes, sync rosters, continuing-wage raises and the payment project worker."""
+        firm_labor_outcomes = tick.firm_labor_outcomes
+        household_labor_outcomes = tick.household_labor_outcomes
+        payment_arm = tick.payment_arm
+        # Phase 4: Apply labor outcomes
+        # Use cached wage percentiles (update every 5 ticks for performance)
+        if self.current_tick - self.wage_percentile_cache_tick >= 5:
+            # Collect ALL currently-paid wages (not just new hires) for accurate percentiles.
+            market_paid_wages = []
+            for firm in self.firms:
+                for eid in firm.employees:
+                    market_paid_wages.append(firm.actual_wages.get(eid, firm.wage_offer))
+
+            if market_paid_wages:
+                # Use NumPy for fast percentile calculation
+                wages_arr = np.array(market_paid_wages, dtype=np.float32)
+                wage_anchor_low = float(np.percentile(wages_arr, 25))
+                wage_anchor_mid = float(np.percentile(wages_arr, 50))
+                wage_anchor_high = float(np.percentile(wages_arr, 75))
+            else:
+                wage_anchor_low = wage_anchor_mid = wage_anchor_high = None
+
+            self.cached_wage_percentiles = (wage_anchor_low, wage_anchor_mid, wage_anchor_high)
+            self.wage_percentile_cache_tick = self.current_tick
+        else:
+            wage_anchor_low, wage_anchor_mid, wage_anchor_high = self.cached_wage_percentiles
+
+        for firm in self.firms:
+            firm.apply_labor_outcome(firm_labor_outcomes[firm.firm_id])
+
+        for household in self.households:
+            anchor = None
+            if household.skills_level < 0.4:
+                anchor = wage_anchor_low
+            elif household.skills_level > 0.7:
+                anchor = wage_anchor_high
+            else:
+                anchor = wage_anchor_mid
+
+            hh_outcome = household_labor_outcomes[household.household_id]
+            new_employer_id = hh_outcome.get("employer_id")
+            if new_employer_id is not None and new_employer_id in self.firm_lookup:
+                employer_firm = self.firm_lookup[new_employer_id]
+                if household.household_id in employer_firm.actual_wages:
+                    resolved_wage = employer_firm.actual_wages[household.household_id]
+                    if resolved_wage != hh_outcome.get("wage"):
+                        hh_outcome = dict(hh_outcome)
+                        hh_outcome["wage"] = resolved_wage
+
+            household.apply_labor_outcome(
+                hh_outcome,
+                market_wage_anchor=anchor,
+                current_tick=self.current_tick
+            )
+
+        # Keep firm-side employee rosters aligned with household employment outcomes.
+        # This prevents stale counts in firm telemetry versus unemployment metrics.
+        self._sync_firm_employee_rosters()
+        if payment_arm:
+            self.payment_project_worker_by_firm = {}
+            if self.config.payment_services_project_enabled:
+                from payment_government import assign_payment_services_project_worker
+                self.payment_project_worker_by_firm = assign_payment_services_project_worker(
+                    self, {fid: outcome.get("hired_households_ids", []) for fid, outcome in firm_labor_outcomes.items()},
+                    baseline_hire_count=self.payment_project_baseline_hires,
+                )
+
+        # Update wages for continuing employees every 50 ticks (small 2-3% increases)
+        if self.current_tick % 50 == 0:
+            self._update_continuing_employee_wages()
+        if payment_arm and self.config.payment_services_project_enabled:
+            project = self.payment_state.get("services_project")
+            if project and project.get("status") == "assigned":
+                firm = self.firm_lookup.get(project["firm_id"])
+                if firm is not None:
+                    project["frozen_wage_due"] = float(firm.actual_wages.get(project["worker_id"], 0.0))
 
     # -------------------------------------------------------------------------
     # Section: Firm distress, working capital, and shortage diagnostics
