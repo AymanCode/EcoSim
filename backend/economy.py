@@ -4545,22 +4545,26 @@ class Economy:
         min_food = np.fromiter((h.min_food_per_tick for h in households), dtype=np.float64, count=n)
         services_consumed = np.fromiter((h.services_consumed_this_tick for h in households), dtype=np.float64, count=n)
 
-        # Per-agent morale parameters (randomized per household)
+        # Per-agent morale parameters (randomized per household); the midpoint
+        # fallbacks are constant, so compute them once rather than per household.
+        default_emp_boost = sum(hc.morale_employed_boost_range) / 2.0
+        default_unemp_penalty = sum(hc.morale_unemployed_penalty_range) / 2.0
+        default_unhoused_penalty = sum(hc.morale_unhoused_penalty_range) / 2.0
         morale_emp_boost = np.fromiter(
             (h.morale_employed_boost if h.morale_employed_boost is not None
-             else sum(hc.morale_employed_boost_range) / 2.0
+             else default_emp_boost
              for h in households),
             dtype=np.float64, count=n
         )
         morale_unemp_penalty = np.fromiter(
             (h.morale_unemployed_penalty if h.morale_unemployed_penalty is not None
-             else sum(hc.morale_unemployed_penalty_range) / 2.0
+             else default_unemp_penalty
              for h in households),
             dtype=np.float64, count=n
         )
         morale_unhoused_penalty = np.fromiter(
             (h.morale_unhoused_penalty if h.morale_unhoused_penalty is not None
-             else sum(hc.morale_unhoused_penalty_range) / 2.0
+             else default_unhoused_penalty
              for h in households),
             dtype=np.float64, count=n
         )
