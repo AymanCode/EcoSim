@@ -1661,6 +1661,8 @@ class Economy:
         self._phase_misc_and_healthcare(tick)
 
         self._phase_fiscal_planning(tick)
+
+        self._phase_firm_settlement(tick)
         payment_arm = tick.payment_arm
         audit_firm_states_before = tick.audit_firm_states_before
         audit_household_states_before = tick.audit_household_states_before
@@ -1679,57 +1681,9 @@ class Economy:
         frozen_wages = tick.frozen_wages
         per_household_purchases = tick.per_household_purchases
         per_firm_sales = tick.per_firm_sales
-        price_ceiling_tax_by_firm_id = tick.price_ceiling_tax_by_firm_id
         total_price_ceiling_taxes = tick.total_price_ceiling_taxes
-        assessed_project_receipts = tick.assessed_project_receipts
         tax_plan = tick.tax_plan
         transfer_plan = tick.transfer_plan
-
-        # Phase 9: Apply sales, profits, taxes to firms
-        for firm in self.firms:
-            sales_data = per_firm_sales.get(firm.firm_id, {"units_sold": 0.0, "revenue": 0.0})
-            profit_tax = tax_plan["profit_taxes"].get(firm.firm_id, 0.0)
-            property_tax = tax_plan["property_taxes"].get(firm.firm_id, 0.0)
-            price_ceiling_tax = price_ceiling_tax_by_firm_id.get(firm.firm_id, 0.0)
-
-            # Pay property tax if housing firm
-            if payment_arm:
-                self.payment_book.release_firm_receipts(firm)
-                available_tax_cash = max(0.0, firm.cash_balance)
-                property_tax = min(property_tax, available_tax_cash)
-                available_tax_cash -= property_tax
-                profit_tax = min(profit_tax, available_tax_cash)
-                available_tax_cash -= profit_tax
-                price_ceiling_tax = min(price_ceiling_tax, available_tax_cash)
-                tax_plan["property_taxes"][firm.firm_id] = property_tax
-                tax_plan["profit_taxes"][firm.firm_id] = profit_tax
-                price_ceiling_tax_by_firm_id[firm.firm_id] = price_ceiling_tax
-            if property_tax > 0:
-                firm.cash_balance -= property_tax
-
-            firm.apply_sales_and_profit({
-                "units_sold": sales_data["units_sold"],
-                "revenue": sales_data["revenue"] + (self.payment_book.rent_receipts.get(firm.firm_id, 0.0)
-                                                   + assessed_project_receipts.get(firm.firm_id, 0.0) if payment_arm else 0.0),
-                "profit_taxes_paid": profit_tax + price_ceiling_tax,
-                "committed_sale_book": payment_arm,
-            })
-
-            # Apply price and wage updates
-            firm.apply_price_and_wage_updates(
-                firm_price_plans[firm.firm_id],
-                firm_wage_plans[firm.firm_id]
-            )
-
-            # Mirror actual worker contracts to households whose employer still matches
-            for worker_id, contract_wage in firm.actual_wages.items():
-                worker_hh = self.household_lookup.get(worker_id)
-                if worker_hh is not None and worker_hh.employer_id == firm.firm_id:
-                    worker_hh.wage = contract_wage
-        if payment_arm:
-            from payment_sectors import update_payment_housing_asks
-            update_payment_housing_asks(self)
-            total_price_ceiling_taxes = sum(price_ceiling_tax_by_firm_id.values())
 
         # Phase 9.5: Bank loan repayments (firms & households → bank)
         # Runs after wages and sales so borrowers have income before repayment.
@@ -2676,6 +2630,61 @@ class Economy:
         if payment_arm:
             from payment_projects import distribute_payment_project_proceeds
             distribute_payment_project_proceeds(self)
+
+    def _phase_firm_settlement(self, tick: _TickScratch) -> None:
+        """Firms apply sales, profits, taxes, prices and next wage contracts; contracts mirror to workers."""
+        per_firm_sales = tick.per_firm_sales
+        tax_plan = tick.tax_plan
+        price_ceiling_tax_by_firm_id = tick.price_ceiling_tax_by_firm_id
+        payment_arm = tick.payment_arm
+        assessed_project_receipts = tick.assessed_project_receipts
+        firm_price_plans = tick.firm_price_plans
+        firm_wage_plans = tick.firm_wage_plans
+        # Phase 9: Apply sales, profits, taxes to firms
+        for firm in self.firms:
+            sales_data = per_firm_sales.get(firm.firm_id, {"units_sold": 0.0, "revenue": 0.0})
+            profit_tax = tax_plan["profit_taxes"].get(firm.firm_id, 0.0)
+            property_tax = tax_plan["property_taxes"].get(firm.firm_id, 0.0)
+            price_ceiling_tax = price_ceiling_tax_by_firm_id.get(firm.firm_id, 0.0)
+
+            # Pay property tax if housing firm
+            if payment_arm:
+                self.payment_book.release_firm_receipts(firm)
+                available_tax_cash = max(0.0, firm.cash_balance)
+                property_tax = min(property_tax, available_tax_cash)
+                available_tax_cash -= property_tax
+                profit_tax = min(profit_tax, available_tax_cash)
+                available_tax_cash -= profit_tax
+                price_ceiling_tax = min(price_ceiling_tax, available_tax_cash)
+                tax_plan["property_taxes"][firm.firm_id] = property_tax
+                tax_plan["profit_taxes"][firm.firm_id] = profit_tax
+                price_ceiling_tax_by_firm_id[firm.firm_id] = price_ceiling_tax
+            if property_tax > 0:
+                firm.cash_balance -= property_tax
+
+            firm.apply_sales_and_profit({
+                "units_sold": sales_data["units_sold"],
+                "revenue": sales_data["revenue"] + (self.payment_book.rent_receipts.get(firm.firm_id, 0.0)
+                                                   + assessed_project_receipts.get(firm.firm_id, 0.0) if payment_arm else 0.0),
+                "profit_taxes_paid": profit_tax + price_ceiling_tax,
+                "committed_sale_book": payment_arm,
+            })
+
+            # Apply price and wage updates
+            firm.apply_price_and_wage_updates(
+                firm_price_plans[firm.firm_id],
+                firm_wage_plans[firm.firm_id]
+            )
+
+            # Mirror actual worker contracts to households whose employer still matches
+            for worker_id, contract_wage in firm.actual_wages.items():
+                worker_hh = self.household_lookup.get(worker_id)
+                if worker_hh is not None and worker_hh.employer_id == firm.firm_id:
+                    worker_hh.wage = contract_wage
+        if payment_arm:
+            from payment_sectors import update_payment_housing_asks
+            update_payment_housing_asks(self)
+            tick.total_price_ceiling_taxes = sum(price_ceiling_tax_by_firm_id.values())
 
     # -------------------------------------------------------------------------
     # Section: Firm distress, working capital, and shortage diagnostics
