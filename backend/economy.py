@@ -102,6 +102,10 @@ class _TickScratch:
     assessed_project_receipts: Optional[Dict[int, float]] = None
     tax_plan: Optional[Dict[str, Dict[int, float]]] = None
     transfer_plan: Optional[Dict[int, float]] = None
+    total_wage_taxes: Optional[float] = None
+    total_profit_taxes: Optional[float] = None
+    total_property_taxes: Optional[float] = None
+    total_transfers: Optional[float] = None
 
 
 # -----------------------------------------------------------------------------
@@ -1663,11 +1667,12 @@ class Economy:
         self._phase_fiscal_planning(tick)
 
         self._phase_firm_settlement(tick)
+
+        self._phase_household_and_fiscal_settlement(tick)
         payment_arm = tick.payment_arm
         audit_firm_states_before = tick.audit_firm_states_before
         audit_household_states_before = tick.audit_household_states_before
         audit_government_state_before = tick.audit_government_state_before
-        good_category_lookup = tick.good_category_lookup
         unemployment_rate = tick.unemployment_rate
         firm_production_plans = tick.firm_production_plans
         firm_price_plans = tick.firm_price_plans
@@ -1678,58 +1683,15 @@ class Economy:
         household_consumption_plans = tick.household_consumption_plans
         firm_labor_outcomes = tick.firm_labor_outcomes
         household_labor_outcomes = tick.household_labor_outcomes
-        frozen_wages = tick.frozen_wages
         per_household_purchases = tick.per_household_purchases
         per_firm_sales = tick.per_firm_sales
         total_price_ceiling_taxes = tick.total_price_ceiling_taxes
         tax_plan = tick.tax_plan
         transfer_plan = tick.transfer_plan
-
-        # Phase 9.5: Bank loan repayments (firms & households → bank)
-        # Runs after wages and sales so borrowers have income before repayment.
-        if payment_arm:
-            from payment_loans import collect_firm_dues
-            collect_firm_dues(self)
-        elif self.bank is not None:
-            self._collect_bank_loan_repayments()
-
-        # Phase 10: Apply income, taxes, transfers, purchases to households
-        if payment_arm:
-            self._payment_collect_direct_firm_loans()
-        self._batch_apply_household_updates(
-            transfer_plan,
-            tax_plan["wage_taxes"],
-            per_household_purchases,
-            good_category_lookup,
-            frozen_wages=frozen_wages,
-            payment_receipt_only=payment_arm,
-        )
-        if payment_arm:
-            self.payment_book.release_late_income()
-
-        # Phase 11: Apply government fiscal results
-        total_wage_taxes = sum(tax_plan["wage_taxes"].values())
-        total_profit_taxes = sum(tax_plan["profit_taxes"].values())
-        total_property_taxes = sum(tax_plan["property_taxes"].values())
-        total_transfers = sum(transfer_plan.values())
-
-        self.last_tick_gov_wage_taxes = total_wage_taxes
-        self.last_tick_gov_profit_taxes = total_profit_taxes + total_price_ceiling_taxes
-        self.last_tick_gov_property_taxes = total_property_taxes
-        self.last_tick_gov_transfers = total_transfers
-
-        self.government.apply_fiscal_results(
-            (0.0 if payment_arm else total_wage_taxes),
-            total_profit_taxes + total_price_ceiling_taxes,  # Include price ceiling tax as profit tax
-            (0.0 if payment_arm else total_transfers),
-            total_property_taxes
-        )
-        if payment_arm:
-            self.payment_state["restrictions"]["withholding"] = 0.0
-            self._payment_sync_restrictions()
-
-        # Phase 11.1: Update government budget pressure (soft deficit constraint)
-        # NOTE: infra/tech spending added to tick_spending after Phase 11.5 (below)
+        total_wage_taxes = tick.total_wage_taxes
+        total_profit_taxes = tick.total_profit_taxes
+        total_property_taxes = tick.total_property_taxes
+        total_transfers = tick.total_transfers
 
         # Phase 11.3: Bank deposit sweep & interest (households → bank)
         if self.bank is not None:
@@ -2685,6 +2647,61 @@ class Economy:
             from payment_sectors import update_payment_housing_asks
             update_payment_housing_asks(self)
             tick.total_price_ceiling_taxes = sum(price_ceiling_tax_by_firm_id.values())
+
+    def _phase_household_and_fiscal_settlement(self, tick: _TickScratch) -> None:
+        """Loan repayments, household income/tax/purchase application, late income, fiscal results."""
+        payment_arm = tick.payment_arm
+        transfer_plan = tick.transfer_plan
+        tax_plan = tick.tax_plan
+        per_household_purchases = tick.per_household_purchases
+        good_category_lookup = tick.good_category_lookup
+        frozen_wages = tick.frozen_wages
+        total_price_ceiling_taxes = tick.total_price_ceiling_taxes
+        # Phase 9.5: Bank loan repayments (firms & households → bank)
+        # Runs after wages and sales so borrowers have income before repayment.
+        if payment_arm:
+            from payment_loans import collect_firm_dues
+            collect_firm_dues(self)
+        elif self.bank is not None:
+            self._collect_bank_loan_repayments()
+
+        # Phase 10: Apply income, taxes, transfers, purchases to households
+        if payment_arm:
+            self._payment_collect_direct_firm_loans()
+        self._batch_apply_household_updates(
+            transfer_plan,
+            tax_plan["wage_taxes"],
+            per_household_purchases,
+            good_category_lookup,
+            frozen_wages=frozen_wages,
+            payment_receipt_only=payment_arm,
+        )
+        if payment_arm:
+            self.payment_book.release_late_income()
+
+        # Phase 11: Apply government fiscal results
+        tick.total_wage_taxes = sum(tax_plan["wage_taxes"].values())
+        tick.total_profit_taxes = sum(tax_plan["profit_taxes"].values())
+        tick.total_property_taxes = sum(tax_plan["property_taxes"].values())
+        tick.total_transfers = sum(transfer_plan.values())
+
+        self.last_tick_gov_wage_taxes = tick.total_wage_taxes
+        self.last_tick_gov_profit_taxes = tick.total_profit_taxes + total_price_ceiling_taxes
+        self.last_tick_gov_property_taxes = tick.total_property_taxes
+        self.last_tick_gov_transfers = tick.total_transfers
+
+        self.government.apply_fiscal_results(
+            (0.0 if payment_arm else tick.total_wage_taxes),
+            tick.total_profit_taxes + total_price_ceiling_taxes,  # Include price ceiling tax as profit tax
+            (0.0 if payment_arm else tick.total_transfers),
+            tick.total_property_taxes
+        )
+        if payment_arm:
+            self.payment_state["restrictions"]["withholding"] = 0.0
+            self._payment_sync_restrictions()
+
+        # Phase 11.1: Update government budget pressure (soft deficit constraint)
+        # NOTE: infra/tech spending added to tick_spending after Phase 11.5 (below)
 
     # -------------------------------------------------------------------------
     # Section: Firm distress, working capital, and shortage diagnostics
