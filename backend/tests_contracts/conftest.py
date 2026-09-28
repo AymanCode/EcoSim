@@ -28,6 +28,22 @@ def total_money(economy: Economy) -> float:
     return household_cash + firm_cash + queued_firm_cash + government_cash + misc_pool
 
 
+def total_money_with_bank(economy: Economy) -> float:
+    """``total_money`` plus the bank's cash reserves, when a bank exists.
+
+    Household deposits are NOT added. A deposit moves cash into the bank:
+    ``Economy._process_bank_deposits`` subtracts it from ``hh.cash_balance``
+    and ``BankAgent.accept_deposit`` does ``self.cash_reserves += amount``
+    (``backend/agents.py``); ``BankAgent.withdraw`` does the reverse. So the
+    deposited money is already inside ``cash_reserves``, and
+    ``hh.bank_deposit`` / ``bank.total_deposits`` are the claim on it.
+    Adding them would count the same money twice.
+    """
+    bank = getattr(economy, "bank", None)
+    bank_reserves = float(bank.cash_reserves) if bank is not None else 0.0
+    return total_money(economy) + bank_reserves
+
+
 @pytest.fixture
 def fixed_seed() -> int:
     seed = 20260302

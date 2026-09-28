@@ -4,6 +4,26 @@ Notable changes and decisions for EcoSim, newest first. The project does not use
 
 ## Unreleased
 
+### 2026-09-28: Agents/economy remediation, phase 0 (instrumentation)
+
+No engine behavior changed; both golden compares match. Audit: [docs/reviews/2026-09-28-agents-economy-code-audit.md](docs/reviews/2026-09-28-agents-economy-code-audit.md). Plan: [docs/reviews/2026-09-28-agents-economy-remediation-plan.md](docs/reviews/2026-09-28-agents-economy-remediation-plan.md).
+
+Before:
+
+- One multi-tick conservation contract (`test_contract_accounting_conservation_across_post_warmup_steps_without_cash_sinks`), run with sink mechanics disabled and no bank.
+- `total_money` in `backend/tests_contracts/conftest.py` left out bank reserves, so bank lending leaks could not be seen.
+- No golden snapshots committed; `benchmarks/results/` is gitignored.
+- No tool to measure per-tick money drift.
+
+Now:
+
+- `total_money_with_bank` in `backend/tests_contracts/conftest.py` adds `bank.cash_reserves`. Household deposits are not added separately: `BankAgent.accept_deposit` moves the cash into `cash_reserves`, so the deposit balance is a claim on money already counted.
+- `backend/tests_contracts/test_conservation_leaks.py`: four `xfail(strict=True)` tests, one per audit item A1-A4, each failing today on its own conservation or interest assertion (A1 +1,144.45 created by a scaled-down subsidized food purchase; A2 -25,000.00 when a long-term capital loan is wiped; A3 +15.00 from the medical-loan fallback with a bank that cannot lend; A4 a 520-tick loan owes 10,500 instead of 15,000 and a 26-tick loan 10,500 instead of 10,250). A passing control test steps the same small legacy economy with a bank for 5 ticks and conserves money exactly. When a Phase 4 fix lands, strict mode fails on the stale marker so it gets removed.
+- `backend/tools/checks/money_supply_drift.py` prints total money with bank per tick for the same seeded economy as the regression snapshot tool.
+- Goldens committed: `benchmarks/results/golden_1500_s42_t80.json` and `benchmarks/results/golden_1500_s7_t300.json`.
+
+Measured drift (defaults: 1,500 households, 10 firms per category, seed 42, 120 ticks, legacy): total money starts at 9,063,750.00 and ends at 9,025,047.44, a net change of -38,702.56 (-0.43%). Gross absolute drift is 681,124.05 over 51 of 120 ticks; the first nonzero tick is 14. Largest single ticks: -60,000.00 (ticks 21 and 102), +29,070.57 (tick 65), +28,006.47 (tick 60), +27,792.22 (tick 38). In one comparison run with long-term capital loans disabled, the round negative steps (-5,000 to -60,000) disappear, which points at A2. The large positive steps (about 16,000 to 30,000) fall in the 5,000-30,000 range of legacy new-firm seeding (audit A5); the small positive and non-round negative steps are unattributed. The comparison run's trajectory also diverges, so this attribution is a lead, not a measurement.
+
 ### 2026-09-24: Phase 1 backend widening
 
 Phase 1 backend widening landed: experiment registry, initial policy and receipts, horizon/finish/extend, TRACK, event stream, curated metrics, recorder, concurrent frame bench; gate: fail, bytes p95 186,587 and 188,160 for the two towns (limit 61,440, at two towns of 1,000 households, warehouse off), overhead share 1.9% (limit 10%), equivalence matched at all seven checkpoints. Evidence and the byte breakdown are in `docs/evals/2026-09-24-frame-bench/`.
