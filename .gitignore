@@ -41,6 +41,7 @@ llm_run_outputs/
 llm_run_outputs_*/
 /experiments/
 benchmarks/results/
+!benchmarks/results/golden_*.json
 screenshots/
 testing_screenshots/
 frontend-react/test-results/
