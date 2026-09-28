@@ -4,6 +4,58 @@ Notable changes and decisions for EcoSim, newest first. The project does not use
 
 ## Unreleased
 
+### 2026-09-28: Agents/economy remediation, phase 1 (dead code)
+
+Deletions only; no engine behavior changed. Every symbol below was checked by a repo-wide word grep (excluding `node_modules`, `__pycache__`, `.venv`, `openwiki/`, `docs/`) before removal. Plan: [docs/reviews/2026-09-28-agents-economy-remediation-plan.md](docs/reviews/2026-09-28-agents-economy-remediation-plan.md).
+
+Per-agent household paths replaced by the batch path (audit C33):
+
+- `HouseholdAgent.plan_consumption`: planned a household's budget and purchases; replaced by `Economy._batch_plan_consumption`, no production caller.
+- `HouseholdAgent.compute_saving_rate`: wealth-based saving rate used only by `plan_consumption`; the batch path uses `savings_drawdown_rate` instead.
+- `HouseholdAgent.apply_income_and_taxes`: added wage, transfers and taxes to cash; inlined in `_batch_apply_household_updates`.
+- `HouseholdAgent.apply_purchases`: debited purchases, stocked inventory and updated price beliefs with asymmetric alphas; inlined (with a single alpha) in `_batch_apply_household_updates`.
+- `HouseholdAgent.consume_goods`: consumed 10% of inventory per tick; the batch path's inventory loop (food eaten up to the health threshold, half the rest spoils) replaced it.
+- `HouseholdAgent.update_wellbeing`: per-household happiness, morale and health update; replaced by `Economy._batch_update_wellbeing`.
+
+Never-called methods (audit C34):
+
+- `HouseholdAgent.apply_skill_decay`: lowered skills after long unemployment; no caller, so skills never decayed.
+- `HouseholdAgent.invest_in_education`: bought skill with cash; no caller (`maybe_active_education` is the live path).
+- `HouseholdAgent.start_medical_training`, `update_medical_training_progress`, `accrue_medical_school_interest`, `make_medical_school_payment`: the medical-school pipeline (enrol, advance student to resident to doctor, accrue and repay school debt); no caller. With them gone nothing sets `medical_training_status` to "student" or "resident", so the student branches in `can_work` and `plan_labor_supply` and the resident branch in `medical_visit_capacity` were removed too. Set-membership reads of those strings (and the server and warehouse labels) are unchanged.
+- `HouseholdAgent._healthcare_visit_distribution`, `_sample_annual_visit_count`, `_refresh_annual_healthcare_visit_plan`, `_consume_due_healthcare_slot`: the annual care-plan scheduler; replaced by the episode model in `should_request_healthcare_service`, no caller. The `care_plan_*` fields stay.
+- `HouseholdAgent._filter_to_awareness_pool`: filtered firm options to the awareness pool; no caller.
+- `FirmAgent._stockout_sales_floor_multiplier`, `FirmAgent._stockout_hire_growth_rate`: stockout demand and hiring multipliers; no caller.
+- `AgentMixin.apply_overrides`: generic attribute setter; no caller. The class stays.
+- `BankAgent.pay_deposit_interest`: computed weekly deposit interest; no caller.
+- `BankAgent.to_dict`: bank serializer; only tests called it, and no frame, metrics or warehouse code reads it.
+- Unused parameters: `health_snapshot` of `FirmAgent._bounded_observed_demand_units`, and `firm_market_info` and `category_option_cache` of `HouseholdAgent._plan_category_purchases`. Callers updated; the remaining positional order is unchanged.
+
+Unreachable or no-op code (audit C36, C38 and the FirmAgent dead-code list):
+
+- The payment path built household tax snapshots and then passed `[]` to `plan_taxes`; the build now runs only on the legacy path.
+- `elif category == "services"` in the receipt block of `_batch_apply_household_updates` (services `continue` earlier).
+- In `_maybe_create_new_firms`, a nested `payment_sequence == "legacy"` check that repeated the outer one, and four `chosen_category == "Housing"` blocks that could not run because the housing path returns first.
+- A duplicate `reservation_levels.size == 0` block in `_match_labor_fast`.
+- `path_a_approved` in `_offer_housing_expansion_loans`, which only held firms that the loop already skips.
+- In `FirmAgent`: the always-zero `fixed_cost` term, three always-true `health_snapshot is not None` checks, a max/min pair on warmup baseline hiring that never bound, a `return True` after `return False`, and a repeated `!= "healthcare"` test.
+- In `HouseholdAgent`: an unused `config` local, a second `hh_config` fetch, and a redundant local `from config import CONFIG`.
+
+Tests:
+
+- `test_contracts_behavior.py`: the food-health, mercy-floor and morale contracts now run through `Economy._batch_update_wellbeing`; the services-flow contract runs through `_batch_apply_household_updates`.
+- `test_contracts_behavior.py::test_contract_batch_wellbeing_matches_per_agent_update_path` deleted: it compared the batch path with the deleted per-agent path.
+- `test_contracts_deposits.py`: the two deposit-liquidity planning contracts now call `Economy._batch_plan_consumption`.
+- `test_contracts_income_perception.py`: the dividend planning contracts call `_batch_plan_consumption`; the services-happiness contract calls `_batch_update_wellbeing`.
+- `test_contracts_healthcare.py::test_contract_annual_visit_plan_by_health_bucket_is_deterministic` deleted: it only tested the unused annual care-plan scheduler.
+- `test_contracts_bank.py::test_contract_pay_deposit_interest_no_total_deposits_inflation` deleted: it only tested `pay_deposit_interest`.
+- `test_loan_settlement.py::test_missing_treasury_recipient_fails_before_mutation` compares a deep copy of the bank dataclass instead of `to_dict()`.
+- `test_contracts_behavior.py` and `test_hot_path_optimizations.py` calls to `_plan_category_purchases` updated for the removed parameters.
+- `backend/tools/checks/test_household_agent.py` (not in the default suite) now exercises the batch paths.
+
+Config fields now unused, kept for compatibility: `households.skill_decay_unemployment_threshold`, `skill_decay_rate_per_tick`, `skill_decay_floor`, `low_wealth_reference`, `high_wealth_reference`, `price_alpha_up`, `price_alpha_down`, `extreme_negative_cash_threshold`, `medical_training_ticks`, `medical_residency_start_fraction`, `medical_resident_max_capacity`, `medical_school_min_payment`, `medical_school_repayment_share_of_wage`, `healthcare_visit_distribution_below_10`, `healthcare_visit_distribution_below_30`, `healthcare_visit_distribution_below_70`, `healthcare_visit_distribution_healthy`.
+
+Both golden compares (`golden_1500_s42_t80.json`, `golden_1500_s7_t300.json`) matched after each commit. Contract suite: 472 passed, 5 xfailed (was 475 passed, 5 xfailed; three tests deleted as listed above).
+
 ### 2026-09-28: Agents/economy remediation, phase 0 (instrumentation)
 
 No engine behavior changed; both golden compares match. Audit: [docs/reviews/2026-09-28-agents-economy-code-audit.md](docs/reviews/2026-09-28-agents-economy-code-audit.md). Plan: [docs/reviews/2026-09-28-agents-economy-remediation-plan.md](docs/reviews/2026-09-28-agents-economy-remediation-plan.md).
