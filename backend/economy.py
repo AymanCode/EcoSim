@@ -3907,6 +3907,13 @@ class Economy:
                 assigned[candidate_idx] = True
                 vacancies -= 1
 
+        # Unfilled-vacancy diagnostics. Matching is over, so the remaining pool
+        # is the same for every firm: build it once, on first need.
+        remaining_count = -1
+        remaining_reservations = None
+        sorted_remaining = None
+        remaining_valid_count = 0
+        remaining_median: Optional[float] = None
         for firm_id in set(active_hiring_firm_ids):
             firm = self.firm_lookup.get(firm_id)
             if firm is None:
@@ -3920,19 +3927,37 @@ class Economy:
 
             outcome["unfilled_vacancies"] = int(unfilled)
             wage_offer = float(firm_wage_plans[firm_id].get("wage_offer_next", firm.wage_offer))
-            remaining_mask = (~assigned) & searching & can_work & (~medical_only)
-            remaining_indices = np.nonzero(remaining_mask)[0]
+            if remaining_count < 0:
+                remaining_mask = (~assigned) & searching & can_work & (~medical_only)
+                remaining_indices = np.nonzero(remaining_mask)[0]
+                remaining_count = int(remaining_indices.size)
+                if remaining_count:
+                    remaining_reservations = reservation_wages[remaining_indices]
+                    sorted_remaining = np.sort(remaining_reservations)
+                    # NaN sorts last and never compares greater, so leave it out of counts.
+                    remaining_valid_count = remaining_count - int(
+                        np.count_nonzero(np.isnan(remaining_reservations))
+                    )
 
-            if remaining_indices.size == 0:
+            if remaining_count == 0:
                 outcome["failed_match_reason"] = "no_available_searchers"
             else:
-                remaining_reservations = reservation_wages[remaining_indices]
-                wage_ineligible = remaining_reservations[remaining_reservations > wage_offer + 1e-9]
+                # Same comparison as `reservations > wage_offer + 1e-9`: numpy
+                # compares a Python float with the array in the array's dtype
+                # (float32 here), so cast the threshold to it before searching.
+                threshold = sorted_remaining.dtype.type(wage_offer + 1e-9)
+                ineligible_count = remaining_valid_count - int(
+                    np.searchsorted(sorted_remaining, threshold, side="right")
+                )
 
-                if wage_ineligible.size == remaining_reservations.size:
+                if ineligible_count == remaining_count:
+                    # Every remaining searcher is ineligible, so the rejected set
+                    # is the whole remaining pool: one median serves all firms.
+                    if remaining_median is None:
+                        remaining_median = float(np.median(remaining_reservations))
                     outcome["failed_match_reason"] = "reservation_above_wage_offer"
-                    outcome["reservation_reject_count"] = int(wage_ineligible.size)
-                    outcome["median_rejected_reservation_wage"] = float(np.median(wage_ineligible))
+                    outcome["reservation_reject_count"] = int(ineligible_count)
+                    outcome["median_rejected_reservation_wage"] = remaining_median
                 else:
                     outcome["failed_match_reason"] = "eligible_candidates_exhausted"
 
