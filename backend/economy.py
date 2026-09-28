@@ -107,6 +107,7 @@ class _TickScratch:
     total_property_taxes: Optional[float] = None
     total_transfers: Optional[float] = None
     bankruptcies_this_tick: Optional[int] = None
+    total_dividends_paid: Optional[float] = None
 
 
 # -----------------------------------------------------------------------------
@@ -1684,7 +1685,8 @@ class Economy:
         self._apply_doctor_health_lock()
 
         self._phase_lifecycle_and_statistics(tick)
-        payment_arm = tick.payment_arm
+
+        self._phase_dividends(tick)
         audit_firm_states_before = tick.audit_firm_states_before
         audit_household_states_before = tick.audit_household_states_before
         audit_government_state_before = tick.audit_government_state_before
@@ -1700,48 +1702,10 @@ class Economy:
         household_labor_outcomes = tick.household_labor_outcomes
         per_household_purchases = tick.per_household_purchases
         per_firm_sales = tick.per_firm_sales
-        total_price_ceiling_taxes = tick.total_price_ceiling_taxes
         tax_plan = tick.tax_plan
         transfer_plan = tick.transfer_plan
-        total_wage_taxes = tick.total_wage_taxes
-        total_profit_taxes = tick.total_profit_taxes
-        total_property_taxes = tick.total_property_taxes
         bankruptcies_this_tick = tick.bankruptcies_this_tick
-
-        # Phase 16: Distribute firm profits to owners (dividend payments)
-        # This recycles wealth from firms back to households
-        total_dividends_paid = 0.0
-        firms_with_wage_arrears = ({fid for (fid, _), amount in self.payment_state["wage_claims"].items() if amount > MONEY_EPS} if payment_arm else set())
-        for firm in self.firms:
-            if firm.firm_id in firms_with_wage_arrears:
-                continue
-            healthcare_bonus = firm.distribute_healthcare_worker_bonus(self.household_lookup)
-            total_dividends_paid += healthcare_bonus
-            dividends = firm.distribute_profits(self.household_lookup)
-            total_dividends_paid += dividends
-
-        if payment_arm:
-            self.payment_state["prior_settled_household_net"] = {
-                hid: float(row["net"]) for hid, row in self.payment_book.paid_income.items()
-            }
-            food_names = {firm.good_name for firm in self.firms if firm.good_category == "Food"}
-            self.payment_state["prior_essential_food_cost"] = {
-                hid: sum(float(cost) for name, cost in costs.items() if name in food_names)
-                for hid, costs in self.payment_book.household_purchase_cost.items()
-            }
-            self.payment_state["prior_settled_firm_operating_cashflow"] = {
-                firm.firm_id: (
-                    float(self.payment_book.receipts.get(firm.firm_id, {}).get("revenue", 0.0))
-                    + float(self.payment_book.rent_receipts.get(firm.firm_id, 0.0))
-                    + float(self.payment_state.get("services_pending_receipts", {}).get(firm.firm_id, 0.0))
-                    - float(self.payment_book.funded_wages_by_firm.get(firm.firm_id, 0.0))
-                    - float(firm.last_tick_operating_cash_cost_nonwage)
-                    - float(self.payment_book.funded_ceo.get(firm.firm_id, 0.0))
-                ) for firm in self.firms
-            }
-            self._payment_fiscal_close(
-                total_wage_taxes + total_profit_taxes + total_price_ceiling_taxes + total_property_taxes
-            )
+        total_dividends_paid = tick.total_dividends_paid
 
         for household in self.households:
             household.finalize_tick_ledger()
@@ -2721,6 +2685,48 @@ class Economy:
             bankruptcies_this_tick=tick.bankruptcies_this_tick,
         )
         self._update_sector_shortage_diagnostics()
+
+    def _phase_dividends(self, tick: _TickScratch) -> None:
+        """Healthcare bonuses and owner dividends; the payment arm stores next-tick priors and closes fiscally."""
+        payment_arm = tick.payment_arm
+        total_wage_taxes = tick.total_wage_taxes
+        total_profit_taxes = tick.total_profit_taxes
+        total_price_ceiling_taxes = tick.total_price_ceiling_taxes
+        total_property_taxes = tick.total_property_taxes
+        # Phase 16: Distribute firm profits to owners (dividend payments)
+        # This recycles wealth from firms back to households
+        tick.total_dividends_paid = 0.0
+        firms_with_wage_arrears = ({fid for (fid, _), amount in self.payment_state["wage_claims"].items() if amount > MONEY_EPS} if payment_arm else set())
+        for firm in self.firms:
+            if firm.firm_id in firms_with_wage_arrears:
+                continue
+            healthcare_bonus = firm.distribute_healthcare_worker_bonus(self.household_lookup)
+            tick.total_dividends_paid += healthcare_bonus
+            dividends = firm.distribute_profits(self.household_lookup)
+            tick.total_dividends_paid += dividends
+
+        if payment_arm:
+            self.payment_state["prior_settled_household_net"] = {
+                hid: float(row["net"]) for hid, row in self.payment_book.paid_income.items()
+            }
+            food_names = {firm.good_name for firm in self.firms if firm.good_category == "Food"}
+            self.payment_state["prior_essential_food_cost"] = {
+                hid: sum(float(cost) for name, cost in costs.items() if name in food_names)
+                for hid, costs in self.payment_book.household_purchase_cost.items()
+            }
+            self.payment_state["prior_settled_firm_operating_cashflow"] = {
+                firm.firm_id: (
+                    float(self.payment_book.receipts.get(firm.firm_id, {}).get("revenue", 0.0))
+                    + float(self.payment_book.rent_receipts.get(firm.firm_id, 0.0))
+                    + float(self.payment_state.get("services_pending_receipts", {}).get(firm.firm_id, 0.0))
+                    - float(self.payment_book.funded_wages_by_firm.get(firm.firm_id, 0.0))
+                    - float(firm.last_tick_operating_cash_cost_nonwage)
+                    - float(self.payment_book.funded_ceo.get(firm.firm_id, 0.0))
+                ) for firm in self.firms
+            }
+            self._payment_fiscal_close(
+                total_wage_taxes + total_profit_taxes + total_price_ceiling_taxes + total_property_taxes
+            )
 
     # -------------------------------------------------------------------------
     # Section: Firm distress, working capital, and shortage diagnostics
