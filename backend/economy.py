@@ -1650,6 +1650,8 @@ class Economy:
         self._phase_wage_freeze_and_production(tick)
 
         self._phase_goods_clearing(tick)
+
+        self._phase_housing(tick)
         payment_arm = tick.payment_arm
         audit_firm_states_before = tick.audit_firm_states_before
         audit_household_states_before = tick.audit_household_states_before
@@ -1669,45 +1671,6 @@ class Economy:
         per_household_purchases = tick.per_household_purchases
         per_firm_sales = tick.per_firm_sales
         goods_market = tick.goods_market
-
-        # Phase 6.5: Housing rental market clearing
-        if payment_arm:
-            from payment_projects import complete_payment_projects
-            from payment_sectors import settle_payment_rent
-            complete_payment_projects(self)
-            settle_payment_rent(self)
-        else:
-            self._clear_housing_rental_market()
-        self._apply_housing_repairs()
-
-        # Phase 6.6: Housing firms consider unit expansion
-        if payment_arm:
-            from payment_projects import try_start_self_funded_project, start_payment_mortgage_project
-            expansion_homeless_count = 0
-        else:
-            # Nothing in this loop changes tenancy, so one count serves every firm.
-            expansion_homeless_count = sum(1 for h in self.households if h.renting_from_firm_id is None)
-        for firm in self.firms:
-            if firm.good_category.lower() == "housing":
-                if payment_arm:
-                    try_start_self_funded_project(self, firm)
-                else:
-                    firm.invest_in_unit_expansion(economy=self, homeless_count=expansion_homeless_count)
-                # Route self-financed construction cost into economy (closed-loop)
-                pending = getattr(firm, "_pending_construction_cost", 0.0)
-                if pending > 0:
-                    self._collect_misc_revenue(pending)
-                    firm._pending_construction_cost = 0.0
-
-        # Phase 6.6b: Service existing housing mortgages, then originate new ones
-        if self.bank is not None:
-            self._service_housing_mortgage_debt()
-            if payment_arm:
-                for firm in self.firms:
-                    if (firm.good_category or "").lower() == "housing":
-                        start_payment_mortgage_project(self, firm)
-            else:
-                self._offer_housing_expansion_loans()
 
         # Phase 6.7: Misc firm operations
         if not payment_arm:
@@ -2649,6 +2612,48 @@ class Economy:
                     firm.consider_service_infrastructure_upgrade(economy=self)
             if self.bank is not None:
                 self._offer_service_infrastructure_loans()
+
+    def _phase_housing(self, tick: _TickScratch) -> None:
+        """Housing: rent clearing, repairs, unit expansion, mortgage servicing and origination."""
+        payment_arm = tick.payment_arm
+        # Phase 6.5: Housing rental market clearing
+        if payment_arm:
+            from payment_projects import complete_payment_projects
+            from payment_sectors import settle_payment_rent
+            complete_payment_projects(self)
+            settle_payment_rent(self)
+        else:
+            self._clear_housing_rental_market()
+        self._apply_housing_repairs()
+
+        # Phase 6.6: Housing firms consider unit expansion
+        if payment_arm:
+            from payment_projects import try_start_self_funded_project, start_payment_mortgage_project
+            expansion_homeless_count = 0
+        else:
+            # Nothing in this loop changes tenancy, so one count serves every firm.
+            expansion_homeless_count = sum(1 for h in self.households if h.renting_from_firm_id is None)
+        for firm in self.firms:
+            if firm.good_category.lower() == "housing":
+                if payment_arm:
+                    try_start_self_funded_project(self, firm)
+                else:
+                    firm.invest_in_unit_expansion(economy=self, homeless_count=expansion_homeless_count)
+                # Route self-financed construction cost into economy (closed-loop)
+                pending = getattr(firm, "_pending_construction_cost", 0.0)
+                if pending > 0:
+                    self._collect_misc_revenue(pending)
+                    firm._pending_construction_cost = 0.0
+
+        # Phase 6.6b: Service existing housing mortgages, then originate new ones
+        if self.bank is not None:
+            self._service_housing_mortgage_debt()
+            if payment_arm:
+                for firm in self.firms:
+                    if (firm.good_category or "").lower() == "housing":
+                        start_payment_mortgage_project(self, firm)
+            else:
+                self._offer_housing_expansion_loans()
 
     # -------------------------------------------------------------------------
     # Section: Firm distress, working capital, and shortage diagnostics
