@@ -249,6 +249,42 @@ def test_contract_morale_reacts_to_employment_housing_and_wages():
     assert delta_underpaid < delta_employed_housed
 
 
+def test_contract_batch_wellbeing_unemployed_unhoused_wealth_loss_with_social_multiplier():
+    """Contract I2: Batched wellbeing for an unemployed, unhoused household losing cash, multiplier 1.1.
+
+    Expected values were pinned from Economy._batch_update_wellbeing at d512de7, where
+    this same setup was asserted equal (abs=1e-8) to the since-deleted per-agent
+    HouseholdAgent.update_wellbeing.
+    """
+    hh_batch = _fresh_household(45)
+    hh_batch.happiness = 0.62
+    hh_batch.morale = 0.58
+    hh_batch.health = 0.71
+    hh_batch.happiness_decay_rate = 0.01
+    hh_batch.morale_decay_rate = 0.02
+    hh_batch.health_decay_rate = 0.005
+    hh_batch.employer_id = None
+    hh_batch.wage = 0.0
+    hh_batch.expected_wage = 90.0
+    hh_batch.met_housing_need = False
+    hh_batch.food_consumed_this_tick = 0.5
+    hh_batch.services_consumed_this_tick = 0.0
+    hh_batch.last_tick_cash_start = 1_000.0
+    hh_batch.cash_balance = 700.0
+
+    economy = Economy(
+        households=[hh_batch],
+        firms=[],
+        government=GovernmentAgent(cash_balance=5_000.0),
+    )
+
+    economy._batch_update_wellbeing(happiness_multiplier=1.1)
+
+    assert hh_batch.happiness == pytest.approx(0.6068886959643153, abs=1e-8)
+    assert hh_batch.morale == pytest.approx(0.49210845164609773, abs=1e-8)
+    assert hh_batch.health == pytest.approx(0.6900713185890575, abs=1e-8)
+
+
 def test_contract_healthcare_receipt_survives_batch_household_update():
     """Contract I3: Queue-based healthcare spend must persist into household purchase diagnostics."""
     hh = _fresh_household(46)

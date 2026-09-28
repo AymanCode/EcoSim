@@ -819,8 +819,8 @@ class Economy:
         """
         Vectorized batch consumption planning for all households.
 
-        Replaces 10k individual calls to household.plan_consumption() with NumPy operations.
-        Returns identical results to individual calls, but 10-20x faster.
+        This batch path is the only consumption-planning implementation (the per-agent
+        HouseholdAgent.plan_consumption was removed in remediation phase 1).
 
         Args:
             market_prices: Dictionary mapping good_name to current price
@@ -4465,7 +4465,7 @@ class Economy:
     # Section: Wellbeing, tax snapshots, production, and firm lifecycle
     # -------------------------------------------------------------------------
     def _batch_update_wellbeing(self, happiness_multiplier: float) -> None:
-        """Vectorized wellbeing update matching per-agent update_wellbeing() logic."""
+        """Vectorized wellbeing update; the only wellbeing implementation (per-agent update_wellbeing was removed)."""
         if not self.households:
             return
 
@@ -4526,7 +4526,7 @@ class Economy:
         if happiness_multiplier > 1.0:
             happiness_change += (happiness_multiplier - 1.0) * hc.government_happiness_scaling
 
-        # --- Positive recovery terms (mirror per-agent update_wellbeing) ---
+        # --- Positive recovery terms ---
         # These were missing from the batch path, causing happiness to only decay
         # and never recover through normal consumption activity.
         happiness_change += np.where(food_consumed >= min_food, 0.0008, 0.0)      # Fed adequately

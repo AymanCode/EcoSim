@@ -12,7 +12,7 @@ Per-agent household paths replaced by the batch path (audit C33):
 
 - `HouseholdAgent.plan_consumption`: planned a household's budget and purchases; replaced by `Economy._batch_plan_consumption`, no production caller.
 - `HouseholdAgent.compute_saving_rate`: wealth-based saving rate used only by `plan_consumption`; the batch path uses `savings_drawdown_rate` instead.
-- `HouseholdAgent.apply_income_and_taxes`: added wage, transfers and taxes to cash; inlined in `_batch_apply_household_updates`.
+- `HouseholdAgent.apply_income_and_taxes`: added wage and transfers to cash and subtracted taxes; inlined in `_batch_apply_household_updates`.
 - `HouseholdAgent.apply_purchases`: debited purchases, stocked inventory and updated price beliefs with asymmetric alphas; inlined (with a single alpha) in `_batch_apply_household_updates`.
 - `HouseholdAgent.consume_goods`: consumed 10% of inventory per tick; the batch path's inventory loop (food eaten up to the health threshold, half the rest spoils) replaced it.
 - `HouseholdAgent.update_wellbeing`: per-household happiness, morale and health update; replaced by `Economy._batch_update_wellbeing`.
@@ -43,7 +43,7 @@ Unreachable or no-op code (audit C36, C38 and the FirmAgent dead-code list):
 Tests:
 
 - `test_contracts_behavior.py`: the food-health, mercy-floor and morale contracts now run through `Economy._batch_update_wellbeing`; the services-flow contract runs through `_batch_apply_household_updates`.
-- `test_contracts_behavior.py::test_contract_batch_wellbeing_matches_per_agent_update_path` deleted: it compared the batch path with the deleted per-agent path.
+- `test_contracts_behavior.py::test_contract_batch_wellbeing_matches_per_agent_update_path` retargeted with pinned values instead of deleted: renamed `test_contract_batch_wellbeing_unemployed_unhoused_wealth_loss_with_social_multiplier`, same setup (unemployed, unhoused, cash 1,000 to 700, multiplier 1.1), asserting the batch outputs recorded at d512de7, where batch and per-agent agreed within 1e-8.
 - `test_contracts_deposits.py`: the two deposit-liquidity planning contracts now call `Economy._batch_plan_consumption`.
 - `test_contracts_income_perception.py`: the dividend planning contracts call `_batch_plan_consumption`; the services-happiness contract calls `_batch_update_wellbeing`.
 - `test_contracts_healthcare.py::test_contract_annual_visit_plan_by_health_bucket_is_deterministic` deleted: it only tested the unused annual care-plan scheduler.
@@ -54,7 +54,7 @@ Tests:
 
 Config fields now unused, kept for compatibility: `households.skill_decay_unemployment_threshold`, `skill_decay_rate_per_tick`, `skill_decay_floor`, `low_wealth_reference`, `high_wealth_reference`, `price_alpha_up`, `price_alpha_down`, `extreme_negative_cash_threshold`, `medical_training_ticks`, `medical_residency_start_fraction`, `medical_resident_max_capacity`, `medical_school_min_payment`, `medical_school_repayment_share_of_wage`, `healthcare_visit_distribution_below_10`, `healthcare_visit_distribution_below_30`, `healthcare_visit_distribution_below_70`, `healthcare_visit_distribution_healthy`.
 
-Both golden compares (`golden_1500_s42_t80.json`, `golden_1500_s7_t300.json`) matched after each commit. Contract suite: 472 passed, 5 xfailed (was 475 passed, 5 xfailed; three tests deleted as listed above).
+Both golden compares (`golden_1500_s42_t80.json`, `golden_1500_s7_t300.json`) matched after each commit. Contract suite: 473 passed, 5 xfailed (was 475 passed, 5 xfailed; two tests deleted as listed above).
 
 ### 2026-09-28: Agents/economy remediation, phase 0 (instrumentation)
 
