@@ -5082,16 +5082,7 @@ class FirmAgent(AgentMixin):
 
         dividend_per_owner = actual_dividend / len(self.owners)
 
-        total_distributed = 0.0
-        for owner_id in self.owners:
-            if owner_id in household_lookup:
-                household = household_lookup[owner_id]
-                household.cash_balance += dividend_per_owner
-                household.last_dividend_income += dividend_per_owner
-                household.add_ledger_flow("dividends", dividend_per_owner)
-                if self.firm_id not in household.last_dividend_firm_ids:
-                    household.last_dividend_firm_ids.append(self.firm_id)
-                total_distributed += dividend_per_owner
+        total_distributed = self._credit_dividend_income(self.owners, household_lookup, dividend_per_owner)
 
         self.cash_balance -= total_distributed
 
@@ -5135,21 +5126,37 @@ class FirmAgent(AgentMixin):
             return 0.0
 
         bonus_per_worker = total_bonus / len(self.employees)
-        paid = 0.0
-        for household_id in self.employees:
-            household = household_lookup.get(household_id)
-            if household is None:
-                continue
-            household.cash_balance += bonus_per_worker
-            household.last_dividend_income += bonus_per_worker
-            household.add_ledger_flow("dividends", bonus_per_worker)
-            if self.firm_id not in household.last_dividend_firm_ids:
-                household.last_dividend_firm_ids.append(self.firm_id)
-            paid += bonus_per_worker
+        paid = self._credit_dividend_income(self.employees, household_lookup, bonus_per_worker)
 
         self.cash_balance -= paid
         self.pending_healthcare_worker_bonus = 0.0
         self.decision_diagnostics["healthcare_worker_bonus_paid"] = paid
+        return paid
+
+    def _credit_dividend_income(
+        self,
+        household_ids: List[int],
+        household_lookup: Dict[int, 'HouseholdAgent'],
+        amount_each: float,
+    ) -> float:
+        """Credit ``amount_each`` as dividend income to each listed household.
+
+        Households missing from ``household_lookup`` are skipped. Each credit
+        raises cash and ``last_dividend_income``, records a ``dividends`` ledger
+        flow and notes this firm in ``last_dividend_firm_ids``. Returns the total
+        credited; the caller deducts it from firm cash.
+        """
+        paid = 0.0
+        for household_id in household_ids:
+            household = household_lookup.get(household_id)
+            if household is None:
+                continue
+            household.cash_balance += amount_each
+            household.last_dividend_income += amount_each
+            household.add_ledger_flow("dividends", amount_each)
+            if self.firm_id not in household.last_dividend_firm_ids:
+                household.last_dividend_firm_ids.append(self.firm_id)
+            paid += amount_each
         return paid
 
 
