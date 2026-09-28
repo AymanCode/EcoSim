@@ -44,7 +44,8 @@ class HouseholdBehaviorConfig:
     health_decay_mid_range: Tuple[float, float] = (0.25, 0.45)
     health_decay_high_range: Tuple[float, float] = (0.45, 0.70)
 
-    # Wealth-based Saving Rate (NEW - for compute_saving_rate method)
+    # Wealth-based saving rate: unused since HouseholdAgent.compute_saving_rate was
+    # removed; the batch budget in Economy._batch_plan_consumption uses savings_drawdown_rate.
     low_wealth_reference: float = 0.0  # Minimum wealth for saving calculation
     high_wealth_reference: float = 10000.0  # Typical high wealth (e.g., 90th percentile)
 

@@ -12,21 +12,21 @@ Performance optimizations:
 """
 
 # Navigation Index
-# - Imports and module setup: approx. lines 32-57
-# - Economy coordinator state and constructor: approx. lines 58-268
-# - Stabilization, visibility, audit, and telemetry helpers: approx. lines 269-721
-# - Household consumption, subsidies, and batched updates: approx. lines 722-1361
-# - Main tick orchestration: approx. lines 1362-2114
-# - Firm distress, working capital, and shortage diagnostics: approx. lines 2115-2656
-# - Labor market matching and roster synchronization: approx. lines 2657-3668
-# - Goods market clearing and firm market views: approx. lines 3669-4049
-# - Wellbeing, tax snapshots, production, and firm lifecycle: approx. lines 4050-4773
-# - Loan programs and capital financing: approx. lines 4774-5373
-# - Bailouts, public works, stimulus, and shocks: approx. lines 5374-5685
-# - Housing rentals, repairs, and miscellaneous revenue: approx. lines 5686-6035
-# - Healthcare queue and service processing: approx. lines 6036-6359
-# - Fiscal pressure, banking, credit, and medical loans: approx. lines 6360-6717
-# - Policy adjustment, statistics, and economic metrics: approx. lines 6718-7249
+# - Imports, module setup, _TickScratch and _update_price_belief: approx. lines 32-128
+# - Economy coordinator state and constructor: approx. lines 130-360
+# - Stabilization, visibility, audit, and telemetry helpers: approx. lines 362-868
+# - Household consumption, subsidies, and batched updates: approx. lines 870-1618
+# - Main tick orchestration (step() and the _phase_* methods): approx. lines 1620-2765
+# - Firm distress, working capital, and shortage diagnostics: approx. lines 2767-3308
+# - Labor market matching and roster synchronization: approx. lines 3310-4343
+# - Goods market clearing and firm market views: approx. lines 4345-4794
+# - Wellbeing, tax snapshots, production, and firm lifecycle: approx. lines 4796-5696
+# - Loan programs and capital financing: approx. lines 5698-6410
+# - Bailouts, public works, stimulus, and shocks: approx. lines 6412-6773
+# - Housing rentals, repairs, and miscellaneous revenue: approx. lines 6775-7124
+# - Healthcare queue and service processing: approx. lines 7126-7447
+# - Fiscal pressure, banking, credit, and medical loans: approx. lines 7449-7827
+# - Policy adjustment, statistics, and economic metrics: approx. lines 7829-8414
 
 # -----------------------------------------------------------------------------
 # Section: Imports and module setup
@@ -1619,12 +1619,8 @@ class Economy:
     # -------------------------------------------------------------------------
     # Section: Main tick orchestration
     # -------------------------------------------------------------------------
-    # SOLID: SRP Violation - This method is 200+ lines and orchestrates
-    # 16+ phases. Should be split into: _execute_tick_phases(),
-    # _run_firm_planning(), _run_household_planning(), _run_market_clearing(),
-    # _run_government_operations(), _run_firm_lifecycle(), etc.
-    # SOLID: OCP Violation - Adding new phases requires modifying this method.
-    # Should use a pipeline/chain of responsibility pattern.
+    # step() is an ordered list of _phase_* calls that share one per-tick
+    # _TickScratch; the per-phase methods follow it in tick order.
     def step(self) -> None:
         """
         Execute one full simulation tick.

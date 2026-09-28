@@ -5,8 +5,7 @@ Run: PYTHONPATH=backend python docs/reviews/verify_design_counterexamples.py
 from collections import deque
 import json
 
-from agents import GovernmentAgent, HouseholdAgent
-from config import CONFIG
+from agents import GovernmentAgent
 
 results = {}
 # W06's signed-M definition already offsets a treasury overdraft disbursement.
@@ -56,17 +55,9 @@ results["D07"] = {"requested_delay": 2, "append_then_pop_deliveries": delivered,
 assert delivered == [0.0, 1.0, 0.0]
 assert lengths == [1, 1, 1]
 
-hh = HouseholdAgent(household_id=1, skills_level=0.5, age=35, cash_balance=10000)
-hh.saving_tendency = 0.9
-hh.savings_drawdown_rate = 0.02
-mpc = CONFIG.households.mpc_wage
-results["N2"] = {
-    "scalar_saving_input": hh.compute_saving_rate(),
-    "batch_saving_input": hh.savings_drawdown_rate,
-    "scalar_wage_mpc_before_caps": max(0.70, mpc * (1 - 0.3 * hh.compute_saving_rate())),
-    "batch_wage_mpc_before_caps": max(0.70, mpc * (1 - 0.3 * hh.savings_drawdown_rate)),
-}
-assert results["N2"]["scalar_saving_input"] != results["N2"]["batch_saving_input"]
+# N2 (scalar compute_saving_rate() against batch savings_drawdown_rate) was dropped
+# when phase 1 of the 2026-09-28 agents/economy remediation deleted the scalar
+# path; only the batch input remains, so there is no longer a difference to show.
 print(
     json.dumps(
         {
