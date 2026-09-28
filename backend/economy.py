@@ -1602,75 +1602,76 @@ class Economy:
         """
         Execute one full simulation tick.
 
-        This is the main entry point for advancing the simulation by one tick.
-        Follows strict phase ordering (16 main phases):
+        step() runs the phase methods below in a fixed order. Each phase takes
+        the tick's ``_TickScratch``, which carries the values one phase hands
+        to a later one and is dropped when step() returns. The legacy and the
+        named payment pipelines (``payment_sequence``) share this order; each
+        phase keeps its own ``payment_arm`` branches.
 
-        1. Firms plan production, labor, prices, wages
-        1.5. Process investment loan requests
-        2. Households plan labor supply and consumption
-        3. Labor market matching
-        4. Apply labor outcomes
-        5. Firms apply production and costs
-        5b. Pre-purchase deposit withdrawals
-        6. Goods market clearing
-        6.5. Housing rental market clearing
-        6.6. Housing unit expansion
-        6.8. Queue-based healthcare processing
-        7. Government plans taxes
-        8. Government plans transfers
-        9. Apply sales, profits, taxes to firms
-        9.5. Bank loan repayments
-        10. Apply income, taxes, transfers, purchases to households
-        11. Apply fiscal results to government
-        11.5. Government discretionary spending
-        11.75. Update household wellbeing
-        12. Handle firm bankruptcies and exits
-        13. Create new firms
-        14. Government adjusts policies
-        15. Update world-level statistics
-        16. Distribute dividends to household owners
+        1. ``_phase_reset_and_shocks``: payment book (payment arm), warm-up
+           flag, per-tick telemetry resets, stimulus and subsidy envelope,
+           random shocks, healthcare queue, audit before-state.
+        2. ``_phase_pre_plan_state``: market views, unemployment and benefit
+           anchors, working-capital budget, loan commitments, bailouts and
+           public works.
+        3. ``_phase_firm_planning``: health snapshots, long-term capital
+           offers, production/labor, pricing, wage and capital plans, then
+           working-capital bridges, investment loans and the minimum wage.
+        4. ``_phase_household_planning``: posted-offer signals, education,
+           job-search cooldowns, labor supply, consumption plans and
+           consumption loans.
+        5. ``_phase_labor_matching``: labor market resolution and labor events.
+        6. ``_phase_apply_labor_outcomes``: firm and household outcomes,
+           roster sync, continuing-wage raises.
+        7. ``_phase_wage_freeze_and_production``: the ``frozen_wages``
+           snapshot of this tick's ordinary earned wages, then production and
+           costs.
+        8. ``_phase_goods_clearing``: income and benefit settlement (payment
+           arm), pre-purchase deposit withdrawals, goods clearing, Services
+           slot upgrades (legacy).
+        9. ``_phase_housing``: rent, repairs, unit expansion, mortgage
+           servicing and origination.
+        10. ``_phase_misc_and_healthcare``: misc-firm redistribution and
+            healthcare; the payment arm also settles care and household dues
+            and runs the residual goods pass here.
+        11. ``_phase_fiscal_planning``: tax and transfer plans, capital
+            recycling.
+        12. ``_phase_firm_settlement``: sales, profits, taxes, prices and next
+            wage contracts, mirrored to current workers.
+        13. ``_phase_household_and_fiscal_settlement``: loan repayments,
+            household income, tax and purchase application, late income
+            (payment arm), government fiscal results.
+        14. ``_phase_institutional_close``: deposit sweep and interest, credit
+            scores, government discretionary spending, firm R&D, budget
+            pressure.
+        15. Wellbeing (inline): warm-up expectation sync, wellbeing update,
+            doctor health lock.
+        16. ``_phase_lifecycle_and_statistics``: firm exits and entry, the
+            legacy policy chooser, statistics and diagnostics.
+        17. ``_phase_dividends``: healthcare bonuses and owner dividends; the
+            payment arm's next-tick priors and fiscal close.
+        18. ``_phase_finalize``: household ledgers, affordability telemetry,
+            audit record.
 
-        Note:
-            This method is 200+ lines long with 16+ phases.
-            Per Single Responsibility Principle, consider extracting:
-            - _phase_firm_planning() (phases 1-1.5)
-            - _phase_household_planning() (phase 2)
-            - _phase_labor_market() (phases 3-4)
-            - _phase_production_and_sales() (phases 5-6)
-            - _phase_housing_and_health() (phases 6.5-6.8)
-            - _phase_government_operations() (phases 7-11.75)
-            - _phase_firm_lifecycle() (phases 12-13)
-            - _phase_finalization() (phases 14-16)
+        Finally ``current_tick`` advances and the post-warm-up cooldown ticks
+        down.
         """
         if str(getattr(self.config, "payment_sequence", "legacy")) != self.payment_sequence:
             raise ValueError("payment sequence cannot switch during a run")
         tick = _TickScratch(payment_arm=self.payment_sequence != "legacy")
         self._phase_reset_and_shocks(tick)
-
         self._phase_pre_plan_state(tick)
-
         self._phase_firm_planning(tick)
-
         self._phase_household_planning(tick)
-
         self._phase_labor_matching(tick)
-
         self._phase_apply_labor_outcomes(tick)
-
         self._phase_wage_freeze_and_production(tick)
-
         self._phase_goods_clearing(tick)
-
         self._phase_housing(tick)
-
         self._phase_misc_and_healthcare(tick)
-
         self._phase_fiscal_planning(tick)
-
         self._phase_firm_settlement(tick)
-
         self._phase_household_and_fiscal_settlement(tick)
-
         self._phase_institutional_close(tick)
 
         # Phase 11.75: Update household wellbeing (happiness, morale, health)
@@ -1684,9 +1685,7 @@ class Economy:
         self._apply_doctor_health_lock()
 
         self._phase_lifecycle_and_statistics(tick)
-
         self._phase_dividends(tick)
-
         self._phase_finalize(tick)
 
         # Advance simulation clock after completing the tick
