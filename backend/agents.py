@@ -4817,7 +4817,9 @@ class FirmAgent(AgentMixin):
         """
         self.expected_sales_units = updated_expected_sales
 
-    def invest_in_unit_expansion(self, economy: Optional["Economy"] = None) -> bool:
+    def invest_in_unit_expansion(
+        self, economy: Optional["Economy"] = None, homeless_count: Optional[int] = None
+    ) -> bool:
         """
         Housing firms can invest in adding more rental units.
 
@@ -4835,6 +4837,8 @@ class FirmAgent(AgentMixin):
 
         Args:
             economy: Optional reference to Economy for homeless count and bank access
+            homeless_count: Households with no rental, if the caller already counted
+                them this tick; otherwise counted from ``economy.households``.
 
         Returns:
             True if investment was made or loan requested, False otherwise
@@ -4848,10 +4852,11 @@ class FirmAgent(AgentMixin):
         occupancy_rate = len(self.current_tenants) / max(self.max_rental_units, 1)
 
         # Get homeless count if economy reference available
-        homeless_count = (
-            sum(1 for h in economy.households if h.renting_from_firm_id is None)
-            if economy else 0
-        )
+        if homeless_count is None:
+            homeless_count = (
+                sum(1 for h in economy.households if h.renting_from_firm_id is None)
+                if economy else 0
+            )
 
         # Expansion gates: expand if (1) high occupancy OR (2) housing crisis
         should_consider_expansion = (occupancy_rate >= 0.85) or (homeless_count > 30)

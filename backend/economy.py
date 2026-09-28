@@ -2109,12 +2109,16 @@ class Economy:
         # Phase 6.6: Housing firms consider unit expansion
         if payment_arm:
             from payment_projects import try_start_self_funded_project, start_payment_mortgage_project
+            expansion_homeless_count = 0
+        else:
+            # Nothing in this loop changes tenancy, so one count serves every firm.
+            expansion_homeless_count = sum(1 for h in self.households if h.renting_from_firm_id is None)
         for firm in self.firms:
             if firm.good_category.lower() == "housing":
                 if payment_arm:
                     try_start_self_funded_project(self, firm)
                 else:
-                    firm.invest_in_unit_expansion(economy=self)
+                    firm.invest_in_unit_expansion(economy=self, homeless_count=expansion_homeless_count)
                 # Route self-financed construction cost into economy (closed-loop)
                 pending = getattr(firm, "_pending_construction_cost", 0.0)
                 if pending > 0:
@@ -5810,6 +5814,9 @@ class Economy:
         unit_market_val = cfg.housing_unit_market_value
 
         annual_rate = bank.current_annual_rate
+        # Tenants per housing firm, counted once on first use; loan issuance
+        # below never changes tenancy.
+        occupied_by_firm: Optional[Dict[int, int]] = None
 
         for firm in self.firms:
             if firm.good_category.lower() != "housing":
@@ -5836,7 +5843,13 @@ class Economy:
             # DSCR gate: projected_revenue / projected_pmt ≥ min_dscr
             pmt = self._compute_housing_pmt(principal, annual_rate, term_ticks)
             projected_new_pmt = sum(l.pmt_per_tick for l in firm.housing_active_loans) + pmt
-            occupied = sum(1 for h in self.households if h.renting_from_firm_id == firm.firm_id)
+            if occupied_by_firm is None:
+                occupied_by_firm = {}
+                for h in self.households:
+                    rid = h.renting_from_firm_id
+                    if rid is not None:
+                        occupied_by_firm[rid] = occupied_by_firm.get(rid, 0) + 1
+            occupied = occupied_by_firm.get(firm.firm_id, 0)
             projected_units = firm.max_rental_units + units_to_build
             projected_rev = firm.price * min(occupied + units_to_build, projected_units) * vacancy_buf
             if projected_new_pmt > 0 and projected_rev / projected_new_pmt < min_dscr:
@@ -6492,6 +6505,10 @@ class Economy:
         """
         # Get all housing firms
         housing_firms = [f for f in self.firms if f.good_category == "Housing"]
+        # First housing firm per id, the same firm next(...) over housing_firms found.
+        housing_firm_by_id: Dict[int, FirmAgent] = {}
+        for f in housing_firms:
+            housing_firm_by_id.setdefault(f.firm_id, f)
 
         if not housing_firms:
             self.last_housing_diagnostics = {
@@ -6514,7 +6531,7 @@ class Economy:
         for household in self.households:
             if household.renting_from_firm_id is not None:
                 # Find the housing firm
-                housing_firm = next((f for f in housing_firms if f.firm_id == household.renting_from_firm_id), None)
+                housing_firm = housing_firm_by_id.get(household.renting_from_firm_id)
 
                 if housing_firm is None:
                     # Firm no longer exists, evict household
@@ -6608,9 +6625,9 @@ class Economy:
             ]
 
             if affordable_housing:
-                # Sort by price (cheapest first)
-                affordable_housing.sort(key=lambda x: x[1])
-                chosen_firm, rent = affordable_housing[0]
+                # Cheapest first; min() keeps the first of equal prices, as the
+                # stable sort's [0] did.
+                chosen_firm, rent = min(affordable_housing, key=lambda x: x[1])
 
                 # Pay first month's rent: top up cash from deposits if needed.
                 if not self._ensure_cash_for_payment(household, rent):
