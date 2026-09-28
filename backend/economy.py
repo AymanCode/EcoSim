@@ -177,8 +177,8 @@ class Economy:
         self.household_lookup: Dict[int, HouseholdAgent] = {h.household_id: h for h in households}
         self.firm_lookup: Dict[int, FirmAgent] = {f.firm_id: f for f in firms}
         # Static household trait arrays for consumption planning, keyed by the
-        # household list's identity and length; see _household_static_traits().
-        self._household_static_traits_cache: Optional[Tuple[Tuple[int, int], Dict[str, object]]] = None
+        # household list object and its length; see _household_static_traits().
+        self._household_static_traits_cache: Optional[Tuple[List[HouseholdAgent], int, Dict[str, object]]] = None
 
         # Cache wage percentiles to avoid repeated sorting
         self.cached_wage_percentiles: Tuple[float, float, float] = (0.0, 0.0, 0.0)  # low, mid, high
@@ -818,10 +818,11 @@ class Economy:
         Callers must not mutate the returned arrays, lists or dicts.
         """
         households = self.households
-        key = (id(households), len(households))
         cached = self._household_static_traits_cache
-        if cached is not None and cached[0] == key:
-            return cached[1]
+        # Holding the list itself (not its id) means a replaced list can never
+        # match through a reused id.
+        if cached is not None and cached[0] is households and cached[1] == len(households):
+            return cached[2]
 
         spending_tendencies = np.array([h.spending_tendency for h in households], dtype=np.float64)
         frugalities = np.array([max(h.frugality, 0.1) for h in households], dtype=np.float64)
@@ -861,7 +862,7 @@ class Economy:
             "drawdown_rates": drawdown_rates,
             "precomputed_fractions": precomputed_fractions,
         }
-        self._household_static_traits_cache = (key, traits)
+        self._household_static_traits_cache = (households, len(households), traits)
         return traits
 
     # SOLID: SRP Violation - This method handles BOTH vectorized computation
