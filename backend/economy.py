@@ -91,6 +91,8 @@ class _TickScratch:
     category_wage_anchor_p75: Optional[Dict[str, float]] = None
     household_labor_plans: Optional[Dict[int, Dict]] = None
     household_consumption_plans: Optional[Dict[int, Dict]] = None
+    firm_labor_outcomes: Optional[Dict[int, Dict]] = None
+    household_labor_outcomes: Optional[Dict[int, Dict]] = None
 
 
 # -----------------------------------------------------------------------------
@@ -1636,6 +1638,8 @@ class Economy:
         self._phase_firm_planning(tick)
 
         self._phase_household_planning(tick)
+
+        self._phase_labor_matching(tick)
         payment_arm = tick.payment_arm
         audit_firm_states_before = tick.audit_firm_states_before
         audit_household_states_before = tick.audit_household_states_before
@@ -1649,38 +1653,8 @@ class Economy:
         category_wage_anchor_p75 = tick.category_wage_anchor_p75
         household_labor_plans = tick.household_labor_plans
         household_consumption_plans = tick.household_consumption_plans
-
-        # Phase 3: Labor market matching
-        self.payment_project_baseline_hires = {}
-        if payment_arm and self.config.payment_services_project_enabled:
-            project = self.payment_state.get("services_project")
-            if project and project.get("status") == "authorized" and project.get("work_tick") == self.current_tick:
-                fid = project["firm_id"]
-                plan = firm_production_plans.get(fid)
-                if plan is not None:
-                    self.payment_project_baseline_hires[fid] = int(plan.get("planned_hires_count", 0))
-                    plan["planned_hires_count"] = int(plan.get("planned_hires_count", 0)) + 1
-                    firm = self.firm_lookup.get(fid)
-                    if firm is not None:
-                        firm.planned_hires_count = int(plan["planned_hires_count"])
-        firm_labor_outcomes, household_labor_outcomes = self._run_labor_matching(
-            firm_production_plans,
-            firm_wage_plans,
-            household_labor_plans
-        )
-        self._record_labor_events(
-            firm_labor_outcomes=firm_labor_outcomes,
-            firm_wage_plans=firm_wage_plans,
-            household_labor_plans=household_labor_plans,
-        )
-        if payment_arm:
-            from payment_behavior import diagnose_observed_offer
-            for fid, outcome in firm_labor_outcomes.items():
-                for hid in outcome.get("hired_households_ids", []):
-                    gross = outcome.get("actual_wages", {}).get(hid)
-                    if gross is not None:
-                        diagnose_observed_offer(self, hid, float(gross), fid)
-        self._record_failed_hiring_events(firm_production_plans, firm_labor_outcomes)
+        firm_labor_outcomes = tick.firm_labor_outcomes
+        household_labor_outcomes = tick.household_labor_outcomes
 
         # Phase 4: Apply labor outcomes
         # Use cached wage percentiles (update every 5 ticks for performance)
@@ -2609,6 +2583,44 @@ class Economy:
         # planning because disbursal changes cash.
         if self.bank is not None:
             self._offer_consumption_loans()
+
+    def _phase_labor_matching(self, tick: _TickScratch) -> None:
+        """Resolve the labor market (with the payment Services-project hire) and record labor events."""
+        payment_arm = tick.payment_arm
+        firm_production_plans = tick.firm_production_plans
+        firm_wage_plans = tick.firm_wage_plans
+        household_labor_plans = tick.household_labor_plans
+        # Phase 3: Labor market matching
+        self.payment_project_baseline_hires = {}
+        if payment_arm and self.config.payment_services_project_enabled:
+            project = self.payment_state.get("services_project")
+            if project and project.get("status") == "authorized" and project.get("work_tick") == self.current_tick:
+                fid = project["firm_id"]
+                plan = firm_production_plans.get(fid)
+                if plan is not None:
+                    self.payment_project_baseline_hires[fid] = int(plan.get("planned_hires_count", 0))
+                    plan["planned_hires_count"] = int(plan.get("planned_hires_count", 0)) + 1
+                    firm = self.firm_lookup.get(fid)
+                    if firm is not None:
+                        firm.planned_hires_count = int(plan["planned_hires_count"])
+        tick.firm_labor_outcomes, tick.household_labor_outcomes = self._run_labor_matching(
+            firm_production_plans,
+            firm_wage_plans,
+            household_labor_plans
+        )
+        self._record_labor_events(
+            firm_labor_outcomes=tick.firm_labor_outcomes,
+            firm_wage_plans=firm_wage_plans,
+            household_labor_plans=household_labor_plans,
+        )
+        if payment_arm:
+            from payment_behavior import diagnose_observed_offer
+            for fid, outcome in tick.firm_labor_outcomes.items():
+                for hid in outcome.get("hired_households_ids", []):
+                    gross = outcome.get("actual_wages", {}).get(hid)
+                    if gross is not None:
+                        diagnose_observed_offer(self, hid, float(gross), fid)
+        self._record_failed_hiring_events(firm_production_plans, tick.firm_labor_outcomes)
 
     # -------------------------------------------------------------------------
     # Section: Firm distress, working capital, and shortage diagnostics
