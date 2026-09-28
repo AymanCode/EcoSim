@@ -176,6 +176,9 @@ class Economy:
         # SOLID: DIP Violation - Should use abstract interfaces, not concrete types
         self.household_lookup: Dict[int, HouseholdAgent] = {h.household_id: h for h in households}
         self.firm_lookup: Dict[int, FirmAgent] = {f.firm_id: f for f in firms}
+        # Static household trait arrays for consumption planning, keyed by the
+        # household list's identity and length; see _household_static_traits().
+        self._household_static_traits_cache: Optional[Tuple[Tuple[int, int], Dict[str, object]]] = None
 
         # Cache wage percentiles to avoid repeated sorting
         self.cached_wage_percentiles: Tuple[float, float, float] = (0.0, 0.0, 0.0)  # low, mid, high
@@ -804,6 +807,63 @@ class Economy:
     # -------------------------------------------------------------------------
     # Section: Household consumption, subsidies, and batched updates
     # -------------------------------------------------------------------------
+    def _household_static_traits(self) -> Dict[str, object]:
+        """Arrays of household traits that are written only at construction.
+
+        spending_tendency, frugality, savings_drawdown_rate, the three
+        *_preference values and category_weights are set in
+        HouseholdAgent.__post_init__ and never reassigned by the engine, so
+        _batch_plan_consumption gathers them once instead of every tick. The
+        cache is rebuilt when the household list object or its length changes.
+        Callers must not mutate the returned arrays, lists or dicts.
+        """
+        households = self.households
+        key = (id(households), len(households))
+        cached = self._household_static_traits_cache
+        if cached is not None and cached[0] == key:
+            return cached[1]
+
+        spending_tendencies = np.array([h.spending_tendency for h in households], dtype=np.float64)
+        frugalities = np.array([max(h.frugality, 0.1) for h in households], dtype=np.float64)
+        food_prefs = np.array([h.food_preference for h in households], dtype=np.float64)
+        housing_prefs = np.array([h.housing_preference for h in households], dtype=np.float64)
+        services_prefs = np.array([h.services_preference for h in households], dtype=np.float64)
+        drawdown_rates = np.array([h.savings_drawdown_rate for h in households], dtype=np.float64)
+
+        standard_categories = ["food", "housing", "services"]
+        category_weights_matrix = np.array([
+            [household.category_weights.get(cat, 0.0) for cat in standard_categories]
+            for household in households
+        ], dtype=np.float64)
+        preference_matrix = np.column_stack((food_prefs, housing_prefs, services_prefs))
+        biased_matrix = category_weights_matrix * preference_matrix
+        precomputed_fractions = []
+        for idx, household in enumerate(households):
+            bias: Dict[str, float] = {}
+            for cat_idx, cat in enumerate(standard_categories):
+                val = biased_matrix[idx, cat_idx]
+                if val > 0:
+                    bias[cat] = val
+            for cat, weight in household.category_weights.items():
+                cat_lower = cat.lower()
+                if cat_lower not in bias and weight > 0:
+                    bias[cat_lower] = weight
+            total_bias = sum(bias.values())
+            if total_bias <= 0:
+                precomputed_fractions.append({})
+            else:
+                fractions = {cat: weight / total_bias for cat, weight in bias.items() if weight > 0}
+                precomputed_fractions.append(fractions)
+
+        traits: Dict[str, object] = {
+            "spending_tendencies": spending_tendencies,
+            "frugalities": frugalities,
+            "drawdown_rates": drawdown_rates,
+            "precomputed_fractions": precomputed_fractions,
+        }
+        self._household_static_traits_cache = (key, traits)
+        return traits
+
     # SOLID: SRP Violation - This method handles BOTH vectorized computation
     # AND legacy fallback logic. Should be split into:
     # - _compute_batch_consumption_budgets()
@@ -855,11 +915,9 @@ class Economy:
         # Extract household attributes as NumPy arrays
         # SOLID: DIP Violation - Directly accesses household internals
         cash_balances = np.array([h.cash_balance for h in self.households], dtype=np.float64)
-        spending_tendencies = np.array([h.spending_tendency for h in self.households], dtype=np.float64)
-        frugalities = np.array([max(h.frugality, 0.1) for h in self.households], dtype=np.float64)
-        food_prefs = np.array([h.food_preference for h in self.households], dtype=np.float64)
-        housing_prefs = np.array([h.housing_preference for h in self.households], dtype=np.float64)
-        services_prefs = np.array([h.services_preference for h in self.households], dtype=np.float64)
+        static_traits = self._household_static_traits()
+        spending_tendencies = static_traits["spending_tendencies"]
+        frugalities = static_traits["frugalities"]
 
         # FIX E: per-income-source MPC. Each cash inflow type has its own
         # marginal-propensity-to-consume coefficient. Wage and benefit income
@@ -872,7 +930,7 @@ class Economy:
             from payment_behavior import planning_inputs
             net_wages, payment_liquidity, _pressure = planning_inputs(self)
             wages = np.asarray(net_wages, dtype=np.float64)
-        drawdown_rates = np.array([h.savings_drawdown_rate for h in self.households], dtype=np.float64)
+        drawdown_rates = static_traits["drawdown_rates"]
         dividend_incomes = np.array(
             [max(0.0, float(h.last_dividend_income)) for h in self.households],
             dtype=np.float64,
@@ -983,30 +1041,7 @@ class Economy:
                 },
             }
 
-        standard_categories = ["food", "housing", "services"]
-        category_weights_matrix = np.array([
-            [household.category_weights.get(cat, 0.0) for cat in standard_categories]
-            for household in self.households
-        ], dtype=np.float64)
-        preference_matrix = np.column_stack((food_prefs, housing_prefs, services_prefs))
-        biased_matrix = category_weights_matrix * preference_matrix
-        precomputed_fractions = []
-        for idx, household in enumerate(self.households):
-            bias: Dict[str, float] = {}
-            for cat_idx, cat in enumerate(standard_categories):
-                val = biased_matrix[idx, cat_idx]
-                if val > 0:
-                    bias[cat] = val
-            for cat, weight in household.category_weights.items():
-                cat_lower = cat.lower()
-                if cat_lower not in bias and weight > 0:
-                    bias[cat_lower] = weight
-            total_bias = sum(bias.values())
-            if total_bias <= 0:
-                precomputed_fractions.append({})
-            else:
-                fractions = {cat: weight / total_bias for cat, weight in bias.items() if weight > 0}
-                precomputed_fractions.append(fractions)
+        precomputed_fractions = static_traits["precomputed_fractions"]
 
         # Build consumption plans (fallback to Python loop for now due to complex logic)
         household_consumption_plans = {}
