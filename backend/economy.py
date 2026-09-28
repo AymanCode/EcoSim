@@ -1669,6 +1669,8 @@ class Economy:
         self._phase_firm_settlement(tick)
 
         self._phase_household_and_fiscal_settlement(tick)
+
+        self._phase_institutional_close(tick)
         payment_arm = tick.payment_arm
         audit_firm_states_before = tick.audit_firm_states_before
         audit_household_states_before = tick.audit_household_states_before
@@ -1691,83 +1693,6 @@ class Economy:
         total_wage_taxes = tick.total_wage_taxes
         total_profit_taxes = tick.total_profit_taxes
         total_property_taxes = tick.total_property_taxes
-        total_transfers = tick.total_transfers
-
-        # Phase 11.3: Bank deposit sweep & interest (households → bank)
-        if self.bank is not None:
-            self.bank.update_deposit_rate()  # Fix 22: adjust rate based on reserve ratio
-            self._process_bank_deposits()
-
-        # Phase 11.4: Bank credit scoring update
-        if self.bank is not None:
-            self._update_credit_scores()
-            self.bank.cleanup_settled_loans()
-
-        # Phase 11.5: Government discretionary spending (infrastructure, technology, social, bonds)
-        # These investments are "abstract" quality improvements that don't directly go to agents,
-        # so we redirect them into the misc firm pool to keep money circulating in the economy.
-        infra_spent = self.government.invest_in_infrastructure()
-        self.last_tick_gov_infrastructure_spending = infra_spent
-        if infra_spent > 0:
-            self._collect_misc_revenue(infra_spent)
-
-        tech_spent = self.government.invest_in_technology()
-        self.last_tick_gov_technology_spending = tech_spent
-        if tech_spent > 0:
-            self._collect_misc_revenue(tech_spent)
-
-        social_spent = self.government.invest_in_social_programs()
-        self.last_tick_gov_social_spending = social_spent
-        if social_spent > 0:
-            self._collect_misc_revenue(social_spent)
-
-        # Bond purchases with surplus — redirect to Misc firm
-        govt_investments = self.government.make_investments()
-        total_bond_purchases = sum(govt_investments.values()) if govt_investments else 0.0
-
-        total_govt_investments = (
-            total_bond_purchases
-            + infra_spent + tech_spent + social_spent
-        )
-        self.last_tick_gov_investments = total_govt_investments
-        self.last_tick_gov_bond_purchases = total_bond_purchases
-
-        if govt_investments:
-            for amount in govt_investments.values():
-                self._collect_misc_revenue(amount)
-        if payment_arm and self.config.payment_services_project_enabled:
-            from payment_government import complete_payment_services_project
-            complete_payment_services_project(self)
-
-        # Phase 11.6: Firm R&D spending (tax and redirect to Misc firm)
-        total_investment_taxes = 0.0
-        for firm in self.firms:
-            revenue = per_firm_sales.get(firm.firm_id, {}).get("revenue", 0.0)
-            if revenue > 0:
-                rd_spending = firm.apply_rd_and_quality_update(revenue)
-                # Apply investment tax
-                investment_tax = rd_spending * self.government.investment_tax_rate
-                after_tax_investment = rd_spending - investment_tax
-                total_investment_taxes += investment_tax
-                self._collect_misc_revenue(after_tax_investment)
-
-        # Government collects investment taxes
-        self.government.cash_balance += total_investment_taxes
-
-        # Phase 11.7: Update budget pressure now that all revenue and spending are known
-        tick_revenue = (
-            total_wage_taxes + total_profit_taxes + total_price_ceiling_taxes
-            + total_property_taxes + total_investment_taxes
-        )
-        tick_spending = (
-            total_transfers
-            + total_govt_investments
-            + self.last_tick_gov_subsidies
-            + self.last_tick_gov_bailouts
-            + self.last_tick_gov_public_works_capitalization
-            + self.last_tick_gov_post_warmup_stimulus
-        )
-        self._update_budget_pressure(tick_revenue, tick_spending)
 
         # Phase 11.75: Update household wellbeing (happiness, morale, health)
         if self.in_warmup:
@@ -2702,6 +2627,91 @@ class Economy:
 
         # Phase 11.1: Update government budget pressure (soft deficit constraint)
         # NOTE: infra/tech spending added to tick_spending after Phase 11.5 (below)
+
+    def _phase_institutional_close(self, tick: _TickScratch) -> None:
+        """Bank deposits and credit, government discretionary spending, firm R&D, budget pressure."""
+        payment_arm = tick.payment_arm
+        per_firm_sales = tick.per_firm_sales
+        total_wage_taxes = tick.total_wage_taxes
+        total_profit_taxes = tick.total_profit_taxes
+        total_price_ceiling_taxes = tick.total_price_ceiling_taxes
+        total_property_taxes = tick.total_property_taxes
+        total_transfers = tick.total_transfers
+        # Phase 11.3: Bank deposit sweep & interest (households → bank)
+        if self.bank is not None:
+            self.bank.update_deposit_rate()  # Fix 22: adjust rate based on reserve ratio
+            self._process_bank_deposits()
+
+        # Phase 11.4: Bank credit scoring update
+        if self.bank is not None:
+            self._update_credit_scores()
+            self.bank.cleanup_settled_loans()
+
+        # Phase 11.5: Government discretionary spending (infrastructure, technology, social, bonds)
+        # These investments are "abstract" quality improvements that don't directly go to agents,
+        # so we redirect them into the misc firm pool to keep money circulating in the economy.
+        infra_spent = self.government.invest_in_infrastructure()
+        self.last_tick_gov_infrastructure_spending = infra_spent
+        if infra_spent > 0:
+            self._collect_misc_revenue(infra_spent)
+
+        tech_spent = self.government.invest_in_technology()
+        self.last_tick_gov_technology_spending = tech_spent
+        if tech_spent > 0:
+            self._collect_misc_revenue(tech_spent)
+
+        social_spent = self.government.invest_in_social_programs()
+        self.last_tick_gov_social_spending = social_spent
+        if social_spent > 0:
+            self._collect_misc_revenue(social_spent)
+
+        # Bond purchases with surplus — redirect to Misc firm
+        govt_investments = self.government.make_investments()
+        total_bond_purchases = sum(govt_investments.values()) if govt_investments else 0.0
+
+        total_govt_investments = (
+            total_bond_purchases
+            + infra_spent + tech_spent + social_spent
+        )
+        self.last_tick_gov_investments = total_govt_investments
+        self.last_tick_gov_bond_purchases = total_bond_purchases
+
+        if govt_investments:
+            for amount in govt_investments.values():
+                self._collect_misc_revenue(amount)
+        if payment_arm and self.config.payment_services_project_enabled:
+            from payment_government import complete_payment_services_project
+            complete_payment_services_project(self)
+
+        # Phase 11.6: Firm R&D spending (tax and redirect to Misc firm)
+        total_investment_taxes = 0.0
+        for firm in self.firms:
+            revenue = per_firm_sales.get(firm.firm_id, {}).get("revenue", 0.0)
+            if revenue > 0:
+                rd_spending = firm.apply_rd_and_quality_update(revenue)
+                # Apply investment tax
+                investment_tax = rd_spending * self.government.investment_tax_rate
+                after_tax_investment = rd_spending - investment_tax
+                total_investment_taxes += investment_tax
+                self._collect_misc_revenue(after_tax_investment)
+
+        # Government collects investment taxes
+        self.government.cash_balance += total_investment_taxes
+
+        # Phase 11.7: Update budget pressure now that all revenue and spending are known
+        tick_revenue = (
+            total_wage_taxes + total_profit_taxes + total_price_ceiling_taxes
+            + total_property_taxes + total_investment_taxes
+        )
+        tick_spending = (
+            total_transfers
+            + total_govt_investments
+            + self.last_tick_gov_subsidies
+            + self.last_tick_gov_bailouts
+            + self.last_tick_gov_public_works_capitalization
+            + self.last_tick_gov_post_warmup_stimulus
+        )
+        self._update_budget_pressure(tick_revenue, tick_spending)
 
     # -------------------------------------------------------------------------
     # Section: Firm distress, working capital, and shortage diagnostics
