@@ -1326,8 +1326,6 @@ class HouseholdAgent(AgentMixin):
         # Reservation wage is updated through household expectation dynamics in apply_labor_outcome().
         reservation_wage_for_tick = self.reservation_wage
 
-        config = CONFIG.households
-
         # Dynamic living cost based on price beliefs
         expected_housing_price = self.price_beliefs.get("housing", self.default_price_level)
         expected_food_price = self.price_beliefs.get("food", self.default_price_level)
@@ -1640,6 +1638,8 @@ class HouseholdAgent(AgentMixin):
                 self.skills_level = min(1.0, self.skills_level + total_improvement)
                 self.last_skill_update_tick = current_tick
 
+        hh_config = CONFIG.households
+
         # Update wage expectations
         if self.is_employed and self.wage > 0:
             # Employed: update expected wage toward actual wage
@@ -1651,7 +1651,6 @@ class HouseholdAgent(AgentMixin):
             self.unemployment_duration += 1
 
             # Adaptive decay: the more desperate, the faster expectations drop.
-            hh_config = CONFIG.households
             duration_pressure = min(
                 hh_config.duration_pressure_cap,
                 self.unemployment_duration * hh_config.duration_pressure_rate,
@@ -1688,7 +1687,6 @@ class HouseholdAgent(AgentMixin):
                 self.expected_wage = decayed_expectation
 
         # Reservation wage tracks expected wage — faster when desperate
-        hh_config = CONFIG.households
         if self.unemployment_duration > 5:
             res_rate = hh_config.reservation_adjustment_rate * 3.0
         else:
@@ -1734,7 +1732,6 @@ class HouseholdAgent(AgentMixin):
             - Lowest wellbeing  = 0.75x performance
             - Perfect wellbeing = 1.50x performance
         """
-        from config import CONFIG
         hc = CONFIG.households
 
         wellbeing_score = (
@@ -2654,13 +2651,12 @@ class FirmAgent(AgentMixin):
 
         best_workers = max(config.min_target_workers, current_workers)
         best_profit = -float("inf")
-        fixed_cost = getattr(self, "fixed_cost", 0.0)
         for workers in sorted(candidate_workers):
             capacity = self._capacity_for_workers(workers)
             expected_output = min(capacity, expected_sales)
             expected_revenue = expected_output * max(self.price, 0.0)
             expected_wage_bill = workers * effective_wage_cost
-            expected_profit = expected_revenue - expected_wage_bill - fixed_cost
+            expected_profit = expected_revenue - expected_wage_bill
             if expected_profit > best_profit:
                 best_profit = expected_profit
                 best_workers = workers
@@ -2961,8 +2957,7 @@ class FirmAgent(AgentMixin):
         stockout_like = (
             raw_lost_sales > 0.0
             or (
-                health_snapshot is not None
-                and float(health_snapshot.sell_through_rate) >= 0.95
+                float(health_snapshot.sell_through_rate) >= 0.95
                 and float(health_snapshot.inventory_weeks) <= max(0.25, self.target_inventory_weeks * 0.50)
             )
         )
@@ -3307,12 +3302,10 @@ class FirmAgent(AgentMixin):
 
         validated_lost_sales = float(getattr(self, "last_tick_lost_sales_used_units", 0.0) or 0.0) > 0.0
         cash_can_expand = (
-            health_snapshot is not None
-            and float(health_snapshot.cash_runway_ticks) >= float(firm_config.adaptive_hiring_min_cash_runway_ticks)
+            float(health_snapshot.cash_runway_ticks) >= float(firm_config.adaptive_hiring_min_cash_runway_ticks)
         )
         profit_can_expand = (
-            health_snapshot is not None
-            and float(health_snapshot.smoothed_profit_margin) >= 0.0
+            float(health_snapshot.smoothed_profit_margin) >= 0.0
         )
         adaptive_hiring_allowed = (
             bool(firm_config.adaptive_hiring_enabled)
@@ -3392,10 +3385,9 @@ class FirmAgent(AgentMixin):
                 # demand-driven).  Each requests half the labor force so
                 # labor matching distributes workers evenly between them.
                 estimated_pop = max(100, int(self.baseline_production_quota / 3.0))
-                planned_hires = max(int(estimated_pop * 0.50), 50)
                 # Cap to half so the first firm in matching order doesn't
                 # grab everyone, leaving nothing for the second firm.
-                planned_hires = min(planned_hires, int(estimated_pop * 0.50))
+                planned_hires = int(estimated_pop * 0.50)
                 if self.good_category.lower() == "food":
                     self.wage_offer = firm_config.minimum_wage_floor
                 else:
@@ -4745,7 +4737,7 @@ class FirmAgent(AgentMixin):
             self.decision_diagnostics["healthcare_base_wage_reset_to_minimum"] = True
             return
 
-        if not self.is_baseline and self.good_category.lower() != "healthcare":
+        if not self.is_baseline:
             if (
                 wage_ratio <= firm_config.max_labor_share * 1.25
                 or (
@@ -4891,8 +4883,6 @@ class FirmAgent(AgentMixin):
 
         # Cannot expand without cash or bank
         return False
-
-        return True
 
     def consider_service_infrastructure_upgrade(self, economy=None, current_units_sold=None) -> bool:
         """Flag a bank-financed Services slot upgrade after sustained full utilization.

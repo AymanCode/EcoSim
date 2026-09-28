@@ -1429,9 +1429,6 @@ class Economy:
                 elif category == "housing":
                     household.last_housing_units += quantity
                     household.last_housing_spend += household_cost
-                elif category == "services":
-                    household.last_services_units += quantity
-                    household.last_services_spend += household_cost
 
             # Consume goods from inventory and track per-category consumption.
             # Food is perishable — consume most of it each tick (spoilage).
@@ -2159,8 +2156,8 @@ class Economy:
             self._process_healthcare_services(per_firm_sales)
 
         # Phase 7: Government plans taxes
-        household_tax_snapshots = self._build_household_tax_snapshots(
-            frozen_wages=({hid: row["gross"] for hid, row in self.payment_book.paid_income.items()} if payment_arm else frozen_wages)
+        household_tax_snapshots = (
+            [] if payment_arm else self._build_household_tax_snapshots(frozen_wages=frozen_wages)
         )
         firm_tax_snapshots = self._build_firm_tax_snapshots(per_firm_sales)
         price_ceiling_tax_by_firm_id = {
@@ -2172,7 +2169,7 @@ class Economy:
                                      if payment_arm else {})
 
         tax_plan = self.government.plan_taxes(
-            ([] if payment_arm else household_tax_snapshots),
+            household_tax_snapshots,
             firm_tax_snapshots
         )
         if payment_arm:
@@ -3708,16 +3705,6 @@ class Economy:
         candidate_reservations = reservation_wages[candidate_indices]
         # Distinct reservation levels become wage buckets.
         reservation_levels = np.unique(candidate_reservations)
-        if reservation_levels.size == 0:
-            for firm_id in set(active_hiring_firm_ids):
-                outcome = firm_labor_outcomes.get(firm_id, {})
-                original_vacancies = int(original_planned_hires_by_firm.get(firm_id, 0))
-                actual_hires = len(outcome.get("hired_households_ids", []) or [])
-                unfilled = max(0, original_vacancies - actual_hires)
-                if unfilled > 0:
-                    outcome["unfilled_vacancies"] = int(unfilled)
-                    outcome["failed_match_reason"] = "no_available_searchers"
-            return firm_labor_outcomes, household_labor_outcomes
 
         # Reservation wage buckets (exact levels): each bucket stores candidates
         # sorted by skill desc, then household_id asc.
@@ -5158,11 +5145,10 @@ class Economy:
             # Single-provider Housing model: expand existing rather than spawn
             housing_firms = [f for f in self.firms if f.good_category == "Housing"]
             if housing_firms:
-                if self.payment_sequence == "legacy":
-                    expansion = max(50, int(len(self.households) * 0.05))
-                    housing_firms[0].max_rental_units += expansion
-                    housing_firms[0].production_capacity_units = float(housing_firms[0].max_rental_units)
-                    housing_firms[0].expected_sales_units = float(housing_firms[0].max_rental_units)
+                expansion = max(50, int(len(self.households) * 0.05))
+                housing_firms[0].max_rental_units += expansion
+                housing_firms[0].production_capacity_units = float(housing_firms[0].max_rental_units)
+                housing_firms[0].expected_sales_units = float(housing_firms[0].max_rental_units)
             return
         else:
             food_unmet = max(0.0, self.food_unmet_demand)
@@ -5202,9 +5188,6 @@ class Economy:
 
         max_rental_units = 0
         property_tax_rate = 0.0
-        if chosen_category == "Housing":
-            max_rental_units = tier_rng.randint(0, 50)
-            property_tax_rate = 0.005 * max_rental_units
 
         # ── select funding tier ──────────────────────────────────────
 
@@ -5268,8 +5251,6 @@ class Economy:
             # ── Tier 3: Government-backed ────────────────────────────
             # Subsidized loan through bank or direct from government.
             seed_cash = min(100_000.0, max(30_000.0, total_household_cash * 0.01))
-            if chosen_category == "Housing":
-                seed_cash = max(seed_cash, max_rental_units * 8000.0)
             seed_rate = 0.005  # Subsidized: 0.5% annual
 
             if self.bank is not None:
@@ -5302,8 +5283,6 @@ class Economy:
             # ── Tier 2: Bank-backed ──────────────────────────────────
             # Bank seed loan based on sector demand + default credit score.
             seed_cash = min(80_000.0, max(20_000.0, total_household_cash * 0.008))
-            if chosen_category == "Housing":
-                seed_cash = max(seed_cash, max_rental_units * 6000.0)
 
             if self.bank is not None and self.bank.can_lend():
                 credit_score = self.bank.get_firm_credit_score(new_firm_id)  # 0.5 default
@@ -5326,9 +5305,6 @@ class Economy:
         else:
             # ── Tier 1: Bootstrapped (majority) ──────────────────────
             seed_cash = tier_rng.uniform(5_000.0, 30_000.0)
-            if chosen_category == "Housing":
-                # Housing needs slightly more to have any rental units
-                seed_cash = max(seed_cash, max_rental_units * 2000.0)
 
         # ── create the firm ──────────────────────────────────────────
 
@@ -5818,7 +5794,6 @@ class Economy:
 
         Dual-path expansion:
         - Path A (self-funded): already handled in Phase 6.6a via invest_in_unit_expansion.
-          Tracked in path_a_approved to prevent double-expansion.
         - Path B (loan-funded): DSCR ≥ 1.20 and LTV ≤ 0.80 gates; amortizing 20-year PMT.
           Loan proceeds flow bank → firm → misc_firm_revenue (construction sink).
         """
@@ -5834,24 +5809,12 @@ class Economy:
         max_build = cfg.housing_max_build_per_tick
         unit_market_val = cfg.housing_unit_market_value
 
-        # Track which firms expanded in Path A (self-funded) this tick
-        path_a_approved: set[int] = set()
-        for firm in self.firms:
-            if firm.good_category.lower() == "housing" and getattr(firm, "_pending_construction_cost", 0.0) == 0.0:
-                # Firm was flagged but already self-funded (cost already collected above)
-                if not firm.needs_housing_expansion_loan:
-                    path_a_approved.add(firm.firm_id)
-
         annual_rate = bank.current_annual_rate
 
         for firm in self.firms:
             if firm.good_category.lower() != "housing":
                 continue
             if not firm.needs_housing_expansion_loan or firm.housing_expansion_loan_amount <= 0:
-                continue
-            if firm.firm_id in path_a_approved:
-                firm.needs_housing_expansion_loan = False
-                firm.housing_expansion_loan_amount = 0.0
                 continue
             if not bank.can_lend():
                 firm.needs_housing_expansion_loan = False
