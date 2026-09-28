@@ -223,3 +223,61 @@ def test_a4_loan_total_repayment_scales_with_term():
                 f"expected {expected:.6f} (diff {loan['remaining'] - expected:+.6f})"
             )
     assert not mismatches, "A4: " + "; ".join(mismatches)
+
+
+def test_a8_partially_funded_investment_loan_spends_only_funded_amount(fixed_seed, monkeypatch):
+    """Audit A8: the bank lends ``min(request, max_borrowable)``; the firm must spend only that."""
+    economy = _legacy_economy_with_bank(categories=("Food", "Services"))
+    firm = next(f for f in economy.firms if f.good_category == "Food")
+    request = 5_000.0
+    trailing_revenue = 1_000.0  # leverage ceiling 3x -> the bank can fund at most 3,000
+
+    # Start the firm with no cash (moved to the treasury, so money is unchanged):
+    # with the bug, spending the full request pushes it negative.
+    economy.government.cash_balance += firm.cash_balance
+    firm.cash_balance = 0.0
+
+    original_plan = type(firm).plan_capital_investment
+
+    def plan_then_request_loan(bank=None):
+        original_plan(firm, bank=bank)
+        firm.trailing_revenue_12t = trailing_revenue
+        firm.needs_investment_loan = True
+        firm.investment_loan_amount = request
+
+    patch_agent_method(monkeypatch, firm, "plan_capital_investment", plan_then_request_loan)
+
+    funded: List[float] = []
+    original_issue = economy._issue_firm_loan
+
+    def spy_issue(target, *args, **kwargs):
+        cash_before = target.cash_balance
+        result = original_issue(target, *args, **kwargs)
+        if target is firm:
+            funded.append(target.cash_balance - cash_before)
+        return result
+
+    cash_around_offer: List[float] = []
+    original_offer = economy._offer_investment_loans
+
+    def spy_offer():
+        cash_around_offer.append(firm.cash_balance)
+        original_offer()
+        cash_around_offer.append(firm.cash_balance)
+
+    monkeypatch.setattr(economy, "_issue_firm_loan", spy_issue)
+    monkeypatch.setattr(economy, "_offer_investment_loans", spy_offer)
+
+    before = total_money_with_bank(economy)
+    economy.step()
+    after = total_money_with_bank(economy)
+
+    assert funded and 0.0 < funded[0] < request - 1.0, (
+        f"precondition: the bank should fund part of the request, funded={funded}"
+    )
+    cash_before_offer, cash_after_offer = cash_around_offer
+    assert cash_after_offer >= cash_before_offer - MONEY_TOL, (
+        f"A8: firm cash fell from {cash_before_offer:.6f} to {cash_after_offer:.6f} after a loan "
+        f"funding {funded[0]:.6f} of a {request:.2f} request"
+    )
+    assert after == pytest.approx(before, abs=MONEY_TOL), f"A8: money changed by {after - before:+.6f}"

@@ -5731,10 +5731,11 @@ class Economy:
         spread: float = 0.05,
         collateral_value: Optional[float] = None,
         purpose: str = "investment",
-    ) -> bool:
+    ) -> float:
         """Try bank first, then government-backed bank loan, then direct government loan.
 
-        Returns True if the loan was successfully issued through any channel.
+        Returns the amount credited to the firm (0.0 when no channel lends). A
+        legacy bank loan can fund less than ``amount`` (the leverage ceiling).
         This is the central bank-first/govt-fallback pattern used by all loan
         origination methods.
 
@@ -5747,7 +5748,7 @@ class Economy:
 
         if self.payment_sequence != "legacy":
             if firm.payment_wage_arrears > MONEY_EPS and purpose != "working_capital":
-                return False
+                return 0.0
             if bank is not None:
                 from payment_loans import originate_v2
                 if collateral_value is not None:
@@ -5763,10 +5764,10 @@ class Economy:
                                          term_ticks, purpose, funder="bank")
                     if claim is not None:
                         firm.cash_balance += amount
-                        return True
+                        return amount
             # Direct treasury claim stays outside the registered bank book.
             if self._payment_free_treasury_cash() + MONEY_EPS < amount:
-                return False
+                return 0.0
             rate = 0.03 if govt_rate is None else govt_rate
             due = amount * (1.0 + rate)
             firm.cash_balance += amount
@@ -5774,7 +5775,7 @@ class Economy:
             firm.government_loan_remaining += due
             firm.loan_payment_per_tick += due / max(1, term_ticks)
             self.government.cash_balance -= amount
-            return True
+            return amount
 
         if bank is not None:
             credit_score = bank.get_firm_credit_score(firm.firm_id)
@@ -5803,7 +5804,7 @@ class Economy:
                 total_repay = effective_amount * interest_mult
                 firm.bank_loan_remaining += total_repay
                 firm.bank_loan_payment_per_tick += total_repay / max(1, term_ticks)
-                return True
+                return effective_amount
             else:
                 # Circuit breaker active — try government-backed loan through bank
                 rate = bank._risk_adjusted_rate(credit_score, spread)
@@ -5818,14 +5819,14 @@ class Economy:
                     total_repay = effective_amount * interest_mult
                     firm.bank_loan_remaining += total_repay
                     firm.bank_loan_payment_per_tick += total_repay / max(1, term_ticks)
-                    return True
+                    return effective_amount
 
         # Fallback: direct government loan (existing behavior)
         if govt_rate is None:
             govt_rate = 0.03  # Default market rate for government direct loans
         # Government can only lend what it has
         if self._payment_free_treasury_cash() < amount:
-            return False
+            return 0.0
         interest_multiplier = 1.0 + govt_rate
         total_repayment = amount * interest_multiplier
         firm.cash_balance += amount
@@ -5833,7 +5834,7 @@ class Economy:
         firm.government_loan_remaining += total_repayment
         firm.loan_payment_per_tick += total_repayment / max(1, term_ticks)
         self.government.cash_balance -= amount
-        return True
+        return amount
 
     def _offer_investment_loans(self) -> None:
         """Phase 1.5: Process firm investment loan requests flagged in Phase 1.
@@ -5849,21 +5850,22 @@ class Economy:
                 continue
 
             loan_amount = firm.investment_loan_amount
-            success = self._issue_firm_loan(
+            funded = self._issue_firm_loan(
                 firm,
                 amount=loan_amount,
                 term_ticks=104,       # 2-year term
                 govt_rate=0.04,
                 spread=0.04,
             )
-            if success:
-                # _issue_firm_loan added cash to firm; now spend it on capital
-                units_gained = loan_amount / config.capital_cost_per_unit
+            if funded > 0.0:
+                # _issue_firm_loan added the funded amount to firm cash (a
+                # legacy bank loan can fund less than requested); spend only that.
+                units_gained = funded / config.capital_cost_per_unit
                 firm.capital_stock += units_gained
-                firm.cash_balance -= loan_amount
+                firm.cash_balance -= funded
                 firm.capital_investment_this_tick += units_gained
                 if self.payment_sequence != "legacy":
-                    self._payment_record_capital_spend(firm, loan_amount, "investment_loan")
+                    self._payment_record_capital_spend(firm, funded, "investment_loan")
                 # Record the rate for future MPK calculations
                 if self.bank is not None:
                     score = self.bank.get_firm_credit_score(firm.firm_id)
