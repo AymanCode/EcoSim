@@ -93,6 +93,7 @@ class _TickScratch:
     household_consumption_plans: Optional[Dict[int, Dict]] = None
     firm_labor_outcomes: Optional[Dict[int, Dict]] = None
     household_labor_outcomes: Optional[Dict[int, Dict]] = None
+    frozen_wages: Optional[Dict[int, float]] = None
 
 
 # -----------------------------------------------------------------------------
@@ -1642,6 +1643,8 @@ class Economy:
         self._phase_labor_matching(tick)
 
         self._phase_apply_labor_outcomes(tick)
+
+        self._phase_wage_freeze_and_production(tick)
         payment_arm = tick.payment_arm
         audit_firm_states_before = tick.audit_firm_states_before
         audit_household_states_before = tick.audit_household_states_before
@@ -1657,35 +1660,7 @@ class Economy:
         household_consumption_plans = tick.household_consumption_plans
         firm_labor_outcomes = tick.firm_labor_outcomes
         household_labor_outcomes = tick.household_labor_outcomes
-
-        # Freeze ordinary earned wages at the production boundary (currency per
-        # tick, all households including zero-paid unemployed households).
-        frozen_wages: Dict[int, float] = {
-            hh.household_id: (hh.wage if hh.is_employed else 0.0)
-            for hh in self.households
-        }
-
-        # Phase 5: Firms apply production and costs
-        for firm in self.firms:
-            production_plan = firm_production_plans[firm.firm_id]
-            planned_production_units = production_plan["planned_production_units"]
-
-            # Calculate actual production based on workforce experience and skills
-            actual_production_units = self._calculate_experience_adjusted_production(
-                firm, planned_production_units
-            )
-
-            firm.apply_production_and_costs({
-                "realized_production_units": actual_production_units,
-                "other_variable_costs": 0.0,
-                "funded_payroll_book": payment_arm,
-                "productive_worker_count": len(firm.employees) - (1 if payment_arm and firm.firm_id in self.payment_project_worker_by_firm else 0),
-            })
-
-            # Update expectations
-            firm.apply_updated_expectations(
-                production_plan["updated_expected_sales"]
-            )
+        frozen_wages = tick.frozen_wages
 
         # Phase 5b: Pre-purchase deposit withdrawals — move planned-spend shortfall to cash
         if payment_arm:
@@ -2628,6 +2603,39 @@ class Economy:
                 firm = self.firm_lookup.get(project["firm_id"])
                 if firm is not None:
                     project["frozen_wage_due"] = float(firm.actual_wages.get(project["worker_id"], 0.0))
+
+    def _phase_wage_freeze_and_production(self, tick: _TickScratch) -> None:
+        """Freeze this tick's ordinary earned wages, then firms apply production, costs and expectations."""
+        firm_production_plans = tick.firm_production_plans
+        payment_arm = tick.payment_arm
+        # Freeze ordinary earned wages at the production boundary (currency per
+        # tick, all households including zero-paid unemployed households).
+        tick.frozen_wages = {
+            hh.household_id: (hh.wage if hh.is_employed else 0.0)
+            for hh in self.households
+        }
+
+        # Phase 5: Firms apply production and costs
+        for firm in self.firms:
+            production_plan = firm_production_plans[firm.firm_id]
+            planned_production_units = production_plan["planned_production_units"]
+
+            # Calculate actual production based on workforce experience and skills
+            actual_production_units = self._calculate_experience_adjusted_production(
+                firm, planned_production_units
+            )
+
+            firm.apply_production_and_costs({
+                "realized_production_units": actual_production_units,
+                "other_variable_costs": 0.0,
+                "funded_payroll_book": payment_arm,
+                "productive_worker_count": len(firm.employees) - (1 if payment_arm and firm.firm_id in self.payment_project_worker_by_firm else 0),
+            })
+
+            # Update expectations
+            firm.apply_updated_expectations(
+                production_plan["updated_expected_sales"]
+            )
 
     # -------------------------------------------------------------------------
     # Section: Firm distress, working capital, and shortage diagnostics
