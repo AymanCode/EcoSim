@@ -4372,6 +4372,19 @@ class Economy:
         service_floor = break_even_price * (1.0 + markup)
         return max(price, service_floor)
 
+    def _withdraw_deposits_to_cash(self, household: HouseholdAgent, amount: float) -> float:
+        """Move up to ``amount`` of deposits to cash through ``bank.withdraw``; record the ledger flow.
+
+        Returns the amount actually withdrawn (the bank may pay less when its
+        reserves are short).
+        """
+        actual = self.bank.withdraw(household.household_id, amount)
+        if actual > 0.0:
+            household.bank_deposit -= actual
+            household.cash_balance += actual
+            household.add_ledger_flow("bank", actual)
+        return actual
+
     def _withdraw_deposits_for_planned_consumption(
         self,
         household_consumption_plans: Dict[int, Dict],
@@ -4399,11 +4412,9 @@ class Economy:
             withdraw = min(needed, max_withdrawable)
             if withdraw <= 0.0:
                 continue
-            actual = self.bank.withdraw(household.household_id, withdraw)
+            actual = self._withdraw_deposits_to_cash(household, withdraw)
             if actual <= 0.0:
                 continue
-            household.bank_deposit -= actual
-            household.cash_balance += actual
             total_withdrawn += actual
         self.last_tick_pre_purchase_deposit_withdrawals += total_withdrawn
 
@@ -6791,10 +6802,7 @@ class Economy:
         if max_withdrawable <= 0.0:
             return False
         withdraw = min(shortfall, max_withdrawable)
-        actual = self.bank.withdraw(household.household_id, withdraw)
-        if actual > 0.0:
-            household.bank_deposit -= actual
-            household.cash_balance += actual
+        self._withdraw_deposits_to_cash(household, withdraw)
         return household.cash_balance + 1e-9 >= amount
 
     def _clear_housing_rental_market(self) -> None:
@@ -7370,12 +7378,7 @@ class Economy:
                     max_withdrawable = 0.90 * max(0.0, household.bank_deposit)
                     if max_withdrawable > 0.0 and self.bank is not None:
                         withdraw_amount = min(shortfall, max_withdrawable)
-                        actual_withdrawal = self.bank.withdraw(
-                            household.household_id, withdraw_amount
-                        )
-                        if actual_withdrawal > 0.0:
-                            household.bank_deposit -= actual_withdrawal
-                            household.cash_balance += actual_withdrawal
+                        self._withdraw_deposits_to_cash(household, withdraw_amount)
 
                 if household.cash_balance + 1e-9 < household_cost:
                     # Still cannot afford — try medical loan (bank-first, then drop)

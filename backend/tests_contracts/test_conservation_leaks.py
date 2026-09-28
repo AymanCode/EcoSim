@@ -281,3 +281,103 @@ def test_a8_partially_funded_investment_loan_spends_only_funded_amount(fixed_see
         f"funding {funded[0]:.6f} of a {request:.2f} request"
     )
     assert after == pytest.approx(before, abs=MONEY_TOL), f"A8: money changed by {after - before:+.6f}"
+
+
+def _ledger_gap(household) -> float:
+    ledger = household.last_tick_ledger
+    return sum(v for k, v in ledger.items() if k != "net") - ledger["net"]
+
+
+def _deposit_savings(economy, household, amount: float) -> None:
+    household.bank_deposit += amount
+    economy.bank.accept_deposit(household.household_id, amount)
+
+
+def test_a9_deposit_withdrawals_are_recorded_in_household_ledger(fixed_seed, monkeypatch):
+    """Audit A9: every deposit withdrawal appears as a ``bank`` ledger flow.
+
+    Over a full tick, rent drawn from deposits (``_ensure_cash_for_payment``)
+    must leave the saver's ledger summing to its cash change. The pre-purchase
+    withdrawal is then checked directly.
+    """
+    economy = _legacy_economy_with_bank()
+    saver = economy.households[2]
+    # Cash at the subsistence floor: rent needs deposits, but no legacy
+    # consumption loan fires (that credit is also unrecorded; out of scope).
+    saver.cash_balance = saver.subsistence_min_cash
+    _deposit_savings(economy, saver, 5_000.0)
+
+    rent_withdrawals: List[float] = []
+    original_ensure = economy._ensure_cash_for_payment
+
+    def spy_ensure(household, amount):
+        deposit_before = household.bank_deposit
+        result = original_ensure(household, amount)
+        if household is saver:
+            rent_withdrawals.append(deposit_before - household.bank_deposit)
+        return result
+
+    monkeypatch.setattr(economy, "_ensure_cash_for_payment", spy_ensure)
+    economy.step()
+
+    assert sum(rent_withdrawals) > 0.0, "precondition: the saver did not draw on deposits to pay"
+    assert abs(_ledger_gap(saver)) <= MONEY_TOL, (
+        f"A9: ledger flows miss {_ledger_gap(saver):+.6f} of the saver's cash change "
+        f"(withdrawn to pay {sum(rent_withdrawals):.6f}; ledger {saver.last_tick_ledger})"
+    )
+
+    shopper = economy.households[4]
+    shopper.cash_balance = 0.0
+    _deposit_savings(economy, shopper, 1_000.0)
+    shopper.reset_tick_ledger()
+    economy._withdraw_deposits_for_planned_consumption({shopper.household_id: {"budget": 80.0}})
+    shopper.finalize_tick_ledger()
+    assert shopper.last_tick_ledger["net"] == pytest.approx(80.0)
+    assert abs(_ledger_gap(shopper)) <= MONEY_TOL, (
+        f"A9: pre-purchase withdrawal missing from the ledger (gap {_ledger_gap(shopper):+.6f})"
+    )
+
+
+def test_a9_healthcare_deposit_withdrawal_is_recorded_in_household_ledger(fixed_seed, monkeypatch):
+    """Audit A9: a visit paid from deposits appears as a ``bank`` ledger flow."""
+    economy = _legacy_economy_with_bank(categories=("Food", "Healthcare"))
+    healthcare = next(f for f in economy.firms if f.good_category == "Healthcare")
+    food = next(f for f in economy.firms if f.good_category == "Food")
+    doctor, patient = economy.households[0], economy.households[1]
+    doctor.medical_training_status = "doctor"
+    doctor.employer_id = healthcare.firm_id
+    doctor.wage = healthcare.wage_offer
+    healthcare.employees = [doctor.household_id]
+    patient.employer_id = food.firm_id
+    patient.wage = food.wage_offer
+    if patient.household_id not in food.employees:
+        food.employees.append(patient.household_id)
+    patient.health = 0.25
+    patient.pending_healthcare_visits = 2
+    patient.next_healthcare_request_tick = 0
+    # Cash below the visit price, with savings. A credit score under 0.4 keeps
+    # the legacy consumption loan (an unrelated, also unrecorded credit) off.
+    patient.cash_balance = 5.0
+    economy.bank.household_credit_scores[patient.household_id] = 0.3
+    _deposit_savings(economy, patient, 5_000.0)
+
+    care_withdrawals: List[float] = []
+    original_process = economy._process_healthcare_services
+
+    def spy_process(per_firm_sales):
+        deposit_before = patient.bank_deposit
+        result = original_process(per_firm_sales)
+        care_withdrawals.append(deposit_before - patient.bank_deposit)
+        return result
+
+    monkeypatch.setattr(economy, "_process_healthcare_services", spy_process)
+    # Keep the pre-purchase withdrawal (checked in the test above) from topping
+    # up cash first, so the visit itself has to draw on deposits.
+    monkeypatch.setattr(economy, "_withdraw_deposits_for_planned_consumption", lambda plans: None)
+    economy.step()
+
+    assert sum(care_withdrawals) > 0.0, "precondition: the visit did not draw on deposits"
+    assert abs(_ledger_gap(patient)) <= MONEY_TOL, (
+        f"A9: healthcare withdrawal missing from the ledger (gap {_ledger_gap(patient):+.6f}, "
+        f"withdrawn {sum(care_withdrawals):.6f})"
+    )
