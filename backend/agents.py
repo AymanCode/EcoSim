@@ -2918,21 +2918,34 @@ class FirmAgent(AgentMixin):
             self.last_hiring_block_flags = {}
             self.decision_diagnostics["hiring_block_reason"] = ""
 
+        return self._stamp_labor_plan(planned_capacity, planned_hires, planned_layoffs)
+
+    # -------------------------------------------------------------------------
+    # Section: FirmAgent production and labor planning
+    # -------------------------------------------------------------------------
+    def _stamp_labor_plan(
+        self,
+        planned_production_units: float,
+        planned_hires: int,
+        planned_layoffs: List[int],
+    ) -> Dict[str, object]:
+        """Record this tick's labor plan on the firm and return the plan dict.
+
+        Sets ``planned_hires_count``, ``planned_layoffs_ids`` and
+        ``last_tick_planned_hires``; the returned dict carries the same values
+        and the firm's current ``expected_sales_units``.
+        """
         self.planned_hires_count = planned_hires
         self.planned_layoffs_ids = planned_layoffs
         self.last_tick_planned_hires = planned_hires
-
         return {
             "firm_id": self.firm_id,
-            "planned_production_units": planned_capacity,
+            "planned_production_units": planned_production_units,
             "planned_hires_count": planned_hires,
             "planned_layoffs_ids": planned_layoffs,
             "updated_expected_sales": self.expected_sales_units,
         }
 
-    # -------------------------------------------------------------------------
-    # Section: FirmAgent production and labor planning
-    # -------------------------------------------------------------------------
     def plan_production_and_labor(
         self,
         last_tick_sales_units: float,
@@ -3211,19 +3224,11 @@ class FirmAgent(AgentMixin):
                         self._capacity_for_workers(target_workers),
                         self.production_capacity_units,
                     )
-                    self.planned_hires_count = planned_hires
-                    self.planned_layoffs_ids = []
-                    self.last_tick_planned_hires = planned_hires
+                    plan = self._stamp_labor_plan(planned_production_units, planned_hires, [])
                     self.decision_diagnostics["survival_turnaround_hiring"] = True
                     self.decision_diagnostics["survival_turnaround_target_workers"] = int(turnaround_target)
                     self._record_hiring_block("")
-                    return {
-                        "firm_id": self.firm_id,
-                        "planned_production_units": planned_production_units,
-                        "planned_hires_count": planned_hires,
-                        "planned_layoffs_ids": [],
-                        "updated_expected_sales": self.expected_sales_units,
-                    }
+                    return plan
 
             # Bypass normal firing caps. Lay off enough workers to bring
             # operating costs below current rolling revenue.
@@ -3246,20 +3251,12 @@ class FirmAgent(AgentMixin):
                 self._capacity_for_workers(target_workers),
                 self.production_capacity_units * 0.1
             )
-            self.planned_hires_count = 0
-            self.planned_layoffs_ids = planned_layoffs
-            self.last_tick_planned_hires = 0
+            plan = self._stamp_labor_plan(planned_production_units, 0, planned_layoffs)
             self._record_hiring_block(
                 "survival_pressure_no_credit_backed_turnaround",
                 **turnaround_payload,
             )
-            return {
-                "firm_id": self.firm_id,
-                "planned_production_units": planned_production_units,
-                "planned_hires_count": 0,
-                "planned_layoffs_ids": planned_layoffs,
-                "updated_expected_sales": self.expected_sales_units,
-            }
+            return plan
 
         healthy_stockout_expansion = (
             current_workers > 0
@@ -3466,16 +3463,7 @@ class FirmAgent(AgentMixin):
                                     self._capacity_for_workers(max(target_workers, firm_config.min_target_workers)),
                                     self.baseline_production_quota * 0.5,
                                 )
-                                self.planned_hires_count = 0
-                                self.planned_layoffs_ids = planned_layoffs
-                                self.last_tick_planned_hires = 0
-                                return {
-                                    "firm_id": self.firm_id,
-                                    "planned_production_units": planned_production_units,
-                                    "planned_hires_count": 0,
-                                    "planned_layoffs_ids": planned_layoffs,
-                                    "updated_expected_sales": self.expected_sales_units,
-                                }
+                                return self._stamp_labor_plan(planned_production_units, 0, planned_layoffs)
 
                     # Tiered inventory response. Production scales down with
                     # surplus inventory; workforce shrinks alongside so the
@@ -3735,17 +3723,7 @@ class FirmAgent(AgentMixin):
                 current_workers=int(current_workers),
             )
 
-        self.planned_hires_count = planned_hires
-        self.planned_layoffs_ids = planned_layoffs
-        self.last_tick_planned_hires = planned_hires
-
-        return {
-            "firm_id": self.firm_id,
-            "planned_production_units": planned_production_units,
-            "planned_hires_count": planned_hires,
-            "planned_layoffs_ids": planned_layoffs,
-            "updated_expected_sales": self.expected_sales_units,  # include for later apply
-        }
+        return self._stamp_labor_plan(planned_production_units, planned_hires, planned_layoffs)
 
     # -------------------------------------------------------------------------
     # Section: FirmAgent investment, pricing, and wage planning
