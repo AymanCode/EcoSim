@@ -110,6 +110,22 @@ class _TickScratch:
     total_dividends_paid: Optional[float] = None
 
 
+def _update_price_belief(beliefs: Dict[str, float], good: str, price: float, alpha: float) -> None:
+    """Blend an observed price into a household's belief for one good.
+
+    An existing belief moves to ``alpha * price + (1 - alpha) * old``; a good
+    with no belief yet adopts the observed price.
+    """
+    if good in beliefs:
+        old_belief = beliefs[good]
+        beliefs[good] = (
+            alpha * price +
+            (1.0 - alpha) * old_belief
+        )
+    else:
+        beliefs[good] = price
+
+
 # -----------------------------------------------------------------------------
 # Section: Economy coordinator state and constructor
 # -----------------------------------------------------------------------------
@@ -1157,14 +1173,7 @@ class Economy:
 
                 # Update beliefs with market prices
                 for good, market_price in market_prices.items():
-                    if good in local_beliefs:
-                        old_belief = local_beliefs[good]
-                        local_beliefs[good] = (
-                            household.price_expectation_alpha * market_price +
-                            (1.0 - household.price_expectation_alpha) * old_belief
-                        )
-                    else:
-                        local_beliefs[good] = market_price
+                    _update_price_belief(local_beliefs, good, market_price, household.price_expectation_alpha)
 
                 # Normalize good weights
                 total_weight = sum(household.good_weights.values())
@@ -1479,14 +1488,9 @@ class Economy:
 
                 if category == "services":
                     # Generic services are consumed as current-tick capacity, not stocked goods.
-                    if good in household.price_beliefs:
-                        old_belief = household.price_beliefs[good]
-                        household.price_beliefs[good] = (
-                            household.price_expectation_alpha * price_paid +
-                            (1.0 - household.price_expectation_alpha) * old_belief
-                        )
-                    else:
-                        household.price_beliefs[good] = price_paid
+                    _update_price_belief(
+                        household.price_beliefs, good, price_paid, household.price_expectation_alpha
+                    )
 
                     household.last_purchase_breakdown[good] = {
                         "units": quantity, "spend": household_cost, "price_per_unit": price_paid
@@ -1503,14 +1507,9 @@ class Economy:
                     household.goods_inventory[good] += quantity
 
                 # Update price beliefs
-                if good in household.price_beliefs:
-                    old_belief = household.price_beliefs[good]
-                    household.price_beliefs[good] = (
-                        household.price_expectation_alpha * price_paid +
-                        (1.0 - household.price_expectation_alpha) * old_belief
-                    )
-                else:
-                    household.price_beliefs[good] = price_paid
+                _update_price_belief(
+                    household.price_beliefs, good, price_paid, household.price_expectation_alpha
+                )
 
                 # Record per-category purchase receipt
                 household.last_purchase_breakdown[good] = {
