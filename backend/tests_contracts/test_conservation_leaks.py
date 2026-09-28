@@ -127,10 +127,6 @@ def test_a1_subsidized_purchase_scale_down_conserves_money(fixed_seed, monkeypat
     )
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="audit A2: long-term capital loan principal is reset by plan_capital_investment",
-)
 def test_a2_long_term_capital_loan_conserves_money(fixed_seed):
     government = make_government()
     firms = make_firms(("Food", "Healthcare"), num_per_category=1, government=government)

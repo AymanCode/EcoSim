@@ -1922,12 +1922,19 @@ class Economy:
             # Offered BEFORE production planning so any new capacity (services
             # production_capacity_units or housing max_rental_units) is visible
             # to the same-tick plan.
+            if not payment_arm:
+                # Legacy plan_capital_investment (below) resets
+                # capital_investment_this_tick, which used to drop the recycle
+                # units this loan books (audit A2). Clear last tick's value
+                # here instead and carry the loan's units across that reset.
+                firm.capital_investment_this_tick = 0.0
             self._maybe_offer_long_term_capital_loan(
                 firm=firm,
                 health_snapshot=health_snapshot,
                 unemployment_rate=unemployment_rate,
                 total_households=total_households,
             )
+            long_term_recycle_units = firm.capital_investment_this_tick
             # Plan production and labor
             production_plan = firm.plan_production_and_labor(
                 self.last_tick_sales_units.get(firm.firm_id, 0.0),
@@ -1983,6 +1990,8 @@ class Economy:
             # Fix 21: Capital investment decision (may set needs_investment_loan)
             capital_cash_before = firm.cash_balance
             firm.plan_capital_investment(bank=self.bank)
+            if not payment_arm:
+                firm.capital_investment_this_tick += long_term_recycle_units
             if payment_arm and firm.cash_balance < capital_cash_before - MONEY_EPS:
                 self._payment_record_capital_spend(firm, capital_cash_before - firm.cash_balance, "self_financed")
 
