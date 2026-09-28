@@ -7,25 +7,34 @@ household.bank_deposit and bank.cash_reserves (money conservation).
 import pytest
 from unittest.mock import MagicMock
 
-from agents import HouseholdAgent, BankAgent
+from agents import HouseholdAgent, BankAgent, GovernmentAgent
 from config import CONFIG
+from economy import Economy
 from tests_contracts.factories import make_household, make_households
 
 
-ACCESS_RATE_CONSUMPTION = 0.90  # hard-coded in plan_consumption / _batch_plan_consumption
+ACCESS_RATE_CONSUMPTION = 0.90  # hard-coded in _batch_plan_consumption
 
 
 ACCESS_RATE = CONFIG.households.household_deposit_access_rate  # 0.90
 
 
+def _batch_plan(hh: HouseholdAgent, market_prices, unemployment_rate: float = 0.0) -> dict:
+    """Plan one household's consumption through the live Economy._batch_plan_consumption path."""
+    economy = Economy(households=[hh], firms=[], government=GovernmentAgent(cash_balance=5_000.0))
+    plans = economy._batch_plan_consumption(market_prices, {}, unemployment_rate=unemployment_rate)
+    return plans[hh.household_id]
+
+
 # ---------------------------------------------------------------------------
-# plan_consumption budget includes accessible deposits
+# _batch_plan_consumption budget includes accessible deposits
 # ---------------------------------------------------------------------------
 
 def test_contract_deposit_budget_zero_cash_partial_deposit():
     """$0 cash + $1000 deposits → budget includes $900 accessible."""
     hh = make_household(cash_balance=0.0, bank_deposit=1_000.0)
-    result = hh.plan_consumption(
+    result = _batch_plan(
+        hh,
         market_prices={"Food": 5.0, "Services": 8.0},
         unemployment_rate=0.05,
     )
@@ -34,7 +43,7 @@ def test_contract_deposit_budget_zero_cash_partial_deposit():
     # budget = max(0, 0) + 900 + after_tax_income
     # The returned dict should have been computed against a non-zero budget
     assert result["household_id"] == hh.household_id
-    # The test is that plan_consumption doesn't return empty dict (which happens when budget <= 0)
+    # The test is that _batch_plan_consumption doesn't return empty dict (which happens when budget <= 0)
     # With $900 accessible, budget > 0 even with $0 cash and no income
     assert isinstance(result["planned_purchases"], dict) or isinstance(result["category_budgets"], dict)
 
@@ -44,7 +53,7 @@ def test_contract_deposit_budget_adds_accessible_fraction():
     hh_no_deposit = make_household(cash_balance=100.0, bank_deposit=0.0)
     hh_with_deposit = make_household(cash_balance=100.0, bank_deposit=500.0)
 
-    # Force deterministic plan_consumption by using same income state.
+    # Force deterministic planning by using same income state.
     hh_no_deposit.wage = 0.0
     hh_with_deposit.wage = 0.0
 
@@ -367,7 +376,7 @@ def test_contract_withdraw_skips_when_no_bank():
 
 
 def test_contract_plan_consumption_accessible_liquidity_uses_deposits():
-    """plan_consumption budget includes 90% of deposits even with zero cash."""
+    """_batch_plan_consumption budget includes 90% of deposits even with zero cash."""
     hh_cash_only = make_household(household_id=1, cash_balance=900.0, bank_deposit=0.0)
     hh_deposit = make_household(household_id=2, cash_balance=0.0, bank_deposit=1_000.0)
 
@@ -376,8 +385,8 @@ def test_contract_plan_consumption_accessible_liquidity_uses_deposits():
         hh.wage = 0.0
         hh.employer_id = None  # is_employed is a property derived from employer_id
 
-    result_cash = hh_cash_only.plan_consumption(market_prices={"Food": 5.0})
-    result_deposit = hh_deposit.plan_consumption(market_prices={"Food": 5.0})
+    result_cash = _batch_plan(hh_cash_only, market_prices={"Food": 5.0})
+    result_deposit = _batch_plan(hh_deposit, market_prices={"Food": 5.0})
 
     # Deposit-only household should still produce a non-empty plan (budget > 0)
     assert result_deposit["household_id"] == hh_deposit.household_id

@@ -7,8 +7,9 @@ paid dividends. It does not expose the older ``last_after_tax_income`` or
 
 import pytest
 
-from agents import HouseholdAgent
+from agents import GovernmentAgent, HouseholdAgent
 from config import CONFIG
+from economy import Economy
 from tests_contracts.factories import make_firm, make_household
 
 
@@ -16,12 +17,18 @@ BENEFIT = CONFIG.government.default_unemployment_benefit
 PRICES = {"Food": 5.0, "Services": 10.0}
 
 
-def _plan(hh: HouseholdAgent, **kwargs) -> dict:
-    return hh.plan_consumption(
-        market_prices=PRICES,
+def _economy(hh: HouseholdAgent) -> Economy:
+    return Economy(households=[hh], firms=[], government=GovernmentAgent(cash_balance=5_000.0))
+
+
+def _plan(hh: HouseholdAgent) -> dict:
+    """Plan through the live batch path (Economy._batch_plan_consumption)."""
+    plans = _economy(hh)._batch_plan_consumption(
+        PRICES,
+        {},
         unemployment_rate=0.05,
-        **kwargs,
     )
+    return plans[hh.household_id]
 
 
 def _planned_spend(plan: dict) -> float:
@@ -134,7 +141,7 @@ def test_contract_services_consumption_improves_happiness_without_wage_income():
     without_services.services_consumed_this_tick = 0.0
     with_services.services_consumed_this_tick = 1.0
 
-    without_services.update_wellbeing()
-    with_services.update_wellbeing()
+    _economy(without_services)._batch_update_wellbeing(happiness_multiplier=1.0)
+    _economy(with_services)._batch_update_wellbeing(happiness_multiplier=1.0)
 
     assert with_services.happiness > without_services.happiness

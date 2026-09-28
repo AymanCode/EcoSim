@@ -28,8 +28,9 @@ if sys.platform == 'win32':
     sys.stdout.reconfigure(encoding='utf-8')
     sys.stderr.reconfigure(encoding='utf-8')
 import pytest
-from agents import HouseholdAgent
+from agents import GovernmentAgent, HouseholdAgent
 from config import CONFIG
+from economy import Economy
 
 
 @pytest.fixture
@@ -47,6 +48,28 @@ def print_section(title):
     print("\n" + "=" * 70)
     print(f"  {title}")
     print("=" * 70)
+
+
+def _economy_for(household):
+    """Wrap one household in an Economy so checks exercise the live batch paths."""
+    return Economy(households=[household], firms=[], government=GovernmentAgent(cash_balance=5_000.0))
+
+
+def _apply_household_tick(household, transfers=0.0, taxes=0.0, purchases=None, economy=None):
+    """Apply income, taxes, purchases and inventory consumption via Economy._batch_apply_household_updates."""
+    economy = economy or _economy_for(household)
+    hid = household.household_id
+    economy._batch_apply_household_updates(
+        transfer_plan={hid: transfers},
+        wage_taxes={hid: taxes},
+        per_household_purchases={hid: purchases or {}},
+        good_category_lookup=None,
+    )
+
+
+def _update_wellbeing(household, multiplier=1.0):
+    """Update wellbeing via Economy._batch_update_wellbeing."""
+    _economy_for(household)._batch_update_wellbeing(happiness_multiplier=multiplier)
 
 
 def test_household_creation():
@@ -124,7 +147,7 @@ def test_consumption_planning(household):
         "Services": 7.0
     }
 
-    consumption_plan = household.plan_consumption(market_prices)
+    consumption_plan = _economy_for(household)._batch_plan_consumption(market_prices, {})[household.household_id]
 
     print(f"Consumption Plan:")
     print(f"  Disposable income: ${household.wage if household.is_employed else 30.0:.2f} (wage or benefit)")
@@ -232,9 +255,9 @@ def test_goods_consumption():
         print(f"  {good}: {amount:.2f} units")
 
     # Consume goods over 5 ticks
-    print(f"\nConsuming goods (10% per tick):")
+    print(f"\nConsuming goods (batch inventory consumption):")
     for tick in range(5):
-        household.consume_goods()
+        _apply_household_tick(household)
         if tick % 2 == 1:  # Print every other tick
             print(f"\n  After tick {tick + 1}:")
             for good, amount in household.goods_inventory.items():
@@ -281,7 +304,7 @@ def test_wellbeing_system():
     # Simulate being unemployed for 5 ticks (should decrease wellbeing)
     print(f"\nSimulating 5 ticks of unemployment...")
     for _ in range(5):
-        household.update_wellbeing(government_happiness_multiplier=1.0)
+        _update_wellbeing(household, 1.0)
 
     unemployment_happiness = household.happiness
     unemployment_morale = household.morale
@@ -310,7 +333,7 @@ def test_wellbeing_system():
 
     # Simulate 5 ticks of employment
     for _ in range(5):
-        household.update_wellbeing(government_happiness_multiplier=1.0)
+        _update_wellbeing(household, 1.0)
 
     print(f"\nAfter 5 ticks of employment (wage $100 vs expected $90):")
     print(f"  Happiness: {household.happiness:.3f} (was {unemployment_happiness:.3f})")
@@ -338,6 +361,10 @@ def test_income_and_spending():
     initial_cash = household.cash_balance
     print(f"Initial cash: ${initial_cash:.2f}")
 
+    # Wage income comes from the household's employment record in the batch path.
+    household.employer_id = 1
+    household.wage = 80.0
+
     # Apply income and taxes
     income_data = {
         "wage_income": 80.0,
@@ -350,13 +377,7 @@ def test_income_and_spending():
     print(f"  Transfers: ${income_data['transfers']:.2f}")
     print(f"  Taxes paid: -${income_data['taxes_paid']:.2f}")
 
-    household.apply_income_and_taxes(income_data)
-
-    after_income_cash = household.cash_balance
     net_income = income_data['wage_income'] + income_data['transfers'] - income_data['taxes_paid']
-
-    print(f"\nAfter income:")
-    print(f"  Cash: ${after_income_cash:.2f}")
     print(f"  Net income: +${net_income:.2f}")
 
     # Apply purchases
@@ -372,7 +393,12 @@ def test_income_and_spending():
         print(f"  {good}: {units:.1f} units @ ${price:.2f} = ${cost:.2f}")
     print(f"  Total cost: ${total_cost:.2f}")
 
-    household.apply_purchases(purchases)
+    _apply_household_tick(
+        household,
+        transfers=income_data['transfers'],
+        taxes=income_data['taxes_paid'],
+        purchases=purchases,
+    )
 
     final_cash = household.cash_balance
     print(f"\nFinal cash: ${final_cash:.2f}")
@@ -432,7 +458,7 @@ def test_wellbeing_not_sticky_without_new_consumption():
     household.food_consumed_this_tick = CONFIG.households.food_health_high_threshold
     household.services_consumed_this_tick = 1.0
     household.healthcare_consumed_this_tick = 0.0
-    household.update_wellbeing(government_happiness_multiplier=1.0)
+    _update_wellbeing(household, 1.0)
     health_after_consumption = household.health
     happiness_after_consumption = household.happiness
 
@@ -440,7 +466,7 @@ def test_wellbeing_not_sticky_without_new_consumption():
     household.food_consumed_this_tick = 0.0
     household.services_consumed_this_tick = 0.0
     household.healthcare_consumed_this_tick = 0.0
-    household.update_wellbeing(government_happiness_multiplier=1.0)
+    _update_wellbeing(household, 1.0)
 
     assert household.health <= health_after_consumption, "Health should not stay boosted without new food intake"
     assert household.happiness <= happiness_after_consumption, "Happiness should not stay boosted without new services"
@@ -466,6 +492,8 @@ def run_quick_simulation():
     print(f"\n{'Tick':<6} {'Employed':<10} {'Wage':<8} {'Cash':<10} {'Skills':<8} {'Happiness':<10} {'Goods':<6}")
     print("-" * 70)
 
+    economy = _economy_for(household)
+
     # Simulate 20 ticks
     for tick in range(20):
         # Get employed at tick 5
@@ -477,35 +505,24 @@ def run_quick_simulation():
             }
             household.apply_labor_outcome(labor_outcome)
 
-        # Apply income if employed
+        # Income: wage (from the employment record) when employed, benefits otherwise
         if household.is_employed:
-            income_data = {
-                "wage_income": household.wage,
-                "transfers": 0.0,
-                "taxes_paid": household.wage * 0.15
-            }
-            household.apply_income_and_taxes(income_data)
+            transfers, taxes = 0.0, household.wage * 0.15
         else:
-            # Unemployed - get benefits
-            income_data = {
-                "wage_income": 0.0,
-                "transfers": 40.0,
-                "taxes_paid": 0.0
-            }
-            household.apply_income_and_taxes(income_data)
+            transfers, taxes = 40.0, 0.0
 
         # Buy some goods every 3 ticks if can afford
+        purchases = {}
         if tick % 3 == 0 and household.cash_balance > 30:
             purchases = {
                 "Food": (5.0, 5.0),
             }
-            household.apply_purchases(purchases)
 
-        # Consume goods
-        household.consume_goods()
+        # Apply income, purchases and inventory consumption
+        _apply_household_tick(household, transfers, taxes, purchases, economy)
 
         # Update wellbeing
-        household.update_wellbeing(government_happiness_multiplier=1.0)
+        economy._batch_update_wellbeing(happiness_multiplier=1.0)
 
         # Print status every 2 ticks
         if tick % 2 == 0:

@@ -20,6 +20,16 @@ def _fresh_household(household_id: int = 1) -> HouseholdAgent:
     return hh
 
 
+def _batch_wellbeing(hh: HouseholdAgent, multiplier: float = 1.0) -> None:
+    """Run the live batched wellbeing update (Economy._batch_update_wellbeing) for one household."""
+    economy = Economy(
+        households=[hh],
+        firms=[],
+        government=GovernmentAgent(cash_balance=5_000.0),
+    )
+    economy._batch_update_wellbeing(happiness_multiplier=multiplier)
+
+
 def test_contract_food_offsets_only_part_of_health_decay_by_thresholds():
     """Contract E: Food can offset only the configured share of natural health decay."""
     cfg = CONFIG.households
@@ -33,7 +43,7 @@ def test_contract_food_offsets_only_part_of_health_decay_by_thresholds():
         hh.food_consumed_this_tick = food_units
         hh.services_consumed_this_tick = 0.0
         hh.healthcare_consumed_this_tick = 0.0
-        hh.update_wellbeing(government_happiness_multiplier=1.0)
+        _batch_wellbeing(hh, 1.0)
         return hh.health - baseline_health
 
     low_delta = health_delta(0.0)
@@ -161,7 +171,7 @@ def test_contract_wellbeing_mercy_floor_and_consumption_recovery():
     low_hh.services_consumed_this_tick = 1.0
     # met_housing_need = True from _fresh_household, last_tick_cash_start = 0 (no wealth loss)
     before = low_hh.happiness
-    low_hh.update_wellbeing(government_happiness_multiplier=1.0)
+    _batch_wellbeing(low_hh, 1.0)
     assert low_hh.happiness >= before, "Mercy floor should pause decay; positive recovery should apply"
 
     # Services recovery test: full-satisfaction employed household.
@@ -176,7 +186,7 @@ def test_contract_wellbeing_mercy_floor_and_consumption_recovery():
     svc_hh.services_consumed_this_tick = 1.0
     # met_housing_need = True from _fresh_household, last_tick_cash_start = 0 (no wealth loss)
     initial = svc_hh.happiness
-    svc_hh.update_wellbeing(government_happiness_multiplier=1.0)
+    _batch_wellbeing(svc_hh, 1.0)
     # All 4 positive conditions met: +0.0008 + 0.0005 + 0.0007 + 0.0005 = +0.0025 total
     # No decay (rate=0), no poverty, no shortfall, no unemployment, no wealth loss
     assert svc_hh.happiness > initial, "Full satisfaction should raise happiness"
@@ -214,62 +224,29 @@ def test_contract_morale_reacts_to_employment_housing_and_wages():
     base.met_housing_need = True
 
     employed_housed = copy.deepcopy(base)
-    employed_housed.update_wellbeing(government_happiness_multiplier=1.0)
+    _batch_wellbeing(employed_housed, 1.0)
     delta_employed_housed = employed_housed.morale - 0.5
     assert delta_employed_housed > 0.0
 
     unemployed = copy.deepcopy(base)
     unemployed.employer_id = None
     unemployed.wage = 0.0
-    unemployed.update_wellbeing(government_happiness_multiplier=1.0)
+    _batch_wellbeing(unemployed, 1.0)
     delta_unemployed = unemployed.morale - 0.5
     assert delta_unemployed < 0.0
 
     employed_unhoused = copy.deepcopy(base)
     employed_unhoused.met_housing_need = False
-    employed_unhoused.update_wellbeing(government_happiness_multiplier=1.0)
+    _batch_wellbeing(employed_unhoused, 1.0)
     delta_employed_unhoused = employed_unhoused.morale - 0.5
     assert delta_employed_unhoused < delta_employed_housed
 
     underpaid = copy.deepcopy(base)
     underpaid.wage = 50.0
     underpaid.expected_wage = 80.0
-    underpaid.update_wellbeing(government_happiness_multiplier=1.0)
+    _batch_wellbeing(underpaid, 1.0)
     delta_underpaid = underpaid.morale - 0.5
     assert delta_underpaid < delta_employed_housed
-
-
-def test_contract_batch_wellbeing_matches_per_agent_update_path():
-    """Contract I2: Live batched wellbeing must match the richer per-agent path."""
-    hh_batch = _fresh_household(45)
-    hh_batch.happiness = 0.62
-    hh_batch.morale = 0.58
-    hh_batch.health = 0.71
-    hh_batch.happiness_decay_rate = 0.01
-    hh_batch.morale_decay_rate = 0.02
-    hh_batch.health_decay_rate = 0.005
-    hh_batch.employer_id = None
-    hh_batch.wage = 0.0
-    hh_batch.expected_wage = 90.0
-    hh_batch.met_housing_need = False
-    hh_batch.food_consumed_this_tick = 0.5
-    hh_batch.services_consumed_this_tick = 0.0
-    hh_batch.last_tick_cash_start = 1_000.0
-    hh_batch.cash_balance = 700.0
-
-    hh_single = copy.deepcopy(hh_batch)
-    economy = Economy(
-        households=[hh_batch],
-        firms=[],
-        government=GovernmentAgent(cash_balance=5_000.0),
-    )
-
-    economy._batch_update_wellbeing(happiness_multiplier=1.1)
-    hh_single.update_wellbeing(government_happiness_multiplier=1.1)
-
-    assert hh_batch.happiness == pytest.approx(hh_single.happiness, abs=1e-8)
-    assert hh_batch.morale == pytest.approx(hh_single.morale, abs=1e-8)
-    assert hh_batch.health == pytest.approx(hh_single.health, abs=1e-8)
 
 
 def test_contract_healthcare_receipt_survives_batch_household_update():
@@ -495,10 +472,17 @@ def test_contract_services_are_non_storable_flow_consumption():
     """Contract G2: Service purchases should count this tick, but not persist in inventory."""
     hh = _fresh_household(52)
     hh.services_consumed_this_tick = 0.0
+    economy = Economy(
+        households=[hh],
+        firms=[],
+        government=GovernmentAgent(cash_balance=5_000.0),
+    )
 
-    hh.apply_purchases(
-        purchases={"ServicesFirm": (2.0, 10.0)},
-        firm_categories={"ServicesFirm": "services"},
+    economy._batch_apply_household_updates(
+        transfer_plan={hh.household_id: 0.0},
+        wage_taxes={hh.household_id: 0.0},
+        per_household_purchases={hh.household_id: {"ServicesFirm": (2.0, 10.0)}},
+        good_category_lookup={"ServicesFirm": "services"},
     )
 
     assert hh.services_consumed_this_tick == pytest.approx(2.0, abs=1e-8)
