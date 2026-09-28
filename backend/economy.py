@@ -58,7 +58,7 @@ from agents import (
     LoanContract,
     build_awareness_market_views,
 )
-from utils.category_utils import get_good_category, build_good_category_lookup
+from utils.category_utils import build_good_category_lookup
 from payments import PaymentBook, MONEY_EPS, proportional
 
 logger = logging.getLogger(__name__)
@@ -6885,7 +6885,14 @@ class Economy:
     # Section: Healthcare queue and service processing
     # -------------------------------------------------------------------------
     def _reset_healthcare_tick_state(self) -> None:
-        """Reset per-tick healthcare counters and clear legacy medical inventory remnants."""
+        """Reset per-tick healthcare counters.
+
+        Healthcare goods never enter household goods_inventory: healthcare
+        firms hold no inventory (apply_production_and_costs zeroes it), so the
+        legacy goods market cannot sell them, and PaymentGoodsMarket excludes
+        them. The per-household inventory scan that used to run here removed
+        nothing and was deleted in remediation phase 2.
+        """
         self.healthcare_requests_this_tick = 0.0
         self.healthcare_attempted_slots_this_tick = 0.0
         self.healthcare_completed_visits_this_tick = 0.0
@@ -6897,9 +6904,6 @@ class Economy:
             household.last_healthcare_units = 0.0
             household.last_healthcare_spend = 0.0
             household.last_healthcare_provider_id = None
-            for good in list(household.goods_inventory.keys()):
-                if get_good_category(good).lower() == "healthcare":
-                    del household.goods_inventory[good]
 
         for firm in self.firms:
             if firm.good_category.lower() != "healthcare":
