@@ -1786,6 +1786,8 @@ class Economy:
             and bool(CONFIG.government.auto_working_capital_backstop)
             and not (unemployment_rate < float(wc_cfg.working_capital_unemployment_trigger))
         )
+        # A plain attribute read; only GovernmentAgent.apply_policy_levers changes it.
+        planning_minimum_wage = self.government.get_minimum_wage()
 
         for firm in self.firms:
             health_snapshot = firm.refresh_health_snapshot(
@@ -1827,7 +1829,7 @@ class Economy:
                 large_market=self.large_market,
                 post_warmup_cooldown=(self.post_warmup_cooldown > 0),
                 health_snapshot=health_snapshot,
-                minimum_wage_floor=self.government.get_minimum_wage(),
+                minimum_wage_floor=planning_minimum_wage,
                 last_tick_unmet_units=self.last_tick_unmet_demand_by_firm.get(firm.firm_id, 0.0),
             )
             firm_production_plans[firm.firm_id] = production_plan
@@ -1857,7 +1859,7 @@ class Economy:
                 in_warmup=self.in_warmup,
                 health_snapshot=health_snapshot,
                 unemployment_short_ma=self.unemployment_short_ma,
-                minimum_wage_floor=self.government.get_minimum_wage(),
+                minimum_wage_floor=planning_minimum_wage,
             )
             firm_wage_plans[firm.firm_id] = wage_plan
 
