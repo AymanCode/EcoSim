@@ -1908,19 +1908,21 @@ class Economy:
             for household in self.households:
                 household.tick_job_search_cooldown(_cooldown_rng)
 
-        # Reset per-tick turnover counter on all firms.
-        for firm in self.firms:
-            firm.worker_turnover_this_tick = 0
-
+        # One firm pass: reset the per-tick turnover counter, collect the
+        # posted-offer pool (private, non-healthcare/housing) and the planned
+        # offers by category. No RNG; each list keeps self.firms order.
         active_private_offers = []
         all_private_offers = []
+        planned_private_offer_buckets: Dict[str, List[float]] = {}
         for firm in self.firms:
+            firm.worker_turnover_this_tick = 0
             if firm.is_baseline or firm.firm_id not in firm_wage_plans:
                 continue
+            offer = float(firm_wage_plans[firm.firm_id]["wage_offer_next"])
+            planned_private_offer_buckets.setdefault(str(firm.good_category), []).append(offer)
             if (firm.good_category or "").lower() in {"healthcare", "housing"}:
                 continue
 
-            offer = float(firm_wage_plans[firm.firm_id]["wage_offer_next"])
             all_private_offers.append(offer)
 
             planned_hires = int(
@@ -1936,14 +1938,6 @@ class Economy:
             else 0.0
         )
         category_posted_wage_signals: Dict[str, float] = {}
-        planned_private_offer_buckets: Dict[str, List[float]] = {}
-        for firm in self.firms:
-            if firm.is_baseline or firm.firm_id not in firm_wage_plans:
-                continue
-            category = str(firm.good_category)
-            planned_private_offer_buckets.setdefault(category, []).append(
-                float(firm_wage_plans[firm.firm_id]["wage_offer_next"])
-            )
         for category, offers in planned_private_offer_buckets.items():
             if offers:
                 category_posted_wage_signals[category] = sum(offers) / len(offers)
