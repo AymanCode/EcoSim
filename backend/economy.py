@@ -1324,6 +1324,7 @@ class Economy:
         good_category_lookup: Optional[Dict[str, str]] = None,
         frozen_wages: Optional[Dict[int, float]] = None,
         payment_receipt_only: bool = False,
+        per_firm_sales: Optional[Dict[int, Dict[str, float]]] = None,
     ) -> None:
         """
         Optimized batch update of all household states.
@@ -1340,6 +1341,8 @@ class Economy:
             frozen_wages: Optional production-boundary ordinary gross wages in
                           currency per tick, keyed by household ID. Direct calls
                           without it retain the current household-wage behavior.
+            per_firm_sales: Optional clearing sales, reduced in place when a
+                          subsidized purchase is scaled down (see below).
 
         Note:
             This method is 200+ lines long with multiple responsibilities.
@@ -1381,6 +1384,8 @@ class Economy:
 
         # Category lookup: use provided or empty dict for direct access
         cat_lookup = good_category_lookup or {}
+        # Engine good names are unique per firm, so a purchase maps to one seller.
+        firm_by_good = {f.good_name: f for f in self.firms}
 
         # Single pass through all households
         for household in self.households:
@@ -1471,6 +1476,23 @@ class Economy:
                             subsidy_rate,
                         )
                     )
+                    seller = firm_by_good.get(good)
+                    if affordability_scale < 1.0 and seller is not None:
+                        # Clearing already paid the seller qty * price and took
+                        # the units (audit A1): return the unpaid part and its units.
+                        unpaid = total_cost - household_cost - _govt_share
+                        unsold = quantity * (1.0 - affordability_scale)
+                        seller.cash_balance -= unpaid
+                        seller.last_revenue -= unpaid
+                        seller.last_profit -= unpaid
+                        seller.net_profit -= unpaid
+                        seller.last_units_sold -= unsold
+                        if not seller._is_generic_services_firm():
+                            seller.inventory_units += unsold
+                        sales = (per_firm_sales or {}).get(seller.firm_id)
+                        if sales is not None:
+                            sales["revenue"] -= unpaid
+                            sales["units_sold"] -= unsold
                     quantity *= affordability_scale
                 else:
                     household_cost = (self.payment_book.household_purchase_cost[hid].get(good, 0.0)
@@ -2494,6 +2516,7 @@ class Economy:
             good_category_lookup,
             frozen_wages=frozen_wages,
             payment_receipt_only=payment_arm,
+            per_firm_sales=tick.per_firm_sales,
         )
         if payment_arm:
             self.payment_book.release_late_income()

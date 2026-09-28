@@ -77,10 +77,6 @@ def test_control_legacy_economy_with_bank_conserves_money_over_five_ticks(fixed_
         assert abs(drift) <= MONEY_TOL, f"control drift {drift:+.6f} after tick {tick}"
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="audit A1: subsidized purchase is scaled down after the firm was paid in full",
-)
 def test_a1_subsidized_purchase_scale_down_conserves_money(fixed_seed, monkeypatch):
     economy = _legacy_economy_with_bank(categories=("Food", "Services"))
     economy.government.set_lever("sector_subsidy_target", "food")
