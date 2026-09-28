@@ -89,6 +89,8 @@ class _TickScratch:
     firm_wage_plans: Optional[Dict[int, Dict]] = None
     firm_health_snapshots: Optional[Dict[int, Dict[str, object]]] = None
     category_wage_anchor_p75: Optional[Dict[str, float]] = None
+    household_labor_plans: Optional[Dict[int, Dict]] = None
+    household_consumption_plans: Optional[Dict[int, Dict]] = None
 
 
 # -----------------------------------------------------------------------------
@@ -1632,117 +1634,21 @@ class Economy:
         self._phase_pre_plan_state(tick)
 
         self._phase_firm_planning(tick)
+
+        self._phase_household_planning(tick)
         payment_arm = tick.payment_arm
         audit_firm_states_before = tick.audit_firm_states_before
         audit_household_states_before = tick.audit_household_states_before
         audit_government_state_before = tick.audit_government_state_before
         good_category_lookup = tick.good_category_lookup
-        category_market_snapshot = tick.category_market_snapshot
         unemployment_rate = tick.unemployment_rate
-        gov_benefit = tick.gov_benefit
         firm_production_plans = tick.firm_production_plans
         firm_price_plans = tick.firm_price_plans
         firm_wage_plans = tick.firm_wage_plans
         firm_health_snapshots = tick.firm_health_snapshots
         category_wage_anchor_p75 = tick.category_wage_anchor_p75
-
-        # Phase 2: Households plan
-        household_labor_plans = {}
-
-        # One firm pass: reset the per-tick turnover counter, collect the
-        # posted-offer pool (private, non-healthcare/housing) and the planned
-        # offers by category. No RNG; each list keeps self.firms order.
-        active_private_offers = []
-        all_private_offers = []
-        planned_private_offer_buckets: Dict[str, List[float]] = {}
-        for firm in self.firms:
-            firm.worker_turnover_this_tick = 0
-            if firm.is_baseline or firm.firm_id not in firm_wage_plans:
-                continue
-            offer = float(firm_wage_plans[firm.firm_id]["wage_offer_next"])
-            planned_private_offer_buckets.setdefault(str(firm.good_category), []).append(offer)
-            if (firm.good_category or "").lower() in {"healthcare", "housing"}:
-                continue
-
-            all_private_offers.append(offer)
-
-            planned_hires = int(
-                firm_production_plans.get(firm.firm_id, {}).get("planned_hires_count", 0) or 0
-            )
-            if planned_hires > 0:
-                active_private_offers.append(offer)
-
-        posted_offer_pool = active_private_offers or all_private_offers
-        mean_posted_wage = (
-            float(np.percentile(posted_offer_pool, CONFIG.households.unemployed_market_anchor_percentile))
-            if posted_offer_pool
-            else 0.0
-        )
-        category_posted_wage_signals: Dict[str, float] = {}
-        for category, offers in planned_private_offer_buckets.items():
-            if offers:
-                category_posted_wage_signals[category] = sum(offers) / len(offers)
-
-        # One household pass: education, job-search cooldown (post-warmup only,
-        # on-the-job / "newspaper" mechanic), labor plan, consumption-loan
-        # request (bank only), in that order per household. Only the cooldown
-        # draws from an RNG (_cooldown_rng, in household order as before); each
-        # body reads and writes only its own household (plus the bank's credit
-        # scores, read-only). Education spending is still summed in household
-        # order and routed to the misc pool before plan normalization.
-        total_education_spending = 0.0
-        _cooldown_rng = random.Random(int(CONFIG.random_seed) + self.current_tick * 31337)
-        tick_cooldowns = not self.in_warmup
-        bank = self.bank
-        firm_lookup = self.firm_lookup
-        for household in self.households:
-            total_education_spending += household.maybe_active_education()
-            if tick_cooldowns:
-                household.tick_job_search_cooldown(_cooldown_rng)
-            employer_category = None
-            if household.employer_id is not None and household.employer_id in firm_lookup:
-                employer_category = firm_lookup[household.employer_id].good_category
-            labor_plan = household.plan_labor_supply(
-                gov_benefit,
-                mean_posted_wage=mean_posted_wage,
-                category_posted_wages=category_posted_wage_signals,
-                employer_category=employer_category,
-            )
-            household_labor_plans[household.household_id] = labor_plan
-            if bank is not None:
-                household.maybe_request_consumption_loan(bank=bank)
-        if total_education_spending > 0:
-            self._collect_misc_revenue(total_education_spending)
-        self._normalize_household_labor_plans(
-            household_labor_plans,
-            firm_wage_plans,
-            market_anchor_wage=mean_posted_wage,
-        )
-        self.last_household_labor_plans = {
-            int(household_id): dict(plan)
-            for household_id, plan in household_labor_plans.items()
-        }
-
-        # Consumption planning now vectorized (major speedup)
-        if (not self.performance_mode) or (self.current_tick % 5 == 0):
-            household_consumption_plans = self._batch_plan_consumption(
-                self.last_tick_prices,
-                category_market_snapshot,
-                good_category_lookup,
-                unemployment_rate,
-                gov_benefit,
-            )
-            if self.performance_mode:
-                self._cached_consumption_plans = household_consumption_plans
-        else:
-            household_consumption_plans = self._apply_cached_consumption_plans()
-
-        # Phase 2a: Consumption credit (Fix 25) — bridge low-cash households.
-        # Requests were flagged in the household pass above; only
-        # _offer_consumption_loans reads them, and it must follow consumption
-        # planning because disbursal changes cash.
-        if self.bank is not None:
-            self._offer_consumption_loans()
+        household_labor_plans = tick.household_labor_plans
+        household_consumption_plans = tick.household_consumption_plans
 
         # Phase 3: Labor market matching
         self.payment_project_baseline_hires = {}
@@ -2597,6 +2503,112 @@ class Economy:
         for wage_plan in tick.firm_wage_plans.values():
             if wage_plan["wage_offer_next"] < minimum_wage:
                 wage_plan["wage_offer_next"] = minimum_wage
+
+    def _phase_household_planning(self, tick: _TickScratch) -> None:
+        """Households plan: offer signals, education, cooldowns, labor supply, consumption, loans."""
+        firm_wage_plans = tick.firm_wage_plans
+        firm_production_plans = tick.firm_production_plans
+        gov_benefit = tick.gov_benefit
+        category_market_snapshot = tick.category_market_snapshot
+        good_category_lookup = tick.good_category_lookup
+        unemployment_rate = tick.unemployment_rate
+        # Phase 2: Households plan
+        tick.household_labor_plans = {}
+
+        # One firm pass: reset the per-tick turnover counter, collect the
+        # posted-offer pool (private, non-healthcare/housing) and the planned
+        # offers by category. No RNG; each list keeps self.firms order.
+        active_private_offers = []
+        all_private_offers = []
+        planned_private_offer_buckets: Dict[str, List[float]] = {}
+        for firm in self.firms:
+            firm.worker_turnover_this_tick = 0
+            if firm.is_baseline or firm.firm_id not in firm_wage_plans:
+                continue
+            offer = float(firm_wage_plans[firm.firm_id]["wage_offer_next"])
+            planned_private_offer_buckets.setdefault(str(firm.good_category), []).append(offer)
+            if (firm.good_category or "").lower() in {"healthcare", "housing"}:
+                continue
+
+            all_private_offers.append(offer)
+
+            planned_hires = int(
+                firm_production_plans.get(firm.firm_id, {}).get("planned_hires_count", 0) or 0
+            )
+            if planned_hires > 0:
+                active_private_offers.append(offer)
+
+        posted_offer_pool = active_private_offers or all_private_offers
+        mean_posted_wage = (
+            float(np.percentile(posted_offer_pool, CONFIG.households.unemployed_market_anchor_percentile))
+            if posted_offer_pool
+            else 0.0
+        )
+        category_posted_wage_signals: Dict[str, float] = {}
+        for category, offers in planned_private_offer_buckets.items():
+            if offers:
+                category_posted_wage_signals[category] = sum(offers) / len(offers)
+
+        # One household pass: education, job-search cooldown (post-warmup only,
+        # on-the-job / "newspaper" mechanic), labor plan, consumption-loan
+        # request (bank only), in that order per household. Only the cooldown
+        # draws from an RNG (_cooldown_rng, in household order as before); each
+        # body reads and writes only its own household (plus the bank's credit
+        # scores, read-only). Education spending is still summed in household
+        # order and routed to the misc pool before plan normalization.
+        total_education_spending = 0.0
+        _cooldown_rng = random.Random(int(CONFIG.random_seed) + self.current_tick * 31337)
+        tick_cooldowns = not self.in_warmup
+        bank = self.bank
+        firm_lookup = self.firm_lookup
+        for household in self.households:
+            total_education_spending += household.maybe_active_education()
+            if tick_cooldowns:
+                household.tick_job_search_cooldown(_cooldown_rng)
+            employer_category = None
+            if household.employer_id is not None and household.employer_id in firm_lookup:
+                employer_category = firm_lookup[household.employer_id].good_category
+            labor_plan = household.plan_labor_supply(
+                gov_benefit,
+                mean_posted_wage=mean_posted_wage,
+                category_posted_wages=category_posted_wage_signals,
+                employer_category=employer_category,
+            )
+            tick.household_labor_plans[household.household_id] = labor_plan
+            if bank is not None:
+                household.maybe_request_consumption_loan(bank=bank)
+        if total_education_spending > 0:
+            self._collect_misc_revenue(total_education_spending)
+        self._normalize_household_labor_plans(
+            tick.household_labor_plans,
+            firm_wage_plans,
+            market_anchor_wage=mean_posted_wage,
+        )
+        self.last_household_labor_plans = {
+            int(household_id): dict(plan)
+            for household_id, plan in tick.household_labor_plans.items()
+        }
+
+        # Consumption planning now vectorized (major speedup)
+        if (not self.performance_mode) or (self.current_tick % 5 == 0):
+            tick.household_consumption_plans = self._batch_plan_consumption(
+                self.last_tick_prices,
+                category_market_snapshot,
+                good_category_lookup,
+                unemployment_rate,
+                gov_benefit,
+            )
+            if self.performance_mode:
+                self._cached_consumption_plans = tick.household_consumption_plans
+        else:
+            tick.household_consumption_plans = self._apply_cached_consumption_plans()
+
+        # Phase 2a: Consumption credit (Fix 25) — bridge low-cash households.
+        # Requests were flagged in the household pass above; only
+        # _offer_consumption_loans reads them, and it must follow consumption
+        # planning because disbursal changes cash.
+        if self.bank is not None:
+            self._offer_consumption_loans()
 
     # -------------------------------------------------------------------------
     # Section: Firm distress, working capital, and shortage diagnostics
