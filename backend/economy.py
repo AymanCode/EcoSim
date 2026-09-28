@@ -7791,8 +7791,10 @@ class Economy:
                     return True
 
         # No bank — use household's own take_medical_loan (simple implementation)
-        # But only if they're employed (existing guard from the method)
-        if household.is_employed:
+        # But only if they're employed (existing guard from the method).
+        # take_medical_loan credits cash with no lender debit, so it must not
+        # run when a bank exists and declined: the visit is then unfunded.
+        if bank is None and household.is_employed:
             household.take_medical_loan(amount)
             return True
 

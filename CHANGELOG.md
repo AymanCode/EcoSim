@@ -4,6 +4,12 @@ Notable changes and decisions for EcoSim, newest first. The project does not use
 
 ## Unreleased
 
+### 2026-09-28: Agents/economy remediation, phase 4 (money conservation)
+
+Behavior changes on purpose, one leak per commit, each confined to the leaking path and proven by a conservation test. Audit: [docs/reviews/2026-09-28-agents-economy-code-audit.md](docs/reviews/2026-09-28-agents-economy-code-audit.md), section A. Plan: [docs/reviews/2026-09-28-agents-economy-remediation-plan.md](docs/reviews/2026-09-28-agents-economy-remediation-plan.md), phase 4. Tables compare the previous goldens with the new run at the golden snapshot ticks (1,500 households; legacy seed 42 over 80 ticks, legacy seed 7 over 300 ticks, `income_first` seed 42 over 80 ticks). Drift figures come from `backend/tools/checks/money_supply_drift.py` at defaults (1,500 households, seed 42, 120 ticks, legacy).
+
+- **A3, medical-loan fallback with a bank present.** Before: when a bank existed but both its medical loan and the government-backed loan were declined, `Economy._issue_medical_loan` still fell through to `HouseholdAgent.take_medical_loan`, which adds the amount to the household's cash with no lender debit, so the visit was paid for with new money (+15.00 in the pinned test). Now: that fallback runs only when `self.bank is None`; with a bank that declines, the function returns False and `_process_healthcare_services` refunds the subsidy and drops the visit, as it already did for other declines. Aggregates: no change; all three golden compares still match, because the fallback never fired in those runs. Drift: net -38,702.56 / gross 681,124.05 before and after. Test: `test_a3_medical_loan_fallback_with_bank_conserves_money` now passes (xfail removed). Payment arm: not affected; `payment_loans.fund_medical_loan` has no fallback and returns 0.0 on a decline.
+
 ### 2026-09-28: Agents/economy remediation, phase 3 (step() split)
 
 No simulated number changed. After every commit all three golden compares matched at the default tolerance (1e-6) and the contract suite passed (473 passed, 5 xfailed). Plan: [docs/reviews/2026-09-28-agents-economy-remediation-plan.md](docs/reviews/2026-09-28-agents-economy-remediation-plan.md), phase 3; audit item D39 and section E.

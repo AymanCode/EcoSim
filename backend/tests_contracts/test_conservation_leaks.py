@@ -154,10 +154,6 @@ def test_a2_long_term_capital_loan_conserves_money(fixed_seed):
     )
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="audit A3: medical-loan fallback creates money when a bank is present but cannot lend",
-)
 def test_a3_medical_loan_fallback_with_bank_conserves_money(fixed_seed, monkeypatch):
     # Bank with zero reserves cannot lend; treasury with zero cash cannot back a loan.
     economy = _legacy_economy_with_bank(
