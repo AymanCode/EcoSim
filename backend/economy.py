@@ -1687,67 +1687,8 @@ class Economy:
         self._phase_lifecycle_and_statistics(tick)
 
         self._phase_dividends(tick)
-        audit_firm_states_before = tick.audit_firm_states_before
-        audit_household_states_before = tick.audit_household_states_before
-        audit_government_state_before = tick.audit_government_state_before
-        unemployment_rate = tick.unemployment_rate
-        firm_production_plans = tick.firm_production_plans
-        firm_price_plans = tick.firm_price_plans
-        firm_wage_plans = tick.firm_wage_plans
-        firm_health_snapshots = tick.firm_health_snapshots
-        category_wage_anchor_p75 = tick.category_wage_anchor_p75
-        household_labor_plans = tick.household_labor_plans
-        household_consumption_plans = tick.household_consumption_plans
-        firm_labor_outcomes = tick.firm_labor_outcomes
-        household_labor_outcomes = tick.household_labor_outcomes
-        per_household_purchases = tick.per_household_purchases
-        per_firm_sales = tick.per_firm_sales
-        tax_plan = tick.tax_plan
-        transfer_plan = tick.transfer_plan
-        bankruptcies_this_tick = tick.bankruptcies_this_tick
-        total_dividends_paid = tick.total_dividends_paid
 
-        for household in self.households:
-            household.finalize_tick_ledger()
-        self._update_affordability_telemetry()
-
-        # ── Audit action log ───────────────────────────────────────────
-        # When audit_log_enabled is True, stash all intermediate plans and
-        # outcomes so an external audit runner can serialize per-tick actions.
-        if self.audit_log_enabled:
-            audit_firm_states_after = self._capture_audit_firm_state(self.firms)
-            audit_household_states_after = self._capture_audit_household_state()
-            audit_government_state_after = self._capture_audit_government_state()
-            self._last_tick_audit = {
-                "firm_production_plans": firm_production_plans,
-                "firm_price_plans": firm_price_plans,
-                "firm_wage_plans": firm_wage_plans,
-                "firm_health_snapshots": firm_health_snapshots,
-                "category_wage_anchor_p75": category_wage_anchor_p75,
-                "household_labor_plans": household_labor_plans,
-                "household_consumption_plans": household_consumption_plans,
-                "firm_labor_outcomes": firm_labor_outcomes,
-                "household_labor_outcomes": household_labor_outcomes,
-                "per_firm_sales": per_firm_sales,
-                "per_household_purchases": per_household_purchases,
-                "tax_plan": tax_plan,
-                "transfer_plan": transfer_plan,
-                "firm_states_before": audit_firm_states_before,
-                "firm_states_after": audit_firm_states_after,
-                "household_states_before": audit_household_states_before,
-                "household_states_after": audit_household_states_after,
-                "government_state_before": audit_government_state_before,
-                "government_state_after": audit_government_state_after,
-                "firm_entries_this_tick": sorted(
-                    set(audit_firm_states_after.keys()) - set(audit_firm_states_before.keys())
-                ),
-                "firm_exits_this_tick": sorted(
-                    set(audit_firm_states_before.keys()) - set(audit_firm_states_after.keys())
-                ),
-                "bankruptcies_this_tick": bankruptcies_this_tick,
-                "total_dividends_paid": total_dividends_paid,
-                "unemployment_rate": unemployment_rate,
-            }
+        self._phase_finalize(tick)
 
         # Advance simulation clock after completing the tick
         self.current_tick += 1
@@ -2727,6 +2668,69 @@ class Economy:
             self._payment_fiscal_close(
                 total_wage_taxes + total_profit_taxes + total_price_ceiling_taxes + total_property_taxes
             )
+
+    def _phase_finalize(self, tick: _TickScratch) -> None:
+        """Finalize household ledgers and affordability telemetry; stash the audit record when enabled."""
+        firm_production_plans = tick.firm_production_plans
+        firm_price_plans = tick.firm_price_plans
+        firm_wage_plans = tick.firm_wage_plans
+        firm_health_snapshots = tick.firm_health_snapshots
+        category_wage_anchor_p75 = tick.category_wage_anchor_p75
+        household_labor_plans = tick.household_labor_plans
+        household_consumption_plans = tick.household_consumption_plans
+        firm_labor_outcomes = tick.firm_labor_outcomes
+        household_labor_outcomes = tick.household_labor_outcomes
+        per_firm_sales = tick.per_firm_sales
+        per_household_purchases = tick.per_household_purchases
+        tax_plan = tick.tax_plan
+        transfer_plan = tick.transfer_plan
+        audit_firm_states_before = tick.audit_firm_states_before
+        audit_household_states_before = tick.audit_household_states_before
+        audit_government_state_before = tick.audit_government_state_before
+        bankruptcies_this_tick = tick.bankruptcies_this_tick
+        total_dividends_paid = tick.total_dividends_paid
+        unemployment_rate = tick.unemployment_rate
+        for household in self.households:
+            household.finalize_tick_ledger()
+        self._update_affordability_telemetry()
+
+        # ── Audit action log ───────────────────────────────────────────
+        # When audit_log_enabled is True, stash all intermediate plans and
+        # outcomes so an external audit runner can serialize per-tick actions.
+        if self.audit_log_enabled:
+            audit_firm_states_after = self._capture_audit_firm_state(self.firms)
+            audit_household_states_after = self._capture_audit_household_state()
+            audit_government_state_after = self._capture_audit_government_state()
+            self._last_tick_audit = {
+                "firm_production_plans": firm_production_plans,
+                "firm_price_plans": firm_price_plans,
+                "firm_wage_plans": firm_wage_plans,
+                "firm_health_snapshots": firm_health_snapshots,
+                "category_wage_anchor_p75": category_wage_anchor_p75,
+                "household_labor_plans": household_labor_plans,
+                "household_consumption_plans": household_consumption_plans,
+                "firm_labor_outcomes": firm_labor_outcomes,
+                "household_labor_outcomes": household_labor_outcomes,
+                "per_firm_sales": per_firm_sales,
+                "per_household_purchases": per_household_purchases,
+                "tax_plan": tax_plan,
+                "transfer_plan": transfer_plan,
+                "firm_states_before": audit_firm_states_before,
+                "firm_states_after": audit_firm_states_after,
+                "household_states_before": audit_household_states_before,
+                "household_states_after": audit_household_states_after,
+                "government_state_before": audit_government_state_before,
+                "government_state_after": audit_government_state_after,
+                "firm_entries_this_tick": sorted(
+                    set(audit_firm_states_after.keys()) - set(audit_firm_states_before.keys())
+                ),
+                "firm_exits_this_tick": sorted(
+                    set(audit_firm_states_before.keys()) - set(audit_firm_states_after.keys())
+                ),
+                "bankruptcies_this_tick": bankruptcies_this_tick,
+                "total_dividends_paid": total_dividends_paid,
+                "unemployment_rate": unemployment_rate,
+            }
 
     # -------------------------------------------------------------------------
     # Section: Firm distress, working capital, and shortage diagnostics
