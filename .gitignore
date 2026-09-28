@@ -40,8 +40,7 @@ ml_models_*/
 llm_run_outputs/
 llm_run_outputs_*/
 /experiments/
-benchmarks/results/
-!benchmarks/results/golden_*.json
+benchmarks/results/*
 screenshots/
 testing_screenshots/
 frontend-react/test-results/
@@ -98,6 +97,7 @@ plugins/
 # LLM test runs and scratch status dumps
 experiments/**/*.json
 benchmarks/results/**/*.json
+!benchmarks/results/golden_*.json
 *_llm_run_log.json
 *_llm_run_log_*.json
 backend/firm_llm_run_log.json

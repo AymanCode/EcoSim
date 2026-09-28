@@ -57,7 +57,13 @@ def _legacy_economy_with_bank(
 
 
 def test_control_legacy_economy_with_bank_conserves_money_over_five_ticks(fixed_seed):
-    """Control: no subsidy, baseline firms only (no long-term loans), bank able to lend."""
+    """Control: no subsidy, baseline firms only (no long-term loans), bank able to lend.
+
+    Warmup ticks only: all 5 ticks fall inside the default 10-tick warmup.
+    Past warmup this economy drifts from tick 11 as legacy new-firm creation
+    seeds cash with no debit (audit A5, known limitation K02), which this
+    phase does not pin.
+    """
     economy = _legacy_economy_with_bank()
     assert economy.government.sector_subsidy_target == "none"
     assert economy.bank is not None and economy.bank.can_lend()
