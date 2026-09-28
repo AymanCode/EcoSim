@@ -3810,6 +3810,10 @@ class FirmAgent(AgentMixin):
             self.needs_investment_loan = True
             self.investment_loan_amount = investment_cost
 
+    def _markup_for_price(self, price: float) -> float:
+        """Markup over unit cost implied by ``price``; the current markup when unit cost is not positive."""
+        return (price / self.unit_cost - 1.0) if self.unit_cost > 0 else self.markup
+
     def plan_pricing(
         self,
         sell_through_rate: float,
@@ -3847,7 +3851,7 @@ class FirmAgent(AgentMixin):
             target_price = labor_cost_per_unit * (1.0 + gross_markup)
             return {
                 "price_next": target_price,
-                "markup_next": (target_price / self.unit_cost - 1.0) if self.unit_cost > 0 else self.markup,
+                "markup_next": self._markup_for_price(target_price),
             }
 
         # Baseline Food post-warmup: tiered liquidation pricing aligned with
@@ -3881,7 +3885,7 @@ class FirmAgent(AgentMixin):
                 self.decision_diagnostics["baseline_food_pricing_tier"] = reason
                 return {
                     "price_next": target_price,
-                    "markup_next": (target_price / self.unit_cost - 1.0) if self.unit_cost > 0 else self.markup,
+                    "markup_next": self._markup_for_price(target_price),
                     "pricing_reason": reason,
                 }
 
@@ -3889,7 +3893,7 @@ class FirmAgent(AgentMixin):
             price_next = max(self.min_price, self.price)
             if not self.is_baseline:
                 price_next = max(self.min_price * 0.5, price_next * 1.02)
-            markup_next = (price_next / self.unit_cost - 1.0) if self.unit_cost > 0 else self.markup
+            markup_next = self._markup_for_price(price_next)
             return {"price_next": price_next, "markup_next": markup_next}
 
         # Housing pricing: monopoly landlord scales rent to cover wage bill +
@@ -3941,7 +3945,7 @@ class FirmAgent(AgentMixin):
 
             return {
                 "price_next": price_next,
-                "markup_next": (price_next / self.unit_cost - 1.0) if self.unit_cost > 0 else self.markup,
+                "markup_next": self._markup_for_price(price_next),
                 "pricing_reason": "housing_obligation_coverage",
             }
 
@@ -3976,7 +3980,7 @@ class FirmAgent(AgentMixin):
             )
 
             price_next = target_price
-            markup_next = (price_next / self.unit_cost - 1.0) if self.unit_cost > 0 else self.markup
+            markup_next = self._markup_for_price(price_next)
             return {
                 "price_next": price_next,
                 "markup_next": markup_next,
@@ -4141,7 +4145,7 @@ class FirmAgent(AgentMixin):
                 self.decision_diagnostics["pricing_stable_cost_throughput"] = stable_throughput
                 self.decision_diagnostics["pricing_accounting_unit_cost"] = self.unit_cost
 
-            markup_next = (price_next / self.unit_cost) - 1.0 if self.unit_cost > 0 else self.markup
+            markup_next = self._markup_for_price(price_next)
             return {
                 "price_next": price_next,
                 "markup_next": markup_next,
@@ -4163,10 +4167,7 @@ class FirmAgent(AgentMixin):
         price_next = max(self.min_price, self.price * price_change)
 
         # Calculate markup
-        if self.unit_cost > 0:
-            markup_next = (price_next / self.unit_cost) - 1.0
-        else:
-            markup_next = self.markup
+        markup_next = self._markup_for_price(price_next)
 
         return {
             "price_next": price_next,
