@@ -1798,17 +1798,19 @@ class Economy:
                 ),
             )
             firm_health_snapshot_objects[firm.firm_id] = health_snapshot
-            firm_health_snapshots[firm.firm_id] = {
-                "cash_runway_ticks": float(health_snapshot.cash_runway_ticks),
-                "smoothed_profit_margin": float(health_snapshot.smoothed_profit_margin),
-                "sell_through_rate": float(health_snapshot.sell_through_rate),
-                "inventory_weeks": float(health_snapshot.inventory_weeks),
-                "unfilled_positions_streak": int(health_snapshot.unfilled_positions_streak),
-                "worker_turnover_this_tick": int(health_snapshot.worker_turnover_this_tick),
-                "survival_mode": bool(health_snapshot.survival_mode),
-                "burn_mode": bool(health_snapshot.burn_mode),
-                "category_wage_anchor_p75": float(health_snapshot.category_wage_anchor_p75),
-            }
+            if self.audit_log_enabled:
+                # Only the end-of-tick audit record reads these dicts.
+                firm_health_snapshots[firm.firm_id] = {
+                    "cash_runway_ticks": float(health_snapshot.cash_runway_ticks),
+                    "smoothed_profit_margin": float(health_snapshot.smoothed_profit_margin),
+                    "sell_through_rate": float(health_snapshot.sell_through_rate),
+                    "inventory_weeks": float(health_snapshot.inventory_weeks),
+                    "unfilled_positions_streak": int(health_snapshot.unfilled_positions_streak),
+                    "worker_turnover_this_tick": int(health_snapshot.worker_turnover_this_tick),
+                    "survival_mode": bool(health_snapshot.survival_mode),
+                    "burn_mode": bool(health_snapshot.burn_mode),
+                    "category_wage_anchor_p75": float(health_snapshot.category_wage_anchor_p75),
+                }
             # Long-term capital expansion lending — services + housing only.
             # Offered BEFORE production planning so any new capacity (services
             # production_capacity_units or housing max_rental_units) is visible
