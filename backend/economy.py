@@ -94,6 +94,9 @@ class _TickScratch:
     firm_labor_outcomes: Optional[Dict[int, Dict]] = None
     household_labor_outcomes: Optional[Dict[int, Dict]] = None
     frozen_wages: Optional[Dict[int, float]] = None
+    per_household_purchases: Optional[Dict[int, Dict]] = None
+    per_firm_sales: Optional[Dict[int, Dict]] = None
+    goods_market: Optional[object] = None  # payment_sectors.PaymentGoodsMarket; payment arm only
 
 
 # -----------------------------------------------------------------------------
@@ -1645,6 +1648,8 @@ class Economy:
         self._phase_apply_labor_outcomes(tick)
 
         self._phase_wage_freeze_and_production(tick)
+
+        self._phase_goods_clearing(tick)
         payment_arm = tick.payment_arm
         audit_firm_states_before = tick.audit_firm_states_before
         audit_household_states_before = tick.audit_household_states_before
@@ -1661,41 +1666,9 @@ class Economy:
         firm_labor_outcomes = tick.firm_labor_outcomes
         household_labor_outcomes = tick.household_labor_outcomes
         frozen_wages = tick.frozen_wages
-
-        # Phase 5b: Pre-purchase deposit withdrawals — move planned-spend shortfall to cash
-        if payment_arm:
-            from payment_loans import prepare_household_dues
-            from payment_sectors import payment_deposit_quotes
-            self.payment_book.settle_income(frozen_wages)
-            from payment_behavior import observe_settled_tax
-            observe_settled_tax(self)
-            self.payment_book.settle_benefits()
-            self._payment_sync_restrictions()
-            due_by_household = prepare_household_dues(self)
-            quotes = payment_deposit_quotes(self, household_consumption_plans, due_by_household)
-            self._payment_withdraw_deposits(quotes)
-        else:
-            self._withdraw_deposits_for_planned_consumption(household_consumption_plans)
-
-        # Phase 6: Goods market clearing
-        if payment_arm:
-            from payment_sectors import PaymentGoodsMarket
-            goods_market = PaymentGoodsMarket(self, household_consumption_plans, self.firms)
-            goods_market.first_pass()
-            per_household_purchases, per_firm_sales = self.payment_book.purchases, self.payment_book.receipts
-        else:
-            per_household_purchases, per_firm_sales = self._clear_goods_market(
-                household_consumption_plans, self.firms
-            )
-
-        # Phase 6.1: Services firms expand employee-slot infrastructure only
-        # after sustained full current-tick capacity utilization.
-        if not payment_arm:
-            for firm in self.firms:
-                if (firm.good_category or "").lower() == "services":
-                    firm.consider_service_infrastructure_upgrade(economy=self)
-            if self.bank is not None:
-                self._offer_service_infrastructure_loans()
+        per_household_purchases = tick.per_household_purchases
+        per_firm_sales = tick.per_firm_sales
+        goods_market = tick.goods_market
 
         # Phase 6.5: Housing rental market clearing
         if payment_arm:
@@ -2636,6 +2609,46 @@ class Economy:
             firm.apply_updated_expectations(
                 production_plan["updated_expected_sales"]
             )
+
+    def _phase_goods_clearing(self, tick: _TickScratch) -> None:
+        """Settle income (payment arm), withdraw deposits, clear goods; legacy Services slot upgrades."""
+        payment_arm = tick.payment_arm
+        frozen_wages = tick.frozen_wages
+        household_consumption_plans = tick.household_consumption_plans
+        # Phase 5b: Pre-purchase deposit withdrawals — move planned-spend shortfall to cash
+        if payment_arm:
+            from payment_loans import prepare_household_dues
+            from payment_sectors import payment_deposit_quotes
+            self.payment_book.settle_income(frozen_wages)
+            from payment_behavior import observe_settled_tax
+            observe_settled_tax(self)
+            self.payment_book.settle_benefits()
+            self._payment_sync_restrictions()
+            due_by_household = prepare_household_dues(self)
+            quotes = payment_deposit_quotes(self, household_consumption_plans, due_by_household)
+            self._payment_withdraw_deposits(quotes)
+        else:
+            self._withdraw_deposits_for_planned_consumption(household_consumption_plans)
+
+        # Phase 6: Goods market clearing
+        if payment_arm:
+            from payment_sectors import PaymentGoodsMarket
+            tick.goods_market = PaymentGoodsMarket(self, household_consumption_plans, self.firms)
+            tick.goods_market.first_pass()
+            tick.per_household_purchases, tick.per_firm_sales = self.payment_book.purchases, self.payment_book.receipts
+        else:
+            tick.per_household_purchases, tick.per_firm_sales = self._clear_goods_market(
+                household_consumption_plans, self.firms
+            )
+
+        # Phase 6.1: Services firms expand employee-slot infrastructure only
+        # after sustained full current-tick capacity utilization.
+        if not payment_arm:
+            for firm in self.firms:
+                if (firm.good_category or "").lower() == "services":
+                    firm.consider_service_infrastructure_upgrade(economy=self)
+            if self.bank is not None:
+                self._offer_service_infrastructure_loans()
 
     # -------------------------------------------------------------------------
     # Section: Firm distress, working capital, and shortage diagnostics
