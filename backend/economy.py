@@ -106,6 +106,7 @@ class _TickScratch:
     total_profit_taxes: Optional[float] = None
     total_property_taxes: Optional[float] = None
     total_transfers: Optional[float] = None
+    bankruptcies_this_tick: Optional[int] = None
 
 
 # -----------------------------------------------------------------------------
@@ -1671,6 +1672,18 @@ class Economy:
         self._phase_household_and_fiscal_settlement(tick)
 
         self._phase_institutional_close(tick)
+
+        # Phase 11.75: Update household wellbeing (happiness, morale, health)
+        if self.in_warmup:
+            current_price_snapshot = {firm.good_name: firm.price for firm in self.firms}
+            self._sync_warmup_expectations(current_price_snapshot)
+        if (not self.performance_mode) or (self.current_tick % 10 == 0):
+            self._batch_update_wellbeing(
+                happiness_multiplier=self.government.social_happiness_multiplier
+            )
+        self._apply_doctor_health_lock()
+
+        self._phase_lifecycle_and_statistics(tick)
         payment_arm = tick.payment_arm
         audit_firm_states_before = tick.audit_firm_states_before
         audit_household_states_before = tick.audit_household_states_before
@@ -1693,38 +1706,7 @@ class Economy:
         total_wage_taxes = tick.total_wage_taxes
         total_profit_taxes = tick.total_profit_taxes
         total_property_taxes = tick.total_property_taxes
-
-        # Phase 11.75: Update household wellbeing (happiness, morale, health)
-        if self.in_warmup:
-            current_price_snapshot = {firm.good_name: firm.price for firm in self.firms}
-            self._sync_warmup_expectations(current_price_snapshot)
-        if (not self.performance_mode) or (self.current_tick % 10 == 0):
-            self._batch_update_wellbeing(
-                happiness_multiplier=self.government.social_happiness_multiplier
-            )
-        self._apply_doctor_health_lock()
-
-        # Phase 12: Handle firm bankruptcies and exits
-        bankruptcies_this_tick = self._handle_firm_exits()
-
-        # Phase 13: Potentially create new firms
-        self._maybe_create_new_firms()
-
-        # Phase 14: Legacy automatic government policy chooser.
-        # When the LLM government is enabled, policy choices must come only
-        # from the LLM; deterministic code still executes the chosen levers.
-        if self.enable_government_stabilizers and not getattr(CONFIG.llm, "enable_llm_government", False):
-            self._adjust_government_policy()
-
-        # Phase 15: Update world-level statistics
-        self._update_statistics(per_firm_sales)
-        self._update_health_diagnostics()
-        self._update_firm_distress_diagnostics(
-            firm_production_plans=firm_production_plans,
-            firm_labor_outcomes=firm_labor_outcomes,
-            bankruptcies_this_tick=bankruptcies_this_tick,
-        )
-        self._update_sector_shortage_diagnostics()
+        bankruptcies_this_tick = tick.bankruptcies_this_tick
 
         # Phase 16: Distribute firm profits to owners (dividend payments)
         # This recycles wealth from firms back to households
@@ -2712,6 +2694,33 @@ class Economy:
             + self.last_tick_gov_post_warmup_stimulus
         )
         self._update_budget_pressure(tick_revenue, tick_spending)
+
+    def _phase_lifecycle_and_statistics(self, tick: _TickScratch) -> None:
+        """Firm exits and entry, legacy policy chooser, statistics and diagnostics."""
+        per_firm_sales = tick.per_firm_sales
+        firm_production_plans = tick.firm_production_plans
+        firm_labor_outcomes = tick.firm_labor_outcomes
+        # Phase 12: Handle firm bankruptcies and exits
+        tick.bankruptcies_this_tick = self._handle_firm_exits()
+
+        # Phase 13: Potentially create new firms
+        self._maybe_create_new_firms()
+
+        # Phase 14: Legacy automatic government policy chooser.
+        # When the LLM government is enabled, policy choices must come only
+        # from the LLM; deterministic code still executes the chosen levers.
+        if self.enable_government_stabilizers and not getattr(CONFIG.llm, "enable_llm_government", False):
+            self._adjust_government_policy()
+
+        # Phase 15: Update world-level statistics
+        self._update_statistics(per_firm_sales)
+        self._update_health_diagnostics()
+        self._update_firm_distress_diagnostics(
+            firm_production_plans=firm_production_plans,
+            firm_labor_outcomes=firm_labor_outcomes,
+            bankruptcies_this_tick=tick.bankruptcies_this_tick,
+        )
+        self._update_sector_shortage_diagnostics()
 
     # -------------------------------------------------------------------------
     # Section: Firm distress, working capital, and shortage diagnostics
