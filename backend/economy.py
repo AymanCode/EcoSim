@@ -84,6 +84,11 @@ class _TickScratch:
     housing_inventory_overhang: Optional[float] = None
     unemployment_rate: Optional[float] = None
     gov_benefit: Optional[float] = None
+    firm_production_plans: Optional[Dict[int, Dict]] = None
+    firm_price_plans: Optional[Dict[int, Dict]] = None
+    firm_wage_plans: Optional[Dict[int, Dict]] = None
+    firm_health_snapshots: Optional[Dict[int, Dict[str, object]]] = None
+    category_wage_anchor_p75: Optional[Dict[str, float]] = None
 
 
 # -----------------------------------------------------------------------------
@@ -1625,160 +1630,21 @@ class Economy:
         self._phase_reset_and_shocks(tick)
 
         self._phase_pre_plan_state(tick)
+
+        self._phase_firm_planning(tick)
         payment_arm = tick.payment_arm
         audit_firm_states_before = tick.audit_firm_states_before
         audit_household_states_before = tick.audit_household_states_before
         audit_government_state_before = tick.audit_government_state_before
         good_category_lookup = tick.good_category_lookup
         category_market_snapshot = tick.category_market_snapshot
-        housing_private_inventory = tick.housing_private_inventory
-        total_households = tick.total_households
-        housing_inventory_overhang = tick.housing_inventory_overhang
         unemployment_rate = tick.unemployment_rate
         gov_benefit = tick.gov_benefit
-
-        # Phase 1: Firms plan
-        firm_production_plans = {}
-        firm_price_plans = {}
-        firm_wage_plans = {}
-        firm_health_snapshots: Dict[int, Dict[str, object]] = {}
-        firm_health_snapshot_objects: Dict[int, object] = {}
-        firm_state_before = {
-            firm.firm_id: {
-                "burn_mode": bool(getattr(firm, "burn_mode", False)),
-                "survival_mode": bool(getattr(firm, "survival_mode", False)),
-            }
-            for firm in self.firms
-        }
-        current_private_offer_buckets: Dict[str, List[float]] = {}
-        for firm in self.firms:
-            if firm.is_baseline:
-                continue
-            category = str(firm.good_category)
-            current_private_offer_buckets.setdefault(category, []).append(float(firm.wage_offer))
-
-        category_wage_anchor_p75: Dict[str, float] = {}
-        for category, offers in current_private_offer_buckets.items():
-            if offers:
-                offers_arr = np.array(offers, dtype=np.float32)
-                category_wage_anchor_p75[category] = float(np.percentile(offers_arr, 75))
-
-        # _issue_working_capital_bridges (after this loop) recomputes and stores
-        # every firm's working-capital candidacy whenever it gets past its early
-        # returns, overwriting all the per-firm fields and the tick counter the
-        # in-loop call writes; nothing reads those in between. Record them here
-        # only when the bridges will not run.
-        wc_cfg = CONFIG.firms
-        working_capital_bridges_run = (
-            bool(wc_cfg.working_capital_enabled)
-            and bool(CONFIG.government.auto_working_capital_backstop)
-            and not (unemployment_rate < float(wc_cfg.working_capital_unemployment_trigger))
-        )
-        # A plain attribute read; only GovernmentAgent.apply_policy_levers changes it.
-        planning_minimum_wage = self.government.get_minimum_wage()
-
-        for firm in self.firms:
-            health_snapshot = firm.refresh_health_snapshot(
-                sell_through_rate=self.last_tick_sell_through_rate.get(firm.firm_id, 0.5),
-                category_wage_anchor_p75=category_wage_anchor_p75.get(
-                    str(firm.good_category),
-                    float(firm.wage_offer),
-                ),
-            )
-            firm_health_snapshot_objects[firm.firm_id] = health_snapshot
-            if self.audit_log_enabled:
-                # Only the end-of-tick audit record reads these dicts.
-                firm_health_snapshots[firm.firm_id] = {
-                    "cash_runway_ticks": float(health_snapshot.cash_runway_ticks),
-                    "smoothed_profit_margin": float(health_snapshot.smoothed_profit_margin),
-                    "sell_through_rate": float(health_snapshot.sell_through_rate),
-                    "inventory_weeks": float(health_snapshot.inventory_weeks),
-                    "unfilled_positions_streak": int(health_snapshot.unfilled_positions_streak),
-                    "worker_turnover_this_tick": int(health_snapshot.worker_turnover_this_tick),
-                    "survival_mode": bool(health_snapshot.survival_mode),
-                    "burn_mode": bool(health_snapshot.burn_mode),
-                    "category_wage_anchor_p75": float(health_snapshot.category_wage_anchor_p75),
-                }
-            # Long-term capital expansion lending — services + housing only.
-            # Offered BEFORE production planning so any new capacity (services
-            # production_capacity_units or housing max_rental_units) is visible
-            # to the same-tick plan.
-            self._maybe_offer_long_term_capital_loan(
-                firm=firm,
-                health_snapshot=health_snapshot,
-                unemployment_rate=unemployment_rate,
-                total_households=total_households,
-            )
-            # Plan production and labor
-            production_plan = firm.plan_production_and_labor(
-                self.last_tick_sales_units.get(firm.firm_id, 0.0),
-                in_warmup=self.in_warmup,
-                total_households=total_households,
-                global_unsold_inventory=housing_inventory_overhang,
-                private_housing_inventory=housing_private_inventory,
-                large_market=self.large_market,
-                post_warmup_cooldown=(self.post_warmup_cooldown > 0),
-                health_snapshot=health_snapshot,
-                minimum_wage_floor=planning_minimum_wage,
-                last_tick_unmet_units=self.last_tick_unmet_demand_by_firm.get(firm.firm_id, 0.0),
-            )
-            firm_production_plans[firm.firm_id] = production_plan
-            if not working_capital_bridges_run:
-                self._record_working_capital_candidate_diagnostics(
-                    firm,
-                    health_snapshot,
-                    unemployment_rate,
-                )
-
-            # Plan pricing — pass current profit tax rate so firms inflate gross
-            # margins to preserve their targeted after-tax margin.
-            price_plan = firm.plan_pricing(
-                self.last_tick_sell_through_rate.get(firm.firm_id, 0.5),
-                unemployment_rate=unemployment_rate,
-                in_warmup=self.in_warmup,
-                health_snapshot=health_snapshot,
-                profit_tax_rate=float(self.government.profit_tax_rate),
-            )
-            self._apply_price_stabilization_to_plan(firm, price_plan)
-            firm_price_plans[firm.firm_id] = price_plan
-
-            # Plan wage (pass unemployment rate + short-MA for Phillips Curve)
-            wage_plan = firm.plan_wage(
-                unemployment_rate=unemployment_rate,
-                unemployment_benefit=gov_benefit,
-                in_warmup=self.in_warmup,
-                health_snapshot=health_snapshot,
-                unemployment_short_ma=self.unemployment_short_ma,
-                minimum_wage_floor=planning_minimum_wage,
-            )
-            firm_wage_plans[firm.firm_id] = wage_plan
-
-            # Healthcare labor is managed out-of-band from market hiring:
-            # one healthcare firm staffed by doctor/resident pool.
-            if (firm.good_category or "").lower() == "healthcare":
-                production_plan["planned_hires_count"] = 0
-                production_plan["planned_layoffs_ids"] = []
-                firm.planned_hires_count = 0
-                firm.planned_layoffs_ids = []
-
-            # Fix 21: Capital investment decision (may set needs_investment_loan)
-            capital_cash_before = firm.cash_balance
-            firm.plan_capital_investment(bank=self.bank)
-            if payment_arm and firm.cash_balance < capital_cash_before - MONEY_EPS:
-                self._payment_record_capital_spend(firm, capital_cash_before - firm.cash_balance, "self_financed")
-
-        self._issue_working_capital_bridges(firm_health_snapshot_objects, unemployment_rate)
-        self._record_firm_distress_transitions(firm_state_before)
-
-        # Phase 1.5: Process investment loan requests from Phase 1
-        if self.bank is not None:
-            self._offer_investment_loans()
-
-        # Enforce minimum wage floor (government policy)
-        minimum_wage = self.government.get_minimum_wage()
-        for wage_plan in firm_wage_plans.values():
-            if wage_plan["wage_offer_next"] < minimum_wage:
-                wage_plan["wage_offer_next"] = minimum_wage
+        firm_production_plans = tick.firm_production_plans
+        firm_price_plans = tick.firm_price_plans
+        firm_wage_plans = tick.firm_wage_plans
+        firm_health_snapshots = tick.firm_health_snapshots
+        category_wage_anchor_p75 = tick.category_wage_anchor_p75
 
         # Phase 2: Households plan
         household_labor_plans = {}
@@ -2580,6 +2446,157 @@ class Economy:
                 self._ensure_public_works_capacity(tick.unemployment_rate)
             else:
                 self._deauthorize_public_works_capacity()
+
+    def _phase_firm_planning(self, tick: _TickScratch) -> None:
+        """Firms plan production, labor, prices, wages and capital; bridges, investment loans, min wage."""
+        unemployment_rate = tick.unemployment_rate
+        total_households = tick.total_households
+        housing_inventory_overhang = tick.housing_inventory_overhang
+        housing_private_inventory = tick.housing_private_inventory
+        gov_benefit = tick.gov_benefit
+        payment_arm = tick.payment_arm
+        # Phase 1: Firms plan
+        tick.firm_production_plans = {}
+        tick.firm_price_plans = {}
+        tick.firm_wage_plans = {}
+        tick.firm_health_snapshots = {}
+        firm_health_snapshot_objects: Dict[int, object] = {}
+        firm_state_before = {
+            firm.firm_id: {
+                "burn_mode": bool(getattr(firm, "burn_mode", False)),
+                "survival_mode": bool(getattr(firm, "survival_mode", False)),
+            }
+            for firm in self.firms
+        }
+        current_private_offer_buckets: Dict[str, List[float]] = {}
+        for firm in self.firms:
+            if firm.is_baseline:
+                continue
+            category = str(firm.good_category)
+            current_private_offer_buckets.setdefault(category, []).append(float(firm.wage_offer))
+
+        tick.category_wage_anchor_p75 = {}
+        for category, offers in current_private_offer_buckets.items():
+            if offers:
+                offers_arr = np.array(offers, dtype=np.float32)
+                tick.category_wage_anchor_p75[category] = float(np.percentile(offers_arr, 75))
+
+        # _issue_working_capital_bridges (after this loop) recomputes and stores
+        # every firm's working-capital candidacy whenever it gets past its early
+        # returns, overwriting all the per-firm fields and the tick counter the
+        # in-loop call writes; nothing reads those in between. Record them here
+        # only when the bridges will not run.
+        wc_cfg = CONFIG.firms
+        working_capital_bridges_run = (
+            bool(wc_cfg.working_capital_enabled)
+            and bool(CONFIG.government.auto_working_capital_backstop)
+            and not (unemployment_rate < float(wc_cfg.working_capital_unemployment_trigger))
+        )
+        # A plain attribute read; only GovernmentAgent.apply_policy_levers changes it.
+        planning_minimum_wage = self.government.get_minimum_wage()
+
+        for firm in self.firms:
+            health_snapshot = firm.refresh_health_snapshot(
+                sell_through_rate=self.last_tick_sell_through_rate.get(firm.firm_id, 0.5),
+                category_wage_anchor_p75=tick.category_wage_anchor_p75.get(
+                    str(firm.good_category),
+                    float(firm.wage_offer),
+                ),
+            )
+            firm_health_snapshot_objects[firm.firm_id] = health_snapshot
+            if self.audit_log_enabled:
+                # Only the end-of-tick audit record reads these dicts.
+                tick.firm_health_snapshots[firm.firm_id] = {
+                    "cash_runway_ticks": float(health_snapshot.cash_runway_ticks),
+                    "smoothed_profit_margin": float(health_snapshot.smoothed_profit_margin),
+                    "sell_through_rate": float(health_snapshot.sell_through_rate),
+                    "inventory_weeks": float(health_snapshot.inventory_weeks),
+                    "unfilled_positions_streak": int(health_snapshot.unfilled_positions_streak),
+                    "worker_turnover_this_tick": int(health_snapshot.worker_turnover_this_tick),
+                    "survival_mode": bool(health_snapshot.survival_mode),
+                    "burn_mode": bool(health_snapshot.burn_mode),
+                    "category_wage_anchor_p75": float(health_snapshot.category_wage_anchor_p75),
+                }
+            # Long-term capital expansion lending — services + housing only.
+            # Offered BEFORE production planning so any new capacity (services
+            # production_capacity_units or housing max_rental_units) is visible
+            # to the same-tick plan.
+            self._maybe_offer_long_term_capital_loan(
+                firm=firm,
+                health_snapshot=health_snapshot,
+                unemployment_rate=unemployment_rate,
+                total_households=total_households,
+            )
+            # Plan production and labor
+            production_plan = firm.plan_production_and_labor(
+                self.last_tick_sales_units.get(firm.firm_id, 0.0),
+                in_warmup=self.in_warmup,
+                total_households=total_households,
+                global_unsold_inventory=housing_inventory_overhang,
+                private_housing_inventory=housing_private_inventory,
+                large_market=self.large_market,
+                post_warmup_cooldown=(self.post_warmup_cooldown > 0),
+                health_snapshot=health_snapshot,
+                minimum_wage_floor=planning_minimum_wage,
+                last_tick_unmet_units=self.last_tick_unmet_demand_by_firm.get(firm.firm_id, 0.0),
+            )
+            tick.firm_production_plans[firm.firm_id] = production_plan
+            if not working_capital_bridges_run:
+                self._record_working_capital_candidate_diagnostics(
+                    firm,
+                    health_snapshot,
+                    unemployment_rate,
+                )
+
+            # Plan pricing — pass current profit tax rate so firms inflate gross
+            # margins to preserve their targeted after-tax margin.
+            price_plan = firm.plan_pricing(
+                self.last_tick_sell_through_rate.get(firm.firm_id, 0.5),
+                unemployment_rate=unemployment_rate,
+                in_warmup=self.in_warmup,
+                health_snapshot=health_snapshot,
+                profit_tax_rate=float(self.government.profit_tax_rate),
+            )
+            self._apply_price_stabilization_to_plan(firm, price_plan)
+            tick.firm_price_plans[firm.firm_id] = price_plan
+
+            # Plan wage (pass unemployment rate + short-MA for Phillips Curve)
+            wage_plan = firm.plan_wage(
+                unemployment_rate=unemployment_rate,
+                unemployment_benefit=gov_benefit,
+                in_warmup=self.in_warmup,
+                health_snapshot=health_snapshot,
+                unemployment_short_ma=self.unemployment_short_ma,
+                minimum_wage_floor=planning_minimum_wage,
+            )
+            tick.firm_wage_plans[firm.firm_id] = wage_plan
+
+            # Healthcare labor is managed out-of-band from market hiring:
+            # one healthcare firm staffed by doctor/resident pool.
+            if (firm.good_category or "").lower() == "healthcare":
+                production_plan["planned_hires_count"] = 0
+                production_plan["planned_layoffs_ids"] = []
+                firm.planned_hires_count = 0
+                firm.planned_layoffs_ids = []
+
+            # Fix 21: Capital investment decision (may set needs_investment_loan)
+            capital_cash_before = firm.cash_balance
+            firm.plan_capital_investment(bank=self.bank)
+            if payment_arm and firm.cash_balance < capital_cash_before - MONEY_EPS:
+                self._payment_record_capital_spend(firm, capital_cash_before - firm.cash_balance, "self_financed")
+
+        self._issue_working_capital_bridges(firm_health_snapshot_objects, unemployment_rate)
+        self._record_firm_distress_transitions(firm_state_before)
+
+        # Phase 1.5: Process investment loan requests from Phase 1
+        if self.bank is not None:
+            self._offer_investment_loans()
+
+        # Enforce minimum wage floor (government policy)
+        minimum_wage = self.government.get_minimum_wage()
+        for wage_plan in tick.firm_wage_plans.values():
+            if wage_plan["wage_offer_next"] < minimum_wage:
+                wage_plan["wage_offer_next"] = minimum_wage
 
     # -------------------------------------------------------------------------
     # Section: Firm distress, working capital, and shortage diagnostics
