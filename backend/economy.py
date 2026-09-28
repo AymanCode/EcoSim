@@ -1895,19 +1895,6 @@ class Economy:
         # Phase 2: Households plan
         household_labor_plans = {}
 
-        total_education_spending = 0.0
-        for household in self.households:
-            total_education_spending += household.maybe_active_education()
-        if total_education_spending > 0:
-            self._collect_misc_revenue(total_education_spending)
-
-        # Tick job-search cooldowns (on-the-job / "newspaper" mechanic).
-        # Only active post-warmup so warmup employment doesn't anchor expectations.
-        _cooldown_rng = random.Random(int(CONFIG.random_seed) + self.current_tick * 31337)
-        if not self.in_warmup:
-            for household in self.households:
-                household.tick_job_search_cooldown(_cooldown_rng)
-
         # One firm pass: reset the per-tick turnover counter, collect the
         # posted-offer pool (private, non-healthcare/housing) and the planned
         # offers by category. No RNG; each list keeps self.firms order.
@@ -1942,11 +1929,25 @@ class Economy:
             if offers:
                 category_posted_wage_signals[category] = sum(offers) / len(offers)
 
-        # Labor planning still uses loop (small overhead)
+        # One household pass: education, job-search cooldown (post-warmup only,
+        # on-the-job / "newspaper" mechanic), labor plan, consumption-loan
+        # request (bank only), in that order per household. Only the cooldown
+        # draws from an RNG (_cooldown_rng, in household order as before); each
+        # body reads and writes only its own household (plus the bank's credit
+        # scores, read-only). Education spending is still summed in household
+        # order and routed to the misc pool before plan normalization.
+        total_education_spending = 0.0
+        _cooldown_rng = random.Random(int(CONFIG.random_seed) + self.current_tick * 31337)
+        tick_cooldowns = not self.in_warmup
+        bank = self.bank
+        firm_lookup = self.firm_lookup
         for household in self.households:
+            total_education_spending += household.maybe_active_education()
+            if tick_cooldowns:
+                household.tick_job_search_cooldown(_cooldown_rng)
             employer_category = None
-            if household.employer_id is not None and household.employer_id in self.firm_lookup:
-                employer_category = self.firm_lookup[household.employer_id].good_category
+            if household.employer_id is not None and household.employer_id in firm_lookup:
+                employer_category = firm_lookup[household.employer_id].good_category
             labor_plan = household.plan_labor_supply(
                 gov_benefit,
                 mean_posted_wage=mean_posted_wage,
@@ -1954,6 +1955,10 @@ class Economy:
                 employer_category=employer_category,
             )
             household_labor_plans[household.household_id] = labor_plan
+            if bank is not None:
+                household.maybe_request_consumption_loan(bank=bank)
+        if total_education_spending > 0:
+            self._collect_misc_revenue(total_education_spending)
         self._normalize_household_labor_plans(
             household_labor_plans,
             firm_wage_plans,
@@ -1978,10 +1983,11 @@ class Economy:
         else:
             household_consumption_plans = self._apply_cached_consumption_plans()
 
-        # Phase 2a: Consumption credit (Fix 25) — bridge low-cash households
+        # Phase 2a: Consumption credit (Fix 25) — bridge low-cash households.
+        # Requests were flagged in the household pass above; only
+        # _offer_consumption_loans reads them, and it must follow consumption
+        # planning because disbursal changes cash.
         if self.bank is not None:
-            for hh in self.households:
-                hh.maybe_request_consumption_loan(bank=self.bank)
             self._offer_consumption_loans()
 
         # Phase 3: Labor market matching
