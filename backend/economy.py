@@ -1775,6 +1775,18 @@ class Economy:
                 offers_arr = np.array(offers, dtype=np.float32)
                 category_wage_anchor_p75[category] = float(np.percentile(offers_arr, 75))
 
+        # _issue_working_capital_bridges (after this loop) recomputes and stores
+        # every firm's working-capital candidacy whenever it gets past its early
+        # returns, overwriting all the per-firm fields and the tick counter the
+        # in-loop call writes; nothing reads those in between. Record them here
+        # only when the bridges will not run.
+        wc_cfg = CONFIG.firms
+        working_capital_bridges_run = (
+            bool(wc_cfg.working_capital_enabled)
+            and bool(CONFIG.government.auto_working_capital_backstop)
+            and not (unemployment_rate < float(wc_cfg.working_capital_unemployment_trigger))
+        )
+
         for firm in self.firms:
             health_snapshot = firm.refresh_health_snapshot(
                 sell_through_rate=self.last_tick_sell_through_rate.get(firm.firm_id, 0.5),
@@ -1819,11 +1831,12 @@ class Economy:
                 last_tick_unmet_units=self.last_tick_unmet_demand_by_firm.get(firm.firm_id, 0.0),
             )
             firm_production_plans[firm.firm_id] = production_plan
-            self._record_working_capital_candidate_diagnostics(
-                firm,
-                health_snapshot,
-                unemployment_rate,
-            )
+            if not working_capital_bridges_run:
+                self._record_working_capital_candidate_diagnostics(
+                    firm,
+                    health_snapshot,
+                    unemployment_rate,
+                )
 
             # Plan pricing — pass current profit tax rate so firms inflate gross
             # margins to preserve their targeted after-tax margin.
