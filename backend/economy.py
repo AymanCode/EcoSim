@@ -97,6 +97,11 @@ class _TickScratch:
     per_household_purchases: Optional[Dict[int, Dict]] = None
     per_firm_sales: Optional[Dict[int, Dict]] = None
     goods_market: Optional[object] = None  # payment_sectors.PaymentGoodsMarket; payment arm only
+    price_ceiling_tax_by_firm_id: Optional[Dict[int, float]] = None
+    total_price_ceiling_taxes: Optional[float] = None
+    assessed_project_receipts: Optional[Dict[int, float]] = None
+    tax_plan: Optional[Dict[str, Dict[int, float]]] = None
+    transfer_plan: Optional[Dict[int, float]] = None
 
 
 # -----------------------------------------------------------------------------
@@ -1654,6 +1659,8 @@ class Economy:
         self._phase_housing(tick)
 
         self._phase_misc_and_healthcare(tick)
+
+        self._phase_fiscal_planning(tick)
         payment_arm = tick.payment_arm
         audit_firm_states_before = tick.audit_firm_states_before
         audit_household_states_before = tick.audit_household_states_before
@@ -1672,40 +1679,11 @@ class Economy:
         frozen_wages = tick.frozen_wages
         per_household_purchases = tick.per_household_purchases
         per_firm_sales = tick.per_firm_sales
-
-        # Phase 7: Government plans taxes
-        household_tax_snapshots = (
-            [] if payment_arm else self._build_household_tax_snapshots(frozen_wages=frozen_wages)
-        )
-        firm_tax_snapshots = self._build_firm_tax_snapshots(per_firm_sales)
-        price_ceiling_tax_by_firm_id = {
-            int(snapshot["firm_id"]): float(snapshot.get("price_ceiling_tax", 0.0))
-            for snapshot in firm_tax_snapshots
-        }
-        total_price_ceiling_taxes = sum(price_ceiling_tax_by_firm_id.values())
-        assessed_project_receipts = (dict(self.payment_state.get("services_pending_receipts", {}))
-                                     if payment_arm else {})
-
-        tax_plan = self.government.plan_taxes(
-            household_tax_snapshots,
-            firm_tax_snapshots
-        )
-        if payment_arm:
-            tax_plan["wage_taxes"] = dict(self.payment_book.wage_taxes)
-            self.payment_state["services_pending_receipts"] = {}
-
-        # Phase 8: Government plans transfers
-        if payment_arm:
-            transfer_plan = dict(self.payment_book.benefits)
-        else:
-            household_transfer_snapshots = self._build_household_transfer_snapshots()
-            transfer_plan = self.government.plan_transfers(household_transfer_snapshots)
-
-        # Phase 8.5: Recycle capital investment spending to households
-        self._recycle_capital_investment()
-        if payment_arm:
-            from payment_projects import distribute_payment_project_proceeds
-            distribute_payment_project_proceeds(self)
+        price_ceiling_tax_by_firm_id = tick.price_ceiling_tax_by_firm_id
+        total_price_ceiling_taxes = tick.total_price_ceiling_taxes
+        assessed_project_receipts = tick.assessed_project_receipts
+        tax_plan = tick.tax_plan
+        transfer_plan = tick.transfer_plan
 
         # Phase 9: Apply sales, profits, taxes to firms
         for firm in self.firms:
@@ -2659,6 +2637,45 @@ class Economy:
                 self._offer_service_infrastructure_loans()
         else:
             self._process_healthcare_services(tick.per_firm_sales)
+
+    def _phase_fiscal_planning(self, tick: _TickScratch) -> None:
+        """Government plans taxes and transfers; capital spending and project proceeds are recycled."""
+        payment_arm = tick.payment_arm
+        frozen_wages = tick.frozen_wages
+        per_firm_sales = tick.per_firm_sales
+        # Phase 7: Government plans taxes
+        household_tax_snapshots = (
+            [] if payment_arm else self._build_household_tax_snapshots(frozen_wages=frozen_wages)
+        )
+        firm_tax_snapshots = self._build_firm_tax_snapshots(per_firm_sales)
+        tick.price_ceiling_tax_by_firm_id = {
+            int(snapshot["firm_id"]): float(snapshot.get("price_ceiling_tax", 0.0))
+            for snapshot in firm_tax_snapshots
+        }
+        tick.total_price_ceiling_taxes = sum(tick.price_ceiling_tax_by_firm_id.values())
+        tick.assessed_project_receipts = (dict(self.payment_state.get("services_pending_receipts", {}))
+                                     if payment_arm else {})
+
+        tick.tax_plan = self.government.plan_taxes(
+            household_tax_snapshots,
+            firm_tax_snapshots
+        )
+        if payment_arm:
+            tick.tax_plan["wage_taxes"] = dict(self.payment_book.wage_taxes)
+            self.payment_state["services_pending_receipts"] = {}
+
+        # Phase 8: Government plans transfers
+        if payment_arm:
+            tick.transfer_plan = dict(self.payment_book.benefits)
+        else:
+            household_transfer_snapshots = self._build_household_transfer_snapshots()
+            tick.transfer_plan = self.government.plan_transfers(household_transfer_snapshots)
+
+        # Phase 8.5: Recycle capital investment spending to households
+        self._recycle_capital_investment()
+        if payment_arm:
+            from payment_projects import distribute_payment_project_proceeds
+            distribute_payment_project_proceeds(self)
 
     # -------------------------------------------------------------------------
     # Section: Firm distress, working capital, and shortage diagnostics
