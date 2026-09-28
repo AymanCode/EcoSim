@@ -16,22 +16,25 @@ def test_payment_credits_funder_and_only_earned_interest(treasury_funded):
         if treasury_funded
         else bank.originate_loan("firm", 1, 100, 0.1, 10)
     )
+    # Amortized total (audit A4): 10 installments at 10%/52 per tick.
+    total = loan["remaining"]
+    interest_share = (total - 100) / total
     before = bank.cash_reserves + gov.cash_balance
     assert bank.collect_repayment(loan, 2.75, gov) == 2.75
     assert bank.cash_reserves + gov.cash_balance == pytest.approx(before + 2.75)
-    assert loan["remaining"] == pytest.approx(107.25)
-    assert bank.total_loans_outstanding == pytest.approx(107.25)
+    assert loan["remaining"] == pytest.approx(total - 2.75)
+    assert bank.total_loans_outstanding == pytest.approx(total - 2.75)
     assert bank.last_tick_repayments == pytest.approx(2.75)
-    assert bank.last_tick_interest_income == pytest.approx(0 if treasury_funded else 0.25)
-    assert bank.last_tick_government_interest_income == pytest.approx(0.25 if treasury_funded else 0)
+    assert bank.last_tick_interest_income == pytest.approx(0 if treasury_funded else 2.75 * interest_share)
+    assert bank.last_tick_government_interest_income == pytest.approx(2.75 * interest_share if treasury_funded else 0)
     assert bank.last_tick_government_repayments == pytest.approx(2.75 if treasury_funded else 0)
     # Overpayment is capped, zero collection does not count another instalment.
-    assert bank.collect_repayment(loan, 1000, gov) == pytest.approx(107.25)
+    assert bank.collect_repayment(loan, 1000, gov) == pytest.approx(total - 2.75)
     term = loan["term_remaining"]
     assert bank.collect_repayment(loan, 11, gov) == 0
     assert loan["term_remaining"] == term
     assert bank.total_loans_outstanding == pytest.approx(0)
-    assert bank.last_tick_interest_income + bank.last_tick_government_interest_income == pytest.approx(10)
+    assert bank.last_tick_interest_income + bank.last_tick_government_interest_income == pytest.approx(total - 100)
     bank.reset_tick_telemetry()
     assert bank.last_tick_government_repayments == bank.last_tick_government_interest_income == 0
 

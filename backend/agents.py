@@ -5348,14 +5348,19 @@ class BankAgent:
         If *govt_backed*, the loan is tracked but funds were already drawn
         from government cash (used during circuit-breaker emergencies).
 
-        Returns the loan record dict.
+        Returns the loan record dict. The installment is the payment arm's
+        amortized ``v2_payment`` over ``term_ticks``; the total owed is
+        ``payment_per_tick * term_ticks``. Borrower mirrors must read
+        ``remaining`` and ``payment_per_tick`` from this record.
         """
-        interest_multiplier = 1.0 + annual_rate
-        total_repayment = principal * interest_multiplier
-        payment_per_tick = total_repayment / max(1, term_ticks)
+        from payment_loans import v2_payment
 
-        # Interest income the bank earns per tick from this loan
-        interest_income_per_tick = (principal * annual_rate) / max(1, term_ticks)
+        term = max(1, int(term_ticks))
+        payment_per_tick = v2_payment(principal, annual_rate, term, int(CONFIG.time.ticks_per_year))
+        total_repayment = payment_per_tick * term
+
+        # Interest share of each installment, averaged over the term
+        interest_income_per_tick = (total_repayment - principal) / term
 
         loan = {
             "borrower_type": borrower_type,
@@ -5387,7 +5392,7 @@ class BankAgent:
 
         ``govt_backed`` means treasury-funded in this model, not a guarantee.
         The funder receives principal and interest; the bank charges no fee.
-        Keep the existing simple-interest total and allocate each actual payment
+        Keep the loan's amortized total and allocate each actual payment
         proportionally between principal and interest (including partials).
         Portfolio repayments/outstanding include both funders, while the bank's
         own interest income excludes treasury loans.

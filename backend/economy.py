@@ -5595,11 +5595,9 @@ class Economy:
                     seed_term_ticks, self.government,
                 )
                 if loan is not None:
-                    interest_mult = 1.0 + seed_rate
-                    total_repay = seed_cash * interest_mult
                     bank_loan_principal = seed_cash
-                    bank_loan_remaining = total_repay
-                    bank_loan_payment = total_repay / seed_term_ticks
+                    bank_loan_remaining = loan["remaining"]
+                    bank_loan_payment = loan["payment_per_tick"]
                 else:
                     # Government can't afford it — downgrade to bootstrapped
                     seed_cash = tier_rng.uniform(5_000.0, 30_000.0)
@@ -5625,12 +5623,10 @@ class Economy:
                 # Require minimum demand signal to justify bank lending
                 if demand_signal >= 0.4 and self.bank.lendable_cash >= seed_cash:
                     rate = self.bank._risk_adjusted_rate(credit_score, spread=0.04)
-                    self.bank.originate_loan("firm", new_firm_id, seed_cash, rate, seed_term_ticks)
-                    interest_mult = 1.0 + rate
-                    total_repay = seed_cash * interest_mult
+                    loan = self.bank.originate_loan("firm", new_firm_id, seed_cash, rate, seed_term_ticks)
                     bank_loan_principal = seed_cash
-                    bank_loan_remaining = total_repay
-                    bank_loan_payment = total_repay / seed_term_ticks
+                    bank_loan_remaining = loan["remaining"]
+                    bank_loan_payment = loan["payment_per_tick"]
                 else:
                     # Bank won't fund — downgrade to bootstrapped
                     seed_cash = tier_rng.uniform(5_000.0, 30_000.0)
@@ -5808,13 +5804,11 @@ class Economy:
             elif bank.can_lend() and bank.lendable_cash >= effective_amount:
                 # Bank can fund it directly
                 rate = bank._risk_adjusted_rate(credit_score, spread)
-                bank.originate_loan("firm", firm.firm_id, effective_amount, rate, term_ticks)
+                loan = bank.originate_loan("firm", firm.firm_id, effective_amount, rate, term_ticks)
                 firm.cash_balance += effective_amount
                 firm.bank_loan_principal += effective_amount
-                interest_mult = 1.0 + rate
-                total_repay = effective_amount * interest_mult
-                firm.bank_loan_remaining += total_repay
-                firm.bank_loan_payment_per_tick += total_repay / max(1, term_ticks)
+                firm.bank_loan_remaining += loan["remaining"]
+                firm.bank_loan_payment_per_tick += loan["payment_per_tick"]
                 return effective_amount
             else:
                 # Circuit breaker active — try government-backed loan through bank
@@ -5826,10 +5820,8 @@ class Economy:
                 if loan is not None:
                     firm.cash_balance += effective_amount
                     firm.bank_loan_principal += effective_amount
-                    interest_mult = 1.0 + rate
-                    total_repay = effective_amount * interest_mult
-                    firm.bank_loan_remaining += total_repay
-                    firm.bank_loan_payment_per_tick += total_repay / max(1, term_ticks)
+                    firm.bank_loan_remaining += loan["remaining"]
+                    firm.bank_loan_payment_per_tick += loan["payment_per_tick"]
                     return effective_amount
 
         # Fallback: direct government loan (existing behavior)
@@ -6308,12 +6300,11 @@ class Economy:
                     govt_backed=False,
                 )
                 loan["subtype"] = "service_infrastructure"
-                total_repay = principal * (1.0 + annual_rate)
                 firm.bank_loan_principal += principal
-                firm.bank_loan_remaining += total_repay
-                firm.bank_loan_payment_per_tick += projected_payment
-                firm.service_infrastructure_loan_remaining += total_repay
-                firm.service_infrastructure_loan_payment_per_tick += projected_payment
+                firm.bank_loan_remaining += loan["remaining"]
+                firm.bank_loan_payment_per_tick += loan["payment_per_tick"]
+                firm.service_infrastructure_loan_remaining += loan["remaining"]
+                firm.service_infrastructure_loan_payment_per_tick += loan["payment_per_tick"]
             firm.cash_balance += principal
 
             firm.cash_balance -= principal
@@ -6410,10 +6401,8 @@ class Economy:
                     )
                     loan["subtype"] = "consumption"  # tag for repayment routing
                     hh.cash_balance += amount
-                    interest_mult = 1.0 + rate
-                    total_repay = amount * interest_mult
-                    hh.consumption_loan_remaining += total_repay
-                    hh.consumption_loan_payment_per_tick += total_repay / term_ticks
+                    hh.consumption_loan_remaining += loan["remaining"]
+                    hh.consumption_loan_payment_per_tick += loan["payment_per_tick"]
 
             hh.needs_consumption_loan = False
             hh.consumption_loan_amount = 0.0
@@ -7806,8 +7795,7 @@ class Economy:
                 household.cash_balance += amount
                 household.add_ledger_flow("bank", amount)
                 household.medical_loan_principal = amount
-                total_repay = amount * (1.0 + rate)
-                household.medical_loan_remaining = total_repay
+                household.medical_loan_remaining = loan["remaining"]
                 household.medical_loan_payment_per_tick = loan["payment_per_tick"]
                 return True
             else:
@@ -7822,8 +7810,7 @@ class Economy:
                     household.cash_balance += amount
                     household.add_ledger_flow("bank", amount)
                     household.medical_loan_principal = amount
-                    total_repay = amount * (1.0 + rate)
-                    household.medical_loan_remaining = total_repay
+                    household.medical_loan_remaining = loan["remaining"]
                     household.medical_loan_payment_per_tick = loan["payment_per_tick"]
                     return True
 

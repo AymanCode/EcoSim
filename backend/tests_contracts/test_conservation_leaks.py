@@ -204,20 +204,25 @@ def test_a3_medical_loan_fallback_with_bank_conserves_money(fixed_seed, monkeypa
     )
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="audit A4: originate_loan charges one year of interest regardless of term",
-)
 def test_a4_loan_total_repayment_scales_with_term():
+    """Audit A4: the legacy loan total follows the payment arm's amortized schedule.
+
+    ``payment_loans.v2_payment`` amortizes at ``annual_rate / ticks_per_year``
+    per tick, so the legacy ``originate_loan`` now owes ``payment * term``
+    (Phase 0 pinned simple interest pro-rated by term; the adopted formula is
+    the payment arm's, so the two arms agree).
+    """
     principal = 10_000.0
     annual_rate = 0.05
     ticks_per_year = CONFIG.time.ticks_per_year
+    per_tick_rate = annual_rate / ticks_per_year
     mismatches = []
     for term_ticks in (520, 26):
         bank = BankAgent(cash_reserves=100_000.0)
         loan = bank.originate_loan("firm", 1, principal, annual_rate, term_ticks)
-        expected = principal * (1.0 + annual_rate * term_ticks / ticks_per_year)
-        if abs(loan["remaining"] - expected) > MONEY_TOL:
+        payment = principal * per_tick_rate / (1.0 - (1.0 + per_tick_rate) ** -term_ticks)
+        expected = payment * term_ticks
+        if abs(loan["remaining"] - expected) > MONEY_TOL or abs(loan["payment_per_tick"] - payment) > MONEY_TOL:
             mismatches.append(
                 f"term {term_ticks}: total_repayment {loan['remaining']:.6f} "
                 f"expected {expected:.6f} (diff {loan['remaining'] - expected:+.6f})"
