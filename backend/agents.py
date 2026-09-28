@@ -276,7 +276,9 @@ class HouseholdAgent(AgentMixin):
     awareness_pool: Dict[str, List[int]] = field(default_factory=dict)  # category -> list of firm_ids
     current_primary_firm: Dict[str, Optional[int]] = field(default_factory=dict)  # category -> firm_id
     last_pool_refresh_tick: int = 0  # Last tick when awareness pool was refreshed
-    _awareness_pool_set_cache: Dict[str, tuple[tuple[int, ...], set[int]]] = field(
+    # category -> (pool list object, its length, set of its ids). Written by
+    # _cache_awareness_pool_set whenever refresh_awareness_pool assigns a pool.
+    _awareness_pool_set_cache: Dict[str, tuple[List[int], int, set[int]]] = field(
         default_factory=dict, init=False, repr=False
     )
     _purchase_tie_break_noise_cache: Dict[str, tuple[int, np.ndarray, int, np.ndarray]] = field(
@@ -825,9 +827,8 @@ class HouseholdAgent(AgentMixin):
 
     def _cache_awareness_pool_set(self, category: str, pool: List[int]) -> set[int]:
         category_key = category.lower()
-        pool_signature = tuple(int(fid) for fid in pool)
-        pool_set = set(pool_signature)
-        self._awareness_pool_set_cache[category_key] = (pool_signature, pool_set)
+        pool_set = {int(fid) for fid in pool}
+        self._awareness_pool_set_cache[category_key] = (pool, len(pool), pool_set)
         return pool_set
 
     def _get_awareness_pool_set(self, category: str) -> Optional[set[int]]:
@@ -837,10 +838,12 @@ class HouseholdAgent(AgentMixin):
             pool = self.awareness_pool.get(category)
         if not pool:
             return None
-        pool_signature = tuple(int(fid) for fid in pool)
         cached = self._awareness_pool_set_cache.get(category_key)
-        if cached is not None and cached[0] == pool_signature:
-            return cached[1]
+        # refresh_awareness_pool always assigns a new list and caches its set,
+        # so an identity and length check replaces rebuilding a tuple signature.
+        # A pool assigned or grown elsewhere without caching is rebuilt here.
+        if cached is not None and cached[0] is pool and cached[1] == len(pool):
+            return cached[2]
         return self._cache_awareness_pool_set(category_key, pool)
 
     def _get_purchase_tie_break_noise(self, category: str, length: int) -> np.ndarray:

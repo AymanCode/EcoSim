@@ -1011,6 +1011,13 @@ class Economy:
         # Build consumption plans (fallback to Python loop for now due to complex logic)
         household_consumption_plans = {}
         awareness_market_views = None
+        # (category, lowercase key) for categories with options; the per-household
+        # awareness check below only needs to know whether each pool is empty.
+        awareness_check_categories = [
+            (category, category.lower())
+            for category, options in (category_market_snapshot or {}).items()
+            if options
+        ]
 
         for idx, household in enumerate(self.households):
             budget = budgets[idx]
@@ -1033,8 +1040,12 @@ class Economy:
                         self.current_tick - household.last_pool_refresh_tick >= refresh_interval
                     )
                 if not awareness_needs_refresh:
-                    for category, options in category_market_snapshot.items():
-                        if options and not household._get_awareness_pool_set(category):
+                    pools = household.awareness_pool
+                    for category, category_key in awareness_check_categories:
+                        pool = pools.get(category_key)
+                        if pool is None and category != category_key:
+                            pool = pools.get(category)
+                        if not pool:
                             awareness_needs_refresh = True
                             break
                 if awareness_needs_refresh:
