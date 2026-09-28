@@ -1385,6 +1385,8 @@ class Economy:
         # Category lookup: use provided or empty dict for direct access
         cat_lookup = good_category_lookup or {}
         # Engine good names are unique per firm, so a purchase maps to one seller.
+        # The A1 reconciliation below asserts this; _clear_goods_market itself
+        # allows several firms per good, and then one purchase has no single seller.
         firm_by_good = {f.good_name: f for f in self.firms}
 
         # Single pass through all households
@@ -1476,8 +1478,11 @@ class Economy:
                             subsidy_rate,
                         )
                     )
-                    seller = firm_by_good.get(good)
-                    if affordability_scale < 1.0 and seller is not None:
+                    if affordability_scale < 1.0:
+                        seller = firm_by_good.get(good)
+                        assert seller is not None and sum(1 for f in self.firms if f.good_name == good) == 1, (
+                            f"A1 reconciliation needs exactly one seller of {good!r}"
+                        )
                         # Clearing already paid the seller qty * price and took
                         # the units (audit A1): return the unpaid part and its units.
                         unpaid = total_cost - household_cost - _govt_share
@@ -7769,7 +7774,7 @@ class Economy:
                 bank.update_household_credit_score(hid, -0.01)
 
     def _issue_medical_loan(self, household: "HouseholdAgent", amount: float) -> bool:
-        """Issue bank credit, then treasury-funded credit, then the legacy fallback.
+        """Issue bank credit, then treasury-funded credit; the legacy fallback runs only with no bank.
 
         Only one medical loan can be active at a time (debt stacking prevention).
         Returns True if loan was issued and household now has the cash.

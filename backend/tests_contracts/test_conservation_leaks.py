@@ -88,6 +88,7 @@ def test_a1_subsidized_purchase_scale_down_conserves_money(fixed_seed, monkeypat
     buyer_settlements: List[Dict[str, float]] = []
 
     original_clear = economy._clear_goods_market
+    cleared: Dict[str, object] = {}
 
     def clear_with_oversized_plan(plans, firms):
         # Goods clearing does not check household cash, so a planned food
@@ -96,7 +97,11 @@ def test_a1_subsidized_purchase_scale_down_conserves_money(fixed_seed, monkeypat
         # produces this at tick 0 (budgets are small), so the test forces it:
         # ~$2,400 of food against ~$1,250 of cash plus wage.
         plans[buyer.household_id]["planned_purchases"][food_firm.firm_id] = 300.0
-        return original_clear(plans, firms)
+        cleared["inventory"] = food_firm.inventory_units
+        purchases, sales = original_clear(plans, firms)
+        cleared["units"] = sales[food_firm.firm_id]["units_sold"]
+        cleared["sales"] = sales
+        return purchases, sales
 
     original_settle = economy.settle_capped_subsidized_goods_purchase
 
@@ -121,6 +126,15 @@ def test_a1_subsidized_purchase_scale_down_conserves_money(fixed_seed, monkeypat
         f"A1 leak: money changed by {after - before:+.6f} in one tick; "
         f"sum((1 - scale) * total_cost) over the buyer's subsidized settlements = {expected_leak:.6f}"
     )
+
+    # Units: the seller books, and loses from inventory, only what households received.
+    received = sum(
+        h.last_purchase_breakdown.get(food_firm.good_name, {}).get("units", 0.0) for h in economy.households
+    )
+    assert received < cleared["units"] - 1.0, "precondition: the scale-down returned no units"
+    assert food_firm.last_units_sold == pytest.approx(received)
+    assert cleared["sales"][food_firm.firm_id]["units_sold"] == pytest.approx(received)
+    assert food_firm.inventory_units == pytest.approx(cleared["inventory"] - received)
 
 
 def test_a2_long_term_capital_loan_conserves_money(fixed_seed):
@@ -210,7 +224,11 @@ def test_a4_loan_total_repayment_scales_with_term():
     ``payment_loans.v2_payment`` amortizes at ``annual_rate / ticks_per_year``
     per tick, so the legacy ``originate_loan`` now owes ``payment * term``
     (Phase 0 pinned simple interest pro-rated by term; the adopted formula is
-    the payment arm's, so the two arms agree).
+    the payment arm's). The arms agree on the installment and on the total
+    paid on schedule. They still differ on interest timing (the payment arm
+    accrues on the declining balance; legacy books the total up front and
+    splits each payment proportionally), on write-off size, and on early or
+    partial payment.
     """
     principal = 10_000.0
     annual_rate = 0.05
