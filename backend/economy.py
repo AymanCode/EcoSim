@@ -1652,6 +1652,8 @@ class Economy:
         self._phase_goods_clearing(tick)
 
         self._phase_housing(tick)
+
+        self._phase_misc_and_healthcare(tick)
         payment_arm = tick.payment_arm
         audit_firm_states_before = tick.audit_firm_states_before
         audit_household_states_before = tick.audit_household_states_before
@@ -1670,31 +1672,6 @@ class Economy:
         frozen_wages = tick.frozen_wages
         per_household_purchases = tick.per_household_purchases
         per_firm_sales = tick.per_firm_sales
-        goods_market = tick.goods_market
-
-        # Phase 6.7: Misc firm operations
-        if not payment_arm:
-            self._misc_firm_add_beneficiary()
-            self._misc_firm_redistribute_revenue()
-
-        # Phase 6.8: Queue-based healthcare service processing
-        if payment_arm:
-            from payment_loans import collect_household_dues
-            from payment_sectors import settle_payment_care
-            settle_payment_care(self, per_firm_sales)
-            collect_household_dues(self)
-            goods_market.second_pass()
-            goods_market.finish()
-            per_household_purchases, per_firm_sales = self.payment_book.purchases, self.payment_book.receipts
-            self._misc_firm_add_beneficiary()
-            self._misc_firm_redistribute_revenue()
-            for firm in self.firms:
-                if (firm.good_category or "").lower() == "services":
-                    firm.consider_service_infrastructure_upgrade(economy=self, current_units_sold=per_firm_sales.get(firm.firm_id, {}).get("units_sold", 0.0))
-            if self.bank is not None:
-                self._offer_service_infrastructure_loans()
-        else:
-            self._process_healthcare_services(per_firm_sales)
 
         # Phase 7: Government plans taxes
         household_tax_snapshots = (
@@ -2654,6 +2631,34 @@ class Economy:
                         start_payment_mortgage_project(self, firm)
             else:
                 self._offer_housing_expansion_loans()
+
+    def _phase_misc_and_healthcare(self, tick: _TickScratch) -> None:
+        """Misc-firm redistribution and healthcare; the payment arm also clears care, dues and residual goods."""
+        payment_arm = tick.payment_arm
+        goods_market = tick.goods_market
+        # Phase 6.7: Misc firm operations
+        if not payment_arm:
+            self._misc_firm_add_beneficiary()
+            self._misc_firm_redistribute_revenue()
+
+        # Phase 6.8: Queue-based healthcare service processing
+        if payment_arm:
+            from payment_loans import collect_household_dues
+            from payment_sectors import settle_payment_care
+            settle_payment_care(self, tick.per_firm_sales)
+            collect_household_dues(self)
+            goods_market.second_pass()
+            goods_market.finish()
+            tick.per_household_purchases, tick.per_firm_sales = self.payment_book.purchases, self.payment_book.receipts
+            self._misc_firm_add_beneficiary()
+            self._misc_firm_redistribute_revenue()
+            for firm in self.firms:
+                if (firm.good_category or "").lower() == "services":
+                    firm.consider_service_infrastructure_upgrade(economy=self, current_units_sold=tick.per_firm_sales.get(firm.firm_id, {}).get("units_sold", 0.0))
+            if self.bank is not None:
+                self._offer_service_infrastructure_loans()
+        else:
+            self._process_healthcare_services(tick.per_firm_sales)
 
     # -------------------------------------------------------------------------
     # Section: Firm distress, working capital, and shortage diagnostics
