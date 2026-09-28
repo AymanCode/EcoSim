@@ -1862,6 +1862,9 @@ class FirmAgent(AgentMixin):
     is_baseline: bool = False
     baseline_production_quota: float = 500.0
     actual_wages: Dict[int, float] = field(default_factory=dict)
+    # (employees list, its length, actual_wages dict, its length, wage_offer, bill);
+    # see _current_wage_bill. Cleared by _invalidate_wage_bill_cache.
+    _wage_bill_cache: Optional[tuple] = field(default=None, init=False, repr=False, compare=False)
     last_tick_total_costs: float = 0.0  # Track costs for dividend calculation
     last_tick_operating_cash_cost_nonwage: float = 0.0
     payout_ratio: float = 0.0  # Fraction of net profit paid as dividends
@@ -2341,8 +2344,33 @@ class FirmAgent(AgentMixin):
         return self._firm_config().expected_skill_premium
 
     def _current_wage_bill(self) -> float:
-        """Current payroll burden using actual wages when available."""
-        return sum(self.actual_wages.get(employee_id, self.wage_offer) for employee_id in self.employees)
+        """Current payroll burden using actual wages when available.
+
+        The sum is cached until the roster, the wage map or wage_offer changes.
+        Reassigning employees or actual_wages, changing either's length, or
+        changing wage_offer is detected here; code that rewrites wages or swaps
+        roster members in place calls _invalidate_wage_bill_cache().
+        """
+        employees = self.employees
+        wages = self.actual_wages
+        wage_offer = self.wage_offer
+        cached = self._wage_bill_cache
+        if (
+            cached is not None
+            and cached[0] is employees
+            and cached[1] == len(employees)
+            and cached[2] is wages
+            and cached[3] == len(wages)
+            and cached[4] == wage_offer
+        ):
+            return cached[5]
+        bill = sum(wages.get(employee_id, wage_offer) for employee_id in employees)
+        self._wage_bill_cache = (employees, len(employees), wages, len(wages), wage_offer, bill)
+        return bill
+
+    def _invalidate_wage_bill_cache(self) -> None:
+        """Drop the cached wage bill after an in-place roster or wage change."""
+        self._wage_bill_cache = None
 
     def _effective_base_wage_cost(self) -> float:
         """Expected per-worker base labor cost including normal skill premia."""
@@ -4519,6 +4547,7 @@ class FirmAgent(AgentMixin):
                 # Ensure existing workers get at least the current wage_offer
                 # (which has minimum wage floor already enforced)
                 self.actual_wages[worker_id] = max(self.actual_wages[worker_id], self.wage_offer)
+        self._invalidate_wage_bill_cache()
 
         # Track hiring for next planning cycle
         # Note: These should be set from the plan, but we update actual hires here
@@ -4732,6 +4761,7 @@ class FirmAgent(AgentMixin):
             self.wage_offer = minimum_wage
             for employee_id in self.employees:
                 self.actual_wages[employee_id] = minimum_wage
+            self._invalidate_wage_bill_cache()
             self.pending_healthcare_worker_bonus = bonus_pool
             self.decision_diagnostics["healthcare_current_profit_margin"] = current_margin
             self.decision_diagnostics["healthcare_target_margin"] = target_margin
@@ -4755,6 +4785,7 @@ class FirmAgent(AgentMixin):
             for employee_id in self.employees:
                 current_wage = self.actual_wages.get(employee_id, self.wage_offer)
                 self.actual_wages[employee_id] = max(current_wage * wage_cut, minimum_wage)
+            self._invalidate_wage_bill_cache()
 
             self.wage_offer = max(self.wage_offer * wage_cut, minimum_wage)
             return
@@ -4768,6 +4799,7 @@ class FirmAgent(AgentMixin):
                 reduced_wage = current_wage * wage_cut
                 new_wage = max(reduced_wage, minimum_wage)
                 self.actual_wages[employee_id] = new_wage
+            self._invalidate_wage_bill_cache()
 
             # Also reduce wage_offer for new hires
             self.wage_offer = max(self.wage_offer * wage_cut, minimum_wage)
@@ -4808,6 +4840,7 @@ class FirmAgent(AgentMixin):
             self.wage_offer = minimum_wage
             for worker_id in self.employees:
                 self.actual_wages[worker_id] = minimum_wage
+            self._invalidate_wage_bill_cache()
 
     def apply_updated_expectations(self, updated_expected_sales: float) -> None:
         """

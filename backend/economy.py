@@ -3984,6 +3984,7 @@ class Economy:
 
                     # Update the wage
                     firm.actual_wages[employee_id] = new_wage
+                    firm._invalidate_wage_bill_cache()
                     household.wage = new_wage
                     household.last_wage_update_tick = self.current_tick
 
@@ -4032,6 +4033,7 @@ class Economy:
                 )
                 household.wage = max(assigned_wage, 1.0)
                 assigned_firm.actual_wages[household.household_id] = household.wage
+                assigned_firm._invalidate_wage_bill_cache()
                 employees_by_firm[household.employer_id].append(household.household_id)
                 continue
 
@@ -4070,6 +4072,7 @@ class Economy:
                     if household is not None:
                         household.wage = fallback_wage
             firm.actual_wages = synced_wages
+            firm._invalidate_wage_bill_cache()
 
     # -------------------------------------------------------------------------
     # Section: Goods market clearing and firm market views
@@ -4704,7 +4707,9 @@ class Economy:
                 minimum_wage = self.government.get_minimum_wage()
                 household.wage = max(household.wage, living_cost, minimum_wage)
                 if household.employer_id is not None and household.employer_id in self.firm_lookup:
-                    self.firm_lookup[household.employer_id].actual_wages[household.household_id] = household.wage
+                    employer_firm = self.firm_lookup[household.employer_id]
+                    employer_firm.actual_wages[household.household_id] = household.wage
+                    employer_firm._invalidate_wage_bill_cache()
             else:
                 # Unemployed: Initialize or decay reservation wage
                 if household.unemployment_duration == 1:
