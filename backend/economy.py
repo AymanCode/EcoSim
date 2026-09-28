@@ -34,7 +34,7 @@ Performance optimizations:
 import logging
 import os
 import random
-from dataclasses import fields
+from dataclasses import dataclass, fields
 from collections import deque
 from typing import Dict, List, Tuple, Optional
 
@@ -62,6 +62,21 @@ from utils.category_utils import build_good_category_lookup
 from payments import PaymentBook, MONEY_EPS, proportional
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass(slots=True)
+class _TickScratch:
+    """Values one phase of Economy.step() hands to a later phase of the same tick.
+
+    step() builds one instance at the top of the tick and passes it to every
+    phase method; it is never stored on the Economy, so nothing outlives the
+    tick. Fields default to None until the phase that produces them runs.
+    """
+
+    payment_arm: bool
+    audit_firm_states_before: Optional[Dict[int, Dict[str, object]]] = None
+    audit_household_states_before: Optional[Dict[int, Dict[str, object]]] = None
+    audit_government_state_before: Optional[Dict[str, object]] = None
 
 
 # -----------------------------------------------------------------------------
@@ -1599,130 +1614,12 @@ class Economy:
         """
         if str(getattr(self.config, "payment_sequence", "legacy")) != self.payment_sequence:
             raise ValueError("payment sequence cannot switch during a run")
-        payment_arm = self.payment_sequence != "legacy"
-        if payment_arm:
-            from payment_loans import preflight_loans
-            if self.bank is not None:
-                self.bank.payment_current_tick = self.current_tick
-            if self.current_tick == 0:
-                preflight_loans(self)
-                self._payment_fiscal_close()
-            self.payment_book = PaymentBook(self, self.payment_sequence)
-            if self.config.payment_services_project_enabled:
-                from payment_government import activate_payment_services_slots
-                activate_payment_services_slots(self)
-            self.payment_denied_outlays = {}
-            self.payment_care_remaining = self.payment_state["restrictions"]["care"]
-            self.payment_rent_relief_remaining = self.payment_state["restrictions"]["rent"]
-            self._payment_sync_restrictions()
-        # Update warm-up flag for this tick using the configured warm-up horizon.
-        # SOLID: SRP Violation - Warm-up logic should be in a SimulationState class
-        was_in_warmup = self.in_warmup
-        self.in_warmup = self.current_tick < self.warmup_ticks
-        if was_in_warmup and not self.in_warmup:
-            self.post_warmup_cooldown = 8
-            self.post_warmup_stimulus_ticks = 6
-            self.post_warmup_stimulus_duration = 6
-            self._sync_warmup_expectations(self.last_tick_prices)
-            self._reset_post_warmup_expectations()
-        self._refresh_target_total_firms()
-        self._reset_household_tick_visibility()
-        if not self.in_warmup:
-            self._activate_queued_firms()
-
-        self.last_regime_events = []
-        self.last_health_diagnostics = {}
-        self.last_firm_distress_diagnostics = {}
-        self.last_housing_diagnostics = {}
-        self.last_sector_shortage_diagnostics = []
-        self.last_tick_gov_bond_purchases = 0.0
-        self.last_tick_gov_subsidies = 0.0
-        self.last_tick_gov_bailouts = 0.0
-        self.last_tick_gov_infrastructure_spending = 0.0
-        self.last_tick_gov_technology_spending = 0.0
-        self.last_tick_gov_social_spending = 0.0
-        self.last_tick_gov_public_works_capitalization = 0.0
-        self.last_tick_gov_public_works_requested_startup = 0.0
-        self.last_tick_gov_public_works_denied_by_budget = 0.0
-        self.last_tick_gov_public_works_affordable_budget = 0.0
-        self.last_tick_gov_public_works_jobs_authorized = 0
-        self.last_tick_gov_post_warmup_stimulus = 0.0
-        self.last_tick_gov_subsidy_requested = 0.0
-        self.last_tick_gov_subsidy_denied_by_cap = 0.0
-        self.bailout_eligible_firms_by_sector = {}
-        self.bailout_denied_firms_by_reason = {}
-        self.bailout_received_by_firm_id = {}
-        self.last_tick_working_capital_budget = 0.0
-        self.last_tick_working_capital_candidates = 0
-        self.last_tick_working_capital_issued = 0.0
-        self.last_tick_working_capital_denied_budget = 0.0
-        self.price_increase_limited_count = 0
-        self.rent_increase_limited_count = 0
-        self.avg_sector_price_to_median_wage = 0.0
-        self.housing_rent_to_median_wage = 0.0
-        for firm in self.firms:
-            if payment_arm:
-                firm.capital_investment_this_tick = 0.0
-                firm.payment_wage_arrears = 0.0
-                firm.payment_prior_unmet_units = self.last_tick_unmet_demand_by_firm.get(firm.firm_id, 0.0)
-            firm.received_bailout_this_tick = False
-            firm.received_working_capital_this_tick = False
-            firm.working_capital_loan_received_last_tick = 0.0
-            if firm.working_capital_support_ticks > 0:
-                firm.working_capital_support_ticks = max(0, int(firm.working_capital_support_ticks) - 1)
-            if firm.working_capital_support_ticks <= 0:
-                firm.working_capital_hire_budget_workers = 0
-        if payment_arm:
-            for (fid, _), amount in self.payment_state["wage_claims"].items():
-                firm = self.firm_lookup.get(fid)
-                if firm is not None:
-                    firm.payment_wage_arrears += amount
-            self.payment_state["capital_routes"] = []
-            self.payment_state["capital_routes_released"] = False
-        self.sector_subsidy_cap_this_tick = 0.0
-        self.sector_subsidy_remaining_this_tick = 0.0
-        self.last_tick_pre_purchase_deposit_withdrawals = 0.0
-        self.last_tick_end_tick_deposit_sweeps = 0.0
-        self.government.reset_tick_bailout_telemetry()
-
-        if self.post_warmup_stimulus_ticks > 0:
-            self._apply_post_warmup_stimulus()
-
-        if payment_arm:
-            self._payment_reserve_subsidy()
-        else:
-            recent_gdp = trailing_gdp(self)
-            self.sector_subsidy_cap_this_tick = get_sector_subsidy_cap(self.government, recent_gdp)
-            self.sector_subsidy_remaining_this_tick = self.sector_subsidy_cap_this_tick
-
-        # Reset bank per-tick telemetry (no-op when bank is None)
-        if self.bank is not None:
-            self.bank.reset_tick_telemetry()
-
-        self.food_unmet_demand = 0.0
-        self.services_unmet_demand = 0.0
-        self.services_unmet_demand_by_firm = {}
-        self.current_tick_unmet_demand_by_firm = {}
-
-        # Random economic shocks (stochastic events)
-        self._apply_random_shocks()
-        self._reset_healthcare_tick_state()
-        self._apply_doctor_health_lock()
-        if payment_arm:
-            from payment_loans import prepare_household_dues
-            from payment_sectors import enqueue_payment_care_requests, requeue_payment_care_due
-            prepare_household_dues(self)
-            requeue_payment_care_due(self)
-            enqueue_payment_care_requests(self)
-        else:
-            self._enqueue_healthcare_requests()
-        audit_firm_states_before = {}
-        audit_household_states_before = {}
-        audit_government_state_before = {}
-        if self.audit_log_enabled:
-            audit_firm_states_before = self._capture_audit_firm_state(self.firms)
-            audit_household_states_before = self._capture_audit_household_state()
-            audit_government_state_before = self._capture_audit_government_state()
+        tick = _TickScratch(payment_arm=self.payment_sequence != "legacy")
+        self._phase_reset_and_shocks(tick)
+        payment_arm = tick.payment_arm
+        audit_firm_states_before = tick.audit_firm_states_before
+        audit_household_states_before = tick.audit_household_states_before
+        audit_government_state_before = tick.audit_government_state_before
 
         (
             good_category_lookup,
@@ -2538,6 +2435,133 @@ class Economy:
         self.current_tick += 1
         if self.post_warmup_cooldown > 0:
             self.post_warmup_cooldown -= 1
+
+    def _phase_reset_and_shocks(self, tick: _TickScratch) -> None:
+        """Open the tick: payment book, warm-up flag, resets, shocks, care queue, audit before-state."""
+        payment_arm = tick.payment_arm
+        if payment_arm:
+            from payment_loans import preflight_loans
+            if self.bank is not None:
+                self.bank.payment_current_tick = self.current_tick
+            if self.current_tick == 0:
+                preflight_loans(self)
+                self._payment_fiscal_close()
+            self.payment_book = PaymentBook(self, self.payment_sequence)
+            if self.config.payment_services_project_enabled:
+                from payment_government import activate_payment_services_slots
+                activate_payment_services_slots(self)
+            self.payment_denied_outlays = {}
+            self.payment_care_remaining = self.payment_state["restrictions"]["care"]
+            self.payment_rent_relief_remaining = self.payment_state["restrictions"]["rent"]
+            self._payment_sync_restrictions()
+        # Update warm-up flag for this tick using the configured warm-up horizon.
+        # SOLID: SRP Violation - Warm-up logic should be in a SimulationState class
+        was_in_warmup = self.in_warmup
+        self.in_warmup = self.current_tick < self.warmup_ticks
+        if was_in_warmup and not self.in_warmup:
+            self.post_warmup_cooldown = 8
+            self.post_warmup_stimulus_ticks = 6
+            self.post_warmup_stimulus_duration = 6
+            self._sync_warmup_expectations(self.last_tick_prices)
+            self._reset_post_warmup_expectations()
+        self._refresh_target_total_firms()
+        self._reset_household_tick_visibility()
+        if not self.in_warmup:
+            self._activate_queued_firms()
+
+        self.last_regime_events = []
+        self.last_health_diagnostics = {}
+        self.last_firm_distress_diagnostics = {}
+        self.last_housing_diagnostics = {}
+        self.last_sector_shortage_diagnostics = []
+        self.last_tick_gov_bond_purchases = 0.0
+        self.last_tick_gov_subsidies = 0.0
+        self.last_tick_gov_bailouts = 0.0
+        self.last_tick_gov_infrastructure_spending = 0.0
+        self.last_tick_gov_technology_spending = 0.0
+        self.last_tick_gov_social_spending = 0.0
+        self.last_tick_gov_public_works_capitalization = 0.0
+        self.last_tick_gov_public_works_requested_startup = 0.0
+        self.last_tick_gov_public_works_denied_by_budget = 0.0
+        self.last_tick_gov_public_works_affordable_budget = 0.0
+        self.last_tick_gov_public_works_jobs_authorized = 0
+        self.last_tick_gov_post_warmup_stimulus = 0.0
+        self.last_tick_gov_subsidy_requested = 0.0
+        self.last_tick_gov_subsidy_denied_by_cap = 0.0
+        self.bailout_eligible_firms_by_sector = {}
+        self.bailout_denied_firms_by_reason = {}
+        self.bailout_received_by_firm_id = {}
+        self.last_tick_working_capital_budget = 0.0
+        self.last_tick_working_capital_candidates = 0
+        self.last_tick_working_capital_issued = 0.0
+        self.last_tick_working_capital_denied_budget = 0.0
+        self.price_increase_limited_count = 0
+        self.rent_increase_limited_count = 0
+        self.avg_sector_price_to_median_wage = 0.0
+        self.housing_rent_to_median_wage = 0.0
+        for firm in self.firms:
+            if payment_arm:
+                firm.capital_investment_this_tick = 0.0
+                firm.payment_wage_arrears = 0.0
+                firm.payment_prior_unmet_units = self.last_tick_unmet_demand_by_firm.get(firm.firm_id, 0.0)
+            firm.received_bailout_this_tick = False
+            firm.received_working_capital_this_tick = False
+            firm.working_capital_loan_received_last_tick = 0.0
+            if firm.working_capital_support_ticks > 0:
+                firm.working_capital_support_ticks = max(0, int(firm.working_capital_support_ticks) - 1)
+            if firm.working_capital_support_ticks <= 0:
+                firm.working_capital_hire_budget_workers = 0
+        if payment_arm:
+            for (fid, _), amount in self.payment_state["wage_claims"].items():
+                firm = self.firm_lookup.get(fid)
+                if firm is not None:
+                    firm.payment_wage_arrears += amount
+            self.payment_state["capital_routes"] = []
+            self.payment_state["capital_routes_released"] = False
+        self.sector_subsidy_cap_this_tick = 0.0
+        self.sector_subsidy_remaining_this_tick = 0.0
+        self.last_tick_pre_purchase_deposit_withdrawals = 0.0
+        self.last_tick_end_tick_deposit_sweeps = 0.0
+        self.government.reset_tick_bailout_telemetry()
+
+        if self.post_warmup_stimulus_ticks > 0:
+            self._apply_post_warmup_stimulus()
+
+        if payment_arm:
+            self._payment_reserve_subsidy()
+        else:
+            recent_gdp = trailing_gdp(self)
+            self.sector_subsidy_cap_this_tick = get_sector_subsidy_cap(self.government, recent_gdp)
+            self.sector_subsidy_remaining_this_tick = self.sector_subsidy_cap_this_tick
+
+        # Reset bank per-tick telemetry (no-op when bank is None)
+        if self.bank is not None:
+            self.bank.reset_tick_telemetry()
+
+        self.food_unmet_demand = 0.0
+        self.services_unmet_demand = 0.0
+        self.services_unmet_demand_by_firm = {}
+        self.current_tick_unmet_demand_by_firm = {}
+
+        # Random economic shocks (stochastic events)
+        self._apply_random_shocks()
+        self._reset_healthcare_tick_state()
+        self._apply_doctor_health_lock()
+        if payment_arm:
+            from payment_loans import prepare_household_dues
+            from payment_sectors import enqueue_payment_care_requests, requeue_payment_care_due
+            prepare_household_dues(self)
+            requeue_payment_care_due(self)
+            enqueue_payment_care_requests(self)
+        else:
+            self._enqueue_healthcare_requests()
+        tick.audit_firm_states_before = {}
+        tick.audit_household_states_before = {}
+        tick.audit_government_state_before = {}
+        if self.audit_log_enabled:
+            tick.audit_firm_states_before = self._capture_audit_firm_state(self.firms)
+            tick.audit_household_states_before = self._capture_audit_household_state()
+            tick.audit_government_state_before = self._capture_audit_government_state()
 
     # -------------------------------------------------------------------------
     # Section: Firm distress, working capital, and shortage diagnostics
