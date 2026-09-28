@@ -39,10 +39,10 @@ def test_payment_credits_funder_and_only_earned_interest(treasury_funded):
 def test_missing_treasury_recipient_fails_before_mutation():
     bank, gov = BankAgent(), GovernmentAgent(cash_balance=1000)
     loan = bank.issue_government_backed_loan("firm", 1, 100, 0.1, 10, gov)
-    before = copy.deepcopy((loan, bank.to_dict()))
+    before = copy.deepcopy((loan, bank))
     with pytest.raises(ValueError, match="recipient"):
         bank.collect_repayment(loan, 11)
-    assert (loan, bank.to_dict()) == before
+    assert (loan, bank) == before
 
 
 @pytest.mark.parametrize("treasury_funded", [False, True])

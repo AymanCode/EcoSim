@@ -412,7 +412,7 @@ def test_contract_dividends_update_household_visibility_ledger():
     assert hh.last_tick_ledger["dividends"] == pytest.approx(50.0, abs=1e-8)
 
 
-def test_contract_budget_redirect_rules(category_market_info):
+def test_contract_budget_redirect_rules():
     """Contract J: Food-shortage redirect adjusts and normalizes fractions."""
     base_fractions = {
         "food": 0.40,
@@ -427,7 +427,6 @@ def test_contract_budget_redirect_rules(category_market_info):
     debug_food_shift = {}
     hh._plan_category_purchases(
         budget=100.0,
-        firm_market_info=category_market_info,
         category_fraction_override=base_fractions,
         debug_category_fractions=debug_food_shift,
     )
@@ -439,7 +438,7 @@ def test_contract_budget_redirect_rules(category_market_info):
     assert all(0.0 <= value <= 1.0 for value in debug_food_shift.values())
 
 
-def test_contract_services_shortfall_redirect_rules(category_market_info):
+def test_contract_services_shortfall_redirect_rules():
     """Contract J2: Service shortfall redirect shifts some housing share to services."""
     base_fractions = {
         "food": 0.40,
@@ -456,7 +455,6 @@ def test_contract_services_shortfall_redirect_rules(category_market_info):
 
     hh._plan_category_purchases(
         budget=100.0,
-        firm_market_info=category_market_info,
         category_fraction_override=base_fractions,
         debug_category_fractions=debug_shift,
     )

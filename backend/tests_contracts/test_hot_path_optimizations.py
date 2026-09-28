@@ -254,11 +254,9 @@ def test_batch_consumption_precomputes_awareness_array_indices(monkeypatch):
     def capture_cache(
         self,
         budget,
-        firm_market_info,
         price_cache=None,
         biased_weights_override=None,
         category_fraction_override=None,
-        category_option_cache=None,
         category_array_cache=None,
         debug_category_fractions=None,
     ):
@@ -358,14 +356,12 @@ def test_indexed_awareness_filter_preserves_purchase_plan_vs_legacy_mask():
 
     legacy_plan = legacy._plan_category_purchases(
         250.0,
-        {},
         price_cache=price_cache,
         category_fraction_override={"food": 0.5, "services": 0.5},
         category_array_cache=category_arrays,
     )
     indexed_plan = indexed._plan_category_purchases(
         250.0,
-        {},
         price_cache=price_cache,
         category_fraction_override={"food": 0.5, "services": 0.5},
         category_array_cache=indexed_arrays,

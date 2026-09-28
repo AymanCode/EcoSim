@@ -1048,10 +1048,8 @@ class Economy:
 
                 planned_purchases = household._plan_category_purchases(
                     budget,
-                    category_market_snapshot,
                     price_cache,
                     category_fraction_override=precomputed_fractions[idx],
-                    category_option_cache=category_option_cache,
                     category_array_cache=category_array_cache
                 )
                 household_consumption_plans[household.household_id] = {

@@ -35,35 +35,6 @@ def _new_healthcare_firm(firm_id: int = 1, price: float = 15.0) -> FirmAgent:
     )
 
 
-def test_contract_annual_visit_plan_by_health_bucket_is_deterministic(fixed_seed):
-    """Healthcare contract: annual sampled visits follow health-bucket ranges and deterministic seeds."""
-    interval = CONFIG.households.healthcare_plan_interval_ticks
-    buckets = [
-        (0.95, {0, 1, 2}),
-        (0.60, {1, 2, 3}),
-        (0.20, {2, 3, 4}),
-        (0.05, {4, 5, 6}),
-    ]
-
-    for offset, (health, allowed_visits) in enumerate(buckets):
-        hh = _new_household(household_id=100 + offset, health=health)
-        sampled_once = hh._sample_annual_visit_count(anchor_tick=0)
-        sampled_twice = hh._sample_annual_visit_count(anchor_tick=0)
-
-        assert sampled_once == sampled_twice
-        assert sampled_once in allowed_visits
-
-        hh._refresh_annual_healthcare_visit_plan(current_tick=0)
-        assert len(hh.care_plan_due_ticks) == sampled_once
-        assert len(hh.care_plan_heal_deltas) == sampled_once
-        assert hh.care_plan_due_ticks == sorted(hh.care_plan_due_ticks)
-        assert all(0 <= due < interval for due in hh.care_plan_due_ticks)
-
-        if sampled_once > 0:
-            expected_total_heal = 1.0 - health
-            assert sum(hh.care_plan_heal_deltas) == pytest.approx(expected_total_heal, abs=1e-8)
-
-
 def test_contract_queue_request_is_not_duplicated_for_same_household(fixed_seed):
     """Healthcare contract: queueing is idempotent while household is already queued."""
     patient = _new_household(household_id=1, health=0.30)

@@ -94,18 +94,6 @@ def build_awareness_market_views(
 class AgentMixin:
     """Shared behaviour for all agent types."""
 
-    def apply_overrides(self, overrides: Dict[str, object]) -> None:
-        """Apply external overrides to agent state.
-
-        Useful for UI or script-driven state modifications.
-
-        Args:
-            overrides: Dictionary of attribute names to new values
-        """
-        for key, value in overrides.items():
-            if hasattr(self, key):
-                setattr(self, key, value)
-
 
 # -----------------------------------------------------------------------------
 # Section: HouseholdAgent state and tick accounting
@@ -835,22 +823,6 @@ class HouseholdAgent(AgentMixin):
         }
         return frictions.get(category.lower(), config.switching_friction_food)
 
-    def _filter_to_awareness_pool(
-        self,
-        category: str,
-        options: List[Dict[str, float]]
-    ) -> List[Dict[str, float]]:
-        """
-        Feature 3: Filter firm options to only those in this household's awareness pool.
-
-        Falls back to full options list if no pool exists for the category.
-        """
-        pool_set = self._get_awareness_pool_set(category)
-        if not pool_set:
-            return options
-        filtered = [opt for opt in options if opt.get("firm_id") in pool_set]
-        return filtered if filtered else options  # Fallback if pool has no valid firms
-
     def _cache_awareness_pool_set(self, category: str, pool: List[int]) -> set[int]:
         category_key = category.lower()
         pool_signature = tuple(int(fid) for fid in pool)
@@ -978,11 +950,9 @@ class HouseholdAgent(AgentMixin):
     def _plan_category_purchases(
         self,
         budget: float,
-        firm_market_info: Dict[str, List[Dict[str, float]]],
         price_cache: Optional[Dict[str, tuple]] = None,
         biased_weights_override: Optional[Dict[str, float]] = None,
         category_fraction_override: Optional[Dict[str, float]] = None,
-        category_option_cache: Optional[Dict[str, List[Dict[str, float]]]] = None,
         category_array_cache: Optional[Dict[str, Dict[str, object]]] = None,
         debug_category_fractions: Optional[Dict[str, float]] = None
     ) -> Dict[int, float]:
@@ -1240,8 +1210,6 @@ class HouseholdAgent(AgentMixin):
         The performance multiplier already degrades output for unhealthy workers;
         this threshold only excludes the truly incapacitated.
         """
-        if self.medical_training_status == "student":
-            return False
         return self.health >= 0.10
 
     def to_dict(self) -> Dict[str, object]:
@@ -1357,16 +1325,6 @@ class HouseholdAgent(AgentMixin):
         # Note: unemployment_benefit parameter kept for backward compatibility but not used.
         # Reservation wage is updated through household expectation dynamics in apply_labor_outcome().
         reservation_wage_for_tick = self.reservation_wage
-
-        # Medical students are in full-time training and cannot join the labor pool.
-        if self.medical_training_status == "student":
-            return {
-                "household_id": self.household_id,
-                "searching_for_job": False,
-                "reservation_wage": reservation_wage_for_tick,
-                "skills_level": self.skills_level,
-                "medical_only": False,
-            }
 
         config = CONFIG.households
 
@@ -1570,176 +1528,14 @@ class HouseholdAgent(AgentMixin):
         self.next_healthcare_request_tick = current_tick + gap_ticks
         return True
 
-    def _healthcare_visit_distribution(self) -> List[tuple[int, float]]:
-        """Return annual visit-count distribution by current health bucket."""
-        hc = CONFIG.households
-        if self.health < 0.10:
-            return list(hc.healthcare_visit_distribution_below_10)
-        if self.health < 0.30:
-            return list(hc.healthcare_visit_distribution_below_30)
-        if self.health < 0.70:
-            return list(hc.healthcare_visit_distribution_below_70)
-        return list(hc.healthcare_visit_distribution_healthy)
-
-    def _sample_annual_visit_count(self, anchor_tick: int) -> int:
-        """
-        Sample annual visit count from configured distribution.
-
-        Deterministic per household and annual anchor tick for reproducibility.
-        """
-        distribution = self._healthcare_visit_distribution()
-        if not distribution:
-            return 0
-        total_weight = sum(max(0.0, w) for _, w in distribution)
-        if total_weight <= 0.0:
-            return 0
-        rng = random.Random(CONFIG.random_seed + self.household_id * 9973 + anchor_tick * 37)
-        draw = rng.random() * total_weight
-        cumulative = 0.0
-        for visits, weight in distribution:
-            w = max(0.0, weight)
-            cumulative += w
-            if draw <= cumulative:
-                return max(0, int(visits))
-        return max(0, int(distribution[-1][0]))
-
-    def _refresh_annual_healthcare_visit_plan(self, current_tick: int) -> None:
-        """
-        Generate a new annual visit schedule if we entered a new 52-tick window.
-        """
-        interval = max(1, int(CONFIG.households.healthcare_plan_interval_ticks))
-        anchor_tick = (current_tick // interval) * interval
-        if self.care_plan_anchor_tick == anchor_tick:
-            return
-
-        self.care_plan_anchor_tick = anchor_tick
-        self.care_plan_due_ticks = []
-        self.care_plan_heal_deltas = []
-        self.pending_visit_heal_delta = 0.0
-
-        visits = self._sample_annual_visit_count(anchor_tick)
-        if visits <= 0:
-            return
-
-        missing_health = max(0.0, 1.0 - self.health)
-        heal_per_visit = missing_health / float(visits)
-        spacing = interval / float(visits)
-        rng = random.Random(
-            CONFIG.random_seed + self.household_id * 9973 + anchor_tick * 37 + visits * 193
-        )
-        due_ticks: List[int] = []
-        for idx in range(visits):
-            slot_start = idx * spacing
-            slot_end = (idx + 1) * spacing
-            sampled_offset = rng.uniform(slot_start, max(slot_start, slot_end - 1e-6))
-            due_tick = anchor_tick + int(sampled_offset)
-            due_tick = max(anchor_tick, min(anchor_tick + interval - 1, due_tick))
-            due_ticks.append(due_tick)
-        due_ticks.sort()
-        self.care_plan_due_ticks = due_ticks
-        self.care_plan_heal_deltas = [heal_per_visit for _ in due_ticks]
-
-    def _consume_due_healthcare_slot(self, current_tick: int) -> bool:
-        """
-        Pop one due healthcare slot and stage its heal amount for the next completed visit.
-        """
-        for idx, due_tick in enumerate(self.care_plan_due_ticks):
-            if due_tick <= current_tick:
-                heal_delta = 0.0
-                if idx < len(self.care_plan_heal_deltas):
-                    heal_delta = max(0.0, self.care_plan_heal_deltas[idx])
-                    self.care_plan_heal_deltas.pop(idx)
-                self.pending_visit_heal_delta = heal_delta
-                self.care_plan_due_ticks.pop(idx)
-                return True
-        return False
-
-    def start_medical_training(self, current_tick: int) -> bool:
-        """
-        Enroll household in the medical training pipeline.
-
-        Returns True when enrollment started this tick.
-        """
-        if self.medical_training_status != "none":
-            return False
-        self.medical_training_status = "student"
-        self.medical_training_start_tick = current_tick
-        self.employer_id = None
-        self.wage = 0.0
-        return True
-
-    def update_medical_training_progress(self, current_tick: int) -> None:
-        """Advance student -> resident -> doctor based on elapsed training ticks."""
-        if self.medical_training_status not in {"student", "resident"}:
-            return
-
-        training_ticks = max(1, int(CONFIG.households.medical_training_ticks))
-        elapsed = max(0, current_tick - self.medical_training_start_tick)
-        residency_tick = int(training_ticks * CONFIG.households.medical_residency_start_fraction)
-
-        if self.medical_training_status == "student" and elapsed >= residency_tick:
-            self.medical_training_status = "resident"
-            self.expected_wage = max(self.expected_wage, self.medical_doctor_expected_wage_anchor * 0.6)
-            self.reservation_wage = max(self.reservation_wage, self.medical_doctor_reservation_wage_anchor * 0.6)
-
-        if elapsed >= training_ticks:
-            self.medical_training_status = "doctor"
-            self.expected_wage = max(self.expected_wage, self.medical_doctor_expected_wage_anchor)
-            self.reservation_wage = max(self.reservation_wage, self.medical_doctor_reservation_wage_anchor)
-
     def medical_visit_capacity(self) -> float:
         """
         Visits per tick contributed by this household when employed at healthcare firm.
         """
-        if self.medical_training_status == "resident":
-            resident_max = max(0.0, CONFIG.households.medical_resident_max_capacity)
-            return min(resident_max, resident_max * max(0.25, self.skills_level))
         if self.medical_training_status == "doctor":
             capped = max(0.5, self.medical_doctor_capacity_cap)
             return min(capped, 2.0 + 1.0 * self.skills_level)
         return 0.0
-
-    def accrue_medical_school_interest(self) -> None:
-        """Accrue weekly interest on remaining medical school debt."""
-        if self.medical_school_debt_remaining <= 0.0:
-            return
-        self.medical_school_debt_remaining += (
-            self.medical_school_debt_remaining * max(0.0, self.medical_school_weekly_interest_rate)
-        )
-
-    def make_medical_school_payment(self) -> float:
-        """
-        Pay down medical school debt from household cash.
-
-        Returns:
-            Amount paid this tick.
-        """
-        if self.medical_school_debt_remaining <= 0.0:
-            self.medical_school_payment_per_tick = 0.0
-            return 0.0
-
-        cfg = CONFIG.households
-        wage_based = self.wage * cfg.medical_school_repayment_share_of_wage if self.is_employed else 0.0
-        baseline = cfg.medical_school_min_payment if self.medical_training_status == "doctor" else 0.0
-        target_payment = max(baseline, wage_based)
-        if target_payment <= 0.0:
-            self.medical_school_payment_per_tick = 0.0
-            return 0.0
-
-        payment = min(target_payment, self.medical_school_debt_remaining, self.cash_balance)
-        if payment <= 0.0:
-            self.medical_school_payment_per_tick = 0.0
-            return 0.0
-
-        self.cash_balance -= payment
-        self.medical_school_debt_remaining -= payment
-        self.medical_school_payment_per_tick = payment
-
-        if self.medical_school_debt_remaining <= 1e-6:
-            self.medical_school_debt_remaining = 0.0
-            self.medical_school_debt_principal = 0.0
-            self.medical_school_payment_per_tick = 0.0
-        return payment
 
     def take_medical_loan(self, loan_amount: float) -> None:
         """
@@ -1902,29 +1698,6 @@ class HouseholdAgent(AgentMixin):
             (1.0 - res_rate) * self.reservation_wage
         )
 
-    def invest_in_education(self, investment_amount: float) -> bool:
-        """
-        Invest cash in education to improve skills.
-
-        Returns True if investment was made, False if insufficient cash.
-
-        Args:
-            investment_amount: Amount of cash to invest
-
-        Returns:
-            bool: True if investment successful, False otherwise
-        """
-        if self.cash_balance >= investment_amount and investment_amount > 0:
-            self.cash_balance -= investment_amount
-
-            # Diminishing returns: harder to improve at higher skill levels
-            skill_gain_rate = 0.0001  # 0.1 skill points per $1000 invested at low skills
-            skill_gain = investment_amount * skill_gain_rate * (1.0 - self.skills_level)
-            self.skills_level = min(1.0, self.skills_level + skill_gain)
-
-            return True
-        return False
-
     def maybe_active_education(self) -> float:
         """
         Actively invest in education when unemployed and below median skill.
@@ -1948,27 +1721,6 @@ class HouseholdAgent(AgentMixin):
             self.add_ledger_flow("education", -cost)
             return cost  # Return cost so caller can route it back into the economy
         return 0.0
-
-    def apply_skill_decay(self) -> None:
-        """
-        Feature 1: Skill Hysteresis - prolonged unemployment degrades skills.
-
-        If unemployed for more than the configured threshold of consecutive ticks,
-        skills degrade by a small percentage per tick, bottoming out at a minimum.
-
-        Mutates state: skills_level.
-        """
-        config = CONFIG.households
-        if self.is_employed:
-            return
-        if self.unemployment_duration <= config.skill_decay_unemployment_threshold:
-            return
-        # Degrade skills toward the floor
-        if self.skills_level > config.skill_decay_floor:
-            self.skills_level = max(
-                config.skill_decay_floor,
-                self.skills_level - config.skill_decay_rate_per_tick
-            )
 
     def get_performance_multiplier(self) -> float:
         """
@@ -2541,7 +2293,6 @@ class FirmAgent(AgentMixin):
         completed_sales_units: float,
         raw_lost_sales_units: float,
         total_households: int,
-        health_snapshot: Optional["FirmHealthSnapshot"] = None,
     ) -> tuple[float, float, float]:
         """Return bounded completed-sales plus lost-sales demand signal."""
         config = self._firm_config()
@@ -2748,18 +2499,6 @@ class FirmAgent(AgentMixin):
     def _wage_cap_multiplier(self) -> float:
         """Firm-specific cap multiplier to avoid synchronized wage ceilings."""
         return max(1.05, min(1.35, 1.10 + 0.25 * self.risk_tolerance))
-
-    def _stockout_sales_floor_multiplier(self, inventory_weeks: float) -> float:
-        """How aggressively a healthy stockout should lift demand expectations."""
-        inventory_gap = max(0.0, float(self.target_inventory_weeks) - float(inventory_weeks))
-        base = 1.2 + 0.2 * self._aggressiveness()
-        return max(1.5, min(2.5, base + 0.25 * inventory_gap))
-
-    def _stockout_hire_growth_rate(self, unfilled_positions_streak: int) -> float:
-        """Allow healthy stockout firms to scale faster than the generic 25% cap."""
-        base = 1.50 + 0.50 * self._aggressiveness()
-        streak_bonus = 0.40 * max(0, int(unfilled_positions_streak))
-        return max(1.5, min(4.0, base + streak_bonus))
 
     # -------------------------------------------------------------------------
     # Section: FirmAgent health diagnostics and labor-plan helpers
@@ -3216,7 +2955,6 @@ class FirmAgent(AgentMixin):
             completed_sales_units=completed_sales,
             raw_lost_sales_units=raw_lost_sales,
             total_households=total_households,
-            health_snapshot=health_snapshot,
         )
 
         previous_expected = max(float(firm_config.min_expected_sales), float(self.expected_sales_units))
@@ -5745,34 +5483,6 @@ class BankAgent:
         self.total_deposits = max(0.0, self.total_deposits - actual)
         return actual
 
-    def pay_deposit_interest(self, deposit_amount: float) -> float:
-        """Calculate and return weekly interest on a household's deposit balance.
-
-        Interest is calculated using the current deposit_rate converted to
-        a weekly rate (annual rate / 52). The bank's cash reserves are
-        reduced by the interest paid, and the payment is tracked in
-        last_tick_deposit_interest_paid.
-
-        Note: Deposit interest is funded from lending income (via
-        last_tick_interest_income) minus min_profit_margin_per_tick.
-        No money is created ex nihilo.
-
-        Args:
-            deposit_amount: The household's deposit balance to calculate interest on.
-
-        Returns:
-            The interest amount paid (deposit_amount * weekly_rate).
-
-        Side Effects:
-            - Decreases self.cash_reserves by interest amount
-            - Increases self.last_tick_deposit_interest_paid by interest amount
-        """
-        weekly_rate = self.deposit_rate / 52.0
-        interest = deposit_amount * weekly_rate
-        self.cash_reserves -= interest
-        self.last_tick_deposit_interest_paid += interest
-        return interest
-
     def update_deposit_rate(self) -> None:
         """Set deposit rate as a floating spread off the lending rate.
 
@@ -5838,58 +5548,6 @@ class BankAgent:
               with remaining balance > 1e-6
         """
         self.active_loans = [l for l in self.active_loans if l["remaining"] > 1e-6]
-
-    # ── serialization ────────────────────────────────────────────────
-
-    def to_dict(self) -> dict:
-        """Serialize bank state for frontend / metrics.
-
-        Converts the bank's state into a JSON-serializable dictionary
-        suitable for sending via WebSocket to the frontend or for
-        metrics collection. Computes derived fields like reserve_ratio_actual
-        and average credit scores on the fly.
-
-        Returns:
-            A dictionary containing the bank's complete state, including:
-            - Identity and cash position (bank_id, cash_reserves)
-            - Deposit and loan totals (total_deposits, total_loans_outstanding)
-            - Interest rates (base_interest_rate, deposit_rate)
-            - Reserve information (reserve_ratio, reserve_ratio_actual)
-            - Risk metrics (loan_loss_provision, avg_credit_scores)
-            - Per-tick telemetry (last_tick_* fields)
-            - Computed properties (lendable_cash, can_lend, active_loan_count)
-        """
-        firm_scores = list(self.firm_credit_scores.values())
-        hh_scores = list(self.household_credit_scores.values())
-        return {
-            "bank_id": self.bank_id,
-            "cash_reserves": self.cash_reserves,
-            "total_deposits": self.total_deposits,
-            "total_loans_outstanding": self.total_loans_outstanding,
-            "base_interest_rate": self.base_interest_rate,
-            "deposit_rate": self.deposit_rate,
-            "reserve_ratio": self.reserve_ratio,
-            "reserve_ratio_actual": self.cash_reserves / max(self.total_deposits, 1.0),
-            "loan_loss_provision": self.loan_loss_provision,
-            "government_loan_writeoffs": self.government_loan_writeoffs,
-            "lendable_cash": self.lendable_cash,
-            "can_lend": self.can_lend(),
-            "active_loan_count": len(self.active_loans),
-            "last_tick_new_loans": self.last_tick_new_loans,
-            "last_tick_defaults": self.last_tick_defaults,
-            "last_tick_repayments": self.last_tick_repayments,
-            "last_tick_deposit_interest_paid": self.last_tick_deposit_interest_paid,
-            "last_tick_interest_income": self.last_tick_interest_income,
-            "last_tick_government_repayments": self.last_tick_government_repayments,
-            "last_tick_government_interest_income": self.last_tick_government_interest_income,
-            "last_tick_government_defaults": self.last_tick_government_defaults,
-            "avg_credit_score_firms": (
-                sum(firm_scores) / len(firm_scores) if firm_scores else 0.5
-            ),
-            "avg_credit_score_households": (
-                sum(hh_scores) / len(hh_scores) if hh_scores else 0.5
-            ),
-        }
 
 
 # -----------------------------------------------------------------------------

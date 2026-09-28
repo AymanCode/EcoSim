@@ -452,20 +452,3 @@ def test_contract_deposit_rate_safety_valve_preserved():
 
     max_sustainable = (5.0 * 52.0) / 1_000_000.0   # = 0.00026
     assert bank.deposit_rate <= max_sustainable + 1e-9
-
-
-def test_contract_pay_deposit_interest_no_total_deposits_inflation():
-    """pay_deposit_interest must NOT add interest to total_deposits."""
-    bank = BankAgent(
-        cash_reserves=100_000.0,
-        total_deposits=10_000.0,
-        deposit_rate=0.052,
-    )
-    deposits_before = bank.total_deposits
-
-    interest = bank.pay_deposit_interest(10_000.0)
-
-    assert interest > 0.0
-    assert bank.total_deposits == pytest.approx(deposits_before, rel=1e-9), (
-        "pay_deposit_interest must not add interest to total_deposits"
-    )
