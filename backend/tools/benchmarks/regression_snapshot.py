@@ -16,6 +16,9 @@ Save golden BEFORE a refactor, compare AFTER:
         --households 1500 --seed 42 --ticks 80 --snap-ticks 1,10,80 \
         --compare benchmarks/results/golden_market.json
 
+Pass --payment-sequence income_first (or income_late) to gate the payment
+pipeline instead of the default legacy one.
+
 Exit code is non-zero on any divergence beyond --tol, with the first
 mismatches printed. Wall-clock per-tick is also reported so the same run
 doubles as a clean (no-cProfile) speed baseline.
@@ -40,7 +43,7 @@ BACKEND_ROOT = Path(__file__).resolve().parents[2]
 if str(BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(BACKEND_ROOT))
 
-from config import CONFIG
+from config import CONFIG, clone_config, use_config
 from tools.runners.run_large_simulation import create_large_economy
 
 # Floats are rounded to this many decimals before hashing/compare so that
@@ -48,6 +51,7 @@ from tools.runners.run_large_simulation import create_large_economy
 # --tol-decimals if a refactor legitimately changes summation order.
 ROUND_DECIMALS = 6
 HOUSEHOLD_SAMPLE = 120  # first N households by id
+PAYMENT_SEQUENCES: tuple[str, ...] = ("legacy", "income_first", "income_late")
 
 
 def _set_seed(seed: int) -> None:
@@ -136,20 +140,28 @@ def snapshot_economy(economy, decimals: int) -> dict:
 
 
 def run(households: int, firms_per_category: int, seed: int, ticks: int,
-        snap_ticks: set[int], decimals: int) -> dict:
-    _set_seed(seed)
-    with contextlib.redirect_stdout(io.StringIO()):
-        economy = create_large_economy(households, firms_per_category)
-
+        snap_ticks: set[int], decimals: int, payment_sequence: str = "legacy") -> dict:
+    if payment_sequence not in PAYMENT_SEQUENCES:
+        raise ValueError(f"payment_sequence must be one of {PAYMENT_SEQUENCES}, got {payment_sequence!r}")
     snapshots: dict[str, Any] = {}
     durations_ms: list[float] = []
-    for _ in range(ticks):
-        t0 = time.perf_counter()
-        economy.step()
-        durations_ms.append((time.perf_counter() - t0) * 1000.0)
-        tick_now = int(economy.current_tick)
-        if tick_now in snap_ticks:
-            snapshots[str(tick_now)] = snapshot_economy(economy, decimals)
+    # Same pattern as run_newcomer_smoke: a cloned config context keeps the
+    # payment sequence out of the process default. Economy reads
+    # payment_sequence once in __init__ and checks every tick that it has not
+    # changed, so the whole run stays inside the context.
+    with use_config(clone_config()):
+        _set_seed(seed)
+        CONFIG.payment_sequence = payment_sequence
+        with contextlib.redirect_stdout(io.StringIO()):
+            economy = create_large_economy(households, firms_per_category)
+
+        for _ in range(ticks):
+            t0 = time.perf_counter()
+            economy.step()
+            durations_ms.append((time.perf_counter() - t0) * 1000.0)
+            tick_now = int(economy.current_tick)
+            if tick_now in snap_ticks:
+                snapshots[str(tick_now)] = snapshot_economy(economy, decimals)
 
     durations_ms.sort()
     n = len(durations_ms)
@@ -163,6 +175,7 @@ def run(households: int, firms_per_category: int, seed: int, ticks: int,
             "ticks": ticks,
             "snap_ticks": sorted(snap_ticks),
             "round_decimals": decimals,
+            "payment_sequence": payment_sequence,
         },
         "wall_clock_ms": {
             "p50": round(p50, 3),
@@ -208,6 +221,8 @@ def build_parser() -> argparse.ArgumentParser:
                    help="Decimals to round floats before compare/save.")
     p.add_argument("--tol", type=float, default=1e-6,
                    help="Absolute numeric tolerance in compare mode.")
+    p.add_argument("--payment-sequence", choices=PAYMENT_SEQUENCES, default="legacy",
+                   help="CONFIG.payment_sequence for the run (default legacy).")
     g = p.add_mutually_exclusive_group(required=True)
     g.add_argument("--save", type=Path, help="Write golden snapshot JSON to this path.")
     g.add_argument("--compare", type=Path, help="Compare against this golden snapshot JSON.")
@@ -225,10 +240,11 @@ def main(argv: list[str] | None = None) -> int:
         ticks=args.ticks,
         snap_ticks=snap_ticks,
         decimals=args.tol_decimals,
+        payment_sequence=args.payment_sequence,
     )
     wc = result["wall_clock_ms"]
     print(f"wall-clock/tick ms: p50={wc['p50']} p95={wc['p95']} mean={wc['mean']} "
-          f"({args.households} hh, seed {args.seed}, {args.ticks} ticks)")
+          f"({args.households} hh, seed {args.seed}, {args.ticks} ticks, {args.payment_sequence})")
 
     if args.save:
         args.save.parent.mkdir(parents=True, exist_ok=True)
