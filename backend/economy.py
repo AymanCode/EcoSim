@@ -7648,8 +7648,14 @@ class Economy:
             return 0.0
 
         # Sort values in ascending order
-        sorted_values = sorted(values)
+        return self._gini_from_sorted(sorted(values))
+
+    @staticmethod
+    def _gini_from_sorted(sorted_values: List[float]) -> float:
+        """Gini coefficient of values already sorted ascending (see _calculate_gini_coefficient)."""
         n = len(sorted_values)
+        if n == 0:
+            return 0.0
 
         # Handle edge cases
         if n == 1:
@@ -7701,24 +7707,34 @@ class Economy:
 
         # Household metrics
         if self.households:
-            employed_households = [h for h in self.households if h.is_employed]
-            unemployed_households = [h for h in self.households if not h.is_employed]
-            can_work_households = [h for h in self.households if h.can_work]
-            cannot_work_households = [h for h in self.households if not h.can_work]
-            labor_force_unemployed = [h for h in can_work_households if not h.is_employed]
+            # One pass for the employment and work-ability counts.
+            employed_households = []
+            can_work_count = 0
+            labor_force_unemployed_count = 0
+            for h in self.households:
+                is_employed = h.is_employed
+                if is_employed:
+                    employed_households.append(h)
+                if h.can_work:
+                    can_work_count += 1
+                    if not is_employed:
+                        labor_force_unemployed_count += 1
+            household_count = len(self.households)
+            unemployed_count = household_count - len(employed_households)
+            cannot_work_count = household_count - can_work_count
 
-            metrics["total_households"] = len(self.households)
+            metrics["total_households"] = household_count
             metrics["employed_count"] = len(employed_households)
-            metrics["unemployed_count"] = len(unemployed_households)
-            metrics["labor_force_size"] = float(len(can_work_households))
-            metrics["cannot_work_count"] = float(len(cannot_work_households))
-            metrics["cannot_work_rate"] = len(cannot_work_households) / len(self.households)
+            metrics["unemployed_count"] = unemployed_count
+            metrics["labor_force_size"] = float(can_work_count)
+            metrics["cannot_work_count"] = float(cannot_work_count)
+            metrics["cannot_work_rate"] = cannot_work_count / household_count
             labor_force_unemployment_rate = (
-                len(labor_force_unemployed) / len(can_work_households)
-                if can_work_households
+                labor_force_unemployed_count / can_work_count
+                if can_work_count
                 else 0.0
             )
-            jobless_rate_total_population = len(unemployed_households) / len(self.households)
+            jobless_rate_total_population = unemployed_count / household_count
             metrics["labor_force_unemployment_rate"] = labor_force_unemployment_rate
             metrics["jobless_rate_total_population"] = jobless_rate_total_population
             metrics["unemployment_rate"] = (
@@ -7752,18 +7768,24 @@ class Economy:
             metrics["household_food_spend_total"] = float(sum(food_spend))
             metrics["household_food_spend_mean"] = float(sum(food_spend) / len(food_spend)) if food_spend else 0.0
 
-            # Household cash/wealth
+            # Household cash/wealth. The total is summed in household order as
+            # before; one sorted copy serves the median, Gini, percentiles and
+            # shares (order statistics do not depend on input order). sorted()
+            # keeps the original objects: builtin sum() compensates only for
+            # exact floats, so converting np.float64 to float changes its result.
             household_cash = [h.cash_balance for h in self.households]
-            metrics["total_household_cash"] = sum(household_cash)
-            metrics["mean_household_cash"] = sum(household_cash) / len(household_cash)
-            metrics["median_household_cash"] = float(np.median(household_cash))
+            total_household_cash = sum(household_cash)
+            sorted_cash = sorted(household_cash)
+            sorted_cash_arr = np.array(sorted_cash, dtype=np.float64)
+            metrics["total_household_cash"] = total_household_cash
+            metrics["mean_household_cash"] = total_household_cash / len(household_cash)
+            metrics["median_household_cash"] = float(np.median(sorted_cash_arr))
 
             # Wealth inequality - Gini coefficient
-            metrics["gini_coefficient"] = self._calculate_gini_coefficient(household_cash)
+            metrics["gini_coefficient"] = self._gini_from_sorted(sorted_cash)
 
             # Wealth distribution percentiles
-            cash_arr = np.array(household_cash, dtype=np.float64)
-            p10, p25, p50, p75, p90, p99 = np.percentile(cash_arr, [10, 25, 50, 75, 90, 99])
+            p10, p25, p50, p75, p90, p99 = np.percentile(sorted_cash_arr, [10, 25, 50, 75, 90, 99])
             metrics["wealth_p10"] = float(p10)
             metrics["wealth_p25"] = float(p25)
             metrics["wealth_p50"] = float(p50)
@@ -7772,9 +7794,8 @@ class Economy:
             metrics["wealth_p99"] = float(p99)
 
             # Top vs bottom wealth shares
-            total_wealth = sum(household_cash)
+            total_wealth = total_household_cash
             if total_wealth > 0:
-                sorted_cash = sorted(household_cash)
                 n = len(sorted_cash)
                 top_10_percent = sorted_cash[int(n * 0.9):]
                 bottom_50_percent = sorted_cash[:int(n * 0.5)]
@@ -7891,7 +7912,8 @@ class Economy:
             })
 
         # GDP calculation (sum of all firm revenues this tick)
-        metrics["gdp_this_tick"] = sum(self.last_tick_revenue.values())
+        gdp_this_tick = sum(self.last_tick_revenue.values())
+        metrics["gdp_this_tick"] = gdp_this_tick
 
         # Government metrics — lever settings (action space)
         gov = self.government
@@ -8048,13 +8070,14 @@ class Economy:
 
         # Fix 23: Quality by sector
         if self.firms:
-            categories = set(f.good_category for f in self.firms)
-            for cat in categories:
-                cat_firms = [f for f in self.firms if f.good_category == cat]
-                if cat_firms:
-                    metrics[f"avg_quality_{cat.lower()}"] = (
-                        sum(f.quality_level for f in cat_firms) / len(cat_firms)
-                    )
+            # One grouping pass; firms keep their self.firms order within a category.
+            firms_by_category: Dict[str, List[FirmAgent]] = {}
+            for f in self.firms:
+                firms_by_category.setdefault(f.good_category, []).append(f)
+            for cat, cat_firms in firms_by_category.items():
+                metrics[f"avg_quality_{cat.lower()}"] = (
+                    sum(f.quality_level for f in cat_firms) / len(cat_firms)
+                )
             total_rd = sum(getattr(f, "accumulated_rd_investment", 0.0) for f in self.firms)
             metrics["total_rd_spending_lifetime"] = total_rd
 
@@ -8064,7 +8087,7 @@ class Economy:
             if employed_hh:
                 wages_list = [h.wage for h in employed_hh]
                 total_wages = sum(wages_list)
-                total_rev = sum(self.last_tick_revenue.values())
+                total_rev = gdp_this_tick
                 metrics["labor_share_of_revenue"] = total_wages / max(total_rev, 1.0)
             else:
                 metrics["labor_share_of_revenue"] = 0.0
