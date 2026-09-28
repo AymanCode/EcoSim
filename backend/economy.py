@@ -77,6 +77,13 @@ class _TickScratch:
     audit_firm_states_before: Optional[Dict[int, Dict[str, object]]] = None
     audit_household_states_before: Optional[Dict[int, Dict[str, object]]] = None
     audit_government_state_before: Optional[Dict[str, object]] = None
+    good_category_lookup: Optional[Dict[str, str]] = None
+    category_market_snapshot: Optional[Dict[str, List[Dict[str, float]]]] = None
+    housing_private_inventory: Optional[float] = None
+    total_households: Optional[int] = None
+    housing_inventory_overhang: Optional[float] = None
+    unemployment_rate: Optional[float] = None
+    gov_benefit: Optional[float] = None
 
 
 # -----------------------------------------------------------------------------
@@ -1616,36 +1623,19 @@ class Economy:
             raise ValueError("payment sequence cannot switch during a run")
         tick = _TickScratch(payment_arm=self.payment_sequence != "legacy")
         self._phase_reset_and_shocks(tick)
+
+        self._phase_pre_plan_state(tick)
         payment_arm = tick.payment_arm
         audit_firm_states_before = tick.audit_firm_states_before
         audit_household_states_before = tick.audit_household_states_before
         audit_government_state_before = tick.audit_government_state_before
-
-        (
-            good_category_lookup,
-            category_market_snapshot,
-            housing_private_inventory,
-            housing_baseline_inventory,
-        ) = self._build_firm_market_views()
-        total_households = len(self.households)
-        housing_inventory_overhang = housing_private_inventory + housing_baseline_inventory
-        unemployed_count = sum(1 for h in self.households if not h.is_employed)
-        unemployment_rate = (unemployed_count / total_households) if total_households > 0 else 0.0
-        self._unemployment_history.append(unemployment_rate)
-        self.unemployment_short_ma = sum(self._unemployment_history) / len(self._unemployment_history)
-
-        gov_benefit = self.government.get_unemployment_benefit_level()
-        if CONFIG.firms.working_capital_enabled and CONFIG.government.auto_working_capital_backstop:
-            self.last_tick_working_capital_budget = self._working_capital_budget_for_tick(unemployment_rate)
-
-        if self.enable_government_stabilizers:
-            # Update outstanding emergency-loan commitments before offering new aid
-            self._update_loan_commitments()
-            self._execute_bailouts()
-            if self.government.public_works_toggle == "on":
-                self._ensure_public_works_capacity(unemployment_rate)
-            else:
-                self._deauthorize_public_works_capacity()
+        good_category_lookup = tick.good_category_lookup
+        category_market_snapshot = tick.category_market_snapshot
+        housing_private_inventory = tick.housing_private_inventory
+        total_households = tick.total_households
+        housing_inventory_overhang = tick.housing_inventory_overhang
+        unemployment_rate = tick.unemployment_rate
+        gov_benefit = tick.gov_benefit
 
         # Phase 1: Firms plan
         firm_production_plans = {}
@@ -2562,6 +2552,34 @@ class Economy:
             tick.audit_firm_states_before = self._capture_audit_firm_state(self.firms)
             tick.audit_household_states_before = self._capture_audit_household_state()
             tick.audit_government_state_before = self._capture_audit_government_state()
+
+    def _phase_pre_plan_state(self, tick: _TickScratch) -> None:
+        """Market views, unemployment and benefit anchors, then stabilizer operations before planning."""
+        (
+            tick.good_category_lookup,
+            tick.category_market_snapshot,
+            tick.housing_private_inventory,
+            housing_baseline_inventory,
+        ) = self._build_firm_market_views()
+        tick.total_households = len(self.households)
+        tick.housing_inventory_overhang = tick.housing_private_inventory + housing_baseline_inventory
+        unemployed_count = sum(1 for h in self.households if not h.is_employed)
+        tick.unemployment_rate = (unemployed_count / tick.total_households) if tick.total_households > 0 else 0.0
+        self._unemployment_history.append(tick.unemployment_rate)
+        self.unemployment_short_ma = sum(self._unemployment_history) / len(self._unemployment_history)
+
+        tick.gov_benefit = self.government.get_unemployment_benefit_level()
+        if CONFIG.firms.working_capital_enabled and CONFIG.government.auto_working_capital_backstop:
+            self.last_tick_working_capital_budget = self._working_capital_budget_for_tick(tick.unemployment_rate)
+
+        if self.enable_government_stabilizers:
+            # Update outstanding emergency-loan commitments before offering new aid
+            self._update_loan_commitments()
+            self._execute_bailouts()
+            if self.government.public_works_toggle == "on":
+                self._ensure_public_works_capacity(tick.unemployment_rate)
+            else:
+                self._deauthorize_public_works_capacity()
 
     # -------------------------------------------------------------------------
     # Section: Firm distress, working capital, and shortage diagnostics
