@@ -4,6 +4,10 @@ Notable changes and decisions for EcoSim, newest first. The project does not use
 
 ## Unreleased
 
+### 2026-09-29: Agents/economy remediation, before/after evidence
+
+Added `docs/evals/2026-09-29-remediation-before-after/` (README, table, script): the same 1,500-household, 300-tick runs on the pre-remediation code (`17d5c0b`) and the branch head (`8e68b40`, Phase 6 flags off), seeds 42/7/11 legacy and 42 income_first. Before, legacy unemployment averaged 12.0% over ticks 41-100 and 25.2% over ticks 201-300, and the economy lost 570k-950k of money over the run (mostly the long-term loan wipe, audit A2). Now the same windows average 8.0% and 6.9%, sales per week are 26-52% higher, median household cash is about 50 higher, and money grows by 555k-682k, of which 506k-636k is recorded outside money; the remaining 46k-52k is bankrupt firms' negative cash disappearing on exit. Three seeds only; see the seed-spread table before reading small changes as effects.
+
 ### 2026-09-29: Agents/economy remediation, round 2 review fixes
 
 Fixes from the round-2 final review of the remediation branch. One item per commit, newest first.
