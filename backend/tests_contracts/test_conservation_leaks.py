@@ -453,3 +453,96 @@ def test_legacy_consumption_loan_is_recorded_in_household_ledger(fixed_seed):
         f"consumption loan missing from the ledger: gap {_ledger_gap(borrower):+.6f} "
         f"(ledger {borrower.last_tick_ledger})"
     )
+
+
+def _legacy_mortgage_scenario():
+    """A legacy housing firm with 30 units, 20 tenants, an outstanding investment
+    loan, and a one-unit expansion mortgage request priced as the firm prices it."""
+    housing = make_firm(firm_id=7, category="Housing", is_baseline=False,
+                        max_rental_units=30, production_capacity_units=30.0, cash_balance=60_000.0)
+    economy = _legacy_economy_with_bank(categories=("Food",), firms=[
+        make_firm(firm_id=1, category="Food"), housing], bank_reserves=500_000.0)
+    for household in economy.households[:20]:
+        household.renting_from_firm_id = housing.firm_id
+    housing.current_tenants = [h.household_id for h in economy.households[:20]]
+    bank = economy.bank
+    investment = bank.originate_loan("firm", housing.firm_id, 8_000.0, 0.05, 104)
+    housing.bank_loan_principal += 8_000.0
+    housing.bank_loan_remaining += investment["remaining"]
+    housing.bank_loan_payment_per_tick += investment["payment_per_tick"]
+    housing.needs_housing_expansion_loan = True
+    housing.housing_expansion_loan_amount = 15_000.0 * 1.2 ** (housing.max_rental_units / 10.0)
+    return economy, housing, investment
+
+
+def test_a6_a7_legacy_mortgage_is_on_the_bank_ledger_and_serviced_once(fixed_seed):
+    """Audit A6/A7 (Option 1): the bank record is the mortgage ledger and the
+    LoanContract services it; firm mirrors add and subtract, never overwrite."""
+    economy, housing, investment = _legacy_mortgage_scenario()
+    bank = economy.bank
+    principal = housing.housing_expansion_loan_amount
+    units_before = housing.max_rental_units
+    loans_out_before = bank.total_loans_outstanding
+    money_before = total_money_with_bank(economy)
+
+    economy._offer_housing_expansion_loans()
+
+    assert total_money_with_bank(economy) == pytest.approx(money_before, abs=MONEY_TOL)
+    records = [loan for loan in bank.loans_for("firm", housing.firm_id) if loan.get("subtype") == "housing_mortgage"]
+    assert len(records) == 1, "A6: the mortgage is not on the bank ledger"
+    record = records[0]
+    contract = housing.housing_active_loans[0]
+    assert record["principal"] == pytest.approx(principal)
+    assert contract.pmt_per_tick == pytest.approx(record["payment_per_tick"])
+    assert bank.total_loans_outstanding == pytest.approx(loans_out_before + record["remaining"])
+    assert housing.max_rental_units == units_before + 1, "A6: one unit was requested and priced"
+    assert housing.bank_loan_principal == pytest.approx(8_000.0 + principal)
+    assert housing.bank_loan_remaining == pytest.approx(investment["remaining"] + record["remaining"])
+    both_payments = investment["payment_per_tick"] + record["payment_per_tick"]
+    assert housing.bank_loan_payment_per_tick == pytest.approx(both_payments)
+
+    for _ in range(3):
+        money = total_money_with_bank(economy)
+        mortgage_before, investment_before = record["remaining"], investment["remaining"]
+        mirror_before = housing.bank_loan_remaining
+        economy._service_housing_mortgage_debt()
+        economy._collect_bank_loan_repayments()
+        assert total_money_with_bank(economy) == pytest.approx(money, abs=MONEY_TOL)
+        assert record["remaining"] == pytest.approx(mortgage_before - record["payment_per_tick"]), (
+            "A6/A7: the mortgage must be serviced exactly once per tick")
+        assert investment["remaining"] == pytest.approx(investment_before - investment["payment_per_tick"])
+        assert housing.bank_loan_remaining == pytest.approx(
+            mirror_before - record["payment_per_tick"] - investment["payment_per_tick"])
+        assert housing.bank_loan_payment_per_tick == pytest.approx(both_payments), (
+            "A7: servicing overwrote the investment loan's installment")
+
+    # Final installment: the charge is capped at what is owed and the mortgage closes.
+    owed = 0.4 * record["payment_per_tick"]
+    record["remaining"] = owed
+    housing.bank_loan_remaining = investment["remaining"] + owed
+    cash_before = housing.cash_balance
+    economy._service_housing_mortgage_debt()
+    assert cash_before - housing.cash_balance == pytest.approx(owed), "A7: final payment exceeds the balance"
+    assert record["remaining"] == pytest.approx(0.0)
+    assert housing.housing_active_loans == []
+    assert housing.bank_loan_payment_per_tick == pytest.approx(investment["payment_per_tick"])
+    assert housing.bank_loan_remaining == pytest.approx(investment["remaining"])
+
+
+def test_a6_exiting_firm_mortgage_is_written_off(fixed_seed):
+    """Audit A6: a legacy mortgage left by an exiting firm is written off to the bank."""
+    economy, housing, _ = _legacy_mortgage_scenario()
+    bank = economy.bank
+    economy._offer_housing_expansion_loans()
+    records = [loan for loan in bank.loans_for("firm", housing.firm_id) if loan.get("subtype") == "housing_mortgage"]
+    assert len(records) == 1, "A6: the mortgage is not on the bank ledger"
+    owed = records[0]["remaining"]
+    provision_before = bank.loan_loss_provision
+    investment_owed = sum(loan["remaining"] for loan in bank.loans_for("firm", housing.firm_id)) - owed
+
+    housing.cash_balance = -1_000_000.0
+    economy._handle_firm_exits()
+
+    assert housing not in economy.firms
+    assert records[0]["remaining"] == 0.0
+    assert bank.loan_loss_provision == pytest.approx(provision_before + owed + investment_owed)

@@ -6090,8 +6090,30 @@ class Economy:
                 continue
             surviving: list[LoanContract] = []
             total_pmt = 0.0
+            records = ({r["claim_id"]: r for r in bank.loans_for("firm", firm.firm_id)
+                        if r.get("subtype") == "housing_mortgage"}
+                       if self.payment_sequence == "legacy" else {})
             for loan in firm.housing_active_loans:
                 interest_due = min(loan.principal_remaining * loan.origination_tick_rate, loan.pmt_per_tick)
+                record = records.get(loan.claim_id) if loan.claim_id else None
+                if record is not None:
+                    # Legacy mortgage on the bank ledger: pay through the record,
+                    # capped at what is owed; mirrors move by what is paid.
+                    due = min(loan.pmt_per_tick, record["remaining"])
+                    if firm.cash_balance < due:
+                        surviving.append(loan)
+                        continue
+                    paid = bank.collect_repayment(record, due, self.government)
+                    firm.cash_balance -= paid
+                    firm.bank_loan_remaining = max(0.0, firm.bank_loan_remaining - paid)
+                    loan.principal_remaining = max(0.0, loan.principal_remaining - max(0.0, paid - interest_due))
+                    loan.ticks_remaining -= 1
+                    if record["remaining"] > 1e-6:
+                        surviving.append(loan)
+                    else:
+                        firm.bank_loan_payment_per_tick = max(
+                            0.0, firm.bank_loan_payment_per_tick - loan.pmt_per_tick)
+                    continue
                 actual_due = (min(loan.pmt_per_tick, loan.principal_remaining + interest_due)
                               if self.payment_sequence != "legacy" else loan.pmt_per_tick)
                 if firm.cash_balance < actual_due:
@@ -6121,11 +6143,11 @@ class Economy:
                     float(loan.get("remaining", 0.0)) for loan in registered_by_firm.get(firm.firm_id, ()))
             else:
                 firm.bank_loan_remaining = max(firm.bank_loan_remaining - total_pmt, 0.0)
-            if firm.housing_active_loans:
-                firm.bank_loan_payment_per_tick = total_pmt_tick + (
-                    sum(float(loan["payment_per_tick"]) for loan in registered_by_firm.get(firm.firm_id, ()))
-                    if self.payment_sequence != "legacy" else 0.0
-                )
+            # Legacy never overwrites this mirror: each mortgage adds its
+            # installment at origination and removes it when it closes.
+            if self.payment_sequence != "legacy" and firm.housing_active_loans:
+                firm.bank_loan_payment_per_tick = total_pmt_tick + sum(
+                    float(loan["payment_per_tick"]) for loan in registered_by_firm.get(firm.firm_id, ()))
             elif self.payment_sequence != "legacy":
                 firm.bank_loan_payment_per_tick = sum(
                     float(loan["payment_per_tick"]) for loan in registered_by_firm.get(firm.firm_id, ())
@@ -6167,7 +6189,15 @@ class Economy:
                 continue
 
             principal = firm.housing_expansion_loan_amount
-            units_to_build = min(max_build, max(1, round(principal / 15_000.0)))
+            # Whole units the principal buys on the firm's own cost curve (audit A6);
+            # invest_in_unit_expansion's request prices exactly one unit.
+            units_to_build, cost = 0, 0.0
+            while units_to_build < max_build:
+                cost += firm.housing_unit_cost(firm.max_rental_units + units_to_build)
+                if cost > principal * (1.0 + 1e-9):
+                    break
+                units_to_build += 1
+            units_to_build = max(1, units_to_build)
 
             # LTV gate: total_debt / total_assets ≤ max_ltv
             total_assets = (firm.max_rental_units + units_to_build) * unit_market_val + firm.cash_balance
@@ -6200,21 +6230,26 @@ class Economy:
                 firm.housing_expansion_loan_amount = 0.0
                 continue
 
-            # Issue amortizing mortgage
+            # Issue amortizing mortgage. The bank record is the ledger (active
+            # loans, outstanding, telemetry, exit write-off); the LoanContract
+            # linked by claim_id services it (audit A6/A7).
             r_tick = annual_rate / 52.0
-            bank.cash_reserves -= principal
+            record = bank.originate_loan("firm", firm.firm_id, principal, annual_rate, term_ticks)
+            record["subtype"] = "housing_mortgage"
+            record["claim_id"] = f"legacy-mortgage-{firm.firm_id}-{self.current_tick}"
             firm.cash_balance += principal
             contract = LoanContract(
                 principal_remaining=principal,
-                pmt_per_tick=pmt,
+                pmt_per_tick=record["payment_per_tick"],
                 ticks_remaining=term_ticks,
                 origination_tick_rate=r_tick,
+                claim_id=record["claim_id"],
             )
             firm.housing_active_loans.append(contract)
             # Mirror into legacy distress-detection fields
             firm.bank_loan_principal += principal
-            firm.bank_loan_remaining += principal
-            firm.bank_loan_payment_per_tick += pmt
+            firm.bank_loan_remaining += record["remaining"]
+            firm.bank_loan_payment_per_tick += record["payment_per_tick"]
 
             # Pay construction cost to misc firm (bank → firm → builder)
             firm.cash_balance -= principal
@@ -7573,6 +7608,8 @@ class Economy:
         for loan in list(bank.active_loans):
             if loan["remaining"] <= 1e-6:
                 continue
+            if loan.get("subtype") == "housing_mortgage" and loan["borrower_id"] in self.firm_lookup:
+                continue  # serviced by its LoanContract in _service_housing_mortgage_debt
 
             scheduled = loan["payment_per_tick"]
             if loan["borrower_type"] == "firm":

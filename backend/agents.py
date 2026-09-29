@@ -4887,6 +4887,11 @@ class FirmAgent(AgentMixin):
         """
         self.expected_sales_units = updated_expected_sales
 
+    @staticmethod
+    def housing_unit_cost(units: float) -> float:
+        """Construction cost of one more rental unit at a stock of ``units`` (diminishing returns)."""
+        return 15000.0 * 1.2 ** (units / 10.0)
+
     def invest_in_unit_expansion(
         self, economy: Optional["Economy"] = None, homeless_count: Optional[int] = None
     ) -> bool:
@@ -4935,9 +4940,7 @@ class FirmAgent(AgentMixin):
             return False
 
         # Calculate cost with diminishing returns
-        base_cost = 15000.0
-        cost_multiplier = 1.2 ** (self.max_rental_units / 10.0)
-        total_cost = base_cost * cost_multiplier
+        total_cost = self.housing_unit_cost(self.max_rental_units)
 
         # Scenario 1: Self-finance if firm has sufficient cash
         if self.cash_balance >= total_cost * 2.0:
