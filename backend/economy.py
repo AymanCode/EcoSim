@@ -5177,7 +5177,7 @@ class Economy:
 
             return min(
                 max(0.0, float(planned_production_units)),
-                service_capacity,
+                service_capacity * firm.supply_shock_multiplier,
             )
 
         # Calculate average productivity multiplier for the workforce
@@ -5217,6 +5217,8 @@ class Economy:
         # Apply government infrastructure multiplier
         # Government infrastructure investment boosts all productivity economy-wide
         avg_productivity_multiplier *= self.government.infrastructure_productivity_multiplier
+        # A random supply shock's temporary productivity change (B26).
+        avg_productivity_multiplier *= firm.supply_shock_multiplier
 
         # Apply to planned production
         # Cap at production capacity
@@ -6745,6 +6747,13 @@ class Economy:
         if self.in_warmup:
             return
 
+        # Earlier supply shocks fade toward 1.0 (snapped to 1.0 within 0.001).
+        shock_decay = float(CONFIG.firms.supply_shock_decay_per_tick)
+        for firm in self.firms:
+            if firm.supply_shock_multiplier != 1.0:
+                faded = 1.0 + (firm.supply_shock_multiplier - 1.0) * (1.0 - shock_decay)
+                firm.supply_shock_multiplier = 1.0 if abs(faded - 1.0) < 1e-3 else faded
+
         _rng = random.Random(CONFIG.random_seed + self.current_tick * 7_299_133)
 
         # 1. DEMAND SHOCK (5% chance per tick)
@@ -6805,9 +6814,8 @@ class Economy:
                 payload={"affected": int(len(affected_firms))},
             )
             for firm in affected_firms:
-                # Temporarily adjust production capacity
-                if hasattr(firm, 'last_units_produced') and firm.last_units_produced > 0:
-                    firm.last_units_produced = int(firm.last_units_produced * productivity_change)
+                # Production reads this multiplier this tick; it then fades (B26).
+                firm.supply_shock_multiplier = productivity_change
 
         # 3. HEALTH SHOCK (2% chance per tick)
         # Random health crisis affecting 1-5% of population

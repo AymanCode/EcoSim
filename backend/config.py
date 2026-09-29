@@ -606,6 +606,8 @@ class FirmBehaviorConfig:
     # Annual property tax rate on a housing firm's assessed value (units x rent x 52),
     # set once the firm builds its first unit; building more units grows the base only.
     housing_property_tax_rate: float = 0.005
+    # Share of a random supply shock's deviation from 1.0 that fades each tick.
+    supply_shock_decay_per_tick: float = 0.5
 
     # Phillips Curve wage algorithm
     nairu_threshold: float = 0.05       # Unemployment rate below which labor is scarce

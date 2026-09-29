@@ -1956,6 +1956,9 @@ class FirmAgent(AgentMixin):
     low_inventory_streak: int = 0
     last_units_sold: float = 0.0
     last_units_produced: float = 0.0  # Track production for pricing decisions
+    # Temporary productivity multiplier from a random supply shock; decays back
+    # to 1.0 (CONFIG.firms.supply_shock_decay_per_tick) (audit B26).
+    supply_shock_multiplier: float = 1.0
     last_revenue: float = 0.0
     last_profit: float = 0.0
     revenue_ema: float = 0.0
