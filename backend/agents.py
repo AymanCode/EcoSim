@@ -4375,8 +4375,11 @@ class FirmAgent(AgentMixin):
             # Phillips Curve: labor market tightness controls wage direction
             nairu = firm_config.nairu_threshold
             if unemployment_short_ma > nairu:
-                # Labor surplus: pin to minimum wage, do not escalate
-                return {"wage_offer_next": floor_wage}
+                # Labor surplus: do not escalate; fall toward the floor no faster
+                # than max_wage_decrease_per_tick, under the same revenue ceiling
+                # as the path below (audit B20).
+                decayed = self.wage_offer * firm_config.max_wage_decrease_per_tick
+                return {"wage_offer_next": max(floor_wage, min(decayed, _revenue_ceiling))}
             else:
                 # Labor shortage: bump 5% on hire failure if affordable
                 hire_failed = (

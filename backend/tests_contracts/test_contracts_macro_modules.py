@@ -157,17 +157,32 @@ def test_contract_fully_satisfied_demand_leaves_unmet_zero():
 # Module 2: Phillips Curve Wage Algorithm
 # ---------------------------------------------------------------------------
 
-def test_contract_phillips_surplus_pins_to_benefit_floor():
-    """unemployment_short_ma > NAIRU → wage clamped to max(min_wage, benefit*1.5)."""
+def test_contract_phillips_surplus_decays_toward_benefit_floor():
+    """unemployment_short_ma > NAIRU → wage falls toward max(min_wage, benefit*1.5).
+
+    It falls by at most max_wage_decrease_per_tick a tick (audit B20; before, it
+    snapped to the floor in one tick) and stops at the floor.
+    """
     firm = _plain_food_firm(wage_offer=50.0)
     benefit = 12.0
-    plan = firm.plan_wage(
-        unemployment_benefit=benefit,
-        in_warmup=False,
-        unemployment_short_ma=_NAIRU + 0.10,  # clearly in surplus
-    )
     expected_floor = max(CONFIG.firms.minimum_wage_floor, benefit * 1.5)
-    assert plan["wage_offer_next"] == pytest.approx(expected_floor, rel=1e-6)
+    decrease = CONFIG.firms.max_wage_decrease_per_tick
+    offers = []
+    for _ in range(12):
+        plan = firm.plan_wage(
+            unemployment_benefit=benefit,
+            in_warmup=False,
+            unemployment_short_ma=_NAIRU + 0.10,  # clearly in surplus
+        )
+        offers.append(plan["wage_offer_next"])
+        firm.wage_offer = plan["wage_offer_next"]
+    assert offers[0] == pytest.approx(50.0 * decrease, rel=1e-6)
+    previous = 50.0
+    for offer in offers:
+        assert offer >= previous * decrease - 1e-9
+        assert offer >= expected_floor - 1e-9
+        previous = offer
+    assert offers[-1] == pytest.approx(expected_floor, rel=1e-6)
 
 
 def test_contract_phillips_shortage_bumps_wage_when_hire_failed():

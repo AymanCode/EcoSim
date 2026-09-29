@@ -836,3 +836,61 @@ def test_contract_baseline_food_normal_tier_keeps_demand_floor():
 
     assert firm.decision_diagnostics["baseline_food_liquidation_tier"] == "normal"
     assert plan["planned_layoffs_ids"] == []
+
+
+def test_contract_wage_offer_decays_toward_floor_above_nairu():
+    """B20: in a labor surplus the wage offer falls at most max_wage_decrease_per_tick a tick.
+
+    Before the fix, `unemployment_short_ma > nairu_threshold` returned the floor
+    wage in one tick (60 -> 36 in this test), bypassing the per-tick decrease limit.
+    """
+    from agents import FirmHealthSnapshot
+
+    firm = FirmAgent(
+        firm_id=91,
+        good_name="FoodFirm91",
+        cash_balance=100_000.0,
+        inventory_units=100.0,
+        good_category="Food",
+        quality_level=5.0,
+        wage_offer=60.0,
+        price=10.0,
+        expected_sales_units=100.0,
+        production_capacity_units=500.0,
+        productivity_per_worker=10.0,
+        personality="moderate",
+        is_baseline=False,
+    )
+    firm.employees = [1, 2, 3]
+    firm.actual_wages = {1: 60.0, 2: 60.0, 3: 60.0}
+    firm._invalidate_wage_bill_cache()
+    firm.last_revenue = 100_000.0
+    snapshot = FirmHealthSnapshot(
+        cash_runway_ticks=50.0,
+        smoothed_profit_margin=0.2,
+        sell_through_rate=0.9,
+        inventory_weeks=1.0,
+        unfilled_positions_streak=0,
+        worker_turnover_this_tick=0,
+        survival_mode=False,
+        burn_mode=False,
+        category_wage_anchor_p75=60.0,
+    )
+    nairu = CONFIG.firms.nairu_threshold
+    plan = firm.plan_wage(
+        health_snapshot=snapshot,
+        unemployment_short_ma=nairu + 0.05,
+        minimum_wage_floor=36.0,
+    )
+    expected = 60.0 * CONFIG.firms.max_wage_decrease_per_tick
+    assert expected > 36.0
+    assert plan["wage_offer_next"] == pytest.approx(expected)
+
+    # Near the floor the decay stops at the floor.
+    firm.wage_offer = 38.0
+    plan = firm.plan_wage(
+        health_snapshot=snapshot,
+        unemployment_short_ma=nairu + 0.05,
+        minimum_wage_floor=36.0,
+    )
+    assert plan["wage_offer_next"] == pytest.approx(36.0)
