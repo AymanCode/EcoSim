@@ -6353,8 +6353,7 @@ class Economy:
         per_household = total_investment / len(self.households)
         for hh in self.households:
             hh.cash_balance += per_household
-            if self.payment_sequence != "legacy":
-                hh.add_ledger_flow("other", per_household)
+            hh.add_ledger_flow("other", per_household)
 
     def _offer_consumption_loans(self) -> None:
         """Phase 2a: Process household consumption loan requests.

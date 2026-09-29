@@ -404,3 +404,35 @@ def test_a9_healthcare_deposit_withdrawal_is_recorded_in_household_ledger(fixed_
         f"A9: healthcare withdrawal missing from the ledger (gap {_ledger_gap(patient):+.6f}, "
         f"withdrawn {sum(care_withdrawals):.6f})"
     )
+
+
+def test_capital_recycle_is_recorded_in_household_ledger(fixed_seed, monkeypatch):
+    """Phase 4 follow-up: the legacy capital recycle appears in each household's ledger.
+
+    The A2 scenario (a long-term capital loan on tick 1) makes
+    ``_recycle_capital_investment`` pay every household. After the tick each
+    household's ledger flows must sum to its cash change.
+    """
+    government = make_government()
+    firms = make_firms(("Food", "Healthcare"), num_per_category=1, government=government)
+    services = make_firm(firm_id=10, category="Services", is_baseline=False)
+    services.lost_sales_streak = 5  # sustained-demand gate
+    firms.append(services)
+    economy = _legacy_economy_with_bank(firms=firms, government=government)
+
+    recycled: List[float] = []
+    original_recycle = economy._recycle_capital_investment
+
+    def spy_recycle():
+        cash_before = economy.households[0].cash_balance
+        original_recycle()
+        recycled.append(economy.households[0].cash_balance - cash_before)
+
+    monkeypatch.setattr(economy, "_recycle_capital_investment", spy_recycle)
+    economy.step()
+
+    assert sum(recycled) > 0.0, "precondition: the recycle paid nothing"
+    gaps = {h.household_id: _ledger_gap(h) for h in economy.households if abs(_ledger_gap(h)) > MONEY_TOL}
+    assert not gaps, (
+        f"recycle missing from the ledger: gaps {gaps} (recycled {sum(recycled):.6f} per household)"
+    )
