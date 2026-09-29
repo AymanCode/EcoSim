@@ -303,3 +303,42 @@ def test_no_bank_medical_loan_amortizes_over_the_medical_term():
     installment = v2_payment(500.0, rate, 52, int(CONFIG.time.ticks_per_year))
     assert hh.medical_loan_remaining == pytest.approx(installment * 52)
     assert hh.cash_balance == pytest.approx(500.0)
+
+
+def test_bailout_emergency_loan_amortizes_over_its_term():
+    """Round-2 review fix: a bailout loan owes the amortized schedule.
+
+    Before the fix `Economy._execute_bailouts` booked
+    `loan_amount * (1 + emergency_loan_interest)`, one year of interest, over a
+    104-tick term (`emergency_loan_term_years = 2.0`).
+    """
+    from agents import FirmAgent
+    from config import CONFIG
+    from economy import Economy
+    from payment_loans import v2_payment
+    from tests_contracts.factories import make_households
+
+    government = GovernmentAgent(cash_balance=50_000.0)
+    firm = FirmAgent(
+        firm_id=912, good_name="DistressedFood", cash_balance=100.0, inventory_units=200.0,
+        good_category="Food", quality_level=4.5, wage_offer=50.0, price=8.0,
+        expected_sales_units=50.0, production_capacity_units=300.0,
+        productivity_per_worker=10.0, personality="moderate", is_baseline=False,
+    )
+    firm.age_in_ticks = 6
+    firm.employees = [10, 11, 12]
+    firm.actual_wages = {employee_id: 50.0 for employee_id in firm.employees}
+    firm.last_revenue = 20.0
+    economy = Economy(households=make_households(2), firms=[firm], government=government)
+    government.set_lever("bailout_policy", "all")
+    government.set_lever("bailout_budget", 5_000)
+
+    economy._execute_bailouts()
+
+    principal = firm.government_loan_principal
+    assert principal > 0.0
+    tpy = int(CONFIG.time.ticks_per_year)
+    term = max(1, int(tpy * CONFIG.government.emergency_loan_term_years))
+    installment = v2_payment(principal, CONFIG.government.emergency_loan_interest, term, tpy)
+    assert firm.loan_payment_per_tick == pytest.approx(installment)
+    assert firm.government_loan_remaining == pytest.approx(installment * term)

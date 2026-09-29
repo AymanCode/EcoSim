@@ -4,6 +4,12 @@ Notable changes and decisions for EcoSim, newest first. The project does not use
 
 ## Unreleased
 
+### 2026-09-29: Agents/economy remediation, round 2 review fixes
+
+Fixes from the round-2 final review of the remediation branch. One item per commit, newest first.
+
+- **Bailout emergency loans charged one year of interest on a two-year term (round-2 review, follow-up to A4).** Before: `Economy._execute_bailouts` booked `total_repayment = loan_amount * (1.0 + emergency_loan_interest)` into `government_loan_remaining` and `total_repayment / term_ticks` into `loan_payment_per_tick`, with `term_ticks = ticks_per_year * emergency_loan_term_years` (104 ticks at the default 2.0 years), so a two-year loan owed one year of interest on both arms. Now: the installment is `payment_loans.v2_payment(loan_amount, emergency_loan_interest, term_ticks, ticks_per_year)`, `loan_payment_per_tick` adds that installment and `government_loan_remaining` adds `installment * term_ticks`, the same amortized schedule the legacy treasury direct loans use; nothing recomputes it later. Evidence: new `test_bailout_emergency_loan_amortizes_over_its_term` in `test_loan_settlement.py` (before: an installment of 1.9423 on a 200 bailout, 202.00 owed; now 1.9426, 202.03 owed at 1% over 104 ticks). Goldens: all three match without re-saving (bailout policy is `off` by default, so no bailout is made). Payment arm: the booking is shared by both arms and changed on both.
+
 ### 2026-09-29: Agents/economy remediation, phase 6 (flag-gated macro fixes)
 
 Five economy-wide behavior fixes, each behind a new config flag whose default (`False`) keeps the old behavior; all three goldens match exactly with every flag off. One fix per commit, newest first. No default is flipped here: the owner decides from the flag-off versus flag-on comparison tables (1,500 households, 300 ticks, legacy seeds 42/7/11 plus seed 42 on `income_first`). Plan: [docs/reviews/2026-09-28-agents-economy-remediation-plan.md](docs/reviews/2026-09-28-agents-economy-remediation-plan.md), phase 6. None of the flags is exposed in the server setup schema or the UI; they are library config fields only.

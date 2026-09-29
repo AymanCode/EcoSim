@@ -6663,6 +6663,8 @@ class Economy:
             int(CONFIG.time.ticks_per_year * CONFIG.government.emergency_loan_term_years)
         )
         interest_rate = CONFIG.government.emergency_loan_interest
+        from payment_loans import v2_payment
+        ticks_per_year = int(CONFIG.time.ticks_per_year)
 
         for firm in candidate_firms:
             if available_budget <= 0.0 or self._payment_free_treasury_cash() <= reserve_floor:
@@ -6676,11 +6678,12 @@ class Economy:
                 )
                 continue
 
-            total_repayment = loan_amount * (1.0 + interest_rate)
+            # Amortized installment over the term, as bank loans charge (v2_payment).
+            installment = v2_payment(loan_amount, interest_rate, term_ticks, ticks_per_year)
             firm.cash_balance += loan_amount
             firm.government_loan_principal += loan_amount
-            firm.government_loan_remaining += total_repayment
-            firm.loan_payment_per_tick += total_repayment / max(1, term_ticks)
+            firm.government_loan_remaining += installment * term_ticks
+            firm.loan_payment_per_tick += installment
             gov.cash_balance -= loan_amount
             gov.record_bailout(firm.good_category, firm.firm_id, loan_amount)
             firm.received_bailout_this_tick = True
