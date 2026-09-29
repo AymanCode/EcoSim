@@ -874,6 +874,7 @@ def test_contract_services_weak_demand_wage_cut_is_fixed_amount():
     assert first["wage_offer_next"] == pytest.approx(45.0)
     assert firm.service_weak_demand_streak == 1
 
+    firm.age_in_ticks += 1  # next tick (plan_production_and_labor advances it in a run)
     firm.last_profit = -2.0
     second = firm.plan_wage(in_warmup=False, minimum_wage_floor=36.0)
     assert second["wage_offer_next"] == pytest.approx(42.0)
@@ -905,6 +906,7 @@ def test_contract_services_weak_demand_streak_resets_on_profit_or_strong_utiliza
     assert profitable_plan["wage_offer_next"] == pytest.approx(45.0)
 
     firm.service_weak_demand_streak = 2
+    firm.age_in_ticks += 1  # next tick (plan_production_and_labor advances it in a run)
     firm.last_units_produced = 10.0
     firm.last_units_sold = 9.0
     firm.last_profit = -1.0
@@ -913,6 +915,36 @@ def test_contract_services_weak_demand_streak_resets_on_profit_or_strong_utiliza
 
     assert firm.service_weak_demand_streak == 0
     assert strong_plan["wage_offer_next"] == pytest.approx(45.0)
+
+
+def test_contract_services_weak_demand_streak_advances_once_per_tick_in_steady_weak_demand():
+    """B16: a firm whose weak demand repeats exactly still advances its streak each tick.
+
+    The streak is refreshed by both the labor planner and the wage planner every
+    tick. Before the fix they were deduplicated by the (units sold, units
+    produced, profit) observation, so identical weak ticks never counted past 1
+    and the >= 5 last-resort headcount cut could not fire.
+    """
+    firm = _make_service_flow_firm(wage_offer=36.0, production_capacity_units=5.0)
+    firm.cash_runway_ticks = math.inf
+    streaks = []
+    last_plan = None
+    for _ in range(6):
+        firm.last_units_produced = 10.0
+        firm.last_units_sold = 7.0
+        firm.last_profit = -1.0
+        last_plan = firm.plan_production_and_labor(
+            last_tick_sales_units=7.0,
+            in_warmup=False,
+            total_households=100,
+            minimum_wage_floor=36.0,
+        )
+        firm.plan_wage(in_warmup=False, minimum_wage_floor=36.0)
+        streaks.append(firm.service_weak_demand_streak)
+
+    assert streaks == [1, 2, 3, 4, 5, 6]
+    assert firm.decision_diagnostics.get("services_headcount_last_resort") is True
+    assert len(last_plan["planned_layoffs_ids"]) >= 1
 
 
 def test_contract_services_weak_demand_headcount_last_resort_only_at_minimum_wage():

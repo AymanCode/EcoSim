@@ -2005,7 +2005,8 @@ class FirmAgent(AgentMixin):
     service_infrastructure_loan_remaining: float = 0.0
     service_infrastructure_loan_payment_per_tick: float = 0.0
     service_weak_demand_streak: int = 0
-    service_weak_demand_observation_key: tuple = field(default_factory=tuple)
+    # age_in_ticks of the tick whose observation the streak last counted (-1: none).
+    service_weak_demand_counted_tick: int = -1
     # Rolling firm-specific Services unmet-demand window (last 5 ticks).
     service_unmet_demand_window: List[float] = field(default_factory=list)
     # Baseline Food: fire half of employees once at warmup→post-warmup transition.
@@ -2270,25 +2271,26 @@ class FirmAgent(AgentMixin):
         return max(low, min(high, self.units_per_worker))
 
     def _refresh_service_weak_demand_streak(self) -> float:
-        """Update Services weak-demand streak once per realized observation."""
+        """Update the Services weak-demand streak once per tick.
+
+        Both the labor planner and the wage planner call this every tick; the
+        streak counts the tick's observation once, keyed by ``age_in_ticks``
+        (which ``plan_production_and_labor`` advances once per tick, before
+        ``plan_wage`` runs), so identical weak ticks keep advancing it.
+        """
         utilization = max(0.0, float(self.last_units_sold)) / max(float(self.last_units_produced), 1e-6)
         if self.is_baseline or not self._is_generic_services_firm():
             self.service_weak_demand_streak = 0
-            self.service_weak_demand_observation_key = ()
+            self.service_weak_demand_counted_tick = -1
             return utilization
 
-        observation_key = (
-            round(float(self.last_units_sold), 6),
-            round(float(self.last_units_produced), 6),
-            round(float(self.last_profit), 6),
-        )
-        if observation_key != self.service_weak_demand_observation_key:
+        if self.age_in_ticks != self.service_weak_demand_counted_tick:
             weak_demand_tick = utilization < 0.75 and self.last_profit < 0.0
             if weak_demand_tick:
                 self.service_weak_demand_streak += 1
             if utilization >= 0.90 or self.last_profit >= 0.0:
                 self.service_weak_demand_streak = 0
-            self.service_weak_demand_observation_key = observation_key
+            self.service_weak_demand_counted_tick = self.age_in_ticks
 
         self.decision_diagnostics["service_utilization_for_wage_recovery"] = utilization
         self.decision_diagnostics["service_weak_demand_streak"] = self.service_weak_demand_streak
