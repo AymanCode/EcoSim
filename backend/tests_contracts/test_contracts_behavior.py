@@ -894,3 +894,33 @@ def test_contract_wage_offer_decays_toward_floor_above_nairu():
         minimum_wage_floor=36.0,
     )
     assert plan["wage_offer_next"] == pytest.approx(36.0)
+
+
+def test_contract_skill_growth_is_proportional_to_ticks_employed():
+    """B31(a): the yearly skill grant counts the ticks actually worked.
+
+    Before the fix, apply_labor_outcome granted 52 ticks of growth whenever 52
+    calendar ticks had passed since the last grant, so a worker employed for
+    one tick of the year got a full year's growth.
+    """
+    hh = _fresh_household(21)
+    hh.skills_level = 0.5
+    hh.skill_growth_rate = 0.001
+    employed = {"employer_id": 1, "wage": 40.0, "employer_category": "Food"}
+    unemployed = {"employer_id": None, "wage": 0.0, "employer_category": None}
+    for tick in range(1, 53):
+        hh.apply_labor_outcome(employed if tick > 42 else unemployed, current_tick=tick)
+    # Employed on ticks 43-52 (10 ticks) when the grant fires at tick 52.
+    assert hh.skills_level == pytest.approx(0.5 + 0.001 * (1.0 - 0.5) * 10)
+
+
+def test_contract_initial_job_search_cooldown_is_at_least_one_tick():
+    """B31(b): no household starts able to job-shop on every warmup tick.
+
+    Cooldowns do not tick during warmup, so a household drawn at 0 was
+    eligible for on-the-job search on every warmup tick.
+    """
+    cooldowns = [HouseholdAgent(household_id=i, skills_level=0.5, age=30, cash_balance=100.0).job_search_cooldown
+                 for i in range(1, 1001)]
+    assert min(cooldowns) >= 1
+    assert max(cooldowns) <= 52

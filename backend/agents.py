@@ -191,6 +191,7 @@ class HouseholdAgent(AgentMixin):
     skill_growth_rate: Optional[float] = None  # base skill improvement per tick when employed
     education_cost_per_skill_point: float = 1000.0  # cost to improve skill by 0.1
     last_skill_update_tick: int = 0  # Tick when skills were last increased (for rate limiting)
+    employed_ticks_since_skill_update: int = 0  # Ticks worked since the last skill grant (B31)
     last_wage_update_tick: int = 0  # Tick when wage premiums were last increased (for rate limiting)
 
     # Wellbeing and performance factors
@@ -613,8 +614,12 @@ class HouseholdAgent(AgentMixin):
         keep("reservation_wage", reservation_wage)
         keep("price_expectation_alpha", sample_range(config.price_expectation_alpha_range, clip_min=0.01, clip_max=1.0))
 
-        # Stagger on-the-job search cooldowns so not all workers check simultaneously
-        keep("job_search_cooldown", rng.randint(0, 52))
+        # Stagger on-the-job search cooldowns so not all workers check simultaneously.
+        # 1..52: cooldowns do not tick during warmup, so 0 would let a household
+        # job-shop on every warmup tick (B31). A draw of 0 maps to 52 instead of
+        # calling randint(1, 52), whose rejection sampling can consume a different
+        # number of values and shift this household's later draws.
+        keep("job_search_cooldown", rng.randint(0, 52) or 52)
         keep("job_switch_threshold", sample_range((0.10, 0.25), clip_min=0.05, clip_max=0.50))
         keep("wage_expectation_alpha", sample_range(config.wage_expectation_alpha_range, clip_min=0.01, clip_max=1.0))
         keep("reservation_markup_over_benefit", sample_range(config.reservation_markup_range, clip_min=1.0, clip_max=2.0))
@@ -1660,13 +1665,15 @@ class HouseholdAgent(AgentMixin):
                 self.category_experience[employer_category] += 1
 
             # Passive skill growth through work experience (diminishing returns)
-            # Only update skills once every 52 ticks (yearly)
+            # Only update skills once every 52 ticks (yearly), crediting the
+            # ticks actually worked since the last grant (B31).
+            self.employed_ticks_since_skill_update += 1
             if current_tick - self.last_skill_update_tick >= 52:
                 skill_improvement = self.skill_growth_rate * (1.0 - self.skills_level)
-                # Apply 52 ticks worth of growth at once
-                total_improvement = skill_improvement * 52
+                total_improvement = skill_improvement * self.employed_ticks_since_skill_update
                 self.skills_level = min(1.0, self.skills_level + total_improvement)
                 self.last_skill_update_tick = current_tick
+                self.employed_ticks_since_skill_update = 0
 
         hh_config = CONFIG.households
 
