@@ -351,3 +351,20 @@ def test_all_phase6_flags_on_keep_rosters_and_wage_bill_cache_exact(payment_sequ
             for household in economy.households:
                 if household.employer_id is not None and household.employer_id in economy.firm_lookup:
                     assert household.household_id in economy.firm_lookup[household.employer_id].employees
+
+
+@pytest.mark.parametrize("households, labor_market", [
+    ({"tie_break_scale": -1e-3}, {}),
+    ({"tie_break_scale": float("nan")}, {}),
+    ({"tie_break_scale": float("inf")}, {}),
+    ({}, {"switcher_vacancy_cap_per_firm": -1}),
+])
+def test_phase6_numeric_knobs_are_validated(households, labor_market):
+    """Round-2 review: the phase 6 numeric knobs are checked in `__post_init__`."""
+    from config import HouseholdBehaviorConfig, LaborMarketConfig, SimulationConfig
+
+    with pytest.raises(ValueError):
+        SimulationConfig(households=HouseholdBehaviorConfig(**households),
+                         labor_market=LaborMarketConfig(**labor_market))
+    SimulationConfig(households=HouseholdBehaviorConfig(tie_break_scale=0.0),
+                     labor_market=LaborMarketConfig(switcher_vacancy_cap_per_firm=0))

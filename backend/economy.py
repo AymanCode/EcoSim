@@ -4057,6 +4057,8 @@ class Economy:
             buckets[int(bucket_id)].append(candidate_idx)
         for bucket in buckets:
             bucket.sort(key=lambda idx: (-float(skills[idx]), int(household_ids[idx])))
+        employer_ids: List[int] = []
+        switcher_order: List[int] = []
         if fix_switchers:
             employer_ids = [
                 -1 if h.employer_id is None else int(h.employer_id) for h in self.households

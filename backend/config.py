@@ -6,6 +6,7 @@ This replaces scattered "magic numbers" throughout the codebase.
 """
 
 import copy
+import math
 import sys
 from contextlib import contextmanager
 from contextvars import ContextVar
@@ -970,6 +971,10 @@ class SimulationConfig:
             raise ValueError("food_elasticity must be non-negative")
         if self.households.services_elasticity < 0:
             raise ValueError("services_elasticity must be non-negative")
+        if not (math.isfinite(self.households.tie_break_scale) and self.households.tie_break_scale >= 0.0):
+            raise ValueError("tie_break_scale must be finite and non-negative")
+        if self.labor_market.switcher_vacancy_cap_per_firm < 0:
+            raise ValueError("switcher_vacancy_cap_per_firm must be non-negative")
 
         # Validate range tuples (low <= high)
         for name, (lo, hi) in [
