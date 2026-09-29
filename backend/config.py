@@ -773,11 +773,14 @@ class LaborMarketConfig:
     # Regulatory
     minimum_wage_floor: float = 20.0
 
-    # Remediation phase 6 (audit B13/B14), default off = old behavior: job
-    # switchers open at most switcher_vacancy_cap_per_firm synthetic vacancies
-    # per idle private firm without planned layoffs, filled only by switchers,
-    # never by a worker's own employer; a laid-off switcher is not put back.
-    fix_switcher_vacancies: bool = False
+    # Remediation phase 6 (audit B13/B14), on by default since the owner
+    # decision of 2026-09-29: job switchers open at most
+    # switcher_vacancy_cap_per_firm synthetic vacancies per idle private firm
+    # without planned layoffs, filled only by switchers, never by a worker's
+    # own employer; a laid-off switcher is not put back. False restores the
+    # old behavior (one vacancy per switcher at every idle private firm,
+    # written into its plan and filled from the whole candidate pool).
+    fix_switcher_vacancies: bool = True
     switcher_vacancy_cap_per_firm: int = 1
 
     # Housing Market

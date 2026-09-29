@@ -1,8 +1,10 @@
 """Remediation phase 6: flag-gated macro behavior fixes.
 
-Each fix sits behind a config flag that defaults to the old behavior. Every
-test here checks the flag-on behavior and that the flag-off path keeps the
-old behavior.
+Each fix sits behind a config flag. Four flags default to the old behavior;
+`fix_switcher_vacancies` (B13/B14) defaults to the fix since the owner decision
+of 2026-09-29, and setting it False restores the old behavior. Every test here
+checks the flag-on behavior and that the flag-off path keeps the old behavior;
+flag-off tests set the flag explicitly rather than relying on the default.
 """
 
 import random
@@ -77,7 +79,8 @@ def test_b12_flag_on_planned_offer_below_cut_is_kept(factory, monkeypatch):
     assert firm.wage_offer == pytest.approx(50.0)
 
 
-# --- B13/B14: job-switcher vacancies (fix_switcher_vacancies)
+# --- B13/B14: job-switcher vacancies (fix_switcher_vacancies, default True
+# since the owner decision of 2026-09-29; False restores the old side door)
 
 
 def _labor_plan(household, *, reservation=10.0, switching=False):
@@ -116,8 +119,8 @@ def _switcher_market(factory):
     return economy, production, wages, labor
 
 
-def test_b13_flag_off_switchers_open_vacancies_for_everyone(factory):
-    assert CONFIG.labor_market.fix_switcher_vacancies is False
+def test_b13_flag_off_switchers_open_vacancies_for_everyone(factory, monkeypatch):
+    monkeypatch.setattr(CONFIG.labor_market, "fix_switcher_vacancies", False)
     economy, production, wages, labor = _switcher_market(factory)
     firm_out, hh_out = economy._match_labor_fast(production, wages, labor)
     # Two switchers give every private idle firm, the laying-off one too, two
@@ -129,8 +132,9 @@ def test_b13_flag_off_switchers_open_vacancies_for_everyone(factory):
     assert hh_out[5]["employer_id"] == 3
 
 
-def test_b13_flag_on_switcher_vacancies_are_local_capped_and_switcher_only(factory, monkeypatch):
-    monkeypatch.setattr(CONFIG.labor_market, "fix_switcher_vacancies", True)
+def test_b13_flag_on_by_default_switcher_vacancies_are_local_capped_and_switcher_only(factory):
+    # Owner decision 2026-09-29: the fix is the default.
+    assert CONFIG.labor_market.fix_switcher_vacancies is True
     economy, production, wages, labor = _switcher_market(factory)
     firm_out, hh_out = economy._match_labor_fast(production, wages, labor)
     assert [production[fid]["planned_hires_count"] for fid in (1, 2, 3)] == [0, 0, 0]
