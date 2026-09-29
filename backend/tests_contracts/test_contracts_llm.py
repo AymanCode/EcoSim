@@ -1186,6 +1186,33 @@ def test_contract_bailout_budget_resets_each_decision_cycle():
     assert government.bailout_budget_remaining == pytest.approx(10_000.0)
 
 
+def test_contract_mid_cycle_bailout_lever_change_keeps_cycle_spending():
+    """B24: changing a bailout lever mid-cycle does not refill the budget or erase the cycle."""
+    government = GovernmentAgent(cash_balance=50_000.0)
+    government.set_lever("bailout_policy", "sector")
+    government.set_lever("bailout_target", "food")
+    government.set_lever("bailout_budget", 10_000)
+    government.record_bailout("Food", firm_id=7, amount=4_000.0)
+
+    government.set_lever("bailout_policy", "all")
+    assert government.bailout_budget_remaining == pytest.approx(6_000.0)
+    government.set_lever("bailout_budget", 5_000)
+    assert government.bailout_budget_remaining == pytest.approx(1_000.0)
+    government.set_lever("bailout_budget", 0)
+    assert government.bailout_budget_remaining == 0.0
+    government.set_lever("bailout_budget", 10_000)
+    assert government.bailout_budget_remaining == pytest.approx(6_000.0)
+
+    government.record_bailout("Food", firm_id=7, amount=1_000.0)
+    government.begin_decision_cycle()
+
+    assert government.last_cycle_bailout_disbursed == pytest.approx(5_000.0)
+    assert government.last_cycle_bailout_remaining == pytest.approx(5_000.0)
+    assert government.last_cycle_bailout_firms_assisted == 1
+    assert government.last_cycle_bailout_sector_spend == pytest.approx({"food": 5_000.0})
+    assert government.bailout_budget_remaining == pytest.approx(10_000.0)
+
+
 def test_contract_technology_spending_changes_effective_market_quality(tiny_economy_factory):
     economy = tiny_economy_factory(num_households=18, num_firms_per_category=1, disable_shocks=True, seed=907)
     food_firm = next(f for f in economy.firms if f.good_category.lower() == "food")

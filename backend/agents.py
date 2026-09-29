@@ -5981,14 +5981,14 @@ class GovernmentAgent(AgentMixin):
         self.last_tick_bailout_sector_spend = {}
 
     def sync_bailout_cycle_budget(self) -> None:
-        """Refresh the active bailout cycle after a manual policy change."""
+        """Apply a mid-cycle bailout lever change to the active cycle.
+
+        The new budget becomes this cycle's authorization, less what the cycle
+        has already disbursed. The cycle's spending counters are kept for
+        begin_decision_cycle to archive.
+        """
         self.bailout_cycle_authorized = float(self.bailout_budget)
-        self.bailout_budget_remaining = float(self.bailout_budget)
-        self.bailout_cycle_disbursed = 0.0
-        self.bailout_cycle_firms_assisted = 0
-        self.bailout_cycle_sector_spend = {}
-        self.bailout_cycle_assisted_firms = {}
-        self.reset_tick_bailout_telemetry()
+        self.bailout_budget_remaining = max(0.0, float(self.bailout_budget) - self.bailout_cycle_disbursed)
 
     def record_bailout(self, category: str, firm_id: int, amount: float) -> None:
         """Record one bailout disbursement against the active decision cycle.
