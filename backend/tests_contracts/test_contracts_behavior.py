@@ -231,6 +231,39 @@ def test_contract_infrastructure_multiplier_is_capped_and_decays():
     assert 1.0 <= government.infrastructure_productivity_multiplier < 1.0 + 1e-6
 
 
+def test_contract_household_constructor_overrides_survive_personality_sampling():
+    """B30: fields passed to HouseholdAgent are kept; only omitted fields are sampled."""
+    base = dict(household_id=41, skills_level=0.5, age=30, cash_balance=100.0)
+    default = HouseholdAgent(**base)
+    custom = HouseholdAgent(
+        **base,
+        happiness=0.25,
+        expected_wage=42.0,
+        reservation_wage=20.0,
+        price_expectation_alpha=0.5,
+        saving_tendency=0.9,
+        job_search_cooldown=3,
+    )
+
+    assert custom.happiness == 0.25
+    assert custom.expected_wage == 42.0
+    assert custom.reservation_wage == 20.0
+    assert custom.price_expectation_alpha == 0.5
+    assert custom.saving_tendency == 0.9
+    assert custom.job_search_cooldown == 3
+    # Derived from the supplied saving tendency, not a sampled one.
+    assert custom.deposit_buffer_weeks == pytest.approx(3.0 + 7.0 * 0.9)
+    # Omitted fields take the same draws as a default household.
+    assert custom.morale == default.morale
+    assert custom.spending_tendency == default.spending_tendency
+    assert custom.min_services_per_tick == default.min_services_per_tick
+
+    with pytest.raises(ValueError):
+        HouseholdAgent(**base, price_expectation_alpha=1.5)
+    with pytest.raises(ValueError):
+        HouseholdAgent(**base, consumption_budget_share=2.0)
+
+
 def test_contract_morale_reacts_to_employment_housing_and_wages():
     """Contract I: Morale direction follows employment, housing, and wage satisfaction."""
     base = _fresh_household(40)

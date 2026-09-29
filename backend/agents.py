@@ -161,7 +161,7 @@ class HouseholdAgent(AgentMixin):
     last_healthcare_provider_id: Optional[int] = None
     last_purchase_breakdown: Dict[str, Any] = field(default_factory=dict)  # good_name -> {units, spend}
     # Preferences and heuristics
-    consumption_budget_share: float = 0.7  # Legacy field (overridden by savings_rate_target if set)
+    consumption_budget_share: Optional[float] = None  # Legacy field (overridden by savings_rate_target if set)
     good_weights: Dict[str, float] = field(default_factory=dict)  # DEPRECATED: use category_weights
     category_weights: Dict[str, float] = field(default_factory=dict)  # category -> share of budget
     savings_rate_target: Optional[float] = None  # long-run desired savings share [0,1]
@@ -169,41 +169,41 @@ class HouseholdAgent(AgentMixin):
     purchase_styles: Dict[str, str] = field(default_factory=dict)  # category -> cheap/value/quality
 
     # Quality/price preferences
-    quality_preference_weight: float = 1.0  # elasticity for quality in purchase decisions
-    price_sensitivity: float = 1.0  # elasticity for price in purchase decisions
+    quality_preference_weight: Optional[float] = None  # elasticity for quality in purchase decisions
+    price_sensitivity: Optional[float] = None  # elasticity for price in purchase decisions
 
     # Experience tracking
     category_experience: Dict[str, int] = field(default_factory=dict)  # category -> ticks worked
 
     # Expectations and beliefs
     price_beliefs: Dict[str, float] = field(default_factory=dict)
-    expected_wage: float = 10.0  # initial default wage expectation
-    reservation_wage: float = 8.0  # minimum acceptable wage
+    expected_wage: Optional[float] = None  # initial default wage expectation
+    reservation_wage: Optional[float] = None  # minimum acceptable wage
 
     # Config / tuning parameters
-    price_expectation_alpha: float = 0.3  # [0,1] for price smoothing
-    wage_expectation_alpha: float = 0.2  # [0,1] for wage smoothing
-    reservation_markup_over_benefit: float = 1.1  # reservation = benefit * markup
+    price_expectation_alpha: Optional[float] = None  # [0,1] for price smoothing
+    wage_expectation_alpha: Optional[float] = None  # [0,1] for wage smoothing
+    reservation_markup_over_benefit: Optional[float] = None  # reservation = benefit * markup
     default_price_level: float = 10.0  # fallback when no price history
-    min_cash_for_aggressive_job_search: float = 100.0  # threshold for wage flexibility
+    min_cash_for_aggressive_job_search: Optional[float] = None  # threshold for wage flexibility
 
     # Skill development
-    skill_growth_rate: float = 0.001  # base skill improvement per tick when employed
+    skill_growth_rate: Optional[float] = None  # base skill improvement per tick when employed
     education_cost_per_skill_point: float = 1000.0  # cost to improve skill by 0.1
     last_skill_update_tick: int = 0  # Tick when skills were last increased (for rate limiting)
     last_wage_update_tick: int = 0  # Tick when wage premiums were last increased (for rate limiting)
 
     # Wellbeing and performance factors
-    happiness: float = 0.7  # 0-1 scale, affects productivity and consumption
-    morale: float = 0.7  # 0-1 scale, affects work performance
+    happiness: Optional[float] = None  # 0-1 scale, affects productivity and consumption
+    morale: Optional[float] = None  # 0-1 scale, affects work performance
     health: float = 1.0  # 0-1 scale, affects productivity and skill development
     unemployment_duration: int = 0  # consecutive ticks without employment
 
     # Wellbeing dynamics
-    happiness_decay_rate: float = 0.002  # Matches config default; was 0.01 (bug)
-    morale_decay_rate: float = 0.02  # Morale decays faster than happiness
-    health_decay_rate: float = 0.0  # Dynamic per-tick health decay (set in __post_init__)
-    health_decay_per_year: float = 0.0  # Annual health decay characteristic (set in __post_init__)
+    happiness_decay_rate: Optional[float] = None  # Matches config default; was 0.01 (bug)
+    morale_decay_rate: Optional[float] = None  # Morale decays faster than happiness
+    health_decay_rate: Optional[float] = None  # Dynamic per-tick health decay (set in __post_init__)
+    health_decay_per_year: Optional[float] = None  # Annual health decay characteristic (set in __post_init__)
 
     # Medical loan tracking
     medical_loan_principal: float = 0.0  # Original medical loan amount
@@ -213,9 +213,9 @@ class HouseholdAgent(AgentMixin):
 
     # Bank deposit account (optional — 0.0 when no bank exists)
     bank_deposit: float = 0.0
-    deposit_buffer_weeks: float = 6.0   # Weeks of expenses to keep liquid before depositing
-    deposit_fraction: float = 0.20      # Fraction of excess cash deposited per tick
-    savings_drawdown_rate: float = 0.02  # Fraction of cash savings spent per tick (personality-derived)
+    deposit_buffer_weeks: Optional[float] = None  # Weeks of expenses to keep liquid before depositing
+    deposit_fraction: Optional[float] = None  # Fraction of excess cash deposited per tick
+    savings_drawdown_rate: Optional[float] = None  # Fraction of cash savings spent per tick (personality-derived)
 
     # Fix 25: Consumption credit (small loans to bridge income shocks)
     needs_consumption_loan: bool = False
@@ -229,33 +229,33 @@ class HouseholdAgent(AgentMixin):
     medical_training_start_tick: int = -1
     medical_school_debt_principal: float = 0.0
     medical_school_debt_remaining: float = 0.0
-    medical_school_annual_interest_rate: float = 0.0
-    medical_school_weekly_interest_rate: float = 0.0
+    medical_school_annual_interest_rate: Optional[float] = None
+    medical_school_weekly_interest_rate: Optional[float] = None
     medical_school_payment_per_tick: float = 0.0
-    medical_doctor_capacity_cap: float = 2.0
-    medical_doctor_expected_wage_anchor: float = 80.0
-    medical_doctor_reservation_wage_anchor: float = 55.0
+    medical_doctor_capacity_cap: Optional[float] = None
+    medical_doctor_expected_wage_anchor: Optional[float] = None
+    medical_doctor_reservation_wage_anchor: Optional[float] = None
 
     # On-the-job search ("newspaper" mechanic)
     # Counts down each tick; when 0 an employed worker samples the market.
     # Initialized randomly in __post_init__ so workers are staggered.
-    job_search_cooldown: int = 0
-    job_switch_threshold: float = 0.15  # switch if new offer > current wage * (1 + threshold)
+    job_search_cooldown: Optional[int] = None
+    job_switch_threshold: Optional[float] = None  # switch if new offer > current wage * (1 + threshold)
 
     # Minimum consumption requirements per tick
-    min_food_per_tick: float = 2.0  # Minimum food units needed per tick
-    min_services_per_tick: float = 1.0  # Minimum services units needed per tick
+    min_food_per_tick: Optional[float] = None  # Minimum food units needed per tick
+    min_services_per_tick: Optional[float] = None  # Minimum services units needed per tick
     met_housing_need: bool = False  # Track if housing service was consumed this tick
-    spending_tendency: float = 1.0  # Multiplier for overall spend appetite
-    food_preference: float = 1.0
-    services_preference: float = 1.0
-    housing_preference: float = 1.0
-    quality_lavishness: float = 1.0
-    frugality: float = 1.0  # Higher = saves more
-    saving_tendency: float = 0.5  # Innate thriftiness [0.0, 1.0], initialized randomly in __post_init__
+    spending_tendency: Optional[float] = None  # Multiplier for overall spend appetite
+    food_preference: Optional[float] = None
+    services_preference: Optional[float] = None
+    housing_preference: Optional[float] = None
+    quality_lavishness: Optional[float] = None
+    frugality: Optional[float] = None  # Higher = saves more
+    saving_tendency: Optional[float] = None  # Innate thriftiness [0.0, 1.0], initialized randomly in __post_init__
     household_service_happiness_base_boost: Optional[float] = None
     healthcare_preference: Optional[float] = None
-    healthcare_request_base_chance_pct: float = 0.0
+    healthcare_request_base_chance_pct: Optional[float] = None
     healthcare_urgency_threshold: Optional[float] = None
     healthcare_critical_threshold: Optional[float] = None
     morale_employed_boost: Optional[float] = None
@@ -308,12 +308,13 @@ class HouseholdAgent(AgentMixin):
             CONFIG.random_seed + household_id so that identical seeds produce
             identical agent behavior.
         """
+        self._initialize_personality_preferences()
+        self.reset_tick_ledger()
+
         if not (0.0 <= self.consumption_budget_share <= 1.0):
             raise ValueError(
                 f"consumption_budget_share must be in [0,1], got {self.consumption_budget_share}"
             )
-        self._initialize_personality_preferences()
-        self.reset_tick_ledger()
 
         if not (0.0 <= self.savings_rate_target <= 1.0):
             raise ValueError(
@@ -455,6 +456,12 @@ class HouseholdAgent(AgentMixin):
 
         rng = random.Random(CONFIG.random_seed + self.household_id * 9973)
 
+        # Constructor arguments win (audit B30): every draw still happens, in the
+        # same order, so omitted fields get the values a default household gets.
+        def keep(name: str, value: object) -> None:
+            if getattr(self, name) is None:
+                setattr(self, name, value)
+
         if self.savings_rate_target is None:
             self.savings_rate_target = sample_range(
                 (config.min_savings_rate, config.max_savings_rate),
@@ -464,21 +471,21 @@ class HouseholdAgent(AgentMixin):
         self.savings_rate_target = max(config.min_savings_rate, min(config.max_savings_rate, self.savings_rate_target))
 
         # Traits: deterministic pseudo-random sampled from config ranges
-        self.spending_tendency = sample_range(config.spending_tendency_range, clip_min=0.1, clip_max=5.0)
-        self.food_preference = sample_range(config.food_preference_range, clip_min=0.1, clip_max=5.0)
-        self.services_preference = sample_range(config.services_preference_range, clip_min=0.1, clip_max=5.0)
-        self.housing_preference = sample_range(config.housing_preference_range, clip_min=0.1, clip_max=5.0)
-        self.quality_lavishness = sample_range(config.quality_lavishness_range, clip_min=0.1, clip_max=5.0)
-        self.frugality = sample_range(config.frugality_range, clip_min=0.1, clip_max=5.0)
-        self.saving_tendency = sample_range(config.saving_tendency_range, clip_min=0.0, clip_max=1.0)
+        keep("spending_tendency", sample_range(config.spending_tendency_range, clip_min=0.1, clip_max=5.0))
+        keep("food_preference", sample_range(config.food_preference_range, clip_min=0.1, clip_max=5.0))
+        keep("services_preference", sample_range(config.services_preference_range, clip_min=0.1, clip_max=5.0))
+        keep("housing_preference", sample_range(config.housing_preference_range, clip_min=0.1, clip_max=5.0))
+        keep("quality_lavishness", sample_range(config.quality_lavishness_range, clip_min=0.1, clip_max=5.0))
+        keep("frugality", sample_range(config.frugality_range, clip_min=0.1, clip_max=5.0))
+        keep("saving_tendency", sample_range(config.saving_tendency_range, clip_min=0.0, clip_max=1.0))
 
         # Bank deposit behavior derived from saving_tendency.
         # saving_tendency ~ [0, 1]:  0 = spendthrift, 1 = extreme saver
         # Population mean saving_tendency ≈ 0.5 → mean buffer ≈ 6 weeks, mean fraction ≈ 0.20
         # Range: buffer 3-10 weeks, fraction 0.05-0.40
         st = self.saving_tendency
-        self.deposit_buffer_weeks = 3.0 + 7.0 * st       # [3, 10] weeks
-        self.deposit_fraction = 0.05 + 0.35 * st          # [0.05, 0.40]
+        keep("deposit_buffer_weeks", 3.0 + 7.0 * st)       # [3, 10] weeks
+        keep("deposit_fraction", 0.05 + 0.35 * st)          # [0.05, 0.40]
 
         # Savings drawdown rate: fraction of cash savings drawn per tick for consumption.
         # Spenders (high spending_tendency, low saving_tendency) draw down faster.
@@ -486,73 +493,77 @@ class HouseholdAgent(AgentMixin):
         # spend_norm in [0,1], st in [0,1]: spender_score peaks at spend=max, save=min
         spend_norm = (self.spending_tendency - 0.1) / 4.9  # normalize spending_tendency to [0,1]
         spender_score = spend_norm * (1.0 - st)            # [0,1]: 1 = max spender, 0 = max saver
-        self.savings_drawdown_rate = 0.01 + 0.04 * spender_score  # [1%, 5%] per tick
+        keep("savings_drawdown_rate", 0.01 + 0.04 * spender_score)  # [1%, 5%] per tick
 
-        self.household_service_happiness_base_boost = sample_range(
+        keep("household_service_happiness_base_boost", sample_range(
             config.service_happiness_base_boost_range,
             clip_min=0.0,
             clip_max=1.0,
-        )
-        self.healthcare_preference = sample_range(config.healthcare_preference_range, clip_min=0.1, clip_max=5.0)
-        self.healthcare_request_base_chance_pct = sample_range(
+        ))
+        keep("healthcare_preference", sample_range(config.healthcare_preference_range, clip_min=0.1, clip_max=5.0))
+        keep("healthcare_request_base_chance_pct", sample_range(
             config.healthcare_request_base_chance_pct_range,
             clip_min=0.0,
             clip_max=50.0,
-        )
-        self.healthcare_urgency_threshold = sample_range(
+        ))
+        keep("healthcare_urgency_threshold", sample_range(
             config.healthcare_urgency_threshold_range,
             clip_min=0.05,
             clip_max=0.99,
-        )
-        self.healthcare_critical_threshold = sample_range(
+        ))
+        critical_threshold = sample_range(
             config.healthcare_critical_threshold_range,
             clip_min=0.01,
             clip_max=0.95,
         )
-        if self.healthcare_critical_threshold >= self.healthcare_urgency_threshold:
+        critical_supplied = self.healthcare_critical_threshold is not None
+        if not critical_supplied and critical_threshold >= self.healthcare_urgency_threshold:
             critical_margin = rng.uniform(0.01, 0.05)
-            self.healthcare_critical_threshold = max(
+            critical_threshold = max(
                 0.01,
                 self.healthcare_urgency_threshold - critical_margin + rng.uniform(-jitter, jitter),
             )
-        self.morale_employed_boost = sample_range(config.morale_employed_boost_range, clip_min=0.0, clip_max=1.0)
-        self.morale_unemployed_penalty = sample_range(config.morale_unemployed_penalty_range, clip_min=0.0, clip_max=1.0)
-        self.morale_unhoused_penalty = sample_range(config.morale_unhoused_penalty_range, clip_min=0.0, clip_max=1.0)
-        self.medical_doctor_capacity_cap = sample_range(
+        keep("healthcare_critical_threshold", critical_threshold)
+        keep("morale_employed_boost", sample_range(config.morale_employed_boost_range, clip_min=0.0, clip_max=1.0))
+        keep("morale_unemployed_penalty", sample_range(config.morale_unemployed_penalty_range, clip_min=0.0, clip_max=1.0))
+        keep("morale_unhoused_penalty", sample_range(config.morale_unhoused_penalty_range, clip_min=0.0, clip_max=1.0))
+        keep("medical_doctor_capacity_cap", sample_range(
             config.medical_doctor_capacity_range,
             clip_min=0.5,
             clip_max=5.0,
-        )
-        self.medical_doctor_expected_wage_anchor = sample_range(
+        ))
+        keep("medical_doctor_expected_wage_anchor", sample_range(
             config.medical_doctor_expected_wage_range,
             clip_min=20.0,
             clip_max=500.0,
-        )
-        self.medical_doctor_reservation_wage_anchor = sample_range(
+        ))
+        keep("medical_doctor_reservation_wage_anchor", sample_range(
             config.medical_doctor_reservation_wage_range,
             clip_min=10.0,
             clip_max=500.0,
-        )
+        ))
         annual_interest = sample_range(
             config.medical_school_interest_rate_range,
             clip_min=0.0,
             clip_max=0.5,
         )
-        self.medical_school_annual_interest_rate = annual_interest
-        self.medical_school_weekly_interest_rate = annual_interest / max(1.0, float(CONFIG.time.ticks_per_year))
+        keep("medical_school_annual_interest_rate", annual_interest)
+        keep("medical_school_weekly_interest_rate",
+             self.medical_school_annual_interest_rate / max(1.0, float(CONFIG.time.ticks_per_year)))
 
         # Initialize health decay characteristic (annual health loss)
         # Distribution: majority lose 0-20 per year, some 20-30, very few 30-50
         rand_val = rng.random()
         if rand_val < config.health_decay_low_probability:
-            self.health_decay_per_year = sample_range(config.health_decay_low_range, clip_min=0.0, clip_max=1.0)
+            health_decay_per_year = sample_range(config.health_decay_low_range, clip_min=0.0, clip_max=1.0)
         elif rand_val < config.health_decay_mid_probability:
-            self.health_decay_per_year = sample_range(config.health_decay_mid_range, clip_min=0.0, clip_max=1.0)
+            health_decay_per_year = sample_range(config.health_decay_mid_range, clip_min=0.0, clip_max=1.0)
         else:  # 5% of people: 30-50 health loss per year (chronic conditions)
-            self.health_decay_per_year = sample_range(config.health_decay_high_range, clip_min=0.0, clip_max=1.0)
+            health_decay_per_year = sample_range(config.health_decay_high_range, clip_min=0.0, clip_max=1.0)
+        keep("health_decay_per_year", health_decay_per_year)
 
         # Convert annual decay to per-tick decay (52 ticks per year)
-        self.health_decay_rate = self.health_decay_per_year / 52.0
+        keep("health_decay_rate", self.health_decay_per_year / 52.0)
 
         if not self.category_weights:
             self.category_weights = {
@@ -580,29 +591,30 @@ class HouseholdAgent(AgentMixin):
         self.default_purchase_style = self.default_purchase_style.lower()
 
         # --- Additional per-household randomized parameters ---
-        self.consumption_budget_share = sample_range(config.consumption_budget_share_range, clip_min=0.1, clip_max=1.0)
-        self.quality_preference_weight = sample_range(config.quality_preference_weight_range, clip_min=0.1, clip_max=5.0)
-        self.price_sensitivity = sample_range(config.price_sensitivity_range, clip_min=0.1, clip_max=5.0)
-        self.expected_wage = sample_range(config.expected_wage_range, clip_min=1.0, clip_max=200.0)
-        self.reservation_wage = sample_range(config.reservation_wage_range, clip_min=1.0, clip_max=200.0)
-        # Ensure reservation_wage < expected_wage
-        if self.reservation_wage >= self.expected_wage:
-            self.reservation_wage = self.expected_wage * rng.uniform(0.6, 0.9)
-        self.price_expectation_alpha = sample_range(config.price_expectation_alpha_range, clip_min=0.01, clip_max=1.0)
+        keep("consumption_budget_share", sample_range(config.consumption_budget_share_range, clip_min=0.1, clip_max=1.0))
+        keep("quality_preference_weight", sample_range(config.quality_preference_weight_range, clip_min=0.1, clip_max=5.0))
+        keep("price_sensitivity", sample_range(config.price_sensitivity_range, clip_min=0.1, clip_max=5.0))
+        keep("expected_wage", sample_range(config.expected_wage_range, clip_min=1.0, clip_max=200.0))
+        reservation_wage = sample_range(config.reservation_wage_range, clip_min=1.0, clip_max=200.0)
+        # Ensure a sampled reservation_wage < expected_wage
+        if self.reservation_wage is None and reservation_wage >= self.expected_wage:
+            reservation_wage = self.expected_wage * rng.uniform(0.6, 0.9)
+        keep("reservation_wage", reservation_wage)
+        keep("price_expectation_alpha", sample_range(config.price_expectation_alpha_range, clip_min=0.01, clip_max=1.0))
 
         # Stagger on-the-job search cooldowns so not all workers check simultaneously
-        self.job_search_cooldown = rng.randint(0, 52)
-        self.job_switch_threshold = sample_range((0.10, 0.25), clip_min=0.05, clip_max=0.50)
-        self.wage_expectation_alpha = sample_range(config.wage_expectation_alpha_range, clip_min=0.01, clip_max=1.0)
-        self.reservation_markup_over_benefit = sample_range(config.reservation_markup_range, clip_min=1.0, clip_max=2.0)
-        self.min_cash_for_aggressive_job_search = sample_range(config.min_cash_aggressive_search_range, clip_min=10.0, clip_max=1000.0)
-        self.skill_growth_rate = sample_range(config.skill_growth_rate_range, clip_min=0.0, clip_max=0.01)
-        self.happiness = sample_range(config.initial_happiness_range, clip_min=0.0, clip_max=1.0)
-        self.morale = sample_range(config.initial_morale_range, clip_min=0.0, clip_max=1.0)
-        self.happiness_decay_rate = sample_range(config.happiness_decay_rate_range, clip_min=0.0, clip_max=0.1)
-        self.morale_decay_rate = sample_range(config.morale_decay_rate_range, clip_min=0.0, clip_max=0.1)
-        self.min_food_per_tick = sample_range(config.min_food_per_tick_range, clip_min=0.5, clip_max=10.0)
-        self.min_services_per_tick = sample_range(config.min_services_per_tick_range, clip_min=0.1, clip_max=5.0)
+        keep("job_search_cooldown", rng.randint(0, 52))
+        keep("job_switch_threshold", sample_range((0.10, 0.25), clip_min=0.05, clip_max=0.50))
+        keep("wage_expectation_alpha", sample_range(config.wage_expectation_alpha_range, clip_min=0.01, clip_max=1.0))
+        keep("reservation_markup_over_benefit", sample_range(config.reservation_markup_range, clip_min=1.0, clip_max=2.0))
+        keep("min_cash_for_aggressive_job_search", sample_range(config.min_cash_aggressive_search_range, clip_min=10.0, clip_max=1000.0))
+        keep("skill_growth_rate", sample_range(config.skill_growth_rate_range, clip_min=0.0, clip_max=0.01))
+        keep("happiness", sample_range(config.initial_happiness_range, clip_min=0.0, clip_max=1.0))
+        keep("morale", sample_range(config.initial_morale_range, clip_min=0.0, clip_max=1.0))
+        keep("happiness_decay_rate", sample_range(config.happiness_decay_rate_range, clip_min=0.0, clip_max=0.1))
+        keep("morale_decay_rate", sample_range(config.morale_decay_rate_range, clip_min=0.0, clip_max=0.1))
+        keep("min_food_per_tick", sample_range(config.min_food_per_tick_range, clip_min=0.5, clip_max=10.0))
+        keep("min_services_per_tick", sample_range(config.min_services_per_tick_range, clip_min=0.1, clip_max=5.0))
 
     def _normalize_category_weights(self, weights: Dict[str, float]) -> Dict[str, float]:
         """Normalize spending-category budget weights so they sum to 1.0.
