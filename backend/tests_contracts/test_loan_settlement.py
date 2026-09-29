@@ -215,3 +215,42 @@ def test_legacy_no_bank_new_firm_treasury_seed_amortizes_over_its_term(monkeypat
     installment = v2_payment(entrant.government_loan_principal, 0.01, 156, int(CONFIG.time.ticks_per_year))
     assert entrant.loan_payment_per_tick == pytest.approx(installment)
     assert entrant.government_loan_remaining == pytest.approx(installment * 156)
+
+
+def test_legacy_long_term_capital_loan_is_in_firm_loan_mirrors():
+    """Phase 4 follow-up: a legacy long-term capital loan is in the firm's bank-loan mirrors
+    from origination until its final payment."""
+    from agents import BankAgent
+    from config import CONFIG
+    from tests_contracts.factories import make_economy, make_firm, make_firms, make_government, make_households
+
+    government = make_government()
+    firms = make_firms(("Food", "Healthcare"), num_per_category=1, government=government)
+    services = make_firm(firm_id=10, category="Services", is_baseline=False)
+    services.lost_sales_streak = 5
+    firms.append(services)
+    economy = make_economy(households=make_households(30, skills_start=0.6, skills_step=0.0),
+                           firms=firms, government=government, seed=333)
+    economy.bank = BankAgent(cash_reserves=50_000.0)
+    assert economy.payment_sequence == "legacy"
+
+    economy.step()
+
+    loans = [loan for loan in economy.bank.loans_for("firm", services.firm_id)
+             if loan.get("subtype") == "long_term_capital"]
+    assert len(loans) == 1, "precondition: the services firm did not receive a long-term loan"
+    loan = loans[0]
+    # Originated in firm planning and first serviced in this tick's bank collection.
+    assert loan["term_remaining"] == int(CONFIG.firms.long_term_capital_term_ticks) - 1
+    assert services.bank_loan_principal == pytest.approx(loan["principal"])
+    assert services.bank_loan_remaining == pytest.approx(loan["remaining"])
+    assert services.bank_loan_payment_per_tick == pytest.approx(loan["payment_per_tick"])
+
+    # Final installment: the mirrors drop the loan when it is paid off.
+    loan["remaining"] = loan["payment_per_tick"]
+    services.bank_loan_remaining = loan["remaining"]
+    services.cash_balance = 10_000.0
+    economy._collect_bank_loan_repayments()
+    assert loan["remaining"] == 0.0
+    assert services.bank_loan_remaining == pytest.approx(0.0)
+    assert services.bank_loan_payment_per_tick == pytest.approx(0.0)

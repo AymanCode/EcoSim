@@ -6016,6 +6016,10 @@ class Economy:
                 govt_backed=False,
             )
             loan["subtype"] = "long_term_capital"
+            # Borrower mirrors, as for other legacy bank loans (originate_v2 does this itself).
+            firm.bank_loan_principal += loan_amount
+            firm.bank_loan_remaining += loan["remaining"]
+            firm.bank_loan_payment_per_tick += loan["payment_per_tick"]
 
         # Apply expansion to the firm's productive capacity.
         if category == "services":
@@ -7591,6 +7595,9 @@ class Economy:
                         if loan["remaining"] <= 1e-6 or firm.service_infrastructure_loan_remaining <= 1e-6:
                             firm.service_infrastructure_loan_remaining = 0.0
                             firm.service_infrastructure_loan_payment_per_tick = 0.0
+                    elif loan.get("subtype") == "long_term_capital" and loan["remaining"] <= 1e-6:
+                        firm.bank_loan_payment_per_tick = max(
+                            0.0, firm.bank_loan_payment_per_tick - loan["payment_per_tick"])
                     bank.update_firm_credit_score(firm.firm_id, +0.01)
                 else:
                     loan["missed_payments"] = loan.get("missed_payments", 0) + 1
