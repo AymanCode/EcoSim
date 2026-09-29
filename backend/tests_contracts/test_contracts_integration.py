@@ -801,6 +801,42 @@ def test_contract_services_infrastructure_loan_adds_employee_slots_only():
     assert economy.misc_firm_revenue > before_misc_revenue
 
 
+@pytest.mark.parametrize("revenue_offset, approved", [(-0.1, False), (0.1, True)])
+def test_contract_services_infrastructure_gate_uses_the_loan_installment(revenue_offset, approved):
+    """Phase 4 follow-up: the revenue gate prices the upgrade at the installment the loan charges."""
+    from payment_loans import v2_payment
+
+    firm = _make_service_flow_firm(production_capacity_units=5.0)
+    firm.employees = list(range(1, 6))
+    firm.actual_wages = {employee_id: 45.0 for employee_id in firm.employees}
+    principal = 52_000.0
+    bank = BankAgent(cash_reserves=200_000.0)
+    rate = bank._risk_adjusted_rate(bank.get_firm_credit_score(firm.firm_id), 0.04)
+    installment = v2_payment(principal, rate, 104, int(CONFIG.time.ticks_per_year))
+    threshold = 0.75 * (firm._current_wage_bill() + installment)
+    firm.last_revenue = firm.revenue_ema = threshold + revenue_offset
+    firm.needs_service_infrastructure_loan = True
+    firm.service_infrastructure_loan_amount = principal
+    government = GovernmentAgent(cash_balance=10_000.0, transfer_budget=0.0, unemployment_benefit_level=0.0)
+    economy = Economy(households=[], firms=[firm], government=government, bank=bank)
+
+    economy._offer_service_infrastructure_loans()
+
+    assert (bank.last_tick_new_loans > 0.0) is approved
+    if approved:
+        assert firm.service_infrastructure_loan_payment_per_tick == pytest.approx(installment)
+
+
+def test_contract_working_capital_estimate_is_the_amortized_installment(factory):
+    """Phase 4 follow-up: the bridge estimate matches the amortized installment for its terms."""
+    from payment_loans import v2_payment
+
+    firm = factory.firm(firm_id=1, category="Food")
+    for amount, rate, term in [(10_000.0, 0.05, 52), (4_000.0, 0.02, 26), (7_500.0, 0.0, 10)]:
+        expected = v2_payment(amount, rate, term, int(CONFIG.time.ticks_per_year))
+        assert firm._estimate_working_capital_payment(amount, rate, term) == pytest.approx(expected)
+
+
 def test_contract_services_debt_service_is_included_in_pricing_and_market_floor():
     firm = _make_service_flow_firm(price=1.0, production_capacity_units=5.0)
     firm.employees = [1, 2]

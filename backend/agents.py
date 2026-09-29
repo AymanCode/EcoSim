@@ -2447,11 +2447,17 @@ class FirmAgent(AgentMixin):
         annual_rate: float,
         term_ticks: int,
     ) -> float:
-        """Estimate simplified per-tick repayment for a working-capital bridge."""
+        """Estimate the per-tick installment of a working-capital bridge.
+
+        Uses the amortized installment every bank loan charges
+        (``payment_loans.v2_payment``) for these terms.
+        """
+        from payment_loans import v2_payment
+
         amount = max(0.0, float(amount))
         term_ticks = max(1, int(term_ticks))
         annual_rate = max(0.0, float(annual_rate))
-        return amount * (1.0 + annual_rate) / term_ticks
+        return v2_payment(amount, annual_rate, term_ticks, int(CONFIG.time.ticks_per_year))
 
     def clear_planner_diagnostics(self) -> None:
         """Drop last tick's planner-owned decision_diagnostics before planning again."""

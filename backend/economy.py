@@ -6279,7 +6279,10 @@ class Economy:
                 continue
 
             annual_rate = bank._risk_adjusted_rate(credit_score, spread)
-            projected_payment = principal * (1.0 + annual_rate) / max(1, term_ticks)
+            # The installment the loan below will charge (amortized on both paths).
+            from payment_loans import quoted_annual_rate, v2_payment
+            quote = annual_rate if self.payment_sequence == "legacy" else quoted_annual_rate(self, annual_rate)
+            projected_payment = v2_payment(principal, quote, term_ticks, int(self.config.time.ticks_per_year))
             wage_bill = max(0.0, float(firm._current_wage_bill()))
             rolling_revenue = max(0.0, float(max(firm.last_revenue, firm.revenue_ema)))
             projected_service_cost = wage_bill + firm.service_infrastructure_loan_payment_per_tick + projected_payment
