@@ -456,18 +456,19 @@ class HouseholdAgent(AgentMixin):
 
         rng = random.Random(CONFIG.random_seed + self.household_id * 9973)
 
-        # Constructor arguments win (audit B30): every draw still happens, in the
-        # same order, so omitted fields get the values a default household gets.
+        # Constructor arguments win (audit B30). Every draw happens in the same
+        # order whatever the caller supplied, and every conditional draw depends
+        # only on sampled values, so omitted fields get the values a default
+        # household gets.
         def keep(name: str, value: object) -> None:
             if getattr(self, name) is None:
                 setattr(self, name, value)
 
-        if self.savings_rate_target is None:
-            self.savings_rate_target = sample_range(
-                (config.min_savings_rate, config.max_savings_rate),
-                clip_min=0.0,
-                clip_max=1.0,
-            )
+        keep("savings_rate_target", sample_range(
+            (config.min_savings_rate, config.max_savings_rate),
+            clip_min=0.0,
+            clip_max=1.0,
+        ))
         self.savings_rate_target = max(config.min_savings_rate, min(config.max_savings_rate, self.savings_rate_target))
 
         # Traits: deterministic pseudo-random sampled from config ranges
@@ -506,23 +507,28 @@ class HouseholdAgent(AgentMixin):
             clip_min=0.0,
             clip_max=50.0,
         ))
-        keep("healthcare_urgency_threshold", sample_range(
+        sampled_urgency = sample_range(
             config.healthcare_urgency_threshold_range,
             clip_min=0.05,
             clip_max=0.99,
-        ))
+        )
+        keep("healthcare_urgency_threshold", sampled_urgency)
         critical_threshold = sample_range(
             config.healthcare_critical_threshold_range,
             clip_min=0.01,
             clip_max=0.95,
         )
-        critical_supplied = self.healthcare_critical_threshold is not None
-        if not critical_supplied and critical_threshold >= self.healthcare_urgency_threshold:
+        # Keep critical below urgency. Whether to draw a margin depends only on
+        # the sampled pair; the margin applies to the final urgency.
+        if critical_threshold >= sampled_urgency:
             critical_margin = rng.uniform(0.01, 0.05)
             critical_threshold = max(
                 0.01,
                 self.healthcare_urgency_threshold - critical_margin + rng.uniform(-jitter, jitter),
             )
+        elif critical_threshold >= self.healthcare_urgency_threshold:
+            # Supplied urgency below the sampled critical: fixed mid margin, no draw.
+            critical_threshold = max(0.01, self.healthcare_urgency_threshold - 0.03)
         keep("healthcare_critical_threshold", critical_threshold)
         keep("morale_employed_boost", sample_range(config.morale_employed_boost_range, clip_min=0.0, clip_max=1.0))
         keep("morale_unemployed_penalty", sample_range(config.morale_unemployed_penalty_range, clip_min=0.0, clip_max=1.0))
@@ -594,11 +600,16 @@ class HouseholdAgent(AgentMixin):
         keep("consumption_budget_share", sample_range(config.consumption_budget_share_range, clip_min=0.1, clip_max=1.0))
         keep("quality_preference_weight", sample_range(config.quality_preference_weight_range, clip_min=0.1, clip_max=5.0))
         keep("price_sensitivity", sample_range(config.price_sensitivity_range, clip_min=0.1, clip_max=5.0))
-        keep("expected_wage", sample_range(config.expected_wage_range, clip_min=1.0, clip_max=200.0))
+        sampled_expected = sample_range(config.expected_wage_range, clip_min=1.0, clip_max=200.0)
+        keep("expected_wage", sampled_expected)
         reservation_wage = sample_range(config.reservation_wage_range, clip_min=1.0, clip_max=200.0)
-        # Ensure a sampled reservation_wage < expected_wage
-        if self.reservation_wage is None and reservation_wage >= self.expected_wage:
+        # Keep a sampled reservation_wage below expected_wage. Whether to draw the
+        # factor depends only on the sampled pair; it scales the final expected wage.
+        if reservation_wage >= sampled_expected:
             reservation_wage = self.expected_wage * rng.uniform(0.6, 0.9)
+        elif reservation_wage >= self.expected_wage:
+            # Supplied expected wage below the sampled reservation: fixed factor, no draw.
+            reservation_wage = self.expected_wage * 0.75
         keep("reservation_wage", reservation_wage)
         keep("price_expectation_alpha", sample_range(config.price_expectation_alpha_range, clip_min=0.01, clip_max=1.0))
 

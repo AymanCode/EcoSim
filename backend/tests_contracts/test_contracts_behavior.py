@@ -264,6 +264,37 @@ def test_contract_household_constructor_overrides_survive_personality_sampling()
         HouseholdAgent(**base, consumption_budget_share=2.0)
 
 
+@pytest.mark.parametrize("supplied", [
+    {"reservation_wage": 20.0, "expected_wage": 60.0},
+    {"reservation_wage": 20.0},
+    {"expected_wage": 5.0},
+    {"savings_rate_target": 0.2},
+])
+def test_contract_household_overrides_leave_omitted_fields_at_default_draws(supplied):
+    """B30: supplying fields never shifts the draws of omitted ones.
+
+    Households 5, 6 and 7 hit the default reservation-wage adjustment (their
+    sampled reservation wage is at or above the sampled expected wage, so a
+    default household draws an extra factor); 1 and 2 do not.
+    """
+    from dataclasses import fields
+
+    names = [f.name for f in fields(HouseholdAgent) if f.init and f.name not in supplied]
+    for household_id in (1, 2, 5, 6, 7):
+        base = dict(household_id=household_id, skills_level=0.5, age=30, cash_balance=100.0)
+        default = HouseholdAgent(**base)
+        custom = HouseholdAgent(**base, **supplied)
+        for key, value in supplied.items():
+            assert getattr(custom, key) == value
+        if "expected_wage" in supplied and "reservation_wage" not in supplied:
+            names_checked = [n for n in names if n != "reservation_wage"]  # derived from expected
+            assert custom.reservation_wage < custom.expected_wage
+        else:
+            names_checked = names
+        changed = [n for n in names_checked if getattr(custom, n) != getattr(default, n)]
+        assert not changed, f"household {household_id}: supplying {sorted(supplied)} changed {changed}"
+
+
 def test_contract_morale_reacts_to_employment_housing_and_wages():
     """Contract I: Morale direction follows employment, housing, and wage satisfaction."""
     base = _fresh_household(40)
