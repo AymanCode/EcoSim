@@ -2271,6 +2271,20 @@ class FirmAgent(AgentMixin):
         """Return the shared ``CONFIG.firms`` dataclass for firm-level tuning knobs."""
         return CONFIG.firms
 
+    def _debt_service_per_tick(self) -> float:
+        """Scheduled loan installments per tick, each counted once.
+
+        ``bank_loan_payment_per_tick`` already includes every bank loan's
+        installment: service-infrastructure loans and housing mortgages are
+        added to it at origination (legacy) or rebuilt into it from the
+        registered claims (payment arm). ``loan_payment_per_tick`` is the
+        treasury's direct loans, which are outside the bank mirror.
+        """
+        return (
+            float(getattr(self, "bank_loan_payment_per_tick", 0.0) or 0.0)
+            + float(getattr(self, "loan_payment_per_tick", 0.0) or 0.0)
+        )
+
     def _minimum_wage(self) -> float:
         """Wage floor: the config floor or this tick's policy minimum, whichever is higher."""
         return max(float(self._firm_config().minimum_wage_floor), float(self.policy_minimum_wage))
@@ -3950,14 +3964,7 @@ class FirmAgent(AgentMixin):
             occupied = len(self.current_tenants)
             capacity = max(1, int(self.max_rental_units) if self.max_rental_units else 1)
             wage_bill = self._current_wage_bill()
-            debt_service = (
-                float(getattr(self, "bank_loan_payment_per_tick", 0.0) or 0.0)
-                + float(getattr(self, "loan_payment_per_tick", 0.0) or 0.0)
-                + sum(
-                    float(getattr(loan, "pmt_per_tick", 0.0) or 0.0)
-                    for loan in (getattr(self, "housing_active_loans", None) or [])
-                )
-            )
+            debt_service = self._debt_service_per_tick()  # mortgages are in the bank mirror
             obligations = max(0.0, wage_bill + debt_service)
 
             if obligations > 0.0:
@@ -4368,11 +4375,7 @@ class FirmAgent(AgentMixin):
             # Revenue ceiling: wages can't exceed max_labor_share of debt-adjusted revenue per
             # worker. Mirrors the revenue-share path below. Without this the Phillips tight-labor
             # path has no affordability anchor and wages spiral unconstrained at low unemployment.
-            _debt_service = (
-                float(getattr(self, "bank_loan_payment_per_tick", 0.0) or 0.0)
-                + float(getattr(self, "service_infrastructure_loan_payment_per_tick", 0.0) or 0.0)
-                + float(getattr(self, "loan_payment_per_tick", 0.0) or 0.0)
-            )
+            _debt_service = self._debt_service_per_tick()
             _n_workers = max(1, len(self.employees))
             if self.last_revenue > 1e-3:
                 _rev_after_debt = max(0.0, float(self.last_revenue) - _debt_service)
@@ -4456,11 +4459,7 @@ class FirmAgent(AgentMixin):
         # payments. Real-economy: payroll comes out of operating margin, not
         # gross revenue. Without this, a leveraged firm raises wages, can't
         # service debt, defaults.
-        debt_service_per_tick = (
-            float(getattr(self, "bank_loan_payment_per_tick", 0.0) or 0.0)
-            + float(getattr(self, "service_infrastructure_loan_payment_per_tick", 0.0) or 0.0)
-            + float(getattr(self, "loan_payment_per_tick", 0.0) or 0.0)
-        )
+        debt_service_per_tick = self._debt_service_per_tick()
 
         if current_workers > 0 and self.last_revenue > 0:
             revenue_after_debt = max(0.0, float(self.last_revenue) - debt_service_per_tick)

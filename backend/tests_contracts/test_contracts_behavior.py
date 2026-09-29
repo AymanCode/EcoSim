@@ -973,3 +973,66 @@ def test_contract_profit_tax_brackets_share_the_top_cap_and_are_built_once(monke
     rates = {round(plan["profit_taxes"][i] / 100.0, 10) for i in range(1, 101)}
     assert max(rates) <= 0.60 + 1e-12
     assert plan["profit_taxes"][95] == pytest.approx(60.0)  # very-rich band, capped
+
+
+def _debt_test_firm(category: str) -> FirmAgent:
+    return FirmAgent(
+        firm_id=93,
+        good_name=f"{category}Firm93",
+        cash_balance=100_000.0,
+        inventory_units=0.0 if category == "Housing" else 100.0,
+        good_category=category,
+        quality_level=5.0,
+        wage_offer=1_000.0,
+        price=150.0 if category == "Housing" else 10.0,
+        expected_sales_units=10.0,
+        production_capacity_units=10.0 if category == "Housing" else 500.0,
+        productivity_per_worker=10.0,
+        personality="moderate",
+        is_baseline=False,
+        max_rental_units=10 if category == "Housing" else 0,
+    )
+
+
+def test_contract_housing_rent_target_counts_each_mortgage_installment_once():
+    """Phase 5a follow-up: mortgage installments are already in the bank-loan mirror.
+
+    Before the fix the housing rent target added `bank_loan_payment_per_tick`
+    (which includes each mortgage's installment on both payment arms) and the
+    sum of `housing_active_loans` installments again, counting mortgages twice.
+    """
+    from agents import LoanContract
+
+    firm = _debt_test_firm("Housing")
+    firm.bank_loan_payment_per_tick = 100.0  # the mortgage's installment, mirrored
+    firm.housing_active_loans = [LoanContract(
+        principal_remaining=10_000.0, pmt_per_tick=100.0, ticks_remaining=100,
+        origination_tick_rate=0.05 / 52)]
+    firm.plan_pricing(sell_through_rate=0.5, unemployment_rate=0.05)
+    assert firm.decision_diagnostics["housing_obligations_per_tick"] == pytest.approx(100.0)
+
+
+def test_contract_wage_ceiling_counts_the_infrastructure_installment_once():
+    """Phase 5a follow-up: the service-infrastructure installment is inside the bank-loan mirror.
+
+    Before the fix `plan_wage` subtracted `bank_loan_payment_per_tick` and
+    `service_infrastructure_loan_payment_per_tick` from revenue, although the
+    second is added to the first at origination.
+    """
+    from agents import FirmHealthSnapshot
+
+    firm = _debt_test_firm("Food")
+    firm.employees = [1]
+    firm.actual_wages = {1: 1_000.0}
+    firm._invalidate_wage_bill_cache()
+    firm.last_revenue = 1_000.0
+    firm.bank_loan_payment_per_tick = 200.0  # includes the infrastructure installment
+    firm.service_infrastructure_loan_payment_per_tick = 200.0
+    snapshot = FirmHealthSnapshot(
+        cash_runway_ticks=50.0, smoothed_profit_margin=0.1, sell_through_rate=0.8,
+        inventory_weeks=1.0, unfilled_positions_streak=0, worker_turnover_this_tick=0,
+        survival_mode=False, burn_mode=False, category_wage_anchor_p75=1_000.0,
+    )
+    plan = firm.plan_wage(health_snapshot=snapshot, unemployment_short_ma=0.0, minimum_wage_floor=20.0)
+    expected_ceiling = CONFIG.firms.max_labor_share * (1_000.0 - 200.0)
+    assert plan["wage_offer_next"] == pytest.approx(expected_ceiling)
