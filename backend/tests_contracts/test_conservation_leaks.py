@@ -8,7 +8,8 @@ Phase 4 fix lands, the test starts passing and strict mode turns the stale
 marker into a failure so it gets removed.
 
 The control test is not xfail: the same small legacy economy with a bank and
-none of the leak triggers must conserve ``total_money_with_bank``.
+none of the leak triggers must conserve ``total_money_with_bank`` net of the
+recorded external injections (legacy entrant seed cash, audit A5).
 """
 
 from typing import Dict, List
@@ -17,7 +18,7 @@ import pytest
 
 from agents import BankAgent
 from config import CONFIG
-from tests_contracts.conftest import total_money_with_bank
+from tests_contracts.conftest import total_money_net_of_injections, total_money_with_bank
 from tests_contracts.factories import (
     make_economy,
     make_firm,
@@ -57,24 +58,57 @@ def _legacy_economy_with_bank(
     return economy
 
 
-def test_control_legacy_economy_with_bank_conserves_money_over_five_ticks(fixed_seed):
+def test_control_legacy_economy_with_bank_conserves_money_net_of_injections(fixed_seed):
     """Control: no subsidy, baseline firms only (no long-term loans), bank able to lend.
 
-    Warmup ticks only: all 5 ticks fall inside the default 10-tick warmup.
-    Past warmup this economy drifts from tick 11 as legacy new-firm creation
-    seeds cash with no debit (audit A5, known limitation K02), which this
-    phase does not pin.
+    Fifteen ticks, past the default 10-tick warmup. From tick 11 legacy
+    new-firm creation seeds bootstrapped entrants with cash from outside the
+    modeled economy (audit A5; intentional, owner decision 2026-09-29, rules
+    doc K02). The economy records that cash in ``external_injection_total``,
+    and total money net of it must be conserved.
     """
     economy = _legacy_economy_with_bank()
     assert economy.government.sector_subsidy_target == "none"
     assert economy.bank is not None and economy.bank.can_lend()
 
     initial_total = total_money_with_bank(economy)
-    for tick in range(5):
+    for tick in range(15):
         economy.step()
-        observed = total_money_with_bank(economy)
-        drift = observed - initial_total
-        assert abs(drift) <= MONEY_TOL, f"control drift {drift:+.6f} after tick {tick}"
+        drift = total_money_net_of_injections(economy) - initial_total
+        assert abs(drift) <= MONEY_TOL, f"control drift {drift:+.6f} (net of injections) after tick {tick}"
+    assert economy.external_injection_total > 0.0, "expected a seeded entrant after warmup"
+    assert total_money_with_bank(economy) - initial_total == pytest.approx(
+        economy.external_injection_total, abs=MONEY_TOL
+    )
+
+
+def test_legacy_demand_shock_is_recorded_as_an_external_injection(fixed_seed):
+    """The legacy demand shock adds or removes household cash with no counterparty.
+
+    It is intentional outside money (orchestrator ruling 2026-09-29, rules doc
+    K02); the economy records each realized shock, signed, in the external
+    injection counters so drift can be reported net of it.
+    """
+    economy = _legacy_economy_with_bank()
+    economy.in_warmup = False
+    del economy._apply_random_shocks  # the factory disables shocks with an instance override
+    shocked_ticks = 0
+    for tick in range(1, 400):
+        economy.current_tick = tick
+        economy.last_regime_events = []
+        economy.external_injection_this_tick = 0.0
+        before = total_money_with_bank(economy)
+        total_before = economy.external_injection_total
+        economy._apply_random_shocks()
+        change = total_money_with_bank(economy) - before
+        assert change == pytest.approx(economy.external_injection_this_tick, abs=MONEY_TOL)
+        assert economy.external_injection_total - total_before == pytest.approx(change, abs=MONEY_TOL)
+        if any(e["event_type"] == "shock_demand" for e in economy.last_regime_events):
+            assert change != 0.0
+            shocked_ticks += 1
+            if shocked_ticks >= 3:
+                break
+    assert shocked_ticks >= 1
 
 
 def test_a1_subsidized_purchase_scale_down_conserves_money(fixed_seed, monkeypatch):

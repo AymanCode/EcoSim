@@ -44,6 +44,18 @@ def total_money_with_bank(economy: Economy) -> float:
     return total_money(economy) + bank_reserves
 
 
+
+def total_money_net_of_injections(economy: Economy) -> float:
+    """``total_money_with_bank`` minus the recorded external injections.
+
+    Legacy new-firm seed cash and the legacy demand shock are intentional
+    outside money (owner decision 2026-09-29, rules doc K02). The economy
+    records them in ``external_injection_total`` (signed), so a conserving
+    economy keeps this value constant.
+    """
+    return total_money_with_bank(economy) - float(getattr(economy, "external_injection_total", 0.0))
+
+
 @pytest.fixture
 def fixed_seed() -> int:
     seed = 20260302

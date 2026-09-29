@@ -302,6 +302,11 @@ class Economy:
         # SOLID: SRP Violation - Misc firm logic should be in a separate RedistributionSystem
         # Misc firm: redistributes investment/R&D spending to random households
         self.misc_firm_revenue: float = 0.0  # Accumulated investment money
+        # Money entering (+) or leaving (-) the modeled economy with no counterparty,
+        # on purpose: legacy new-firm seed cash and the legacy demand shock
+        # (owner decision 2026-09-29, rules doc K02).
+        self.external_injection_this_tick: float = 0.0
+        self.external_injection_total: float = 0.0
         self.misc_firm_beneficiaries: List[int] = []  # household_ids who receive payouts
         self._initialize_misc_firm_beneficiaries()
         self.post_warmup_stimulus_ticks: int = 0
@@ -1827,6 +1832,7 @@ class Economy:
         self.services_unmet_demand = 0.0
         self.services_unmet_demand_by_firm = {}
         self.current_tick_unmet_demand_by_firm = {}
+        self.external_injection_this_tick = 0.0
 
         # Random economic shocks (stochastic events)
         self._apply_random_shocks()
@@ -5434,6 +5440,11 @@ class Economy:
             return 0.6
         return max(0.0, min(1.0, sum(rates) / len(rates)))
 
+    def _record_external_injection(self, amount: float) -> None:
+        """Record money that enters (+) or leaves (-) the economy with no counterparty."""
+        self.external_injection_this_tick += float(amount)
+        self.external_injection_total += float(amount)
+
     def _maybe_create_new_firms(self) -> None:
         """Create new firms when the economy has room, using a 3-tier funding model.
 
@@ -5650,6 +5661,10 @@ class Economy:
         else:
             # ── Tier 1: Bootstrapped (majority) ──────────────────────
             seed_cash = tier_rng.uniform(5_000.0, 30_000.0)
+
+        if self.payment_sequence == "legacy" and bank_loan_principal == 0.0 and govt_loan_principal == 0.0:
+            # Bootstrapped legacy seed: outside money, intentional and recorded (A5, K02).
+            self._record_external_injection(seed_cash)
 
         # ── create the firm ──────────────────────────────────────────
 
@@ -6795,11 +6810,15 @@ class Economy:
                     self.government.cash_balance += extracted
                     self.payment_state["last_negative_shock_collected"] = extracted
             else:
+                # Legacy: outside money with no counterparty, recorded (K02).
+                shock_total = 0.0
                 for h in affected_households:
                     before_cash = h.cash_balance
                     h.cash_balance = max(0, h.cash_balance + shock_magnitude)
                     realized = h.cash_balance - before_cash
                     h.add_ledger_flow("other", realized)
+                    shock_total += realized
+                self._record_external_injection(shock_total)
 
         # 2. SUPPLY SHOCK (3% chance per tick)
         # Random productivity change affecting 1-3 firms
@@ -8256,6 +8275,10 @@ class Economy:
         metrics["unemployment_benefit"] = gov.unemployment_benefit_level
         metrics["transfer_budget"] = gov.transfer_budget
         metrics["minimum_wage_floor"] = gov._minimum_wage_floor
+
+        # Recorded outside money (legacy entrant seed cash, legacy demand shock; K02)
+        metrics["external_injection_this_tick"] = float(self.external_injection_this_tick)
+        metrics["external_injection_total"] = float(self.external_injection_total)
 
         # Government metrics — budget pressure
         metrics["deficit_ratio"] = max(0.0, -gov.cash_balance) / max(metrics["gdp_this_tick"], 1.0)
