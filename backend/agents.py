@@ -3249,9 +3249,8 @@ class FirmAgent(AgentMixin):
         effective_wage_cost = self.wage_offer * (1.0 + expected_skill_premium)
 
         # Feature 1: Emergency Restructuring (Anti-Zombie Firm)
-        # Calculate operating run rate and check survival condition
+        # Check survival condition
         wage_bill = self._current_wage_bill()
-        operating_run_rate = wage_bill  # Per-tick operating cost (labor-only production)
         runway_weeks = firm_config.survival_mode_runway_weeks
         rolling_revenue = max(self.revenue_ema, max(self.last_revenue, 0.0))
 
@@ -3434,8 +3433,11 @@ class FirmAgent(AgentMixin):
         self.burn_mode_active = self.burn_mode
 
         target_workers = max(current_workers, firm_config.min_target_workers)
-        planned_production_units = 0.0
 
+        # The branches below choose target_workers (and hires) only: housing,
+        # healthcare and generic services returned above, so every firm that
+        # reaches this point gets its planned production from the inventory
+        # governor further down.
         bootstrap_target = max(
             firm_config.min_target_workers,
             min(demand_workers, 2),
@@ -3453,24 +3455,11 @@ class FirmAgent(AgentMixin):
         if needs_bootstrap:
             target_workers = bootstrap_target
             planned_hires = min(target_workers - current_workers, hire_limit)
-            planned_production_units = min(
-                self._capacity_for_workers(target_workers),
-                self.production_capacity_units
-            )
         elif self.burn_mode:
             reduction_factor = firm_config.burn_mode_staff_reduction_factor
             reduced_workers = int(math.ceil(max(1, current_workers) * reduction_factor))
             target_workers = max(skeleton_min, reduced_workers)
-            idle_fraction = max(0.0, firm_config.burn_mode_idle_production_fraction)
-            if idle_fraction > 0:
-                planned_production_units = min(
-                    self._capacity_for_workers(target_workers),
-                    self.production_capacity_units * idle_fraction
-                )
-            else:
-                planned_production_units = 0.0
         elif housing_market_saturated:
-            planned_production_units = 0.0
             target_workers = max(skeleton_min, int(current_workers * 0.5))
         elif self.is_baseline:
             if in_warmup:
@@ -3487,10 +3476,6 @@ class FirmAgent(AgentMixin):
                 else:
                     revenue_per_worker = self.price * self.productivity_per_worker
                     self.wage_offer = min(revenue_per_worker * 0.95, 40.0)
-                planned_production_units = min(
-                    self.production_capacity_units,
-                    max(self.baseline_production_quota, self.production_capacity_units)
-                )
             else:
                 support_ratio = 1.0 if post_warmup_cooldown else 0.8
                 support_output = self.baseline_production_quota * support_ratio
@@ -3537,20 +3522,16 @@ class FirmAgent(AgentMixin):
 
                     if inv > quota * 6.0:
                         liquidation_tier = "liquidation"
-                        target_output = 0.0
                         shrink_fraction = 0.50
                     elif inv > quota * 3.0:
                         liquidation_tier = "heavy"
-                        target_output = quota * 0.25
                         shrink_fraction = 0.30
                     elif inv > quota * 1.5:
                         liquidation_tier = "mild"
-                        target_output = quota * 0.50
                         shrink_fraction = 0.15
                     elif losing_money:
                         liquidation_tier = "loss_shrink"
-                        # Keep the existing target_output from above; just
-                        # trim headcount modestly to stem cash bleed.
+                        # Trim headcount modestly to stem cash bleed.
                         shrink_fraction = 0.10
                     else:
                         liquidation_tier = "normal"
@@ -3573,11 +3554,6 @@ class FirmAgent(AgentMixin):
                     layoff_count = min(-delta, fire_limit)
                     if layoff_count > 0:
                         planned_layoffs = self.employees[:layoff_count]
-
-                planned_production_units = min(
-                    self._capacity_for_workers(max(target_workers, firm_config.min_target_workers)),
-                    target_output
-                )
         else:
             additional_output = (
                     self._capacity_for_workers(current_workers + 1) -
@@ -3661,11 +3637,6 @@ class FirmAgent(AgentMixin):
                 if expansion_blocked:
                     target_workers = min(target_workers, current_workers)
 
-            planned_production_units = min(
-                self._capacity_for_workers(max(current_workers, target_workers)),
-                self.production_capacity_units
-            )
-
         if self.is_baseline:
             target_workers = max(target_workers, demand_workers)
 
@@ -3698,46 +3669,47 @@ class FirmAgent(AgentMixin):
                 if layoff_count > 0:
                     planned_layoffs = self.employees[:layoff_count]
 
-        if self.good_category.lower() not in {"housing", "healthcare"}:
-            sales_velocity = production_governor_sales_velocity
-            buffer = self.target_inventory_multiplier if self.target_inventory_multiplier > 0 else 2.0
-            target_inventory = sales_velocity * buffer
-            inventory_deficit = target_inventory - self.inventory_units
-            effective_workers = max(0, current_workers + planned_hires - len(planned_layoffs))
-            max_possible_production = min(
-                self._capacity_for_workers(effective_workers),
-                self.production_capacity_units
-            )
+        # Inventory governor: sets planned production for every firm that
+        # reaches this point.
+        sales_velocity = production_governor_sales_velocity
+        buffer = self.target_inventory_multiplier if self.target_inventory_multiplier > 0 else 2.0
+        target_inventory = sales_velocity * buffer
+        inventory_deficit = target_inventory - self.inventory_units
+        effective_workers = max(0, current_workers + planned_hires - len(planned_layoffs))
+        max_possible_production = min(
+            self._capacity_for_workers(effective_workers),
+            self.production_capacity_units
+        )
 
-            if inventory_deficit <= 0:
-                planned_production_units = 0.0
-            else:
-                planned_production_units = min(inventory_deficit, max_possible_production)
+        if inventory_deficit <= 0:
+            planned_production_units = 0.0
+        else:
+            planned_production_units = min(inventory_deficit, max_possible_production)
 
-            # Extreme-only safety cap: only fires when warehouse is truly absurd
-            # relative to ACTUAL demand (5x+ target_inventory_weeks of real sales
-            # velocity). Below this threshold the firm runs on its expected
-            # demand signal as it always did. This keeps the runaway-glut
-            # protection but does not constrain normal operating overshoot.
-            actual_velocity = max(0.0, float(self.sales_velocity_ema), float(self.last_units_sold))
-            if actual_velocity > 0.0:
-                extreme_cap_threshold = actual_velocity * float(self.target_inventory_weeks) * 5.0
-                if self.inventory_units > extreme_cap_threshold:
-                    relief_target = actual_velocity * float(self.target_inventory_weeks) * 2.0
-                    extreme_production_cap = max(0.0, relief_target - float(self.inventory_units))
-                    planned_production_units = min(planned_production_units, extreme_production_cap)
-                    self.decision_diagnostics["production_governor_extreme_cap_fired"] = True
-                else:
-                    self.decision_diagnostics["production_governor_extreme_cap_fired"] = False
+        # Extreme-only safety cap: only fires when warehouse is truly absurd
+        # relative to ACTUAL demand (5x+ target_inventory_weeks of real sales
+        # velocity). Below this threshold the firm runs on its expected
+        # demand signal as it always did. This keeps the runaway-glut
+        # protection but does not constrain normal operating overshoot.
+        actual_velocity = max(0.0, float(self.sales_velocity_ema), float(self.last_units_sold))
+        if actual_velocity > 0.0:
+            extreme_cap_threshold = actual_velocity * float(self.target_inventory_weeks) * 5.0
+            if self.inventory_units > extreme_cap_threshold:
+                relief_target = actual_velocity * float(self.target_inventory_weeks) * 2.0
+                extreme_production_cap = max(0.0, relief_target - float(self.inventory_units))
+                planned_production_units = min(planned_production_units, extreme_production_cap)
+                self.decision_diagnostics["production_governor_extreme_cap_fired"] = True
             else:
                 self.decision_diagnostics["production_governor_extreme_cap_fired"] = False
+        else:
+            self.decision_diagnostics["production_governor_extreme_cap_fired"] = False
 
-            self.decision_diagnostics["production_governor_sales_velocity"] = sales_velocity
-            self.decision_diagnostics["production_governor_target_inventory"] = target_inventory
-            self.decision_diagnostics["production_governor_inventory_deficit"] = inventory_deficit
-            self.decision_diagnostics["production_governor_max_possible_production"] = max_possible_production
-            self.decision_diagnostics["production_governor_planned_production"] = planned_production_units
-            self.decision_diagnostics["production_governor_active"] = True
+        self.decision_diagnostics["production_governor_sales_velocity"] = sales_velocity
+        self.decision_diagnostics["production_governor_target_inventory"] = target_inventory
+        self.decision_diagnostics["production_governor_inventory_deficit"] = inventory_deficit
+        self.decision_diagnostics["production_governor_max_possible_production"] = max_possible_production
+        self.decision_diagnostics["production_governor_planned_production"] = planned_production_units
+        self.decision_diagnostics["production_governor_active"] = True
 
         if planned_hires > 0:
             self.last_hiring_block_reason = ""
