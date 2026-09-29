@@ -2776,13 +2776,7 @@ class FirmAgent(AgentMixin):
             self._capacity_for_workers(max(current_workers + planned_hires, config.min_target_workers)),
             self.production_capacity_units
         )
-        return {
-            "firm_id": self.firm_id,
-            "planned_production_units": planned_production_units,
-            "planned_hires_count": planned_hires,
-            "planned_layoffs_ids": [],
-            "updated_expected_sales": self.expected_sales_units,
-        }
+        return self._stamp_labor_plan(planned_production_units, planned_hires, [])
 
     def _plan_healthcare_service_labor(
         self,
@@ -3167,13 +3161,9 @@ class FirmAgent(AgentMixin):
             if current_workers > min_staff:
                 excess = current_workers - min_staff
                 planned_layoffs = list(self.employees[:excess])
-            return {
-                "firm_id": self.firm_id,
-                "planned_production_units": 0.0,
-                "planned_hires_count": max(0, min_staff - current_workers),
-                "planned_layoffs_ids": planned_layoffs,
-                "updated_expected_sales": self.expected_sales_units,
-            }
+            return self._stamp_labor_plan(
+                0.0, max(0, min_staff - current_workers), planned_layoffs
+            )
 
         if self.good_category.lower() == "healthcare":
             return self._plan_healthcare_service_labor(

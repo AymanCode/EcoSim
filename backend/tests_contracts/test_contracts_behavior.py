@@ -724,3 +724,65 @@ def test_contract_reservation_gap_raise_reads_zero_inventory_weeks_as_tight():
     plan = firm.plan_wage(health_snapshot=snapshot, minimum_wage_floor=20.0)
     assert firm.decision_diagnostics.get("wage_raise_reason") == "reservation_blocked_vacancies"
     assert plan["wage_offer_next"] > 20.0
+
+
+def test_contract_housing_labor_plan_is_stamped_on_the_firm():
+    """B21: housing firms record their planned hires like every other planner branch.
+
+    Before the fix the housing branch of plan_production_and_labor returned its
+    plan without setting planned_hires_count, planned_layoffs_ids or
+    last_tick_planned_hires, so housing vacancies were invisible to the code
+    that reads those fields (unfilled-vacancy streaks, the wage planner's
+    failed-hire check, sector vacancy totals).
+    """
+    firm = FirmAgent(
+        firm_id=88,
+        good_name="HousingFirm88",
+        cash_balance=50_000.0,
+        inventory_units=0.0,
+        good_category="Housing",
+        quality_level=5.0,
+        wage_offer=30.0,
+        price=150.0,
+        expected_sales_units=10.0,
+        production_capacity_units=20.0,
+        productivity_per_worker=10.0,
+        personality="moderate",
+        is_baseline=False,
+        max_rental_units=20,
+    )
+    firm.planned_hires_count = 0
+    firm.last_tick_planned_hires = 0
+    plan = firm.plan_production_and_labor(last_tick_sales_units=0.0, total_households=100)
+
+    assert plan["planned_hires_count"] > 0
+    assert firm.planned_hires_count == plan["planned_hires_count"]
+    assert firm.last_tick_planned_hires == plan["planned_hires_count"]
+    assert firm.planned_layoffs_ids == plan["planned_layoffs_ids"]
+
+
+def test_contract_destabilized_labor_plan_is_stamped_on_the_firm():
+    """B21: the stabilization-disabled plan records its planned hires on the firm too."""
+    firm = FirmAgent(
+        firm_id=89,
+        good_name="FoodFirm89",
+        cash_balance=50_000.0,
+        inventory_units=0.0,
+        good_category="Food",
+        quality_level=5.0,
+        wage_offer=30.0,
+        price=10.0,
+        expected_sales_units=100.0,
+        production_capacity_units=200.0,
+        productivity_per_worker=10.0,
+        personality="moderate",
+        is_baseline=False,
+    )
+    firm.stabilization_disabled = True
+    firm.planned_hires_count = 0
+    firm.last_tick_planned_hires = 0
+    plan = firm.plan_production_and_labor(last_tick_sales_units=0.0, total_households=100)
+
+    assert plan["planned_hires_count"] > 0
+    assert firm.planned_hires_count == plan["planned_hires_count"]
+    assert firm.last_tick_planned_hires == plan["planned_hires_count"]
