@@ -50,7 +50,8 @@ def test_step_uses_employer_floor_for_payroll_tax_and_receipt_then_keeps_late_cu
 
     def record_taxes(households, firms):
         plan = original_taxes(households, firms)
-        tax_records.append((households[0]["wage_income"], plan["wage_taxes"][1]))
+        if households:  # Wage assessment now precedes the separate profit assessment.
+            tax_records.append((households[0]["wage_income"], plan["wage_taxes"][1]))
         return plan
 
     patch_agent_method(monkeypatch, government, "plan_taxes", record_taxes)

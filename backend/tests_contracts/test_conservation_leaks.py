@@ -213,7 +213,10 @@ def test_a3_medical_loan_fallback_with_bank_conserves_money(fixed_seed, monkeypa
     healthcare.employees = [doctor.household_id]
 
     patient.employer_id = food.firm_id  # fallback requires an employed household
-    patient.wage = food.wage_offer
+    # Legacy income now settles before shopping and care (income-timing port,
+    # 2026-09-29), so a full wage would pay for the visit; a token wage keeps
+    # the visit unaffordable and the patient employed.
+    patient.wage = 1.0
     if patient.household_id not in food.employees:
         food.employees.append(patient.household_id)
     patient.health = 0.25
@@ -406,7 +409,9 @@ def test_a9_healthcare_deposit_withdrawal_is_recorded_in_household_ledger(fixed_
     doctor.wage = healthcare.wage_offer
     healthcare.employees = [doctor.household_id]
     patient.employer_id = food.firm_id
-    patient.wage = food.wage_offer
+    # Legacy income now settles before care (income-timing port, 2026-09-29);
+    # a token wage keeps cash below the visit price after payday.
+    patient.wage = 1.0
     if patient.household_id not in food.employees:
         food.employees.append(patient.household_id)
     patient.health = 0.25

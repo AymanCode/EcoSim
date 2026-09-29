@@ -105,6 +105,7 @@ class _TickScratch:
     total_price_ceiling_taxes: Optional[float] = None
     assessed_project_receipts: Optional[Dict[int, float]] = None
     tax_plan: Optional[Dict[str, Dict[int, float]]] = None
+    household_wage_taxes: Optional[Dict[int, float]] = None  # legacy: settled before shopping
     transfer_plan: Optional[Dict[int, float]] = None
     total_wage_taxes: Optional[float] = None
     total_profit_taxes: Optional[float] = None
@@ -949,54 +950,23 @@ class Economy:
         self._household_static_traits_cache = (households, len(households), preference_once, traits)
         return traits
 
-    # SOLID: SRP Violation - This method handles BOTH vectorized computation
-    # AND legacy fallback logic. Should be split into:
-    # - _compute_batch_consumption_budgets()
-    # - _execute_legacy_consumption_planning()
-    def _batch_plan_consumption(
+    def _household_consumption_budgets(
         self,
-        market_prices: Dict[str, float],
-        category_market_snapshot: Dict[str, List[Dict[str, float]]],
-        good_category_lookup: Optional[Dict[str, str]] = None,
-        unemployment_rate: float = 0.0,
-        unemployment_benefit: float = 30.0,
-    ) -> Dict[int, Dict]:
+        unemployment_rate: float,
+        unemployment_benefit: float,
+        *,
+        settled_income: bool = False,
+    ) -> np.ndarray:
+        """Monetary consumption budget of every household, in self.households order.
+
+        Only the currency budget: no seller choice, no awareness refresh, no
+        RNG draw. With ``settled_income`` (the live legacy path, which calls it
+        after ``_apply_household_income``) the wage and benefit sources are this
+        week's actual receipts: ``last_wage_income + last_other_income`` (take-home
+        wage and CEO pay after wage tax) and ``last_transfer_income``. Without it
+        they are the forecast inputs every direct caller and the named payment
+        arms use: the contract wage when employed and the benefit level when not.
         """
-        Vectorized batch consumption planning for all households.
-
-        This batch path is the only consumption-planning implementation (the per-agent
-        HouseholdAgent.plan_consumption was removed in remediation phase 1).
-
-        Args:
-            market_prices: Dictionary mapping good_name to current price
-            category_market_snapshot: Per-category list of (firm_id, price, quality)
-            good_category_lookup: Optional mapping of good_name to category
-            unemployment_rate: Current unemployment rate (0.0-1.0)
-            unemployment_benefit: Current unemployment benefit level
-
-        Returns:
-            Dictionary mapping household_id to consumption plan:
-            {
-                household_id: {
-                    "household_id": int,
-                    "category_budgets": {},
-                    "planned_purchases": {good_name: quantity},
-                    "budget": float
-                }
-            }
-
-        Note:
-            This method has 200+ lines mixing vectorized NumPy logic with
-            legacy Python fallback. Per SRP, consider extracting:
-            - Budget calculation (lines ~564-470)
-            - Price cache building (lines ~472-498)
-            - Category fraction precomputation (lines ~500-523)
-            - Legacy planning fallback (lines ~556-615)
-        """
-        cat_lk = good_category_lookup or {}
-        def is_housing_good(good: str) -> bool:
-            return cat_lk.get(good, good.lower()) == "housing"
-
         # Extract household attributes as NumPy arrays
         # SOLID: DIP Violation - Directly accesses household internals
         cash_balances = np.array([h.cash_balance for h in self.households], dtype=np.float64)
@@ -1010,7 +980,8 @@ class Economy:
         # (rich). This produces realistic aggregate saving rates and prevents
         # the panic-spiral the old confidence/panic_factor code created.
         employment_status = np.array([h.is_employed for h in self.households], dtype=bool)
-        wages = np.array([h.wage for h in self.households], dtype=np.float64)
+        if not settled_income:
+            wages = np.array([h.wage for h in self.households], dtype=np.float64)
         if self.payment_sequence != "legacy":
             from payment_behavior import planning_inputs
             net_wages, payment_liquidity, _pressure = planning_inputs(self)
@@ -1052,8 +1023,18 @@ class Economy:
             )
 
         # Income separation: wage when employed, benefit when unemployed.
-        wage_income = np.where(employment_status, wages, 0.0)
-        benefit_income = np.where(employment_status, 0.0, unemployment_benefit)
+        if settled_income:
+            # This week's receipts, credited before the shopping decision.
+            wage_income = np.maximum(np.array(
+                [h.last_wage_income + h.last_other_income for h in self.households],
+                dtype=np.float64,
+            ), 0.0)
+            benefit_income = np.array(
+                [h.last_transfer_income for h in self.households], dtype=np.float64
+            )
+        else:
+            wage_income = np.where(employment_status, wages, 0.0)
+            benefit_income = np.where(employment_status, 0.0, unemployment_benefit)
 
         # Per-source budgets, summed.
         base_budget = (
@@ -1089,7 +1070,71 @@ class Economy:
         )
         drawdown = np.where(in_desperation, np.maximum(drawdown, desperation_drawdown), drawdown)
 
-        budgets = np.minimum(base_budget + drawdown, accessible_liquidity)
+        return np.minimum(base_budget + drawdown, accessible_liquidity)
+
+    # SOLID: SRP Violation - This method handles BOTH vectorized computation
+    # AND legacy fallback logic. Should be split into:
+    # - _compute_batch_consumption_budgets()
+    # - _execute_legacy_consumption_planning()
+    def _batch_plan_consumption(
+        self,
+        market_prices: Dict[str, float],
+        category_market_snapshot: Dict[str, List[Dict[str, float]]],
+        good_category_lookup: Optional[Dict[str, str]] = None,
+        unemployment_rate: float = 0.0,
+        unemployment_benefit: float = 30.0,
+        *,
+        settled_income: bool = False,
+        budgets: Optional[np.ndarray] = None,
+        indices: Optional[List[int]] = None,
+    ) -> Dict[int, Dict]:
+        """
+        Vectorized batch consumption planning for all households.
+
+        This batch path is the only consumption-planning implementation (the per-agent
+        HouseholdAgent.plan_consumption was removed in remediation phase 1).
+
+        Args:
+            market_prices: Dictionary mapping good_name to current price
+            category_market_snapshot: Per-category list of (firm_id, price, quality)
+            good_category_lookup: Optional mapping of good_name to category
+            unemployment_rate: Current unemployment rate (0.0-1.0)
+            unemployment_benefit: Current unemployment benefit level
+            settled_income: Budget from this week's settled receipts (live
+                legacy path); see ``_household_consumption_budgets``.
+            budgets: Precomputed budgets for every household in
+                self.households order; computed here when omitted.
+            indices: Positions in self.households to plan (default: all). The
+                performance-mode refresh plans only households whose cached
+                basket needs new seller choices.
+
+        Returns:
+            Dictionary mapping household_id to consumption plan:
+            {
+                household_id: {
+                    "household_id": int,
+                    "category_budgets": {},
+                    "planned_purchases": {good_name: quantity},
+                    "budget": float
+                }
+            }
+
+        Note:
+            This method has 200+ lines mixing vectorized NumPy logic with
+            legacy Python fallback. Per SRP, consider extracting:
+            - Price cache building (lines ~472-498)
+            - Category fraction precomputation (lines ~500-523)
+            - Legacy planning fallback (lines ~556-615)
+        """
+        cat_lk = good_category_lookup or {}
+        def is_housing_good(good: str) -> bool:
+            return cat_lk.get(good, good.lower()) == "housing"
+
+        if budgets is None:
+            budgets = self._household_consumption_budgets(
+                unemployment_rate, unemployment_benefit, settled_income=settled_income,
+            )
+        static_traits = self._household_static_traits()
 
         # Precompute price caches per category for reuse
         price_cache: Dict[str, tuple] = {}
@@ -1140,7 +1185,9 @@ class Economy:
             if options
         ]
 
-        for idx, household in enumerate(self.households):
+        all_households = self.households
+        for idx in (range(len(all_households)) if indices is None else indices):
+            household = all_households[idx]
             budget = budgets[idx]
 
             if budget <= 0:
@@ -1250,6 +1297,80 @@ class Economy:
         """Return cached consumption plans when performance mode is enabled."""
         return self._cached_consumption_plans
 
+    def _plan_legacy_consumption_after_income(
+        self,
+        market_prices: Dict[str, float],
+        category_market_snapshot: Dict[str, List[Dict[str, float]]],
+        good_category_lookup: Optional[Dict[str, str]],
+        unemployment_rate: float,
+        unemployment_benefit: float,
+    ) -> Dict[int, Dict]:
+        """The one legacy shopping decision of the week, made after income and credit.
+
+        Normal mode plans every household each tick from settled receipts.
+        Performance mode keeps its five-tick cadence: a full plan on every
+        fifth tick, cached plans in between.
+        """
+        if not self.performance_mode or self.current_tick % 5 == 0:
+            plans = self._batch_plan_consumption(
+                market_prices, category_market_snapshot, good_category_lookup,
+                unemployment_rate, unemployment_benefit, settled_income=True,
+            )
+            if self.performance_mode:
+                self._cached_consumption_plans = plans
+            return plans
+        return self._apply_cached_consumption_plans()
+
+    def _apply_household_income(
+        self,
+        transfer_plan: Dict[int, float],
+        wage_taxes: Dict[int, float],
+        frozen_wages: Optional[Dict[int, float]] = None,
+    ) -> None:
+        """Credit legacy wages, CEO pay and transfers and debit wage tax, once.
+
+        The live legacy tick calls this before the weekly shopping decision;
+        direct ``_batch_apply_household_updates`` calls without
+        ``income_already_settled`` still call it from there. Ordinary payroll
+        was already debited from employers at production; CEO pay (3x the
+        median of the firm's current contracts) is debited from the firm here.
+        The matching treasury totals (wage tax in, transfers out) are settled by
+        the caller. Sets ``last_tick_cash_start`` just before the credit, so the
+        wellbeing cash-loss term measures from this point.
+        """
+        ceo_pay: Dict[int, float] = {}
+        household_lookup = self.household_lookup
+        for firm in self.firms:
+            if firm.ceo_household_id in household_lookup and firm.employees:
+                wages_list = [firm.actual_wages.get(e_id, firm.wage_offer) for e_id in firm.employees]
+                salary = float(np.median(wages_list)) * 3.0  # CEO earns 3x median worker
+                firm.cash_balance -= salary
+                ceo_pay[firm.ceo_household_id] = ceo_pay.get(firm.ceo_household_id, 0.0) + salary
+
+        for household in self.households:
+            hid = household.household_id
+            household.last_tick_cash_start = household.cash_balance
+            if frozen_wages is not None:
+                wage_income = frozen_wages.get(hid, 0.0)
+            else:
+                wage_income = household.wage if household.employer_id is not None else 0.0
+            wage_flow = wage_income + ceo_pay.get(hid, 0.0)
+            transfers = transfer_plan.get(hid, 0.0)
+            taxes_paid = wage_taxes.get(hid, 0.0)
+
+            # H4: Track income components
+            household.last_wage_income = wage_flow
+            household.last_transfer_income = transfers
+            household.last_other_income = -taxes_paid  # Taxes are negative income
+            household.cash_balance += wage_flow + transfers - taxes_paid
+            ledger = household.last_tick_ledger
+            if abs(wage_flow) > 1e-12:
+                ledger["wage"] = ledger.get("wage", 0.0) + float(wage_flow)
+            if abs(transfers) > 1e-12:
+                ledger["transfers"] = ledger.get("transfers", 0.0) + float(transfers)
+            if abs(taxes_paid) > 1e-12:
+                ledger["taxes"] = ledger.get("taxes", 0.0) - float(taxes_paid)
+
     def apply_sector_subsidy_payment(self, requested_share: float) -> Tuple[float, float]:
         """Pay a sector subsidy request from the shared per-tick subsidy cap.
 
@@ -1348,6 +1469,7 @@ class Economy:
         frozen_wages: Optional[Dict[int, float]] = None,
         payment_receipt_only: bool = False,
         per_firm_sales: Optional[Dict[int, Dict[str, float]]] = None,
+        income_already_settled: bool = False,
     ) -> None:
         """
         Optimized batch update of all household states.
@@ -1366,13 +1488,17 @@ class Economy:
                           without it retain the current household-wage behavior.
             per_firm_sales: Optional clearing sales, reduced in place when a
                           subsidized purchase is scaled down (see below).
+            income_already_settled: The live legacy tick already credited
+                          wages, CEO pay and transfers and debited wage tax
+                          before shopping (``_apply_household_income``); skip
+                          them here so nothing is paid twice.
 
         Note:
             This method is 200+ lines long with multiple responsibilities.
             Per SRP, consider extracting:
             - Loan repayment processing (lines ~860-872)
-            - CEO salary processing (lines ~876-882)
-            - Income/tax application (lines ~894-696)
+            - (CEO salary and income/tax application now live in
+              _apply_household_income)
             - Medical loan payments (lines ~698-701)
             - Purchase processing (lines ~704-830+)
             - Inventory consumption (lines ~800-830)
@@ -1400,14 +1526,11 @@ class Economy:
         # Government receives loan repayments
         self.government.cash_balance += total_loan_repayments
 
-        # Pre-build lookup tables to avoid O(HH × firms) nested loops
-        # CEO lookup: household_id -> list of (firm, median_wage)
-        ceo_lookup: Dict[int, list] = {}
-        for firm in ([] if payment_receipt_only else self.firms):
-            if firm.ceo_household_id is not None and firm.employees:
-                wages_list = [firm.actual_wages.get(e_id, firm.wage_offer) for e_id in firm.employees]
-                median_wage = float(np.median(wages_list))
-                ceo_lookup.setdefault(firm.ceo_household_id, []).append((firm, median_wage))
+        # Income, CEO pay, transfers and wage tax: once per tick. The payment
+        # arm settled them in its PaymentBook; the live legacy tick settled
+        # them before shopping.
+        if not payment_receipt_only and not income_already_settled:
+            self._apply_household_income(transfer_plan, wage_taxes, frozen_wages)
 
         # Category lookup: use provided or empty dict for direct access
         cat_lookup = good_category_lookup or {}
@@ -1420,43 +1543,7 @@ class Economy:
         for household in self.households:
             hid = household.household_id
             household.met_housing_need = False
-
-            # H4: Record starting cash for anomaly detection
-            if not payment_receipt_only:
-                household.last_tick_cash_start = household.cash_balance
-
-            # Apply income and taxes
-            if frozen_wages is not None:
-                wage_income = frozen_wages.get(hid, 0.0)
-            else:
-                wage_income = household.wage if household.employer_id is not None else 0.0
-
-            # Add CEO salary if household is a CEO of any firm
-            ceo_salary = 0.0
-            ceo_entries = ceo_lookup.get(hid)
-            if ceo_entries and not payment_receipt_only:
-                for firm, median_wage in ceo_entries:
-                    sal = median_wage * 3.0  # CEO earns 3x median worker
-                    ceo_salary += sal
-                    firm.cash_balance -= sal
-
-            transfers = transfer_plan.get(hid, 0.0)
-            taxes_paid = wage_taxes.get(hid, 0.0)
-
-            # H4: Track income components
-            if not payment_receipt_only:
-                household.last_wage_income = wage_income + ceo_salary
-                household.last_transfer_income = transfers
-                household.last_other_income = -taxes_paid  # Taxes are negative income
-                household.cash_balance += wage_income + ceo_salary + transfers - taxes_paid
             ledger = household.last_tick_ledger
-            wage_flow = wage_income + ceo_salary
-            if abs(wage_flow) > 1e-12 and not payment_receipt_only:
-                ledger["wage"] = ledger.get("wage", 0.0) + float(wage_flow)
-            if abs(transfers) > 1e-12 and not payment_receipt_only:
-                ledger["transfers"] = ledger.get("transfers", 0.0) + float(transfers)
-            if abs(taxes_paid) > 1e-12 and not payment_receipt_only:
-                ledger["taxes"] = ledger.get("taxes", 0.0) - float(taxes_paid)
 
             # Only unregistered legacy loans use this path; registered medical
             # loans were already serviced in the bank collection phase.
@@ -1668,8 +1755,8 @@ class Economy:
            offers, production/labor, pricing, wage and capital plans, then
            working-capital bridges, investment loans and the minimum wage.
         4. ``_phase_household_planning``: posted-offer signals, education,
-           job-search cooldowns, labor supply, consumption plans and
-           consumption loans.
+           job-search cooldowns, labor supply, consumption plans (payment
+           arm only) and consumption loans.
         5. ``_phase_labor_matching``: labor market resolution and labor events.
         6. ``_phase_apply_labor_outcomes``: firm and household outcomes,
            roster sync, continuing-wage raises.
@@ -1677,20 +1764,22 @@ class Economy:
            snapshot of this tick's ordinary earned wages, then production and
            costs.
         8. ``_phase_goods_clearing``: income and benefit settlement (payment
-           arm), pre-purchase deposit withdrawals, goods clearing, Services
-           slot upgrades (legacy).
+           arm; legacy: wages, CEO pay, wage tax, transfers and capital
+           proceeds, then the week's one consumption plan), pre-purchase
+           deposit withdrawals, goods clearing, Services slot upgrades
+           (legacy).
         9. ``_phase_housing``: rent, repairs, unit expansion, mortgage
            servicing and origination.
         10. ``_phase_misc_and_healthcare``: misc-firm redistribution and
             healthcare; the payment arm also settles care and household dues
             and runs the residual goods pass here.
-        11. ``_phase_fiscal_planning``: tax and transfer plans, capital
-            recycling.
+        11. ``_phase_fiscal_planning``: firm tax plan; payment-arm wage-tax
+            and transfer plans and capital recycling.
         12. ``_phase_firm_settlement``: sales, profits, taxes, prices and next
             wage contracts, mirrored to current workers.
         13. ``_phase_household_and_fiscal_settlement``: loan repayments,
-            household income, tax and purchase application, late income
-            (payment arm), government fiscal results.
+            household purchase application (income was settled in phase 8),
+            late income (payment arm), firm fiscal results.
         14. ``_phase_institutional_close``: deposit sweep and interest, credit
             scores, government discretionary spending, firm R&D, budget
             pressure.
@@ -2152,24 +2241,29 @@ class Economy:
             for household_id, plan in tick.household_labor_plans.items()
         }
 
-        # Consumption planning now vectorized (major speedup)
-        if (not self.performance_mode) or (self.current_tick % 5 == 0):
-            tick.household_consumption_plans = self._batch_plan_consumption(
-                self.last_tick_prices,
-                category_market_snapshot,
-                good_category_lookup,
-                unemployment_rate,
-                gov_benefit,
-            )
-            if self.performance_mode:
-                self._cached_consumption_plans = tick.household_consumption_plans
-        else:
-            tick.household_consumption_plans = self._apply_cached_consumption_plans()
+        # Consumption planning. The named payment arms keep their decision
+        # boundary here; legacy shopping is planned once, after this week's
+        # income and credit, in _phase_goods_clearing.
+        if tick.payment_arm:
+            if (not self.performance_mode) or (self.current_tick % 5 == 0):
+                tick.household_consumption_plans = self._batch_plan_consumption(
+                    self.last_tick_prices,
+                    category_market_snapshot,
+                    good_category_lookup,
+                    unemployment_rate,
+                    gov_benefit,
+                )
+                if self.performance_mode:
+                    self._cached_consumption_plans = tick.household_consumption_plans
+            else:
+                tick.household_consumption_plans = self._apply_cached_consumption_plans()
 
         # Phase 2a: Consumption credit (Fix 25) — bridge low-cash households.
         # Requests were flagged in the household pass above; only
-        # _offer_consumption_loans reads them, and it must follow consumption
-        # planning because disbursal changes cash.
+        # _offer_consumption_loans reads them. On the payment arms it must
+        # follow consumption planning because disbursal changes cash; on
+        # legacy the disbursed loan is part of the cash the later shopping
+        # decision sees.
         if self.bank is not None:
             self._offer_consumption_loans()
 
@@ -2323,11 +2417,12 @@ class Economy:
             )
 
     def _phase_goods_clearing(self, tick: _TickScratch) -> None:
-        """Settle income (payment arm), withdraw deposits, clear goods; legacy Services slot upgrades."""
+        """Settle income, plan legacy shopping, withdraw deposits, clear goods; legacy Services slot upgrades."""
         payment_arm = tick.payment_arm
         frozen_wages = tick.frozen_wages
         household_consumption_plans = tick.household_consumption_plans
-        # Phase 5b: Pre-purchase deposit withdrawals — move planned-spend shortfall to cash
+        # Phase 5b: Income, the shopping decision (legacy) and pre-purchase
+        # deposit withdrawals (move the planned-spend shortfall to cash).
         if payment_arm:
             from payment_loans import prepare_household_dues
             from payment_sectors import payment_deposit_quotes
@@ -2340,6 +2435,7 @@ class Economy:
             quotes = payment_deposit_quotes(self, household_consumption_plans, due_by_household)
             self._payment_withdraw_deposits(quotes)
         else:
+            household_consumption_plans = self._settle_legacy_income_and_plan_shopping(tick)
             self._withdraw_deposits_for_planned_consumption(household_consumption_plans)
 
         # Phase 6: Goods market clearing
@@ -2361,6 +2457,37 @@ class Economy:
                     firm.consider_service_infrastructure_upgrade(economy=self)
             if self.bank is not None:
                 self._offer_service_infrastructure_loans()
+
+    def _settle_legacy_income_and_plan_shopping(self, tick: _TickScratch) -> Dict[int, Dict]:
+        """Legacy phase 5b: settle household income, then make the week's one shopping decision.
+
+        Payroll was debited from employers at production. Here the household
+        side is assessed and settled once: progressive wage tax on the
+        production-boundary wages, transfers at this pre-shopping cash
+        position, CEO pay debited from its firm, and the matching treasury
+        totals. The proceeds of this tick's firm capital spending (all of it
+        already made in firm planning) are released to households at the same
+        boundary. Only then do households plan consumption, from their actual
+        take-home receipts and current cash and deposits. Firm profit and
+        property taxes still wait for sales (phase 7).
+        """
+        frozen_wages = tick.frozen_wages
+        household_tax_snapshots = self._build_household_tax_snapshots(frozen_wages=frozen_wages)
+        tick.household_wage_taxes = self.government.plan_taxes(household_tax_snapshots, [])["wage_taxes"]
+        tick.transfer_plan = self.government.plan_transfers(self._build_household_transfer_snapshots())
+        self._apply_household_income(tick.transfer_plan, tick.household_wage_taxes, frozen_wages)
+        self.government.apply_fiscal_results(
+            sum(tick.household_wage_taxes.values()), 0.0, sum(tick.transfer_plan.values())
+        )
+        self._recycle_capital_investment()
+        tick.household_consumption_plans = self._plan_legacy_consumption_after_income(
+            self.last_tick_prices,
+            tick.category_market_snapshot,
+            tick.good_category_lookup,
+            tick.unemployment_rate,
+            tick.gov_benefit,
+        )
+        return tick.household_consumption_plans
 
     def _phase_housing(self, tick: _TickScratch) -> None:
         """Housing: rent clearing, repairs, unit expansion, mortgage servicing and origination."""
@@ -2433,14 +2560,11 @@ class Economy:
             self._process_healthcare_services(tick.per_firm_sales)
 
     def _phase_fiscal_planning(self, tick: _TickScratch) -> None:
-        """Government plans taxes and transfers; capital spending and project proceeds are recycled."""
+        """Firm tax plan; payment-arm wage-tax/transfer plans and capital/project recycling."""
         payment_arm = tick.payment_arm
-        frozen_wages = tick.frozen_wages
         per_firm_sales = tick.per_firm_sales
-        # Phase 7: Government plans taxes
-        household_tax_snapshots = (
-            [] if payment_arm else self._build_household_tax_snapshots(frozen_wages=frozen_wages)
-        )
+        # Phase 7: Government plans firm taxes. Household wage taxes were
+        # settled before shopping (legacy, phase 5b) or by the PaymentBook.
         firm_tax_snapshots = self._build_firm_tax_snapshots(per_firm_sales)
         tick.price_ceiling_tax_by_firm_id = {
             int(snapshot["firm_id"]): float(snapshot.get("price_ceiling_tax", 0.0))
@@ -2450,24 +2574,21 @@ class Economy:
         tick.assessed_project_receipts = (dict(self.payment_state.get("services_pending_receipts", {}))
                                      if payment_arm else {})
 
-        tick.tax_plan = self.government.plan_taxes(
-            household_tax_snapshots,
-            firm_tax_snapshots
-        )
+        tick.tax_plan = self.government.plan_taxes([], firm_tax_snapshots)
         if payment_arm:
             tick.tax_plan["wage_taxes"] = dict(self.payment_book.wage_taxes)
             self.payment_state["services_pending_receipts"] = {}
+        else:
+            tick.tax_plan["wage_taxes"] = tick.household_wage_taxes
 
-        # Phase 8: Government plans transfers
+        # Phase 8: Transfers. Legacy planned and paid them at phase 5b.
         if payment_arm:
             tick.transfer_plan = dict(self.payment_book.benefits)
-        else:
-            household_transfer_snapshots = self._build_household_transfer_snapshots()
-            tick.transfer_plan = self.government.plan_transfers(household_transfer_snapshots)
 
         # Phase 8.5: Recycle capital investment spending to households
-        self._recycle_capital_investment()
+        # (legacy released it at phase 5b, before shopping).
         if payment_arm:
+            self._recycle_capital_investment()
             from payment_projects import distribute_payment_project_proceeds
             distribute_payment_project_proceeds(self)
 
@@ -2554,6 +2675,7 @@ class Economy:
             frozen_wages=frozen_wages,
             payment_receipt_only=payment_arm,
             per_firm_sales=tick.per_firm_sales,
+            income_already_settled=not payment_arm,
         )
         if payment_arm:
             self.payment_book.release_late_income()
@@ -2569,10 +2691,13 @@ class Economy:
         self.last_tick_gov_property_taxes = tick.total_property_taxes
         self.last_tick_gov_transfers = tick.total_transfers
 
+        # Household wage taxes and transfers already settled: at phase 5b on
+        # legacy, through the PaymentBook on the payment arms. Their totals
+        # above stay in telemetry and budget pressure.
         self.government.apply_fiscal_results(
-            (0.0 if payment_arm else tick.total_wage_taxes),
+            0.0,
             tick.total_profit_taxes + total_price_ceiling_taxes,  # Include price ceiling tax as profit tax
-            (0.0 if payment_arm else tick.total_transfers),
+            0.0,
             tick.total_property_taxes
         )
         if payment_arm:
