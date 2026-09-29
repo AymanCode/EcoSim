@@ -2499,8 +2499,8 @@ class FirmAgent(AgentMixin):
         )
         lost_sales = float(getattr(self, "last_tick_lost_sales_used_units", 0.0) or 0.0)
         sell_through = float(getattr(health_snapshot, "sell_through_rate", 0.0) or 0.0)
-        inventory_weeks = float(getattr(health_snapshot, "inventory_weeks", 999.0) or 999.0)
-        profit_margin = float(getattr(health_snapshot, "smoothed_profit_margin", -1.0) or -1.0)
+        inventory_weeks = float(health_snapshot.inventory_weeks)
+        profit_margin = float(health_snapshot.smoothed_profit_margin)
         _, _, marginal_margin = self._marginal_worker_economics()
         estimated_net_gain = float(getattr(self, "last_working_capital_estimated_net_gain", 0.0) or 0.0)
         demand_validated = (

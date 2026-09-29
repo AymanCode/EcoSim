@@ -630,3 +630,61 @@ def test_contract_healthcare_queue_and_snapshot_contracts(tiny_economy_factory):
     economy._process_healthcare_services(per_firm_sales)
     assert healthcare_firm.inventory_units == pytest.approx(0.0, abs=1e-8)
     assert 0.0 <= hh.health <= 1.0
+
+
+def _turnaround_services_firm() -> FirmAgent:
+    """A private Services firm with funded turnaround credit and validated demand."""
+    firm = FirmAgent(
+        firm_id=77,
+        good_name="ServicesFirm77",
+        cash_balance=100.0,
+        inventory_units=0.0,
+        good_category="Services",
+        quality_level=5.0,
+        wage_offer=20.0,
+        price=100.0,
+        expected_sales_units=20.0,
+        production_capacity_units=20.0,
+        productivity_per_worker=3.0,
+        personality="moderate",
+        is_baseline=False,
+    )
+    firm.employees = [1, 2, 3]
+    firm.actual_wages = {1: 20.0, 2: 20.0, 3: 20.0}
+    firm._invalidate_wage_bill_cache()
+    firm.working_capital_support_ticks = 3
+    firm.working_capital_hire_budget_workers = 2
+    firm.last_tick_lost_sales_used_units = 10.0
+    firm.last_working_capital_estimated_net_gain = 100.0
+    return firm
+
+
+def test_contract_turnaround_gate_reads_zero_inventory_and_margin_as_real_values():
+    """B15: zero inventory weeks (every Services firm) and a 0.0 margin are real readings.
+
+    Before the fix `getattr(..., 999.0) or 999.0` turned 0.0 inventory weeks into
+    999 weeks and a 0.0 margin into -1.0, so the gate never allowed a Services
+    turnaround.
+    """
+    from agents import FirmHealthSnapshot
+
+    firm = _turnaround_services_firm()
+    snapshot = FirmHealthSnapshot(
+        cash_runway_ticks=1.0,
+        smoothed_profit_margin=0.0,
+        sell_through_rate=1.0,
+        inventory_weeks=0.0,
+        unfilled_positions_streak=0,
+        worker_turnover_this_tick=0,
+        survival_mode=True,
+        burn_mode=False,
+        category_wage_anchor_p75=20.0,
+    )
+    allowed, payload = firm._survival_turnaround_gate(snapshot)
+    assert payload["inventory_weeks"] == 0.0
+    assert payload["profit_margin"] == 0.0
+    assert allowed is True
+
+    plan = firm._plan_services_capacity_labor(snapshot)
+    assert plan["planned_hires_count"] > 0
+    assert firm.decision_diagnostics.get("survival_turnaround_hiring") is True
