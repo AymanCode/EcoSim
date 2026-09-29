@@ -36,7 +36,7 @@ import os
 import random
 from dataclasses import dataclass, fields
 from collections import deque
-from typing import Dict, List, Tuple, Optional
+from typing import TYPE_CHECKING, Dict, List, Tuple, Optional
 
 from config import CONFIG, get_config
 from fiscal_guards import (
@@ -60,6 +60,9 @@ from agents import (
 )
 from utils.category_utils import build_good_category_lookup
 from payments import PaymentBook, MONEY_EPS, proportional
+
+if TYPE_CHECKING:  # typing only; the payment arm imports it lazily at run time
+    from payment_sectors import PaymentGoodsMarket
 
 logger = logging.getLogger(__name__)
 
@@ -96,7 +99,7 @@ class _TickScratch:
     frozen_wages: Optional[Dict[int, float]] = None
     per_household_purchases: Optional[Dict[int, Dict]] = None
     per_firm_sales: Optional[Dict[int, Dict]] = None
-    goods_market: Optional[object] = None  # payment_sectors.PaymentGoodsMarket; payment arm only
+    goods_market: Optional["PaymentGoodsMarket"] = None  # payment arm only
     price_ceiling_tax_by_firm_id: Optional[Dict[int, float]] = None
     total_price_ceiling_taxes: Optional[float] = None
     assessed_project_receipts: Optional[Dict[int, float]] = None
@@ -2547,9 +2550,6 @@ class Economy:
             self.payment_state["restrictions"]["withholding"] = 0.0
             self._payment_sync_restrictions()
 
-        # Phase 11.1: Update government budget pressure (soft deficit constraint)
-        # NOTE: infra/tech spending added to tick_spending after Phase 11.5 (below)
-
     def _phase_institutional_close(self, tick: _TickScratch) -> None:
         """Bank deposits and credit, government discretionary spending, firm R&D, budget pressure."""
         payment_arm = tick.payment_arm
@@ -2621,6 +2621,8 @@ class Economy:
         self.government.cash_balance += total_investment_taxes
 
         # Phase 11.7: Update budget pressure now that all revenue and spending are known
+        # (soft deficit constraint; it runs here rather than at Phase 11.1 so that
+        # the Phase 11.5 infrastructure, technology and social spending is included).
         tick_revenue = (
             total_wage_taxes + total_profit_taxes + total_price_ceiling_taxes
             + total_property_taxes + total_investment_taxes
