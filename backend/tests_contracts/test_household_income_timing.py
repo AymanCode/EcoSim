@@ -8,6 +8,7 @@ is ported.
 """
 
 import contextlib
+import copy
 import random
 
 import numpy as np
@@ -72,7 +73,7 @@ def small_world(seed, *, cash=100.0, deposits=0.0, category="Food", workers=1):
     return Economy(households, [firm], government, bank=bank)
 
 
-@pytest.mark.parametrize("performance_mode", [False])
+@pytest.mark.parametrize("performance_mode", [False, True])
 @pytest.mark.parametrize("funding", ["wage", "loan", "benefit"])
 def test_zero_cash_household_buys_food_in_week_funds_arrive(monkeypatch, performance_mode, funding):
     with isolated_run(1337):
@@ -135,6 +136,53 @@ def test_zero_cash_household_buys_food_in_week_funds_arrive(monkeypatch, perform
             assert household.consumption_loan_remaining > 0
 
 
+def test_cached_basket_changes_budget_without_repeating_seller_choices(monkeypatch):
+    with isolated_run(1337):
+        economy = small_world(1337, cash=100)
+        economy.performance_mode = True
+        household = economy.households[0]
+        household.last_wage_income = 40
+        household.last_other_income = -4
+        market = economy._build_category_market_snapshot()
+        lookup = economy._build_good_category_lookup()
+        before = copy.deepcopy(economy._plan_legacy_consumption_after_income({}, market, lookup, 0, 0))
+        economy.current_tick = 1
+        household.cash_balance += 200
+        household.last_wage_income = 80
+
+        def forbidden_replan(*args, **kwargs):
+            raise AssertionError("Seller choices should be reused for a funded cached basket")
+
+        monkeypatch.setattr(economy, "_batch_plan_consumption", forbidden_replan)
+        after = economy._plan_legacy_consumption_after_income({}, market, lookup, 0, 0)
+        assert after[1]["budget"] > before[1]["budget"]
+        assert after[1]["planned_purchases"]
+        purchases, _ = economy._clear_goods_market(after, economy.firms)
+        assert sum(q * p for q, p in purchases[1].values()) <= after[1]["budget"]
+        assert after[1]["planned_purchases"] == before[1]["planned_purchases"]
+        household.cash_balance = 0
+        household.bank_deposit = 0
+        empty = economy._plan_legacy_consumption_after_income({}, market, lookup, 0, 0)
+        purchases, _ = economy._clear_goods_market(empty, economy.firms)
+        assert purchases[1] == {}
+        assert empty[1]["planned_purchases"] == before[1]["planned_purchases"]
+
+
+def test_cached_zero_budget_recovers_after_extra_cash_arrives():
+    with isolated_run(1337):
+        economy = small_world(1337, cash=0)
+        economy.performance_mode = True
+        market = economy._build_category_market_snapshot()
+        lookup = economy._build_good_category_lookup()
+        empty = economy._plan_legacy_consumption_after_income({}, market, lookup, 0, 0)
+        assert empty[1]["budget"] == 0
+        economy.current_tick = 1
+        economy.households[0].cash_balance = 200
+        funded = economy._plan_legacy_consumption_after_income({}, market, lookup, 0, 0)
+        assert funded[1]["budget"] > 0
+        assert funded[1]["planned_purchases"]
+
+
 def test_income_settlement_and_receipts_do_not_pay_wages_twice():
     with isolated_run(1337):
         economy = small_world(1337, cash=0)
@@ -160,3 +208,30 @@ def test_settled_budget_uses_paid_wage_instead_of_future_contract():
         household.wage = 400
         after = economy._household_consumption_budgets(0, 0, settled_income=True)
         assert after == pytest.approx(before)
+
+
+@pytest.mark.parametrize("target", [1, "Shop"])
+@pytest.mark.parametrize("cash, food_cap, supply, expected_quantity, expected_unmet", [
+    (15, 100, 10, 0.75, 0),  # A price rise cannot make cached orders overdraw cash.
+    (100, 24, 10, 1.2, 0),  # Extra income retains the normal food spending cap.
+    (15, 100, 0.25, 0.25, 0.5),  # Only affordable unfilled demand is recorded.
+])
+def test_cached_orders_respect_current_price_cash_food_cap_and_supply(
+    target, cash, food_cap, supply, expected_quantity, expected_unmet,
+):
+    with isolated_run(1337):
+        economy = small_world(1337, cash=cash)
+        firm = economy.firms[0]
+        firm.price = 20
+        firm.inventory_units = supply
+        plans = {1: {
+            "household_id": 1, "budget": 100, "planned_purchases": {target: 10},
+            "_purchase_scale": 2.0, "_food_budget_cap": food_cap,
+        }}
+        purchases, sales = economy._clear_goods_market(plans, economy.firms)
+        quantity, price = purchases[1]["Shop"]
+        assert quantity == pytest.approx(expected_quantity)
+        assert price == 20
+        assert sales[1]["revenue"] == pytest.approx(quantity * price)
+        assert quantity * price <= min(cash, food_cap)
+        assert economy.food_unmet_demand == pytest.approx(expected_unmet)
