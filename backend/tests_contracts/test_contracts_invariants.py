@@ -252,3 +252,16 @@ def test_contract_uniqueness_of_sampled_household_and_firm_traits(fixed_seed):
         for f in firms
     ]
     assert len(set(firm_traits)) == len(firm_traits)
+
+
+def test_contract_deficit_ratio_is_zero_in_surplus(tiny_economy_factory):
+    """B25: metrics deficit_ratio measures only a negative treasury balance."""
+    economy = tiny_economy_factory(num_households=6, seed=123)
+    economy.step()
+    gdp = economy.get_economic_metrics()["gdp_this_tick"]
+
+    economy.government.cash_balance = 5_000.0
+    assert economy.get_economic_metrics()["deficit_ratio"] == 0.0
+
+    economy.government.cash_balance = -5_000.0
+    assert economy.get_economic_metrics()["deficit_ratio"] == pytest.approx(5_000.0 / max(gdp, 1.0))

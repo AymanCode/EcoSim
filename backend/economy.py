@@ -7833,36 +7833,15 @@ class Economy:
     # -------------------------------------------------------------------------
     def _adjust_government_policy(self) -> None:
         """
-        Calculate economic indicators and adjust government policy.
+        Size the government's transfer budget from the unemployed count.
 
         Mutates state.
         """
-        # Calculate unemployment rate
-        total_households = len(self.households)
-        if total_households == 0:
+        if not self.households:
             return
 
         unemployed = sum(1 for h in self.households if not h.is_employed)
-        unemployment_rate = unemployed / total_households
-
-        inflation_rate = 0.0
-
-        # Calculate deficit ratio
-        total_gdp = sum(self.last_tick_revenue.values()) if self.last_tick_revenue else 1.0
-        deficit_ratio = abs(self.government.cash_balance) / max(total_gdp, 1.0)
-
-        bankruptcies = sum(1 for f in self.firms if f.cash_balance < 0.0)
-        total_tax_revenue = total_gdp * self.government.profit_tax_rate
-
-        self.government.adjust_policies(
-            unemployment_rate,
-            inflation_rate,
-            deficit_ratio,
-            num_unemployed=unemployed,
-            gdp=total_gdp,
-            total_tax_revenue=total_tax_revenue,
-            num_bankrupt_firms=bankruptcies
-        )
+        self.government.adjust_policies(num_unemployed=unemployed)
 
     def _update_statistics(self, per_firm_sales: Dict[int, Dict[str, float]]) -> None:
         """
@@ -8214,7 +8193,7 @@ class Economy:
         metrics["minimum_wage_floor"] = gov._minimum_wage_floor
 
         # Government metrics — budget pressure
-        metrics["deficit_ratio"] = abs(gov.cash_balance) / max(metrics["gdp_this_tick"], 1.0)
+        metrics["deficit_ratio"] = max(0.0, -gov.cash_balance) / max(metrics["gdp_this_tick"], 1.0)
         metrics["fiscal_pressure"] = gov.fiscal_pressure
         metrics["fiscal_pressure_instant_ratio"] = self.last_fiscal_pressure_instant_ratio
         metrics["fiscal_pressure_denominator_gdp"] = self.last_fiscal_pressure_denominator_gdp

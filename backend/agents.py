@@ -6365,7 +6365,7 @@ class GovernmentAgent(AgentMixin):
         # Pay transfers
         self.cash_balance -= total_transfers
 
-    def adjust_policies(self, unemployment_rate: float, inflation_rate: float, deficit_ratio: float, num_unemployed: int = 0, gdp: float = 0.0, total_tax_revenue: float = 0.0, num_bankrupt_firms: int = 0) -> None:
+    def adjust_policies(self, num_unemployed: int = 0) -> None:
         """Perform mechanical per-tick policy housekeeping.
 
         This method no longer contains counter-cyclical auto-stabilisers.
@@ -6375,13 +6375,7 @@ class GovernmentAgent(AgentMixin):
         unemployment counts — this is execution, not decision-making.
 
         Args:
-            unemployment_rate: Current unemployment rate (0-1).
-            inflation_rate: Current inflation rate (unused, kept for API compat).
-            deficit_ratio: Government deficit ratio (unused, kept for API compat).
             num_unemployed: Actual count of unemployed households.
-            gdp: Economy-wide GDP estimate.
-            total_tax_revenue: Total tax revenue (unused, kept for API compat).
-            num_bankrupt_firms: Count of bankrupt firms (unused, kept for API compat).
         """
         if self.stabilization_disabled:
             return
