@@ -1392,6 +1392,10 @@ class Economy:
                     firm.cash_balance -= payment
                     firm.government_loan_remaining -= payment
                     total_loan_repayments += payment
+                    if firm.government_loan_remaining <= 0.0:
+                        # Paid off: the installments the treasury loans added
+                        # to this mirror at origination leave it once.
+                        firm.loan_payment_per_tick = 0.0
 
         # Government receives loan repayments
         self.government.cash_balance += total_loan_repayments

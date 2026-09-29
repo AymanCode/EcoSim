@@ -342,3 +342,30 @@ def test_bailout_emergency_loan_amortizes_over_its_term():
     installment = v2_payment(principal, CONFIG.government.emergency_loan_interest, term, tpy)
     assert firm.loan_payment_per_tick == pytest.approx(installment)
     assert firm.government_loan_remaining == pytest.approx(installment * term)
+
+
+def test_legacy_paid_off_treasury_loan_leaves_the_installment_mirror():
+    """Round-2 review fix: a paid-off treasury loan leaves `loan_payment_per_tick`.
+
+    Before the fix the legacy repayment in `_batch_apply_household_updates`
+    lowered `government_loan_remaining` to zero but left the installment in
+    `loan_payment_per_tick`, so `_debt_service_per_tick` kept counting it.
+    """
+    from tests_contracts.factories import make_economy, make_firm
+
+    firm = make_firm(firm_id=5, category="Food", is_baseline=False, cash_balance=0.0)
+    economy = make_economy(firms=[firm], num_households=3)
+    economy.government.cash_balance = 50_000.0
+    assert economy.bank is None and economy.payment_sequence == "legacy"
+    assert economy._issue_firm_loan(firm, amount=10_000.0, term_ticks=104, govt_rate=0.04, spread=0.04) > 0
+    installment = firm.loan_payment_per_tick
+    firm.bank_loan_payment_per_tick = 7.0  # an unrelated bank installment stays counted
+    assert firm._debt_service_per_tick() == pytest.approx(7.0 + installment)
+
+    firm.government_loan_remaining = installment  # final installment due
+    firm.cash_balance = 100_000.0
+    economy._batch_apply_household_updates({}, {}, {})
+
+    assert firm.government_loan_remaining == 0.0
+    assert firm.loan_payment_per_tick == pytest.approx(0.0)
+    assert firm._debt_service_per_tick() == pytest.approx(7.0)
