@@ -5609,11 +5609,12 @@ class Economy:
             elif self._payment_free_treasury_cash() > seed_cash:
                 # No bank — direct government loan
                 self.government.cash_balance -= seed_cash
+                from payment_loans import v2_payment
                 seed_rate_govt = 0.01
-                total_repayment = seed_cash * (1.0 + seed_rate_govt)
+                govt_loan_payment = v2_payment(seed_cash, seed_rate_govt, seed_term_ticks,
+                                               int(CONFIG.time.ticks_per_year))
                 govt_loan_principal = seed_cash
-                govt_loan_remaining = total_repayment
-                govt_loan_payment = total_repayment / seed_term_ticks
+                govt_loan_remaining = govt_loan_payment * seed_term_ticks
             else:
                 # Government broke — downgrade to bootstrapped
                 seed_cash = tier_rng.uniform(5_000.0, 30_000.0)
@@ -5835,12 +5836,14 @@ class Economy:
         # Government can only lend what it has
         if self._payment_free_treasury_cash() < amount:
             return 0.0
-        interest_multiplier = 1.0 + govt_rate
-        total_repayment = amount * interest_multiplier
+        # Amortized installment over the term, as bank loans charge (v2_payment).
+        from payment_loans import v2_payment
+        term = max(1, int(term_ticks))
+        installment = v2_payment(amount, govt_rate, term, int(CONFIG.time.ticks_per_year))
         firm.cash_balance += amount
         firm.government_loan_principal += amount
-        firm.government_loan_remaining += total_repayment
-        firm.loan_payment_per_tick += total_repayment / max(1, term_ticks)
+        firm.government_loan_remaining += installment * term
+        firm.loan_payment_per_tick += installment
         self.government.cash_balance -= amount
         return amount
 

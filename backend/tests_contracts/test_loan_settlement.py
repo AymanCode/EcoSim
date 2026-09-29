@@ -163,3 +163,55 @@ def test_consumption_default_does_not_clear_live_medical_schedule(tiny_economy_f
     assert hh.consumption_loan_remaining == 0
     assert hh.medical_loan_payment_per_tick == medical["payment_per_tick"]
     assert hh.medical_loan_bank_serviced
+
+
+def test_legacy_direct_treasury_firm_loan_amortizes_over_its_term():
+    """Phase 4 follow-up: the legacy treasury fallback charges the amortized installment."""
+    from config import CONFIG
+    from payment_loans import v2_payment
+    from tests_contracts.factories import make_economy, make_firm
+
+    firm = make_firm(firm_id=5, category="Food", is_baseline=False, cash_balance=0.0)
+    economy = make_economy(firms=[firm], num_households=3)
+    economy.government.cash_balance = 50_000.0
+    assert economy.bank is None and economy.payment_sequence == "legacy"
+
+    funded = economy._issue_firm_loan(firm, amount=10_000.0, term_ticks=104, govt_rate=0.04, spread=0.04)
+
+    installment = v2_payment(10_000.0, 0.04, 104, int(CONFIG.time.ticks_per_year))
+    assert funded == 10_000.0
+    assert firm.loan_payment_per_tick == pytest.approx(installment)
+    assert firm.government_loan_remaining == pytest.approx(installment * 104)
+
+
+def test_legacy_no_bank_new_firm_treasury_seed_amortizes_over_its_term(monkeypatch):
+    """Phase 4 follow-up: the no-bank government-backed entrant seed amortizes over 156 ticks."""
+    import random
+
+    import economy as economy_module
+    from config import CONFIG
+    from payment_loans import v2_payment
+    from tests_contracts.factories import make_economy, make_firm, make_households
+
+    firms = [make_firm(firm_id=i, category=c, is_baseline=False)
+             for i, c in enumerate(("Housing", "Food", "Services"), start=1)]
+    economy = make_economy(households=make_households(5), firms=firms, baseline_firms=False)
+    economy.in_warmup = False
+    economy.current_tick = 20
+    economy.target_total_firms = 100
+    economy.government.cash_balance = 500_000.0
+    assert economy.bank is None
+
+    class LowRoll(random.Random):
+        def random(self):  # every roll picks the government-backed tier
+            return 0.0
+
+    monkeypatch.setattr(economy_module.random, "Random", LowRoll)
+    economy._maybe_create_new_firms()
+    monkeypatch.undo()
+
+    entrant = economy.firms[-1]
+    assert entrant.firm_id == 4 and entrant.government_loan_principal > 0.0
+    installment = v2_payment(entrant.government_loan_principal, 0.01, 156, int(CONFIG.time.ticks_per_year))
+    assert entrant.loan_payment_per_tick == pytest.approx(installment)
+    assert entrant.government_loan_remaining == pytest.approx(installment * 156)
