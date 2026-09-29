@@ -555,8 +555,8 @@ def test_skills_vs_wages(snap, ticks):
 
 def test_deficit_ratio(snap, ticks):
     section("DEFICIT TRACKING — high spending vs high tax")
-    print("  Expected: deficit_ratio rises under spend-heavy policy, "
-          "falls under high-tax policy vs control")
+    print("  Expected: the treasury holds less cash under the spend-heavy policy "
+          "than under the high-tax policy")
 
     # High spend scenario
     spend_eco = restore(snap)
@@ -572,8 +572,11 @@ def test_deficit_ratio(snap, ticks):
     tax = run_ticks(tax_eco, ticks)
 
     results = [
-        check("Deficit ratio: spend > tax (final)",
-              final(spend, "deficit_ratio"), final(tax, "deficit_ratio"), ">"),
+        # deficit_ratio is zero while the treasury holds cash (audit B25). The
+        # per-tick net flow and fiscal_pressure are not usable either: surplus
+        # above the reserve is spent on bond purchases, which count as spending.
+        check("Government cash: tax > spend (mean)",
+              avg(tax, "government_cash"), avg(spend, "government_cash"), ">"),
         check("Spending efficiency: tax > spend (final)",
               final(tax, "spending_efficiency"), final(spend, "spending_efficiency"), ">"),
     ]
