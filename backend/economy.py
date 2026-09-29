@@ -5458,12 +5458,14 @@ class Economy:
         if self.in_warmup:
             return
 
-        total_household_cash = sum(h.cash_balance for h in self.households)
-        if self.payment_sequence == "legacy" and total_household_cash < 1000.0:
-            return
-
         if len(self.firms) + len(self.queued_firms) >= self.target_total_firms:
             return
+
+        # Only the legacy tiers read total household cash (gate and seed sizes).
+        if self.payment_sequence == "legacy":
+            total_household_cash = sum(h.cash_balance for h in self.households)
+            if total_household_cash < 1000.0:
+                return
 
         # ── choose sector ────────────────────────────────────────────
 
