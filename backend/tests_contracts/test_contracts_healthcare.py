@@ -214,12 +214,15 @@ def test_contract_healthcare_excess_margin_is_shifted_to_doctor_bonus(fixed_seed
     firm.last_tick_total_costs = 40.0
     firm.net_profit = 60.0
     firm.cash_balance = 1_000.0
+    # The economy sets the binding policy minimum before planning; it is above
+    # the config floor (20), so base wages reset to it (audit B19).
+    firm.policy_minimum_wage = 36.0
 
     firm.adjust_wages_to_revenue_ratio(revenue=100.0)
 
     expected_bonus_pool = 60.0 - (100.0 * CONFIG.firms.healthcare_target_profit_margin)
-    assert sum(firm.actual_wages.values()) == pytest.approx(CONFIG.firms.minimum_wage_floor * 2)
-    assert firm.wage_offer == pytest.approx(CONFIG.firms.minimum_wage_floor)
+    assert sum(firm.actual_wages.values()) == pytest.approx(36.0 * 2)
+    assert firm.wage_offer == pytest.approx(36.0)
     assert firm.pending_healthcare_worker_bonus == pytest.approx(expected_bonus_pool)
     assert firm.decision_diagnostics["healthcare_base_wage_reset_to_minimum"] is True
 
@@ -271,3 +274,28 @@ def test_contract_doctors_stay_healthy_each_tick(tiny_economy_factory):
     doctor.health = 0.2
     economy.step()
     assert doctor.health == pytest.approx(CONFIG.households.doctor_health_lock_value, abs=1e-8)
+
+
+def test_contract_healthcare_wages_are_pinned_to_the_policy_minimum_wage(tiny_economy_factory):
+    """B19: firms floor and pin wages at the binding policy minimum, not the config floor.
+
+    Before the fix `apply_price_and_wage_updates` pinned healthcare wage offers and
+    wages to `CONFIG.firms.minimum_wage_floor` (20) while the government's minimum
+    wage (`get_minimum_wage()`, 36 at the default policy) was higher.
+    """
+    economy = tiny_economy_factory(
+        num_households=8,
+        include_housing=False,
+        include_services=False,
+        baseline_firms=False,
+        seed=808,
+    )
+    policy_minimum = economy.government.get_minimum_wage()
+    assert policy_minimum > CONFIG.firms.minimum_wage_floor
+
+    healthcare = next(f for f in economy.firms if f.good_category.lower() == "healthcare")
+    for _ in range(2):
+        economy.step()
+        assert healthcare.wage_offer == pytest.approx(policy_minimum)
+        for worker_id in healthcare.employees:
+            assert healthcare.actual_wages[worker_id] == pytest.approx(policy_minimum)

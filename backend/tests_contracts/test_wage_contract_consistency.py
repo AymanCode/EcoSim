@@ -183,7 +183,9 @@ def test_healthcare_resets_keep_this_payday_and_mirror_future_contract(
     economy.current_tick = 1
     economy.warmup_ticks = 0
     economy.in_warmup = False
-    minimum = firm._firm_config().minimum_wage_floor
+    # Healthcare base wages reset to the binding policy minimum (audit B19),
+    # which is above the config floor at the default policy.
+    minimum = max(firm._firm_config().minimum_wage_floor, economy.government.get_minimum_wage())
     assert 80.0 > minimum
 
     monkeypatch.setattr(

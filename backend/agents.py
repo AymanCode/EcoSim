@@ -1923,6 +1923,9 @@ class FirmAgent(AgentMixin):
     payout_ratio: float = 0.0  # Fraction of net profit paid as dividends
     net_profit: float = 0.0  # Track last tick net profit
     pending_healthcare_worker_bonus: float = 0.0
+    # Binding policy minimum wage (GovernmentAgent.get_minimum_wage()), set by the
+    # economy before each tick's firm planning; 0.0 until then (audit B19).
+    policy_minimum_wage: float = 0.0
 
     # Loan tracking (for government startup loans)
     government_loan_principal: float = 0.0  # Original loan amount
@@ -2258,6 +2261,10 @@ class FirmAgent(AgentMixin):
         """Return the shared ``CONFIG.firms`` dataclass for firm-level tuning knobs."""
         return CONFIG.firms
 
+    def _minimum_wage(self) -> float:
+        """Wage floor: the config floor or this tick's policy minimum, whichever is higher."""
+        return max(float(self._firm_config().minimum_wage_floor), float(self.policy_minimum_wage))
+
     def _is_generic_services_firm(self) -> bool:
         """Generic services are per-tick flow capacity, not storable production."""
         return self.good_category.lower() == "services"
@@ -2553,8 +2560,8 @@ class FirmAgent(AgentMixin):
         firm_config = self._firm_config()
         capacity = max(1.0, len(self.employees) * max(self.healthcare_capacity_per_worker, 0.1))
 
-        # Enforce the global minimum-wage floor on the per-worker wage used for pricing.
-        min_wage_floor = float(getattr(firm_config, "minimum_wage_floor", 0.0))
+        # Enforce the minimum wage on the per-worker wage used for pricing.
+        min_wage_floor = self._minimum_wage()
         effective_wage = max(float(self.wage_offer), min_wage_floor)
         wage_bill = effective_wage * max(1, len(self.employees))
 
@@ -3465,10 +3472,11 @@ class FirmAgent(AgentMixin):
                 # grab everyone, leaving nothing for the second firm.
                 planned_hires = int(estimated_pop * 0.50)
                 if self.good_category.lower() == "food":
-                    self.wage_offer = firm_config.minimum_wage_floor
+                    self.wage_offer = self._minimum_wage()
                 else:
                     revenue_per_worker = self.price * self.productivity_per_worker
                     self.wage_offer = min(revenue_per_worker * 0.95, 40.0)
+                self._invalidate_wage_bill_cache()
             else:
                 support_ratio = 1.0 if post_warmup_cooldown else 0.8
                 support_output = self.baseline_production_quota * support_ratio
@@ -4457,10 +4465,10 @@ class FirmAgent(AgentMixin):
         fundamental_wage = realized_rev_per_worker * firm_config.target_labor_share * slack_factor
         wage_offer_next = self.wage_offer
         raise_damp = max(0.2, 1.0 - 0.8 * unemployment_rate)
-        floor_wage = max(firm_config.minimum_wage_floor, unemployment_benefit * benefit_multiplier)
+        floor_wage = max(self._minimum_wage(), unemployment_benefit * benefit_multiplier)
 
         if self.good_category.lower() == "healthcare":
-            return {"wage_offer_next": firm_config.minimum_wage_floor}
+            return {"wage_offer_next": self._minimum_wage()}
 
         if self.last_revenue <= 1e-3:
             wage_target = min(self.wage_offer, max(floor_wage, fundamental_wage))
@@ -4768,7 +4776,7 @@ class FirmAgent(AgentMixin):
             target_retained_profit = revenue * target_margin
             bonus_pool = max(0.0, self.net_profit - target_retained_profit)
             bonus_pool = min(bonus_pool, max(0.0, self.cash_balance))
-            minimum_wage = firm_config.minimum_wage_floor
+            minimum_wage = self._minimum_wage()
 
             self.wage_offer = minimum_wage
             for employee_id in self.employees:
@@ -4792,7 +4800,7 @@ class FirmAgent(AgentMixin):
             ):
                 return
 
-            minimum_wage = firm_config.minimum_wage_floor
+            minimum_wage = self._minimum_wage()
             wage_cut = 0.98
             for employee_id in self.employees:
                 current_wage = self.actual_wages.get(employee_id, self.wage_offer)
@@ -4804,7 +4812,7 @@ class FirmAgent(AgentMixin):
 
         if wage_ratio > firm_config.max_labor_share:
             # Reduce all wages by 10%, floored at minimum wage
-            minimum_wage = firm_config.minimum_wage_floor
+            minimum_wage = self._minimum_wage()
             wage_cut = firm_config.max_wage_decrease_per_tick
             for employee_id in self.employees:
                 current_wage = self.actual_wages.get(employee_id, self.wage_offer)
@@ -4848,7 +4856,7 @@ class FirmAgent(AgentMixin):
         # Update wage offer
         self.wage_offer = wage_plan["wage_offer_next"]
         if self.good_category.lower() == "healthcare":
-            minimum_wage = self._firm_config().minimum_wage_floor
+            minimum_wage = self._minimum_wage()
             self.wage_offer = minimum_wage
             for worker_id in self.employees:
                 self.actual_wages[worker_id] = minimum_wage

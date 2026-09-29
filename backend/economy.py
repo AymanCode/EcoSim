@@ -1925,6 +1925,7 @@ class Economy:
 
         for firm in self.firms:
             firm.clear_planner_diagnostics()
+            firm.policy_minimum_wage = planning_minimum_wage
             health_snapshot = firm.refresh_health_snapshot(
                 sell_through_rate=self.last_tick_sell_through_rate.get(firm.firm_id, 0.5),
                 category_wage_anchor_p75=tick.category_wage_anchor_p75.get(
