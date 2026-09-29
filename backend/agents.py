@@ -1576,6 +1576,7 @@ class HouseholdAgent(AgentMixin):
 
         Loan terms:
         - Interest rate: 1-3% annually (random, scaled by 52 ticks/year)
+        - Amount owed: the amortized total over a 52-tick term (``v2_payment``)
         - Repayment: 10% of wage per tick
         - Only available to employed households
 
@@ -1587,9 +1588,14 @@ class HouseholdAgent(AgentMixin):
         _loan_rng = random.Random(CONFIG.random_seed + self.household_id * 6_700_417 + int(loan_amount * 100))
         annual_interest_rate = _loan_rng.uniform(0.01, 0.03)
 
-        # Calculate total repayment with interest (simple interest)
-        # Total = principal × (1 + annual_rate)
-        total_repayment = loan_amount * (1.0 + annual_interest_rate)
+        # Amount owed: the amortized total over the bank medical loan's 52-tick
+        # term (payment_loans.v2_payment), as bank loans charge. Repayment below
+        # still follows make_medical_loan_payment's wage-floor rule.
+        from payment_loans import v2_payment
+        term_ticks = 52
+        total_repayment = term_ticks * v2_payment(
+            loan_amount, annual_interest_rate, term_ticks, int(CONFIG.time.ticks_per_year)
+        )
 
         # Set loan terms
         self.medical_loan_principal = loan_amount

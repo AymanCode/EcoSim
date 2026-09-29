@@ -282,3 +282,24 @@ def test_legacy_completed_firm_loans_leave_the_installment_mirror():
     economy._collect_bank_loan_repayments()
     assert first["remaining"] == 0.0
     assert firm.bank_loan_payment_per_tick == pytest.approx(second["payment_per_tick"])
+
+
+def test_no_bank_medical_loan_amortizes_over_the_medical_term():
+    """Phase 5a follow-up: the no-bank medical fallback owes the amortized total.
+
+    Before the fix `HouseholdAgent.take_medical_loan` booked
+    `amount * (1 + annual_rate)`, one year of simple interest, while the bank
+    medical loan (52 ticks) owes `v2_payment(...) * 52`.
+    """
+    import random
+
+    from agents import HouseholdAgent
+    from config import CONFIG
+    from payment_loans import v2_payment
+
+    hh = HouseholdAgent(household_id=4, skills_level=0.5, age=30, cash_balance=0.0)
+    hh.take_medical_loan(500.0)
+    rate = random.Random(CONFIG.random_seed + 4 * 6_700_417 + int(500.0 * 100)).uniform(0.01, 0.03)
+    installment = v2_payment(500.0, rate, 52, int(CONFIG.time.ticks_per_year))
+    assert hh.medical_loan_remaining == pytest.approx(installment * 52)
+    assert hh.cash_balance == pytest.approx(500.0)
