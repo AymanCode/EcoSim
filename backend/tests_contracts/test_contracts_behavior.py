@@ -688,3 +688,39 @@ def test_contract_turnaround_gate_reads_zero_inventory_and_margin_as_real_values
     plan = firm._plan_services_capacity_labor(snapshot)
     assert plan["planned_hires_count"] > 0
     assert firm.decision_diagnostics.get("survival_turnaround_hiring") is True
+
+
+def test_contract_reservation_gap_raise_reads_zero_inventory_weeks_as_tight():
+    """B15 (wage planner): 0.0 inventory weeks supports a reservation-gap wage raise.
+
+    Before the fix `getattr(self, "inventory_weeks", 999.0) or 999.0` turned a
+    firm's 0.0 inventory weeks (every Services firm, or a stocked-out goods
+    firm) into 999 weeks, so that demand signal never counted.
+    """
+    from agents import FirmHealthSnapshot
+
+    firm = _turnaround_services_firm()
+    firm.working_capital_support_ticks = 0
+    firm.working_capital_hire_budget_workers = 0
+    firm.last_tick_lost_sales_used_units = 0.0
+    firm.last_sell_through_rate = 0.5
+    firm.inventory_weeks = 0.0
+    firm.last_tick_planned_hires = 2
+    firm.last_tick_actual_hires = 0
+    firm.last_tick_failed_match_reason = "reservation_above_wage_offer"
+    firm.last_tick_reservation_reject_count = 3
+    firm.last_tick_median_rejected_reservation_wage = 30.0
+    snapshot = FirmHealthSnapshot(
+        cash_runway_ticks=50.0,
+        smoothed_profit_margin=0.1,
+        sell_through_rate=0.5,
+        inventory_weeks=0.0,
+        unfilled_positions_streak=0,
+        worker_turnover_this_tick=0,
+        survival_mode=False,
+        burn_mode=False,
+        category_wage_anchor_p75=20.0,
+    )
+    plan = firm.plan_wage(health_snapshot=snapshot, minimum_wage_floor=20.0)
+    assert firm.decision_diagnostics.get("wage_raise_reason") == "reservation_blocked_vacancies"
+    assert plan["wage_offer_next"] > 20.0

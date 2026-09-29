@@ -4294,7 +4294,7 @@ class FirmAgent(AgentMixin):
             float(getattr(self, "last_tick_lost_sales_used_units", 0.0) or 0.0) > 0.0
             or float(getattr(self, "last_sell_through_rate", 0.0) or 0.0)
             >= float(firm_config.reservation_gap_demand_sellthrough_floor)
-            or float(getattr(self, "inventory_weeks", 999.0) or 999.0)
+            or float(self.inventory_weeks)
             <= float(firm_config.reservation_gap_inventory_weeks_ceiling)
         )
 
