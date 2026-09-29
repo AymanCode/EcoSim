@@ -6265,7 +6265,8 @@ class Economy:
                 firm.max_rental_units += 1
                 firm.production_capacity_units += 1.0
                 firm.expected_sales_units += 1.0
-                firm.property_tax_rate += 0.005
+            # Constant rate once the firm builds; new units grow the taxed base (B29).
+            firm.property_tax_rate = max(firm.property_tax_rate, cfg.housing_property_tax_rate)
 
             firm.needs_housing_expansion_loan = False
             firm.housing_expansion_loan_amount = 0.0

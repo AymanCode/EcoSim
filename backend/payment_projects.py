@@ -181,7 +181,8 @@ def complete_payment_projects(economy):
         firm.max_rental_units += units
         firm.production_capacity_units += float(units)
         firm.expected_sales_units += float(units)
-        firm.property_tax_rate += 0.005 * units
+        # Constant rate once the firm builds; new units grow the taxed base (B29).
+        firm.property_tax_rate = max(firm.property_tax_rate, CONFIG.firms.housing_property_tax_rate)
         completed.append(project)
         _event(economy, "completed", project)
         del _projects(economy)[fid]

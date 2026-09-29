@@ -41,7 +41,8 @@ def test_reachable_self_funded_project_holds_capacity_until_declared_tick():
     assert len(complete_payment_projects(economy)) == 1
     assert firm.max_rental_units == 2
     assert firm.production_capacity_units == 2.0
-    assert firm.property_tax_rate == pytest.approx(0.01)
+    # The rate stays constant; the new unit grows the taxed base (audit B29).
+    assert firm.property_tax_rate == pytest.approx(0.005)
     assert economy.misc_firm_revenue == pytest.approx(1000.0)
     assert complete_payment_projects(economy) == []
 

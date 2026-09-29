@@ -603,6 +603,9 @@ class FirmBehaviorConfig:
     housing_vacancy_buffer: float = 0.95       # Revenue projection conservatism factor
     housing_max_build_per_tick: int = 2        # Max units built per tick via loan
     housing_unit_market_value: float = 20_000.0  # Collateral value per rental unit
+    # Annual property tax rate on a housing firm's assessed value (units x rent x 52),
+    # set once the firm builds its first unit; building more units grows the base only.
+    housing_property_tax_rate: float = 0.005
 
     # Phillips Curve wage algorithm
     nairu_threshold: float = 0.05       # Unemployment rate below which labor is scarce

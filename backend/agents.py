@@ -4939,7 +4939,8 @@ class FirmAgent(AgentMixin):
             self.max_rental_units += 1
             self.production_capacity_units += 1.0
             self.expected_sales_units += 1.0
-            self.property_tax_rate += 0.005  # +0.5% per new unit
+            # Constant rate once the firm builds; the new unit grows the taxed base (B29).
+            self.property_tax_rate = max(self.property_tax_rate, self._firm_config().housing_property_tax_rate)
             return True
 
         # Scenario 2: Request bank loan (will be processed in Phase 6.6b)

@@ -75,3 +75,44 @@ def test_contract_unaffordable_existing_tenant_is_evicted_without_rent_transfer(
     assert household.household_id not in firm.current_tenants
     assert firm.cash_balance == pytest.approx(firm_cash_before)
     assert economy.last_housing_diagnostics["eviction_count"] == pytest.approx(1.0)
+
+
+def test_contract_property_tax_rate_stays_constant_as_units_are_built():
+    """B29: building units adds to the taxed base, not to the rate.
+
+    Before the fix each self-financed unit added 0.005 to property_tax_rate on
+    top of adding the unit to the base (units x rent), so the weekly tax grew
+    with the square of units built.
+    """
+    from config import CONFIG
+
+    firm = FirmAgent(
+        firm_id=5,
+        good_name="HousingFirm5",
+        cash_balance=10_000_000.0,
+        inventory_units=0.0,
+        good_category="Housing",
+        quality_level=5.0,
+        wage_offer=30.0,
+        price=100.0,
+        expected_sales_units=10.0,
+        production_capacity_units=10.0,
+        productivity_per_worker=10.0,
+        personality="moderate",
+        is_baseline=False,
+        max_rental_units=10,
+    )
+    for _ in range(5):
+        firm.current_tenants = list(range(1, firm.max_rental_units + 1))  # full -> expand
+        assert firm.invest_in_unit_expansion(homeless_count=0)
+    assert firm.max_rental_units == 15
+
+    rate = CONFIG.firms.housing_property_tax_rate
+    assert firm.property_tax_rate == pytest.approx(rate)
+    plan = GovernmentAgent(cash_balance=0.0).plan_taxes(
+        [],
+        [{"firm_id": 5, "good_category": "Housing", "profit_before_tax": 0.0,
+          "property_tax_rate": firm.property_tax_rate, "max_rental_units": firm.max_rental_units,
+          "price": firm.price, "cash_balance": firm.cash_balance}],
+    )
+    assert plan["property_taxes"][5] == pytest.approx(rate * 15 * 100.0)
