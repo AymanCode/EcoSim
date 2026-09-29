@@ -213,6 +213,24 @@ def test_contract_social_multiplier_is_policy_funded_and_decays():
     assert government.social_happiness_multiplier >= 1.0
 
 
+def test_contract_infrastructure_multiplier_is_capped_and_decays():
+    """B17: sustained infrastructure spending saturates at 1.15 and fades when it stops."""
+    government = GovernmentAgent(cash_balance=10_000_000.0)
+    government.set_lever("infrastructure_spending", "high")
+    for _ in range(200):
+        government.invest_in_infrastructure()
+    assert government.infrastructure_productivity_multiplier == pytest.approx(1.15)
+
+    government.set_lever("infrastructure_spending", "none")
+    for _ in range(14):
+        assert government.invest_in_infrastructure() == 0.0
+    # The excess over 1.0 decays 5% a tick: 0.15 * 0.95**14 after 14 unfunded ticks.
+    assert government.infrastructure_productivity_multiplier == pytest.approx(1.0 + 0.15 * 0.95 ** 14)
+    for _ in range(400):
+        government.invest_in_infrastructure()
+    assert 1.0 <= government.infrastructure_productivity_multiplier < 1.0 + 1e-6
+
+
 def test_contract_morale_reacts_to_employment_housing_and_wages():
     """Contract I: Morale direction follows employment, housing, and wage satisfaction."""
     base = _fresh_household(40)

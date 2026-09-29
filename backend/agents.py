@@ -6426,11 +6426,16 @@ class GovernmentAgent(AgentMixin):
         (crowding-out / bureaucratic drag).
 
         Only spends if the lever is not ``"none"`` (budget > 0) and the
-        treasury can cover the outlay.
+        treasury can cover the outlay. Like the technology multiplier the gain
+        is capped at 1.15; each tick the excess over 1.0 first decays by the
+        social-programs rate (5%), so the benefit fades when funding stops.
 
         Returns:
             Amount actually invested (0.0 if skipped).
         """
+        self.infrastructure_productivity_multiplier = max(
+            1.0, 1.0 + (self.infrastructure_productivity_multiplier - 1.0) * 0.95
+        )
         if self.infrastructure_investment_budget <= 0.0:
             return 0.0
 
@@ -6441,7 +6446,9 @@ class GovernmentAgent(AgentMixin):
             # Each $1000 invested → +0.5% productivity, scaled by efficiency
             base_gain = (investment / 1000.0) * 0.005
             effective_gain = base_gain * self.spending_efficiency
-            self.infrastructure_productivity_multiplier += effective_gain
+            self.infrastructure_productivity_multiplier = min(
+                1.15, self.infrastructure_productivity_multiplier + effective_gain
+            )
 
             return investment
         return 0.0
