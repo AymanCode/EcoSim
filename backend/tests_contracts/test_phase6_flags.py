@@ -293,3 +293,26 @@ def test_b32_friction_with_negative_utilities(factory, monkeypatch, flag):
     household.current_primary_firm["food"] = 1
     best = -2.0 + 2.0 * friction * 2.0
     assert household._apply_switching_friction("food", 2, best, {1: current, 2: best}) == 2
+
+
+# --- B10: category preferences applied once (fix_preference_applied_once)
+
+
+def test_b10_batch_fractions_apply_preferences_once_and_cache_follows_flag(factory, monkeypatch):
+    household = factory.household(household_id=1)
+    household.food_preference, household.housing_preference, household.services_preference = 2.0, 1.0, 1.0
+    # What __post_init__ stores for an equal base: normalize(base * preference).
+    household.category_weights = {"food": 0.5, "housing": 0.25, "services": 0.25}
+    economy = factory.economy(households=[household], firms=[factory.firm(firm_id=1)])
+
+    assert CONFIG.households.fix_preference_applied_once is False
+    squared = economy._household_static_traits()["precomputed_fractions"][0]
+    # Flag off: the preference multiplies again, so food's share is 2^2 / (4 + 1 + 1).
+    assert squared == pytest.approx({"food": 4.0 / 6.0, "housing": 1.0 / 6.0, "services": 1.0 / 6.0})
+
+    monkeypatch.setattr(CONFIG.households, "fix_preference_applied_once", True)
+    once = economy._household_static_traits()["precomputed_fractions"][0]
+    assert once == pytest.approx({"food": 0.5, "housing": 0.25, "services": 0.25})
+
+    monkeypatch.setattr(CONFIG.households, "fix_preference_applied_once", False)
+    assert economy._household_static_traits()["precomputed_fractions"][0] == pytest.approx(squared)

@@ -326,6 +326,11 @@ class HouseholdBehaviorConfig:
     # does not invert for negative utilities.
     fix_seller_choice_noise: bool = False
     tie_break_scale: float = 1e-3
+    # Remediation phase 6 (audit B10), default off = old behavior: the batch
+    # consumption planner uses category_weights as stored (already
+    # normalize(base * preference)) instead of multiplying by the preferences
+    # a second time, so budget shares scale with preference, not its square.
+    fix_preference_applied_once: bool = False
     pool_refresh_interval: int = 4  # Refresh awareness pool every N ticks
     pool_refresh_drop_count: int = 1  # Number of lowest-utility firms to drop per refresh
 

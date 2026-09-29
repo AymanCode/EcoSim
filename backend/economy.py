@@ -243,8 +243,9 @@ class Economy:
         self.household_lookup: Dict[int, HouseholdAgent] = {h.household_id: h for h in households}
         self.firm_lookup: Dict[int, FirmAgent] = {f.firm_id: f for f in firms}
         # Static household trait arrays for consumption planning, keyed by the
-        # household list object and its length; see _household_static_traits().
-        self._household_static_traits_cache: Optional[Tuple[List[HouseholdAgent], int, Dict[str, object]]] = None
+        # household list object, its length and fix_preference_applied_once;
+        # see _household_static_traits().
+        self._household_static_traits_cache: Optional[Tuple[List[HouseholdAgent], int, bool, Dict[str, object]]] = None
 
         # Cache wage percentiles to avoid repeated sorting
         self.cached_wage_percentiles: Tuple[float, float, float] = (0.0, 0.0, 0.0)  # low, mid, high
@@ -885,15 +886,24 @@ class Economy:
         *_preference values and category_weights are set in
         HouseholdAgent.__post_init__ and never reassigned by the engine, so
         _batch_plan_consumption gathers them once instead of every tick. The
-        cache is rebuilt when the household list object or its length changes.
+        cache is rebuilt when the household list object or its length changes,
+        or when CONFIG.households.fix_preference_applied_once changes (audit
+        B10: with it on, category_weights, already normalize(base * preference)
+        since __post_init__, are not multiplied by the preferences again).
         Callers must not mutate the returned arrays, lists or dicts.
         """
         households = self.households
+        preference_once = bool(CONFIG.households.fix_preference_applied_once)
         cached = self._household_static_traits_cache
         # Holding the list itself (not its id) means a replaced list can never
         # match through a reused id.
-        if cached is not None and cached[0] is households and cached[1] == len(households):
-            return cached[2]
+        if (
+            cached is not None
+            and cached[0] is households
+            and cached[1] == len(households)
+            and cached[2] == preference_once
+        ):
+            return cached[3]
 
         spending_tendencies = np.array([h.spending_tendency for h in households], dtype=np.float64)
         frugalities = np.array([max(h.frugality, 0.1) for h in households], dtype=np.float64)
@@ -907,8 +917,11 @@ class Economy:
             [household.category_weights.get(cat, 0.0) for cat in standard_categories]
             for household in households
         ], dtype=np.float64)
-        preference_matrix = np.column_stack((food_prefs, housing_prefs, services_prefs))
-        biased_matrix = category_weights_matrix * preference_matrix
+        if preference_once:
+            biased_matrix = category_weights_matrix
+        else:
+            preference_matrix = np.column_stack((food_prefs, housing_prefs, services_prefs))
+            biased_matrix = category_weights_matrix * preference_matrix
         precomputed_fractions = []
         for idx, household in enumerate(households):
             bias: Dict[str, float] = {}
@@ -933,7 +946,7 @@ class Economy:
             "drawdown_rates": drawdown_rates,
             "precomputed_fractions": precomputed_fractions,
         }
-        self._household_static_traits_cache = (households, len(households), traits)
+        self._household_static_traits_cache = (households, len(households), preference_once, traits)
         return traits
 
     # SOLID: SRP Violation - This method handles BOTH vectorized computation
