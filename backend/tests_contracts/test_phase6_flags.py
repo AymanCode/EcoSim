@@ -71,3 +71,92 @@ def test_b12_flag_on_planned_offer_below_cut_is_kept(factory, monkeypatch):
         {"price_next": firm.price, "markup_next": firm.markup}, {"wage_offer_next": 50.0}
     )
     assert firm.wage_offer == pytest.approx(50.0)
+
+
+# --- B13/B14: job-switcher vacancies (fix_switcher_vacancies)
+
+
+def _labor_plan(household, *, reservation=10.0, switching=False):
+    return {
+        "household_id": household.household_id,
+        "skills_level": household.skills_level,
+        "reservation_wage": reservation,
+        "searching_for_job": True,
+        "job_switching": switching,
+        "medical_only": False,
+    }
+
+
+def _production_plan(hires=0, layoffs=()):
+    return {"planned_hires_count": hires, "planned_layoffs_ids": list(layoffs)}
+
+
+def _switcher_market(factory):
+    """Private idle firms 1-3; switcher 1 works at firm 1, switcher 5 is laid off by firm 3."""
+    switcher = factory.household(household_id=1, skills_level=0.9, employer_id=1, wage=50.0)
+    unemployed = [factory.household(household_id=i, skills_level=0.5) for i in (2, 3, 4)]
+    laid_off_switcher = factory.household(household_id=5, skills_level=0.4, employer_id=3, wage=50.0)
+    firms = [
+        factory.firm(firm_id=1, is_baseline=False, employees=[1], actual_wages={1: 50.0}),
+        factory.firm(firm_id=2, is_baseline=False),
+        factory.firm(firm_id=3, is_baseline=False, employees=[5], actual_wages={5: 50.0}),
+    ]
+    households = [switcher, *unemployed, laid_off_switcher]
+    economy = factory.economy(households=households, firms=firms)
+    production = {1: _production_plan(), 2: _production_plan(), 3: _production_plan(layoffs=[5])}
+    wages = {fid: {"wage_offer_next": 60.0} for fid in (1, 2, 3)}
+    labor = {h.household_id: _labor_plan(h) for h in unemployed}
+    labor[1] = _labor_plan(switcher, switching=True)
+    # Nobody's offer reaches household 5's reservation wage.
+    labor[5] = _labor_plan(laid_off_switcher, reservation=1_000.0, switching=True)
+    return economy, production, wages, labor
+
+
+def test_b13_flag_off_switchers_open_vacancies_for_everyone(factory):
+    assert CONFIG.labor_market.fix_switcher_vacancies is False
+    economy, production, wages, labor = _switcher_market(factory)
+    firm_out, hh_out = economy._match_labor_fast(production, wages, labor)
+    # Two switchers give every private idle firm, the laying-off one too, two
+    # vacancies, written into the caller's plans and filled from the whole pool.
+    assert [production[fid]["planned_hires_count"] for fid in (1, 2, 3)] == [2, 2, 2]
+    assert all(firm_out[fid]["synthetic_switcher_vacancies"] == 2 for fid in (1, 2, 3))
+    assert sum(hh_out[i]["employer_id"] is not None for i in (2, 3, 4)) == 3
+    # The laid-off switcher falls back to the firm that laid them off.
+    assert hh_out[5]["employer_id"] == 3
+
+
+def test_b13_flag_on_switcher_vacancies_are_local_capped_and_switcher_only(factory, monkeypatch):
+    monkeypatch.setattr(CONFIG.labor_market, "fix_switcher_vacancies", True)
+    economy, production, wages, labor = _switcher_market(factory)
+    firm_out, hh_out = economy._match_labor_fast(production, wages, labor)
+    assert [production[fid]["planned_hires_count"] for fid in (1, 2, 3)] == [0, 0, 0]
+    # Cap 1 per firm; none for the firm planning layoffs.
+    assert [firm_out[fid]["synthetic_switcher_vacancies"] for fid in (1, 2, 3)] == [1, 1, 0]
+    # Unemployed non-switchers do not fill switcher vacancies.
+    assert all(hh_out[i]["employer_id"] is None for i in (2, 3, 4))
+    # The switcher cannot be "hired" by their own employer; firm 2 takes them.
+    assert hh_out[1]["employer_id"] == 2
+    assert firm_out[2]["hired_households_ids"] == [1]
+    assert firm_out[1]["hired_households_ids"] == []
+    # A laid-off switcher who found nothing stays laid off.
+    assert hh_out[5]["employer_id"] is None
+
+
+@pytest.mark.parametrize("tick", range(6))
+def test_b14_flag_on_hiring_firm_skips_own_worker_without_losing_them(factory, monkeypatch, tick):
+    monkeypatch.setattr(CONFIG.labor_market, "fix_switcher_vacancies", True)
+    own = factory.household(household_id=6, skills_level=0.9, employer_id=4, wage=50.0)
+    other = factory.household(household_id=2, skills_level=0.5)
+    firms = [
+        factory.firm(firm_id=4, is_baseline=True, employees=[6], actual_wages={6: 50.0}),
+        factory.firm(firm_id=5, is_baseline=True),
+    ]
+    economy = factory.economy(households=[own, other], firms=firms)
+    economy.current_tick = tick  # varies the seeded firm order
+    production = {4: _production_plan(hires=1), 5: _production_plan(hires=1)}
+    wages = {4: {"wage_offer_next": 60.0}, 5: {"wage_offer_next": 60.0}}
+    labor = {6: _labor_plan(own, switching=True), 2: _labor_plan(other)}
+    firm_out, hh_out = economy._match_labor_fast(production, wages, labor)
+    assert hh_out[6]["employer_id"] == 5
+    assert hh_out[2]["employer_id"] == 4
+    assert firm_out[4]["hired_households_ids"] == [2]

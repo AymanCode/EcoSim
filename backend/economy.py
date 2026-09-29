@@ -3884,6 +3884,7 @@ class Economy:
         planned_layoffs_set = set()
         for plan in firm_production_plans.values():
             planned_layoffs_set.update(plan.get("planned_layoffs_ids", []))
+        fix_switchers = bool(CONFIG.labor_market.fix_switcher_vacancies)
 
         n_households = len(self.households)
         household_ids = np.empty(n_households, dtype=np.int32)
@@ -3982,12 +3983,25 @@ class Economy:
             1 for plan in household_labor_plans.values()
             if plan.get("job_switching")
         )
+        # fix_switcher_vacancies (audit B13): capped, switcher-only vacancies
+        # kept here instead of in the caller's plans, none for firms laying off.
+        synthetic_vacancies: Dict[int, int] = {}
         if job_switch_count > 0:
             for firm_id in private_non_hiring_firm_ids:
-                # Give each private firm up to job_switch_count vacancies so
-                # switchers can join; firm production plans expand naturally next tick.
-                firm_production_plans[firm_id]["planned_hires_count"] = job_switch_count
-                firm_labor_outcomes[firm_id]["synthetic_switcher_vacancies"] = int(job_switch_count)
+                if fix_switchers:
+                    if firm_production_plans[firm_id]["planned_layoffs_ids"]:
+                        continue
+                    cap = int(CONFIG.labor_market.switcher_vacancy_cap_per_firm)
+                    synthetic_count = min(job_switch_count, max(0, cap))
+                    if synthetic_count <= 0:
+                        continue
+                    synthetic_vacancies[firm_id] = synthetic_count
+                else:
+                    # Give each private firm up to job_switch_count vacancies so
+                    # switchers can join; firm production plans expand naturally next tick.
+                    firm_production_plans[firm_id]["planned_hires_count"] = job_switch_count
+                    synthetic_count = job_switch_count
+                firm_labor_outcomes[firm_id]["synthetic_switcher_vacancies"] = int(synthetic_count)
                 active_hiring_firm_ids.append(firm_id)
 
         if not active_hiring_firm_ids:
@@ -4022,6 +4036,15 @@ class Economy:
             buckets[int(bucket_id)].append(candidate_idx)
         for bucket in buckets:
             bucket.sort(key=lambda idx: (-float(skills[idx]), int(household_ids[idx])))
+        if fix_switchers:
+            employer_ids = [
+                -1 if h.employer_id is None else int(h.employer_id) for h in self.households
+            ]
+            switcher_order = sorted(
+                (int(idx) for idx in candidate_indices
+                 if household_labor_plans.get(int(household_ids[idx]), {}).get("job_switching")),
+                key=lambda idx: (-float(skills[idx]), int(household_ids[idx])),
+            )
 
         bucket_positions = np.zeros(num_buckets, dtype=np.int32)
         invalid_best = (-1.0, -1_000_000_000, -1, -1)  # (skill, -household_id, idx, bucket_id)
@@ -4101,7 +4124,7 @@ class Economy:
 
             production_plan = firm_production_plans[firm_id]
             wage_plan = firm_wage_plans[firm_id]
-            vacancies = int(production_plan["planned_hires_count"])
+            vacancies = int(synthetic_vacancies.get(firm_id, production_plan["planned_hires_count"]))
             wage_offer = float(wage_plan["wage_offer_next"])
 
             # Reservation eligibility boundary: only reservation_wage <= wage_offer.
@@ -4109,22 +4132,39 @@ class Economy:
             if max_bucket < 0:
                 continue
 
+            # fix_switcher_vacancies: switcher vacancies scan switchers only;
+            # a firm's own worker is set aside and its bucket head restored.
+            switcher_scan = iter(switcher_order) if firm_id in synthetic_vacancies else None
+            own_worker_heads: List[Tuple[int, int]] = []
             while vacancies > 0:
-                # Select global best candidate among all wage-eligible buckets.
-                # If top-skill candidates are exhausted, this naturally falls
-                # back to lower-skill candidates before leaving vacancies open.
-                _, _, candidate_idx, bucket_id = _query_best_up_to_bucket(max_bucket)
-                if candidate_idx < 0 or bucket_id < 0:
-                    break
+                if switcher_scan is not None:
+                    candidate_idx = next((
+                        idx for idx in switcher_scan
+                        if not assigned[idx] and employer_ids[idx] != firm_id
+                        and reservation_wages[idx] <= wage_offer
+                    ), -1)
+                    if candidate_idx < 0:
+                        break
+                else:
+                    # Select global best candidate among all wage-eligible buckets.
+                    # If top-skill candidates are exhausted, this naturally falls
+                    # back to lower-skill candidates before leaving vacancies open.
+                    _, _, candidate_idx, bucket_id = _query_best_up_to_bucket(max_bucket)
+                    if candidate_idx < 0 or bucket_id < 0:
+                        break
+                    head_position = int(bucket_positions[bucket_id])
 
-                # Consume this bucket head and refresh tree immediately.
-                bucket_positions[bucket_id] += 1
-                _update_bucket(bucket_id)
+                    # Consume this bucket head and refresh tree immediately.
+                    bucket_positions[bucket_id] += 1
+                    _update_bucket(bucket_id)
 
-                # Candidate can already be assigned by an earlier firm in this
-                # tick; stale entries are skipped lazily.
-                if assigned[candidate_idx]:
-                    continue
+                    # Candidate can already be assigned by an earlier firm in this
+                    # tick; stale entries are skipped lazily.
+                    if assigned[candidate_idx]:
+                        continue
+                    if fix_switchers and employer_ids[candidate_idx] == firm_id:
+                        own_worker_heads.append((bucket_id, head_position))
+                        continue
 
                 household_id = int(household_ids[candidate_idx])
                 household = self.household_lookup.get(household_id)
@@ -4162,6 +4202,9 @@ class Economy:
                 }
                 assigned[candidate_idx] = True
                 vacancies -= 1
+            for bucket_id, head_position in own_worker_heads:
+                bucket_positions[bucket_id] = min(int(bucket_positions[bucket_id]), head_position)
+                _update_bucket(bucket_id)
 
         # Unfilled-vacancy diagnostics. Matching is over, so the remaining pool
         # is the same for every firm: build it once, on first need.
@@ -4224,7 +4267,8 @@ class Economy:
             labor_plan = household_labor_plans.get(household_id, {})
             if (labor_plan.get("job_switching")
                     and household_labor_outcomes.get(household_id, {}).get("employer_id") is None
-                    and household.employer_id is not None):
+                    and household.employer_id is not None
+                    and not (fix_switchers and household_id in planned_layoffs_set)):
                 old_firm = self.firm_lookup.get(household.employer_id)
                 employer_category = old_firm.good_category if old_firm else None
                 household_labor_outcomes[household_id] = {
