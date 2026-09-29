@@ -2639,8 +2639,9 @@ class FirmAgent(AgentMixin):
         """Return healthcare break-even and target visit price from labor costs.
 
         Strict (total_wage / capacity) * 1.15 formula. Effective per-doctor wage
-        is floored at the global minimum-wage floor so wage_offer drift below
-        minimum cannot underprice the visit. Gross margin is inflated by the
+        is floored at the higher of the config floor and the policy minimum
+        (``_minimum_wage``) so wage_offer drift below minimum cannot underprice
+        the visit. Gross margin is inflated by the
         profit-tax rate so the after-tax margin matches the 15% target.
         """
         if self.good_category.lower() != "healthcare":
@@ -4826,11 +4827,11 @@ class FirmAgent(AgentMixin):
         Firms target a specific labor share of revenue (configured via
         ``max_labor_share`` in CONFIG.firms). If the actual wage bill
         exceeds this threshold, all wages are cut by ``max_wage_decrease_per_tick``
-        (floored at the minimum wage floor).
+        (floored at the higher of the config floor and the policy minimum).
 
         Special handling:
-        - **Healthcare firms**: Reset all wages to minimum_wage_floor and
-          calculate a bonus pool from excess profits (distributed later via
+        - **Healthcare firms**: Reset all wages to the higher of the config
+          floor and the policy minimum (``_minimum_wage``) and calculate a bonus pool from excess profits (distributed later via
           ``distribute_healthcare_worker_bonus``)
         - **Non-baseline firms**: Only cut wages if not in a healthy financial
           state (smoothed_profit_margin >= -0.25 and cash_runway >= threshold)
@@ -4839,8 +4840,10 @@ class FirmAgent(AgentMixin):
             revenue: Revenue from this tick (used to calculate wage/revenue ratio)
 
         Side Effects:
-            - For healthcare: Sets all wages to minimum_wage_floor, sets pending_healthcare_worker_bonus
-            - For others: Cuts all wages and wage_offer by max_wage_decrease_per_tick (floored at minimum_wage)
+            - For healthcare: Sets all wages to the higher of the config floor and the policy minimum,
+              sets pending_healthcare_worker_bonus
+            - For others: Cuts all wages and wage_offer by max_wage_decrease_per_tick (floored at the
+              higher of the config floor and the policy minimum)
             - Updates self.actual_wages dict and self.wage_offer
         """
         if revenue <= 0 or not self.employees:
@@ -4921,7 +4924,8 @@ class FirmAgent(AgentMixin):
 
         Applies the decisions from the planning phases (``plan_pricing`` and
         ``plan_wage``) to the firm's state. For healthcare firms, wages
-        are always pinned to the minimum_wage_floor regardless of the plan.
+        are always pinned to the higher of the config floor and the policy
+        minimum (``_minimum_wage``) regardless of the plan.
 
         Args:
             price_plan: Dictionary with:
@@ -4934,7 +4938,8 @@ class FirmAgent(AgentMixin):
             - Updates self.price (clamped to self.min_price)
             - Updates self.markup
             - Updates self.wage_offer
-            - For healthcare firms: Overrides wage_offer and all actual_wages to minimum_wage_floor
+            - For healthcare firms: Overrides wage_offer and all actual_wages to the higher of the
+              config floor and the policy minimum
         """
         # Update price and markup
         self.price = max(price_plan["price_next"], self.min_price)

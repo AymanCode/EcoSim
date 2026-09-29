@@ -44,7 +44,6 @@ def total_money_with_bank(economy: Economy) -> float:
     return total_money(economy) + bank_reserves
 
 
-
 def total_money_net_of_injections(economy: Economy) -> float:
     """``total_money_with_bank`` minus the recorded external injections.
 
