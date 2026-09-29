@@ -8,6 +8,7 @@ old behavior.
 import pytest
 
 from config import CONFIG
+from tests_contracts.factories import patch_agent_method
 
 
 # --- B12: distress wage cut survives the tick (fix_distress_wage_cut_persists)
@@ -160,3 +161,64 @@ def test_b14_flag_on_hiring_firm_skips_own_worker_without_losing_them(factory, m
     assert hh_out[6]["employer_id"] == 5
     assert hh_out[2]["employer_id"] == 4
     assert firm_out[4]["hired_households_ids"] == [2]
+
+
+# --- B11: living cost from category prices (fix_category_price_beliefs)
+
+
+def test_b11_plan_labor_supply_uses_category_prices_when_given(factory):
+    worker = factory.household(household_id=1, employer_id=1, wage=100.0, min_food_per_tick=2.0)
+    # Real beliefs are keyed by good name, so the old "housing"/"food" lookups miss.
+    worker.price_beliefs = {"HousingFirm2": 200.0, "FoodFirm3": 8.0}
+    old_living_cost = 0.3 * worker.default_price_level + 2.0 * worker.default_price_level
+    new_living_cost = 0.3 * 200.0 + 2.0 * 8.0
+    worker.cash_balance = (old_living_cost + new_living_cost) / 2.0
+    assert worker.plan_labor_supply()["searching_for_job"] is False
+    plan = worker.plan_labor_supply(category_expected_prices={"housing": 200.0, "food": 8.0})
+    assert plan["searching_for_job"] is True
+
+
+def _category_price_economy(factory):
+    worker = factory.household(household_id=1, employer_id=4, wage=20.0)
+    firms = [
+        factory.firm(firm_id=1, category="Housing", price=300.0),
+        factory.firm(firm_id=2, category="Housing", price=100.0),
+        factory.firm(firm_id=3, category="Housing", price=200.0),
+        factory.firm(firm_id=4, category="Food", price=20.0, employees=[1], actual_wages={1: 20.0}),
+        factory.firm(firm_id=5, category="Healthcare", price=999.0),
+    ]
+    return worker, factory.economy(households=[worker], firms=firms)
+
+
+@pytest.mark.parametrize("flag", [False, True])
+def test_b11_step_passes_median_category_prices_only_with_flag(factory, monkeypatch, flag):
+    monkeypatch.setattr(CONFIG.households, "fix_category_price_beliefs", flag)
+    worker, economy = _category_price_economy(factory)
+    seen = []
+    original = worker.plan_labor_supply
+
+    def record(*args, **kwargs):
+        seen.append(kwargs.get("category_expected_prices"))
+        return original(*args, **kwargs)
+
+    patch_agent_method(monkeypatch, worker, "plan_labor_supply", record)
+    economy.step()
+    if flag:
+        assert seen == [{"housing": 200.0, "food": 20.0}]
+    else:
+        assert seen == [None]
+
+
+@pytest.mark.parametrize("flag", [False, True])
+def test_b11_post_warmup_living_cost_floor(factory, monkeypatch, flag):
+    monkeypatch.setattr(CONFIG.households, "fix_category_price_beliefs", flag)
+    worker, economy = _category_price_economy(factory)
+    economy._reset_post_warmup_expectations()
+    if flag:
+        # Median housing 200, food 20: living cost 0.3 * 200 + min_food * 20.
+        expected = 0.3 * 200.0 + worker.min_food_per_tick * 20.0
+    else:
+        default = worker.default_price_level
+        expected = max(25.0, 0.3 * default + worker.min_food_per_tick * default)
+    expected = max(expected, economy.government.get_minimum_wage())
+    assert worker.wage == pytest.approx(expected)

@@ -1337,6 +1337,7 @@ class HouseholdAgent(AgentMixin):
         mean_posted_wage: float = 0.0,
         category_posted_wages: Optional[Dict[str, float]] = None,
         employer_category: Optional[str] = None,
+        category_expected_prices: Optional[Dict[str, float]] = None,
     ) -> Dict[str, object]:
         """
         Decide whether to search for job and what wage to require.
@@ -1352,6 +1353,9 @@ class HouseholdAgent(AgentMixin):
                 Used as a fallback newspaper signal.
             category_posted_wages: Optional per-category posted wage means.
             employer_category: Current employer category for employed workers.
+            category_expected_prices: Median posted price per lowercase category,
+                passed only under ``fix_category_price_beliefs`` (audit B11);
+                None keeps the old price_beliefs["housing"/"food"] lookups.
 
         Returns:
             Dict with household_id, searching_for_job, reservation_wage, skills_level,
@@ -1362,8 +1366,12 @@ class HouseholdAgent(AgentMixin):
         reservation_wage_for_tick = self.reservation_wage
 
         # Dynamic living cost based on price beliefs
-        expected_housing_price = self.price_beliefs.get("housing", self.default_price_level)
-        expected_food_price = self.price_beliefs.get("food", self.default_price_level)
+        if category_expected_prices is not None:
+            expected_housing_price = category_expected_prices.get("housing", self.default_price_level)
+            expected_food_price = category_expected_prices.get("food", self.default_price_level)
+        else:
+            expected_housing_price = self.price_beliefs.get("housing", self.default_price_level)
+            expected_food_price = self.price_beliefs.get("food", self.default_price_level)
         living_cost = 0.3 * expected_housing_price + self.min_food_per_tick * expected_food_price
 
         # Desperation scaling: the worse off you are, the lower your standards.

@@ -82,6 +82,7 @@ class _TickScratch:
     audit_government_state_before: Optional[Dict[str, object]] = None
     good_category_lookup: Optional[Dict[str, str]] = None
     category_market_snapshot: Optional[Dict[str, List[Dict[str, float]]]] = None
+    category_expected_prices: Optional[Dict[str, float]] = None  # fix_category_price_beliefs only
     housing_private_inventory: Optional[float] = None
     total_households: Optional[int] = None
     housing_inventory_overhang: Optional[float] = None
@@ -1862,6 +1863,8 @@ class Economy:
             tick.housing_private_inventory,
             housing_baseline_inventory,
         ) = self._build_firm_market_views()
+        if CONFIG.households.fix_category_price_beliefs:
+            tick.category_expected_prices = self._median_category_prices(tick.category_market_snapshot)
         tick.total_households = len(self.households)
         tick.housing_inventory_overhang = tick.housing_private_inventory + housing_baseline_inventory
         unemployed_count = sum(1 for h in self.households if not h.is_employed)
@@ -2115,6 +2118,7 @@ class Economy:
                 mean_posted_wage=mean_posted_wage,
                 category_posted_wages=category_posted_wage_signals,
                 employer_category=employer_category,
+                category_expected_prices=tick.category_expected_prices,
             )
             tick.household_labor_plans[household.household_id] = labor_plan
             if bank is not None:
@@ -4754,6 +4758,17 @@ class Economy:
             housing_baseline_inventory,
         )
 
+    @staticmethod
+    def _median_category_prices(
+        category_market_snapshot: Dict[str, List[Dict[str, float]]],
+    ) -> Dict[str, float]:
+        """Median posted price per lowercase category (audit B11 living-cost input)."""
+        return {
+            category: float(np.median([row["price"] for row in rows]))
+            for category, rows in category_market_snapshot.items()
+            if rows
+        }
+
     def _build_category_market_snapshot(self) -> Dict[str, List[Dict[str, float]]]:
         """Provide firms grouped by category for household consumption planning."""
         snapshot: Dict[str, List[Dict[str, float]]] = {}
@@ -5022,10 +5037,17 @@ class Economy:
             wage_anchor = float(np.median(wage_offers))
         else:
             wage_anchor = 30.0
+        category_prices = None
+        if CONFIG.households.fix_category_price_beliefs:
+            category_prices = self._median_category_prices(self._build_category_market_snapshot())
 
         for household in self.households:
-            housing_price = household.price_beliefs.get("housing", household.default_price_level)
-            food_price = household.price_beliefs.get("food", household.default_price_level)
+            if category_prices is not None:
+                housing_price = category_prices.get("housing", household.default_price_level)
+                food_price = category_prices.get("food", household.default_price_level)
+            else:
+                housing_price = household.price_beliefs.get("housing", household.default_price_level)
+                food_price = household.price_beliefs.get("food", household.default_price_level)
             living_cost = 0.3 * housing_price + household.min_food_per_tick * food_price
             living_cost = max(living_cost, 25.0)
 

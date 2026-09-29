@@ -299,6 +299,11 @@ class HouseholdBehaviorConfig:
     # Feature 1: Dynamic Desperation & Skill Hysteresis
     desperation_living_cost_buffer: float = 1.5  # Trigger desperation when cash < living_cost_floor * this
     desperation_wage_discount: float = 0.85  # Accept wages 15% lower when desperate
+    # Remediation phase 6 (audit B11), default off = old behavior: labor-supply
+    # living cost (and the post-warmup wage floor) reads each category's median
+    # posted price this tick instead of price_beliefs["housing"/"food"], keys
+    # no writer uses (so they always fell back to default_price_level).
+    fix_category_price_beliefs: bool = False
     skill_decay_unemployment_threshold: int = 26  # Ticks unemployed before skill decay starts (~6 months)
     skill_decay_rate_per_tick: float = 0.002  # Skill loss per tick when decaying
     skill_decay_floor: float = 0.1  # Minimum skill level (never decay below this)
