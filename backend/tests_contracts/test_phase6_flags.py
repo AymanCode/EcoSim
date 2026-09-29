@@ -272,6 +272,9 @@ def test_b32_flag_on_noise_is_bounded_and_stable_per_firm(factory, monkeypatch):
     wide = household._firm_tie_break_noise("food", np.array([1, 2, 3, 4], dtype=np.int64))
     narrow = household._firm_tie_break_noise("food", np.array([4, 2], dtype=np.int64))
     assert narrow.tolist() == [wide[3], wide[1]]
+    # The per-category cache returns the same values when a pool comes back.
+    again = household._firm_tie_break_noise("food", np.array([1, 2, 3, 4], dtype=np.int64))
+    assert again.tolist() == wide.tolist()
     scale = CONFIG.households.tie_break_scale
     assert np.all(np.abs(wide) <= scale) and np.ptp(wide) > 0.0
     other_category = household._firm_tie_break_noise("services", np.array([1, 2, 3, 4], dtype=np.int64))

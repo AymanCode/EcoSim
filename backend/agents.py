@@ -289,6 +289,10 @@ class HouseholdAgent(AgentMixin):
     _purchase_tie_break_noise_cache: Dict[str, tuple[int, np.ndarray, int, np.ndarray]] = field(
         default_factory=dict, init=False, repr=False
     )
+    # fix_seller_choice_noise only: category -> (firm_ids bytes, scale, noise).
+    _firm_tie_break_noise_cache: Dict[str, tuple[bytes, float, np.ndarray]] = field(
+        default_factory=dict, init=False, repr=False
+    )
 
     def __post_init__(self) -> None:
         """Validate invariants after initialization and set derived state.
@@ -921,17 +925,28 @@ class HouseholdAgent(AgentMixin):
 
         A splitmix64 hash of (household_id, category, firm_id) mapped to
         +/- ``tie_break_scale``, so a firm keeps its value when the pool is
-        reordered or resized. Pure arithmetic: no RNG is consumed.
+        reordered or resized. Pure arithmetic: no RNG is consumed. The last
+        result per category is cached by the firm-id bytes, since the pool
+        usually repeats from tick to tick.
         """
+        firm_ids = np.asarray(firm_ids)
+        scale = float(CONFIG.households.tie_break_scale)
+        ids_bytes = firm_ids.tobytes()
+        cached = self._firm_tie_break_noise_cache.get(category)
+        if cached is not None and cached[0] == ids_bytes and cached[1] == scale and cached[2].size == firm_ids.size:
+            return cached[2]
         key = np.uint64(((int(self.household_id) & 0xFFFFFFFF) << 32) | zlib.crc32(category.encode("utf-8")))
-        x = np.asarray(firm_ids).astype(np.uint64) * np.uint64(0x9E3779B97F4A7C15) ^ key
+        x = firm_ids.astype(np.uint64) * np.uint64(0x9E3779B97F4A7C15) ^ key
         x ^= x >> np.uint64(30)
         x *= np.uint64(0xBF58476D1CE4E5B9)
         x ^= x >> np.uint64(27)
         x *= np.uint64(0x94D049BB133111EB)
         x ^= x >> np.uint64(31)
         unit = (x >> np.uint64(11)).astype(np.float64) * (1.0 / 9007199254740992.0)
-        return (2.0 * unit - 1.0) * float(CONFIG.households.tie_break_scale)
+        noise = (2.0 * unit - 1.0) * scale
+        noise.setflags(write=False)
+        self._firm_tie_break_noise_cache[category] = (ids_bytes, scale, noise)
+        return noise
 
     @staticmethod
     def _beats_primary(best_utility: float, current_utility: float, friction: float) -> bool:
