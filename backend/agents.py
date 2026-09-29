@@ -5763,6 +5763,8 @@ class GovernmentAgent(AgentMixin):
     technology_quality_multiplier: float = 1.0            # Affects all firm quality
     social_happiness_multiplier: float = 1.0              # Affects worker happiness/performance
     wage_bracket_scalers: Dict[str, float] = field(default_factory=dict)
+    # Fixed-seed profit-tax bracket extras, drawn once at construction (B23).
+    profit_bracket_extras: Dict[str, float] = field(default_factory=dict)
 
     # ── Valid options / ranges for each lever (class-level constants) ─
     VALID_TAX_RATE_RANGE = TAX_LIMITS["wage_tax_rate"]       # min, max for wage/profit tax
@@ -5802,12 +5804,25 @@ class GovernmentAgent(AgentMixin):
             raise ValueError(f"transfer_budget cannot be negative, got {self.transfer_budget}")
         if not self.wage_bracket_scalers:
             rng = random.Random(12345)
-            self.wage_bracket_scalers = {
-                "low": rng.uniform(0.5, 0.9),
-                "median": 1.0,
-                "p60": rng.uniform(1.05, 1.15),
-                "p70": rng.uniform(1.10, 1.20),
-                "p90": rng.uniform(1.15, 1.25),
+            drawn = [
+                rng.uniform(0.5, 0.9),
+                1.0,
+                rng.uniform(1.05, 1.15),
+                rng.uniform(1.10, 1.20),
+                rng.uniform(1.15, 1.25),
+            ]
+            # Higher bands never get a lower multiplier (B23): the overlapping
+            # ranges can draw p70 above p90, so the same draws are sorted.
+            self.wage_bracket_scalers = dict(zip(("low", "median", "p60", "p70", "p90"), sorted(drawn)))
+        if not self.profit_bracket_extras:
+            rng = random.Random(54321)  # fixed seed, same draws the old per-call generator made
+            top_1_extra = rng.uniform(0.20, 0.35)
+            very_rich_extra = rng.uniform(0.10, 0.20)
+            self.profit_bracket_extras = {
+                "top_1": top_1_extra,
+                "very_rich": very_rich_extra,
+                "rich": rng.uniform(0.05, max(0.06, very_rich_extra - 0.01)),
+                "poor_discount": rng.uniform(0.0, 0.05),
             }
         # Apply lever defaults so derived fields are consistent
         self.apply_policy_levers()
@@ -6280,7 +6295,9 @@ class GovernmentAgent(AgentMixin):
         wage_taxes: Dict[int, float] = {}
         profit_taxes: Dict[int, float] = {}
 
-        wages = [h.get("wage_income", 0.0) for h in households]
+        # Band cut-points over households with a positive wage (B23): unemployed
+        # zero-wage households pay no wage tax and do not set the bands.
+        wages = [w for w in (h.get("wage_income", 0.0) for h in households) if w > 0.0]
         if wages:
             p25, p50, p60, p70, p90 = np.percentile(wages, [25, 50, 60, 70, 90])
         else:
@@ -6315,31 +6332,27 @@ class GovernmentAgent(AgentMixin):
             # Calculate percentile thresholds
             q1, q2, q3, p90, p99 = np.percentile(firm_cash, [25, 50, 75, 90, 99])  # poor / average / rich / very rich / ultra rich
 
-            # Initialize tax rate modifiers (deterministic per simulation)
-            rng = random.Random(54321)  # Fixed seed for consistency
+            # Fixed-seed bracket extras, drawn once in __post_init__ (B23).
+            extras = self.profit_bracket_extras
+            cap = 0.60  # every bracket shares the top bracket's cap (B23)
 
             # Base profit tax rate (for average firms in Q2-Q3 range)
             base_rate = self.profit_tax_rate
 
-            # Random additional tax for each bracket
             # Top 1%: base + (20-35% extra) - MASSIVE wealth tax on ultra-rich
-            top_1_extra = rng.uniform(0.20, 0.35)
-            top_1_rate = min(0.60, base_rate + top_1_extra)  # Cap at 60%
+            top_1_rate = min(cap, base_rate + extras["top_1"])
 
             # Very rich (top 10%): base + (10-20% extra)
-            very_rich_extra = rng.uniform(0.10, 0.20)
-            very_rich_rate = base_rate + very_rich_extra
+            very_rich_rate = min(cap, base_rate + extras["very_rich"])
 
             # Rich (top 25%): base + (5% to very_rich_extra - 1%)
-            rich_extra = rng.uniform(0.05, max(0.06, very_rich_extra - 0.01))
-            rich_rate = base_rate + rich_extra
+            rich_rate = min(cap, base_rate + extras["rich"])
 
             # Average: base rate (Q2-Q3)
-            average_rate = base_rate
+            average_rate = min(cap, base_rate)
 
             # Poor: base - (0-5%)
-            poor_discount = rng.uniform(0.0, 0.05)
-            poor_rate = max(0.01, base_rate - poor_discount)
+            poor_rate = min(cap, max(0.01, base_rate - extras["poor_discount"]))
         else:
             # Not enough firms for quartiles, use base rate
             q1 = q2 = q3 = p90 = p99 = 0.0

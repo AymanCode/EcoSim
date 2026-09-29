@@ -924,3 +924,52 @@ def test_contract_initial_job_search_cooldown_is_at_least_one_tick():
                  for i in range(1, 1001)]
     assert min(cooldowns) >= 1
     assert max(cooldowns) <= 52
+
+
+def _wage_rows(wages):
+    return [{"household_id": i + 1, "wage_income": w} for i, w in enumerate(wages)]
+
+
+def test_contract_wage_tax_bands_are_cut_over_employed_wages_only():
+    """B23: unemployed households' zero wages do not set the wage-tax band cut-points.
+
+    Before the fix the percentiles included the zeros, so with 6 of 10
+    households unemployed the lowest-paid worker (10) fell in the p70 band.
+    """
+    gov = GovernmentAgent(cash_balance=0.0, wage_tax_rate=0.10)
+    plan = gov.plan_taxes(_wage_rows([0.0] * 6 + [10.0, 20.0, 30.0, 40.0]), [])
+    low = gov.wage_bracket_scalers["low"]
+    assert plan["wage_taxes"][7] == pytest.approx(10.0 * 0.10 * low)
+    assert all(plan["wage_taxes"][i] == 0.0 for i in range(1, 7))
+
+
+def test_contract_default_wage_band_multipliers_rise_with_the_band():
+    """B23: the fixed-seed band multipliers are in non-decreasing order by band.
+
+    Before the fix the seed-12345 draws gave p70 = 1.1825 above p90 = 1.1799.
+    """
+    scalers = GovernmentAgent(cash_balance=0.0).wage_bracket_scalers
+    ordered = [scalers[k] for k in ("low", "median", "p60", "p70", "p90")]
+    assert ordered == sorted(ordered)
+
+
+def test_contract_profit_tax_brackets_share_the_top_cap_and_are_built_once(monkeypatch):
+    """B23: every profit bracket is capped like the top one; extras are drawn once.
+
+    Before the fix `very_rich_rate` had no cap (0.45 + 0.199 = 0.649 here) while
+    `top_1_rate` was capped at 0.60, and each call rebuilt the bracket extras
+    from `random.Random(54321)`.
+    """
+    import agents as agents_module
+
+    gov = GovernmentAgent(cash_balance=0.0, profit_tax_rate=0.45)
+    firms = [{"firm_id": i, "profit_before_tax": 100.0, "cash_balance": float(i)} for i in range(1, 101)]
+
+    def no_rng(*_args, **_kwargs):
+        raise AssertionError("plan_taxes must not build a new generator")
+
+    monkeypatch.setattr(agents_module.random, "Random", no_rng)
+    plan = gov.plan_taxes([], firms)
+    rates = {round(plan["profit_taxes"][i] / 100.0, 10) for i in range(1, 101)}
+    assert max(rates) <= 0.60 + 1e-12
+    assert plan["profit_taxes"][95] == pytest.approx(60.0)  # very-rich band, capped
