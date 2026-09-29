@@ -2083,6 +2083,8 @@ class Economy:
         # body reads and writes only its own household (plus the bank's credit
         # scores, read-only). Education spending is still summed in household
         # order and routed to the misc pool before plan normalization.
+        # The consumption-loan request runs here, before consumption planning, so
+        # planning below must not change household cash, wage, expected wage or subsistence.
         total_education_spending = 0.0
         _cooldown_rng = random.Random(int(CONFIG.random_seed) + self.current_tick * 31337)
         tick_cooldowns = not self.in_warmup
