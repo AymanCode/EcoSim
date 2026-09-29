@@ -4,6 +4,12 @@ Notable changes and decisions for EcoSim, newest first. The project does not use
 
 ## Unreleased
 
+### 2026-09-29: Agents/economy remediation, phase 5a (follow-ups and local fixes)
+
+Follow-ups deferred by the phase 4 and final reviews, fixes that are inert at defaults, and the legacy mortgage ledger. One item per commit, newest first. Plan: [docs/reviews/2026-09-28-agents-economy-remediation-plan.md](docs/reviews/2026-09-28-agents-economy-remediation-plan.md), phase 5. Golden compares and drift figures use the same commands as phase 4.
+
+- **Wage-bill cache contract test (phase 2 follow-up).** Before: `FirmAgent._current_wage_bill` caches its roster sum and depends on explicit `_invalidate_wage_bill_cache` calls after in-place roster or wage edits, and no test checked the cached value against a fresh sum over a running economy. Now: `test_wage_bill_cache_matches_roster_sum_after_every_tick` steps a 200-household economy with a bank for 30 ticks on `legacy` and on `income_first` and asserts, after every tick and for every firm, that the cached bill equals `sum(actual_wages.get(eid, wage_offer) for eid in employees)` exactly. With `_invalidate_wage_bill_cache` stubbed to a no-op the legacy run has 70 stale firm-ticks, so the test detects a missed invalidation. Test only; no engine change. Payment arm: covered by the `income_first` case.
+
 ### 2026-09-28: Agents/economy remediation, phase 4 (money conservation)
 
 Behavior changes on purpose, one leak per commit, each confined to the leaking path and proven by a conservation test. Audit: [docs/reviews/2026-09-28-agents-economy-code-audit.md](docs/reviews/2026-09-28-agents-economy-code-audit.md), section A. Plan: [docs/reviews/2026-09-28-agents-economy-remediation-plan.md](docs/reviews/2026-09-28-agents-economy-remediation-plan.md), phase 4. Tables compare the previous goldens with the new run at the golden snapshot ticks (1,500 households; legacy seed 42 over 80 ticks, legacy seed 7 over 300 ticks, `income_first` seed 42 over 80 ticks). Drift figures come from `backend/tools/checks/money_supply_drift.py` at defaults (1,500 households, seed 42, 120 ticks, legacy).

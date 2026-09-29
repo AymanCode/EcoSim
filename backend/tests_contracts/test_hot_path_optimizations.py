@@ -412,3 +412,31 @@ def test_batch_consumption_uses_bounded_awareness_pool(monkeypatch):
     assert set(plan["planned_purchases"]).issubset(
         set(household.awareness_pool["food"]) | set(household.awareness_pool["services"])
     )
+
+
+@pytest.mark.parametrize("payment_sequence", ["legacy", "income_first"])
+def test_wage_bill_cache_matches_roster_sum_after_every_tick(payment_sequence):
+    """The cached wage bill equals a fresh roster sum after every tick.
+
+    ``FirmAgent._current_wage_bill`` caches its sum and relies on explicit
+    ``_invalidate_wage_bill_cache`` calls after in-place roster or wage edits.
+    A missed invalidation shows here as a stale bill on some firm.
+    """
+    from agents import BankAgent
+    from config import clone_config, use_config
+
+    cfg = clone_config()
+    cfg.payment_sequence = payment_sequence
+    with use_config(cfg):
+        economy = make_economy(num_households=200, num_firms_per_category=2, seed=4242)
+        economy.bank = BankAgent(cash_reserves=200 * 1500.0)
+        assert economy.payment_sequence == payment_sequence
+        for _ in range(30):
+            economy.step()
+            for firm in economy.firms:
+                expected = sum(firm.actual_wages.get(eid, firm.wage_offer) for eid in firm.employees)
+                cached = firm._current_wage_bill()
+                assert cached == expected, (
+                    f"tick {economy.current_tick} firm {firm.firm_id}: cached {cached!r} "
+                    f"!= roster sum {expected!r}"
+                )
