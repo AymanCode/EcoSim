@@ -1772,6 +1772,29 @@ class FirmHealthSnapshot:
     category_wage_anchor_p75: float
 
 
+# decision_diagnostics keys written only by the firm planners (plan_production_and_labor,
+# plan_capital_investment, plan_pricing, plan_wage and their helpers). Cleared at the
+# start of each tick's planning (audit B22). Other writers (labor apply, settlement,
+# the economy) own their keys; healthcare_current_profit_margin and
+# healthcare_target_margin are shared with settlement and are left alone.
+_PLANNER_DIAGNOSTIC_PREFIXES = (
+    "hiring_block_", "survival_turnaround_", "production_governor_", "services_",
+    "pricing_", "housing_", "baseline_food_", "expected_sales_", "capital_", "lost_sales_",
+)
+_PLANNER_DIAGNOSTIC_KEYS = frozenset((
+    "adaptive_hiring_allowed", "demand_supports_hiring", "hire_limit_effective",
+    "last_tick_unmet_units", "observed_demand_units", "raw_lost_sales_units",
+    "stockout_expected_sales_step_cap", "max_affordable_base_wage",
+    "median_rejected_reservation_wage", "reservation_gap_wage_offer_next", "wage_raise_reason",
+    "healthcare_break_even_price", "healthcare_queue_overload_ratio",
+    "healthcare_surge_multiplier", "healthcare_target_price",
+    "service_break_even_price", "service_capacity_for_pricing", "service_debt_service_for_pricing",
+    "service_markup_next", "service_total_cost_per_unit", "service_utilization",
+    "service_utilization_for_wage_recovery", "service_variable_cost_per_unit",
+    "service_wage_bill_for_pricing", "service_wage_recovery_cut", "service_weak_demand_streak",
+))
+
+
 @dataclass(slots=True)
 class FirmAgent(AgentMixin):
     """Represents a firm in the economic simulation.
@@ -2417,6 +2440,13 @@ class FirmAgent(AgentMixin):
         term_ticks = max(1, int(term_ticks))
         annual_rate = max(0.0, float(annual_rate))
         return amount * (1.0 + annual_rate) / term_ticks
+
+    def clear_planner_diagnostics(self) -> None:
+        """Drop last tick's planner-owned decision_diagnostics before planning again."""
+        diagnostics = self.decision_diagnostics
+        for key in [key for key in diagnostics
+                    if key in _PLANNER_DIAGNOSTIC_KEYS or key.startswith(_PLANNER_DIAGNOSTIC_PREFIXES)]:
+            del diagnostics[key]
 
     def _record_hiring_block(self, reason: str, **payload: object) -> None:
         """Record why planned hiring did not move forward this tick."""

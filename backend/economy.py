@@ -1920,6 +1920,7 @@ class Economy:
         planning_minimum_wage = self.government.get_minimum_wage()
 
         for firm in self.firms:
+            firm.clear_planner_diagnostics()
             health_snapshot = firm.refresh_health_snapshot(
                 sell_through_rate=self.last_tick_sell_through_rate.get(firm.firm_id, 0.5),
                 category_wage_anchor_p75=tick.category_wage_anchor_p75.get(

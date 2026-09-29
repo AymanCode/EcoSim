@@ -2025,3 +2025,33 @@ def test_contract_services_inventory_remains_zero_after_unmet_demand_clearing():
     economy._clear_goods_market(plans, [firm])
 
     assert firm.inventory_units == pytest.approx(0.0)
+
+
+def test_contract_planner_diagnostics_do_not_outlive_their_tick(tiny_economy_factory):
+    """B22: keys the firm planners write are cleared when the firm plans again.
+
+    One-shot flags and hiring-block payload keys from an earlier tick must not
+    survive the next planning pass; keys other code owns stay.
+    """
+    economy = tiny_economy_factory(num_households=12, seed=515)
+    stale = "stale-from-an-earlier-tick"
+    planner_keys = [
+        "wage_raise_reason",
+        "services_headcount_last_resort",
+        "survival_turnaround_hiring",
+        "hiring_block_old_payload_flag",
+        "production_governor_extreme_cap_fired",
+        "capital_denial_reason",
+        "baseline_food_pricing_tier",
+    ]
+    for firm in economy.firms:
+        for key in planner_keys:
+            firm.decision_diagnostics[key] = stale
+        firm.decision_diagnostics["service_upgrade_requested"] = stale  # not a planner key
+
+    economy.step()
+
+    for firm in economy.firms:
+        leftover = [key for key in planner_keys if firm.decision_diagnostics.get(key) == stale]
+        assert not leftover, f"firm {firm.firm_id} kept stale planner diagnostics {leftover}"
+        assert firm.decision_diagnostics.get("service_upgrade_requested") == stale
