@@ -1059,7 +1059,8 @@ class Economy:
         # Savings drawdown: personality-derived fraction of accessible liquidity (slow trickle)
         drawdown = drawdown_rates * accessible_liquidity
 
-        # Desperation mode: when income-based budget < survival minimum, raid savings faster
+        # Desperation mode: when income-based budget < survival minimum, raid savings
+        # faster. It raises the drawdown, never lowers it below the normal one (B27).
         subsistence_min = CONFIG.households.subsistence_min_cash
         in_desperation = base_budget < subsistence_min
         emergency_rates = np.minimum(drawdown_rates * 5.0, 0.20)
@@ -1067,7 +1068,7 @@ class Economy:
             emergency_rates * accessible_liquidity,
             np.maximum(0.0, subsistence_min - base_budget),
         )
-        drawdown = np.where(in_desperation, desperation_drawdown, drawdown)
+        drawdown = np.where(in_desperation, np.maximum(drawdown, desperation_drawdown), drawdown)
 
         budgets = np.minimum(base_budget + drawdown, accessible_liquidity)
 

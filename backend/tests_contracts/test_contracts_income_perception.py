@@ -145,3 +145,30 @@ def test_contract_services_consumption_improves_happiness_without_wage_income():
     _economy(with_services)._batch_update_wellbeing(happiness_multiplier=1.0)
 
     assert with_services.happiness > without_services.happiness
+
+
+def test_contract_desperation_drawdown_never_lowers_the_budget():
+    """B27: a household just below subsistence spends no less than its normal drawdown allows.
+
+    Before the fix the desperation drawdown (capped at the gap to
+    subsistence_min_cash) replaced the normal savings drawdown, so with ample
+    savings a household earning a little less planned far less spending (about
+    the subsistence minimum) than one earning a little more.
+    """
+    hh = make_household(cash_balance=10_000.0)
+    hh.employer_id = 1
+    hh.last_dividend_income = 0.0
+    hh.bank_deposit = 0.0
+    subsistence = CONFIG.households.subsistence_min_cash
+
+    hh.wage = 100.0  # income-based budget above subsistence
+    over = _plan(hh)["budget"]
+    hh.wage = 40.0  # income-based budget below subsistence -> desperation mode
+    under = _plan(hh)["budget"]
+
+    normal_drawdown = hh.savings_drawdown_rate * 10_000.0
+    assert normal_drawdown > subsistence
+    # Lower income may lower the budget by at most the income difference
+    # (MPC <= 1, trait multiplier <= 1.15), never collapse it to subsistence.
+    assert under >= over - 1.15 * (100.0 - 40.0)
+    assert under > normal_drawdown
