@@ -1192,6 +1192,7 @@ def test_contract_mid_cycle_bailout_lever_change_keeps_cycle_spending():
     government.set_lever("bailout_policy", "sector")
     government.set_lever("bailout_target", "food")
     government.set_lever("bailout_budget", 10_000)
+    government.bailout_cycle_ticks += 1  # a tick of this cycle has run (Economy counts it)
     government.record_bailout("Food", firm_id=7, amount=4_000.0)
 
     government.set_lever("bailout_policy", "all")
@@ -1211,6 +1212,39 @@ def test_contract_mid_cycle_bailout_lever_change_keeps_cycle_spending():
     assert government.last_cycle_bailout_firms_assisted == 1
     assert government.last_cycle_bailout_sector_spend == pytest.approx({"food": 5_000.0})
     assert government.bailout_budget_remaining == pytest.approx(10_000.0)
+
+
+def test_contract_budget_change_before_cycle_roll_archives_the_ending_cycle():
+    """B24 (LLM flow): set_lever then begin_decision_cycle archives the cycle that
+    ended under its own authorization; the new budget starts the next cycle."""
+    government = GovernmentAgent(cash_balance=50_000.0)
+    government.set_lever("bailout_policy", "sector")
+    government.set_lever("bailout_target", "food")
+    government.set_lever("bailout_budget", 10_000)
+    government.begin_decision_cycle()
+    government.bailout_cycle_ticks += 1  # a tick of this cycle has run (Economy counts it)
+    government.record_bailout("Food", firm_id=7, amount=4_000.0)
+
+    government.set_lever("bailout_budget", 25_000)
+    assert government.bailout_budget_remaining == pytest.approx(21_000.0)  # live gate mid-cycle
+    government.begin_decision_cycle()
+
+    assert government.last_cycle_bailout_authorized == pytest.approx(10_000.0)
+    assert government.last_cycle_bailout_disbursed == pytest.approx(4_000.0)
+    assert government.last_cycle_bailout_remaining == pytest.approx(6_000.0)
+    assert government.bailout_cycle_authorized == pytest.approx(25_000.0)
+    assert government.bailout_budget_remaining == pytest.approx(25_000.0)
+
+
+def test_contract_economy_counts_ticks_in_the_bailout_cycle(tiny_economy_factory):
+    """B24: each economy step counts one tick of the active bailout cycle."""
+    economy = tiny_economy_factory(num_households=6, seed=321)
+    economy.government.begin_decision_cycle()
+    economy.step()
+    economy.step()
+    assert economy.government.bailout_cycle_ticks == 2
+    economy.government.begin_decision_cycle()
+    assert economy.government.bailout_cycle_ticks == 0
 
 
 def test_contract_technology_spending_changes_effective_market_quality(tiny_economy_factory):

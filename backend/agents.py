@@ -5748,6 +5748,7 @@ class GovernmentAgent(AgentMixin):
     bailout_cycle_firms_assisted: int = 0
     bailout_cycle_sector_spend: Dict[str, float] = field(default_factory=dict)
     bailout_cycle_assisted_firms: Dict[int, float] = field(default_factory=dict)
+    bailout_cycle_ticks: int = 0  # ticks run in this cycle (Economy counts them)
     last_cycle_bailout_authorized: float = 0.0
     last_cycle_bailout_disbursed: float = 0.0
     last_cycle_bailout_remaining: float = 0.0
@@ -5973,11 +5974,18 @@ class GovernmentAgent(AgentMixin):
         self.social_investment_budget = table.get(self.social_spending, 750.0)
 
     def begin_decision_cycle(self, initial: bool = False) -> None:
-        """Roll bailout accounting forward and reset the cycle budget."""
+        """Roll bailout accounting forward and reset the cycle budget.
+
+        The archive describes the ending cycle: its authorization as the cycle
+        started, and what that authorization had left. A lever change made just
+        before the roll (the LLM flow) is carried in ``bailout_budget`` and
+        becomes the new cycle's authorization.
+        """
         if not initial:
             self.last_cycle_bailout_authorized = float(self.bailout_cycle_authorized)
             self.last_cycle_bailout_disbursed = float(self.bailout_cycle_disbursed)
-            self.last_cycle_bailout_remaining = float(self.bailout_budget_remaining)
+            self.last_cycle_bailout_remaining = max(
+                0.0, float(self.bailout_cycle_authorized) - float(self.bailout_cycle_disbursed))
             self.last_cycle_bailout_firms_assisted = int(self.bailout_cycle_firms_assisted)
             self.last_cycle_bailout_sector_spend = dict(self.bailout_cycle_sector_spend)
         else:
@@ -5993,6 +6001,7 @@ class GovernmentAgent(AgentMixin):
         self.bailout_cycle_firms_assisted = 0
         self.bailout_cycle_sector_spend = {}
         self.bailout_cycle_assisted_firms = {}
+        self.bailout_cycle_ticks = 0
         self.reset_tick_bailout_telemetry()
 
     def reset_tick_bailout_telemetry(self) -> None:
@@ -6002,13 +6011,17 @@ class GovernmentAgent(AgentMixin):
         self.last_tick_bailout_sector_spend = {}
 
     def sync_bailout_cycle_budget(self) -> None:
-        """Apply a mid-cycle bailout lever change to the active cycle.
+        """Apply a bailout lever change to the active cycle.
 
-        The new budget becomes this cycle's authorization, less what the cycle
-        has already disbursed. The cycle's spending counters are kept for
-        begin_decision_cycle to archive.
+        Bailouts from now on are gated by the new budget less what this cycle
+        has already disbursed. Once the cycle has run a tick, the new budget
+        stays pending in ``bailout_budget`` until begin_decision_cycle makes it
+        the next cycle's authorization, and this cycle's authorization and
+        spending counters are left for the archive. Before the first tick the
+        change is still setting up this cycle, so it becomes its authorization.
         """
-        self.bailout_cycle_authorized = float(self.bailout_budget)
+        if self.bailout_cycle_ticks == 0:
+            self.bailout_cycle_authorized = float(self.bailout_budget)
         self.bailout_budget_remaining = max(0.0, float(self.bailout_budget) - self.bailout_cycle_disbursed)
 
     def record_bailout(self, category: str, firm_id: int, amount: float) -> None:

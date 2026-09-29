@@ -1803,6 +1803,7 @@ class Economy:
         self.last_tick_pre_purchase_deposit_withdrawals = 0.0
         self.last_tick_end_tick_deposit_sweeps = 0.0
         self.government.reset_tick_bailout_telemetry()
+        self.government.bailout_cycle_ticks += 1
 
         if self.post_warmup_stimulus_ticks > 0:
             self._apply_post_warmup_stimulus()
