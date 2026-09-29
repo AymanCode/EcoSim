@@ -319,3 +319,35 @@ def test_b10_batch_fractions_apply_preferences_once_and_cache_follows_flag(facto
 
     monkeypatch.setattr(CONFIG.households, "fix_preference_applied_once", False)
     assert economy._household_static_traits()["precomputed_fractions"][0] == pytest.approx(squared)
+
+
+# --- All five flags on together
+
+
+@pytest.mark.parametrize("payment_sequence", ["legacy", "income_first"])
+def test_all_phase6_flags_on_keep_rosters_and_wage_bill_cache_exact(payment_sequence):
+    """With every phase 6 flag on, rosters stay two-sided and the wage-bill cache exact."""
+    from agents import BankAgent
+    from config import clone_config, use_config
+    from tests_contracts.factories import make_economy
+
+    cfg = clone_config()
+    cfg.payment_sequence = payment_sequence
+    cfg.firms.fix_distress_wage_cut_persists = True
+    cfg.labor_market.fix_switcher_vacancies = True
+    cfg.households.fix_category_price_beliefs = True
+    cfg.households.fix_seller_choice_noise = True
+    cfg.households.fix_preference_applied_once = True
+    with use_config(cfg):
+        economy = make_economy(num_households=200, num_firms_per_category=2, seed=4242)
+        economy.bank = BankAgent(cash_reserves=200 * 1500.0)
+        for _ in range(30):
+            economy.step()
+            for firm in economy.firms:
+                expected = sum(firm.actual_wages.get(eid, firm.wage_offer) for eid in firm.employees)
+                assert firm._current_wage_bill() == expected
+                for eid in firm.employees:
+                    assert economy.household_lookup[eid].employer_id == firm.firm_id
+            for household in economy.households:
+                if household.employer_id is not None and household.employer_id in economy.firm_lookup:
+                    assert household.household_id in economy.firm_lookup[household.employer_id].employees
