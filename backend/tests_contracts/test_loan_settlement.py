@@ -254,3 +254,31 @@ def test_legacy_long_term_capital_loan_is_in_firm_loan_mirrors():
     assert loan["remaining"] == 0.0
     assert services.bank_loan_remaining == pytest.approx(0.0)
     assert services.bank_loan_payment_per_tick == pytest.approx(0.0)
+
+
+def test_legacy_completed_firm_loans_leave_the_installment_mirror():
+    """Phase 5a follow-up: every legacy firm bank loan adds its installment to
+    `bank_loan_payment_per_tick` at origination, and removes it when paid off.
+
+    Before the fix only long-term capital loans were removed, so an investment
+    or working-capital loan's installment stayed in the mirror after its last
+    payment and the firm's debt service only grew.
+    """
+    from tests_contracts.factories import make_economy, make_firm, make_households
+
+    firm = make_firm(firm_id=5, category="Food", is_baseline=False)
+    economy = make_economy(households=make_households(5), firms=[firm], seed=333)
+    economy.bank = BankAgent(cash_reserves=100_000.0)
+    firm.trailing_revenue_12t = 1_000_000.0
+    assert economy.payment_sequence == "legacy"
+
+    assert economy._issue_firm_loan(firm, amount=1_000.0, term_ticks=104, govt_rate=0.04, spread=0.04) > 0
+    assert economy._issue_firm_loan(firm, amount=2_000.0, term_ticks=52, govt_rate=0.02, spread=0.04) > 0
+    first, second = economy.bank.loans_for("firm", firm.firm_id)
+    assert firm.bank_loan_payment_per_tick == pytest.approx(first["payment_per_tick"] + second["payment_per_tick"])
+
+    first["remaining"] = first["payment_per_tick"]  # final installment due
+    firm.cash_balance = 100_000.0
+    economy._collect_bank_loan_repayments()
+    assert first["remaining"] == 0.0
+    assert firm.bank_loan_payment_per_tick == pytest.approx(second["payment_per_tick"])

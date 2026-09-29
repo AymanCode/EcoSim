@@ -7665,7 +7665,9 @@ class Economy:
                         if loan["remaining"] <= 1e-6 or firm.service_infrastructure_loan_remaining <= 1e-6:
                             firm.service_infrastructure_loan_remaining = 0.0
                             firm.service_infrastructure_loan_payment_per_tick = 0.0
-                    elif loan.get("subtype") == "long_term_capital" and loan["remaining"] <= 1e-6:
+                    if loan["remaining"] <= 1e-6:
+                        # Every legacy firm bank loan added its installment to this
+                        # mirror at origination; a paid-off loan leaves it.
                         firm.bank_loan_payment_per_tick = max(
                             0.0, firm.bank_loan_payment_per_tick - loan["payment_per_tick"])
                     bank.update_firm_credit_score(firm.firm_id, +0.01)
