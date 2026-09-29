@@ -701,6 +701,7 @@ def originate_v2(
     bank.total_loans_outstanding += amount
     bank.last_tick_new_loans += amount
     bank.active_loans.append(claim)
+    bank._index_appended_loan(claim)
     due_index = _underwriting_due_index(economy)
     due_index[(borrower_type, borrower_id)] += payment
     if borrower_type == "household":
@@ -792,6 +793,7 @@ def rollback_medical_loan(economy: Any, household: Any) -> bool:
         bank.total_loans_outstanding = max(0.0, bank.total_loans_outstanding - amount)
         bank.last_tick_new_loans = max(0.0, bank.last_tick_new_loans - amount)
         bank.active_loans.pop(position)
+        bank._drop_loan_index()
         loan_state = _book(economy)
         dues = loan_state.get("underwriting_dues")
         if dues is not None:

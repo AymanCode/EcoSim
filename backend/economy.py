@@ -5395,10 +5395,9 @@ class Economy:
 
             # Write off bank loans on bankruptcy
             if self.bank is not None and self.payment_sequence == "legacy":
-                for loan in list(self.bank.active_loans):
-                    if loan["borrower_type"] == "firm" and loan["borrower_id"] == firm.firm_id:
-                        self.bank.write_off_loan(loan)
-                        self.bank.update_firm_credit_score(firm.firm_id, -0.20)
+                for loan in list(self.bank.loans_for("firm", firm.firm_id)):
+                    self.bank.write_off_loan(loan)
+                    self.bank.update_firm_credit_score(firm.firm_id, -0.20)
 
         if firms_to_remove and self.bank is not None and self.payment_sequence != "legacy":
             exited_ids = {firm.firm_id for firm in firms_to_remove}

@@ -452,3 +452,42 @@ def test_contract_deposit_rate_safety_valve_preserved():
 
     max_sustainable = (5.0 * 52.0) / 1_000_000.0   # = 0.00026
     assert bank.deposit_rate <= max_sustainable + 1e-9
+
+
+def test_contract_bank_loan_index_matches_ledger_order():
+    """D50: loans_for returns one borrower's records in active_loans order.
+
+    The index must follow appends, settled-loan cleanup, list reassignment and
+    an in-place removal, and _firm_existing_debt must sum the same records in
+    the same order as a scan of the list.
+    """
+    bank = BankAgent(cash_reserves=1_000_000.0)
+
+    def scan(borrower_type, borrower_id):
+        return [loan for loan in bank.active_loans
+                if loan["borrower_type"] == borrower_type and loan["borrower_id"] == borrower_id]
+
+    def check():
+        for key in {(loan["borrower_type"], loan["borrower_id"]) for loan in bank.active_loans} | {("firm", 99)}:
+            found = bank.loans_for(*key)
+            assert [id(loan) for loan in found] == [id(loan) for loan in scan(*key)], key
+        for firm_id in (1, 2, 99):
+            assert bank._firm_existing_debt(firm_id) == sum(loan["remaining"] for loan in scan("firm", firm_id))
+
+    for step, (borrower_type, borrower_id) in enumerate(
+        [("firm", 1), ("firm", 2), ("household", 1), ("firm", 1), ("firm", 2), ("firm", 1)]
+    ):
+        bank.originate_loan(borrower_type, borrower_id, 1_000.0 + 137.0 * step, 0.03 + 0.001 * step, 26 + step)
+        check()
+
+    bank.write_off_loan(bank.loans_for("firm", 1)[1])
+    check()
+    bank.cleanup_settled_loans()
+    check()
+    bank.active_loans.pop(0)
+    bank._drop_loan_index()
+    check()
+    bank.active_loans = [loan for loan in bank.active_loans if loan["borrower_type"] == "firm"]
+    check()
+    bank.originate_loan("firm", 2, 500.0, 0.04, 52)
+    check()

@@ -5219,8 +5219,42 @@ class BankAgent:
     # Each entry: {borrower_type, borrower_id, principal, remaining, payment_per_tick,
     #              rate, term_remaining, govt_backed}
     active_loans: list = field(default_factory=list)
+    # Lookup index over active_loans: {(borrower_type, borrower_id): [loan, ...]}
+    # in list order, valid while (list object, length) matches the stamp.
+    # Appends through _index_appended_loan keep it current; any other change
+    # to the list's identity or length forces a rebuild in loans_for; code that
+    # removes a loan in place calls _drop_loan_index.
+    _loan_index: Optional[dict] = field(default=None, init=False, repr=False, compare=False)
+    _loan_index_stamp: Optional[tuple] = field(default=None, init=False, repr=False, compare=False)
 
     # ── helpers ──────────────────────────────────────────────────────
+
+    def loans_for(self, borrower_type: str, borrower_id: int) -> list:
+        """One borrower's loan records (settled ones included), in active_loans order."""
+        loans = self.active_loans
+        stamp = self._loan_index_stamp
+        if self._loan_index is None or stamp[0] is not loans or stamp[1] != len(loans):
+            index: dict = {}
+            for loan in loans:
+                index.setdefault((loan["borrower_type"], loan["borrower_id"]), []).append(loan)
+            self._loan_index = index
+            self._loan_index_stamp = (loans, len(loans))
+        return self._loan_index.get((borrower_type, borrower_id), [])
+
+    def _index_appended_loan(self, loan: dict) -> None:
+        """Add a loan just appended to active_loans to a current index."""
+        loans = self.active_loans
+        stamp = self._loan_index_stamp
+        if self._loan_index is not None and stamp[0] is loans and stamp[1] == len(loans) - 1:
+            self._loan_index.setdefault((loan["borrower_type"], loan["borrower_id"]), []).append(loan)
+            self._loan_index_stamp = (loans, len(loans))
+        else:
+            self._drop_loan_index()
+
+    def _drop_loan_index(self) -> None:
+        """Forget the index after an in-place removal from active_loans."""
+        self._loan_index = None
+        self._loan_index_stamp = None
 
     @property
     def required_reserves(self) -> float:
@@ -5317,11 +5351,8 @@ class BankAgent:
         return self.base_interest_rate + (1.0 - credit_score) * spread
 
     def _firm_existing_debt(self, firm_id: int) -> float:
-        """Total outstanding debt for a firm. O(n) scan but called rarely per tick."""
-        return sum(
-            loan["remaining"] for loan in self.active_loans
-            if loan["borrower_type"] == "firm" and loan["borrower_id"] == firm_id
-        )
+        """Total outstanding debt for a firm, summed in active_loans order."""
+        return sum(loan["remaining"] for loan in self.loans_for("firm", firm_id))
 
     def _can_firm_borrow(self, firm_id: int, amount: float, trailing_revenue: float) -> bool:
         """Check leverage ceiling: total debt + new amount must be < 3× trailing revenue.
@@ -5377,6 +5408,7 @@ class BankAgent:
         if self.payment_current_tick is not None:
             loan["first_due_tick"] = self.payment_current_tick + 1
         self.active_loans.append(loan)
+        self._index_appended_loan(loan)
         self.total_loans_outstanding += total_repayment
 
         if not govt_backed:
