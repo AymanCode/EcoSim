@@ -326,7 +326,7 @@ def test_a9_deposit_withdrawals_are_recorded_in_household_ledger(fixed_seed, mon
     economy = _legacy_economy_with_bank()
     saver = economy.households[2]
     # Cash at the subsistence floor: rent needs deposits, but no legacy
-    # consumption loan fires (that credit is also unrecorded; out of scope).
+    # consumption loan fires (keeps this test to the withdrawal alone).
     saver.cash_balance = saver.subsistence_min_cash
     _deposit_savings(economy, saver, 5_000.0)
 
@@ -379,7 +379,7 @@ def test_a9_healthcare_deposit_withdrawal_is_recorded_in_household_ledger(fixed_
     patient.pending_healthcare_visits = 2
     patient.next_healthcare_request_tick = 0
     # Cash below the visit price, with savings. A credit score under 0.4 keeps
-    # the legacy consumption loan (an unrelated, also unrecorded credit) off.
+    # the legacy consumption loan (an unrelated credit) off.
     patient.cash_balance = 5.0
     economy.bank.household_credit_scores[patient.household_id] = 0.3
     _deposit_savings(economy, patient, 5_000.0)
@@ -435,4 +435,21 @@ def test_capital_recycle_is_recorded_in_household_ledger(fixed_seed, monkeypatch
     gaps = {h.household_id: _ledger_gap(h) for h in economy.households if abs(_ledger_gap(h)) > MONEY_TOL}
     assert not gaps, (
         f"recycle missing from the ledger: gaps {gaps} (recycled {sum(recycled):.6f} per household)"
+    )
+
+
+def test_legacy_consumption_loan_is_recorded_in_household_ledger(fixed_seed):
+    """Phase 4 follow-up: the legacy consumption loan appears as a ``bank`` ledger flow."""
+    economy = _legacy_economy_with_bank()
+    borrower = economy.households[3]
+    # Below the subsistence floor with the default 0.5 credit score: the
+    # request in household planning fires and _offer_consumption_loans lends.
+    borrower.cash_balance = 0.5 * borrower.subsistence_min_cash
+    assert economy.bank.get_household_credit_score(borrower.household_id) >= 0.4
+    economy.step()
+
+    assert borrower.consumption_loan_remaining > 0.0, "precondition: no consumption loan was made"
+    assert abs(_ledger_gap(borrower)) <= MONEY_TOL, (
+        f"consumption loan missing from the ledger: gap {_ledger_gap(borrower):+.6f} "
+        f"(ledger {borrower.last_tick_ledger})"
     )

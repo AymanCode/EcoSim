@@ -6404,6 +6404,7 @@ class Economy:
                     )
                     loan["subtype"] = "consumption"  # tag for repayment routing
                     hh.cash_balance += amount
+                    hh.add_ledger_flow("bank", amount)
                     hh.consumption_loan_remaining += loan["remaining"]
                     hh.consumption_loan_payment_per_tick += loan["payment_per_tick"]
 
