@@ -5,6 +5,9 @@ test here checks the flag-on behavior and that the flag-off path keeps the
 old behavior.
 """
 
+import random
+
+import numpy as np
 import pytest
 
 from config import CONFIG
@@ -222,3 +225,71 @@ def test_b11_post_warmup_living_cost_floor(factory, monkeypatch, flag):
         expected = max(25.0, 0.3 * default + worker.min_food_per_tick * default)
     expected = max(expected, economy.government.get_minimum_wage())
     assert worker.wage == pytest.approx(expected)
+
+
+# --- B32: tie-break noise per firm, additive friction (fix_seller_choice_noise)
+
+
+def _food_primary(factory, firm_ids):
+    """Primary food firm a fresh household picks among equal-utility sellers."""
+    household = factory.household(household_id=17, cash_balance=1_000.0)
+    n = len(firm_ids)
+    cache = {"food": {
+        "firm_ids": np.array(firm_ids, dtype=np.int64),
+        "prices": np.full(n, 5.0),
+        "qualities": np.full(n, 5.0),
+    }}
+    household._plan_category_purchases(
+        100.0,
+        price_cache={"food": (5.0, 5.0, 5.0)},
+        category_fraction_override={"food": 1.0},
+        category_array_cache=cache,
+    )
+    return household.current_primary_firm["food"]
+
+
+def test_b32_flag_off_primary_follows_pool_position(factory):
+    assert CONFIG.households.fix_seller_choice_noise is False
+    # Noise is indexed by position, so reordering the same pool flips the pick.
+    assert _food_primary(factory, [1, 2]) != _food_primary(factory, [2, 1])
+
+
+def test_b32_flag_on_primary_follows_firm_not_position(factory, monkeypatch):
+    monkeypatch.setattr(CONFIG.households, "fix_seller_choice_noise", True)
+    state_np = np.random.get_state()[1].copy()
+    state_py = random.getstate()
+    first = _food_primary(factory, [1, 2, 3])
+    assert _food_primary(factory, [3, 2, 1]) == first
+    assert _food_primary(factory, [2, first] if first != 2 else [1, 2]) == first
+    # Deterministic hashing does not consume the shared RNGs.
+    assert np.array_equal(np.random.get_state()[1], state_np)
+    assert random.getstate() == state_py
+
+
+def test_b32_flag_on_noise_is_bounded_and_stable_per_firm(factory, monkeypatch):
+    monkeypatch.setattr(CONFIG.households, "fix_seller_choice_noise", True)
+    household = factory.household(household_id=5)
+    wide = household._firm_tie_break_noise("food", np.array([1, 2, 3, 4], dtype=np.int64))
+    narrow = household._firm_tie_break_noise("food", np.array([4, 2], dtype=np.int64))
+    assert narrow.tolist() == [wide[3], wide[1]]
+    scale = CONFIG.households.tie_break_scale
+    assert np.all(np.abs(wide) <= scale) and np.ptp(wide) > 0.0
+    other_category = household._firm_tie_break_noise("services", np.array([1, 2, 3, 4], dtype=np.int64))
+    assert not np.array_equal(wide, other_category)
+
+
+@pytest.mark.parametrize("flag", [False, True])
+def test_b32_friction_with_negative_utilities(factory, monkeypatch, flag):
+    monkeypatch.setattr(CONFIG.households, "fix_seller_choice_noise", flag)
+    household = factory.household(household_id=5)
+    household.current_primary_firm["food"] = 1
+    friction = CONFIG.households.switching_friction_food
+    # Firm 2 is better by a quarter of the friction margin.
+    current, best = -2.0, -2.0 + 0.25 * friction * 2.0
+    target = household._apply_switching_friction("food", 2, best, {1: current, 2: best})
+    # Multiplicative friction inverts below zero: the small gain switches.
+    assert target == (1 if flag else 2)
+    # A gain above the margin switches either way.
+    household.current_primary_firm["food"] = 1
+    best = -2.0 + 2.0 * friction * 2.0
+    assert household._apply_switching_friction("food", 2, best, {1: current, 2: best}) == 2

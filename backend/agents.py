@@ -916,6 +916,36 @@ class HouseholdAgent(AgentMixin):
         )
         return noise
 
+    def _firm_tie_break_noise(self, category: str, firm_ids: np.ndarray) -> np.ndarray:
+        """fix_seller_choice_noise (audit B32): tie-break noise keyed by firm id.
+
+        A splitmix64 hash of (household_id, category, firm_id) mapped to
+        +/- ``tie_break_scale``, so a firm keeps its value when the pool is
+        reordered or resized. Pure arithmetic: no RNG is consumed.
+        """
+        key = np.uint64(((int(self.household_id) & 0xFFFFFFFF) << 32) | zlib.crc32(category.encode("utf-8")))
+        x = np.asarray(firm_ids).astype(np.uint64) * np.uint64(0x9E3779B97F4A7C15) ^ key
+        x ^= x >> np.uint64(30)
+        x *= np.uint64(0xBF58476D1CE4E5B9)
+        x ^= x >> np.uint64(27)
+        x *= np.uint64(0x94D049BB133111EB)
+        x ^= x >> np.uint64(31)
+        unit = (x >> np.uint64(11)).astype(np.float64) * (1.0 / 9007199254740992.0)
+        return (2.0 * unit - 1.0) * float(CONFIG.households.tie_break_scale)
+
+    @staticmethod
+    def _beats_primary(best_utility: float, current_utility: float, friction: float) -> bool:
+        """Whether the best firm clears the switching-friction margin over the primary.
+
+        Old rule ``best > current * (1 + friction)`` inverts for negative
+        utilities; under fix_seller_choice_noise (audit B32) the margin is
+        ``friction * |current|`` added to the current utility, which equals the
+        old rule for positive utilities.
+        """
+        if CONFIG.households.fix_seller_choice_noise:
+            return best_utility > current_utility + friction * max(abs(current_utility), 1e-9)
+        return best_utility > current_utility * (1.0 + friction)
+
     def _filter_category_arrays_to_awareness_pool(
         self,
         category: str,
@@ -973,7 +1003,7 @@ class HouseholdAgent(AgentMixin):
         friction = self._get_switching_friction(category)
 
         # New firm must exceed current primary by friction threshold
-        if best_utility > current_utility * (1.0 + friction):
+        if self._beats_primary(best_utility, current_utility, friction):
             self.current_primary_firm[category] = best_firm_id
             return best_firm_id
         else:
@@ -1170,7 +1200,10 @@ class HouseholdAgent(AgentMixin):
             inv_price_cap = 1.0 / max(price_cap, 1e-6)
             utilities = lavishness * qualities - sensitivity * (prices * inv_price_cap)
             # Add deterministic seeded noise to break ties in purchasing decisions.
-            utilities += self._get_purchase_tie_break_noise(category, len(utilities))
+            if household_cfg.fix_seller_choice_noise:
+                utilities += self._firm_tie_break_noise(category, firm_ids)
+            else:
+                utilities += self._get_purchase_tie_break_noise(category, len(utilities))
 
             # Switching friction - determine primary firm
             best_idx = int(utilities.argmax())
@@ -1183,7 +1216,7 @@ class HouseholdAgent(AgentMixin):
                 if primary_arr.size > 0:
                     current_util = float(utilities[int(primary_arr[0])])
                     friction = self._get_switching_friction(category)
-                    if best_util > current_util * (1.0 + friction):
+                    if self._beats_primary(best_util, current_util, friction):
                         self.current_primary_firm[category] = best_fid
                         primary_fid = best_fid
                     else:

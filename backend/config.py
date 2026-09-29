@@ -319,6 +319,13 @@ class HouseholdBehaviorConfig:
     switching_friction_housing: float = 0.15  # 15% utility advantage needed to switch housing firm
     switching_friction_food: float = 0.02  # 2% utility advantage needed to switch food firm
     switching_friction_services: float = 0.05  # 5% utility advantage for services
+    # Remediation phase 6 (audit B32), default off = old behavior: seller
+    # tie-break noise is hashed per (household, category, firm) within
+    # +/- tie_break_scale instead of a +/-0.25 vector indexed by pool position,
+    # and switching friction is a margin of |current utility| (additive), so it
+    # does not invert for negative utilities.
+    fix_seller_choice_noise: bool = False
+    tie_break_scale: float = 1e-3
     pool_refresh_interval: int = 4  # Refresh awareness pool every N ticks
     pool_refresh_drop_count: int = 1  # Number of lowest-utility firms to drop per refresh
 
