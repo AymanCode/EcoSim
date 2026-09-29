@@ -489,6 +489,11 @@ class FirmBehaviorConfig:
     # Wage Stabilization (prevent explosive wage growth)
     max_wage_increase_per_tick: float = 1.15  # Max +15% per tick
     max_wage_decrease_per_tick: float = 0.85  # Max -15% per tick
+    # Remediation phase 6 (audit B12), default off = old behavior: a distress
+    # wage cut in adjust_wages_to_revenue_ratio also caps the same tick's
+    # planned wage offer, and the next tick's labor-outcome ratchet does not
+    # lift those workers back to the offer.
+    fix_distress_wage_cut_persists: bool = False
     unemployment_damping_min: float = 0.3  # Minimum damping factor at high unemployment
     unemployment_damping_rate: float = 0.8  # How much unemployment reduces wage pressure
 

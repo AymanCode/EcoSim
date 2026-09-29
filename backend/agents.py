@@ -1936,6 +1936,9 @@ class FirmAgent(AgentMixin):
     payout_ratio: float = 0.0  # Fraction of net profit paid as dividends
     net_profit: float = 0.0  # Track last tick net profit
     pending_healthcare_worker_bonus: float = 0.0
+    # fix_distress_wage_cut_persists only (audit B12): 1 = a distress wage cut
+    # happened this tick, 2 = one happened last tick; 0 otherwise.
+    distress_wage_cut_state: int = 0
     # Binding policy minimum wage (GovernmentAgent.get_minimum_wage()), set by the
     # economy before each tick's firm planning; 0.0 until then (audit B19).
     policy_minimum_wage: float = 0.0
@@ -4580,11 +4583,17 @@ class FirmAgent(AgentMixin):
         # This prevents grandfathering of old low wages
         # Minimum wage is set at firm level via wage_offer enforcement
         # But we also need to ensure actual_wages dict is updated
+        wage_floor = self.wage_offer
+        if self.distress_wage_cut_state == 2:
+            # fix_distress_wage_cut_persists: last tick's distress cut stands;
+            # only the minimum wage lifts a worker this tick.
+            wage_floor = min(wage_floor, self._minimum_wage())
+            self.distress_wage_cut_state = 0
         for worker_id in self.employees:
             if worker_id in self.actual_wages:
                 # Ensure existing workers get at least the current wage_offer
                 # (which has minimum wage floor already enforced)
-                self.actual_wages[worker_id] = max(self.actual_wages[worker_id], self.wage_offer)
+                self.actual_wages[worker_id] = max(self.actual_wages[worker_id], wage_floor)
         self._invalidate_wage_bill_cache()
 
         # Track hiring for next planning cycle
@@ -4826,6 +4835,8 @@ class FirmAgent(AgentMixin):
             self._invalidate_wage_bill_cache()
 
             self.wage_offer = max(self.wage_offer * wage_cut, minimum_wage)
+            if firm_config.fix_distress_wage_cut_persists:
+                self.distress_wage_cut_state = 1
             return
 
         if wage_ratio > firm_config.max_labor_share:
@@ -4841,6 +4852,8 @@ class FirmAgent(AgentMixin):
 
             # Also reduce wage_offer for new hires
             self.wage_offer = max(self.wage_offer * wage_cut, minimum_wage)
+            if firm_config.fix_distress_wage_cut_persists:
+                self.distress_wage_cut_state = 1
 
     def apply_price_and_wage_updates(
         self,
@@ -4872,7 +4885,14 @@ class FirmAgent(AgentMixin):
         self.markup = max(0.0, price_plan["markup_next"])
 
         # Update wage offer
-        self.wage_offer = wage_plan["wage_offer_next"]
+        if self.distress_wage_cut_state == 1:
+            # fix_distress_wage_cut_persists: the plan predates this tick's
+            # distress cut, so it may not raise the offer above the cut level.
+            self.wage_offer = min(wage_plan["wage_offer_next"], self.wage_offer)
+            self.distress_wage_cut_state = 2
+        else:
+            self.wage_offer = wage_plan["wage_offer_next"]
+            self.distress_wage_cut_state = 0
         if self.good_category.lower() == "healthcare":
             minimum_wage = self._minimum_wage()
             self.wage_offer = minimum_wage
