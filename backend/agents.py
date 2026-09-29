@@ -3425,6 +3425,7 @@ class FirmAgent(AgentMixin):
         self.burn_mode_active = self.burn_mode
 
         target_workers = max(current_workers, firm_config.min_target_workers)
+        liquidation_tier = "normal"  # set by the baseline Food inventory tiers below
 
         # The branches below choose target_workers (and hires) only: housing,
         # healthcare and generic services returned above, so every firm that
@@ -3629,7 +3630,9 @@ class FirmAgent(AgentMixin):
                 if expansion_blocked:
                     target_workers = min(target_workers, current_workers)
 
-        if self.is_baseline:
+        if self.is_baseline and liquidation_tier == "normal":
+            # A baseline Food firm shrinking through an inventory tier keeps the
+            # smaller headcount; the demand-based floor applies otherwise.
             target_workers = max(target_workers, demand_workers)
 
         # Feature 3, Stage 1: Volume Cut — reduce labor to slow production when

@@ -786,3 +786,53 @@ def test_contract_destabilized_labor_plan_is_stamped_on_the_firm():
     assert plan["planned_hires_count"] > 0
     assert firm.planned_hires_count == plan["planned_hires_count"]
     assert firm.last_tick_planned_hires == plan["planned_hires_count"]
+
+
+def _baseline_food_after_transition(inventory_units: float) -> FirmAgent:
+    firm = FirmAgent(
+        firm_id=90,
+        good_name="BaselineFood90",
+        cash_balance=1_000_000.0,
+        inventory_units=inventory_units,
+        good_category="Food",
+        quality_level=5.0,
+        wage_offer=20.0,
+        price=5.0,
+        expected_sales_units=2_000.0,
+        production_capacity_units=5_000.0,
+        productivity_per_worker=10.0,
+        personality="moderate",
+        is_baseline=True,
+    )
+    firm.baseline_production_quota = 500.0
+    firm.baseline_food_post_warmup_transition_done = True
+    firm.employees = list(range(1, 21))
+    firm.actual_wages = {employee_id: 20.0 for employee_id in firm.employees}
+    firm._invalidate_wage_bill_cache()
+    return firm
+
+
+def test_contract_baseline_food_liquidation_shrink_is_not_undone_by_demand_floor():
+    """B18: a baseline Food firm in a liquidation tier keeps its shrunken headcount.
+
+    Before the fix `if self.is_baseline: target_workers = max(target_workers,
+    demand_workers)` ran after the inventory tiers and raised the target back
+    to the demand-based headcount, so the tier's layoffs never happened.
+    """
+    firm = _baseline_food_after_transition(inventory_units=500.0 * 7.0)
+    plan = firm.plan_production_and_labor(last_tick_sales_units=2_000.0, total_households=1_000)
+
+    assert firm.decision_diagnostics["baseline_food_liquidation_tier"] == "liquidation"
+    assert len(plan["planned_layoffs_ids"]) == 5  # 20 -> 10 target, capped at the baseline fire limit
+    assert plan["planned_hires_count"] == 0
+
+
+def test_contract_baseline_food_normal_tier_keeps_demand_floor():
+    """B18: with inventory in the normal tier the demand-based floor still applies."""
+    firm = _baseline_food_after_transition(inventory_units=0.0)
+    firm.last_profit = 100.0
+    firm.profit_ema = 100.0
+    plan = firm.plan_production_and_labor(last_tick_sales_units=2_000.0, total_households=1_000)
+
+    assert firm.decision_diagnostics["baseline_food_liquidation_tier"] == "normal"
+    assert plan["planned_layoffs_ids"] == []
