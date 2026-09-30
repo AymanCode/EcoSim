@@ -1,0 +1,37 @@
+# Inflation measurement and annual private pay reviews
+
+> Port note (2026-09-29): ported onto the remediation code behind `CONFIG.inflation.enabled` (default `True`; `False` restores the weekly wage rules and the 2%/week disabled-stabilizer escalator). Evidence and timings below refer to `17d5c0b`. See the CHANGELOG entry of 2026-09-29 and [docs/evals/2026-09-29-inflation-port/](../evals/2026-09-29-inflation-port/README.md).
+
+Status: selected implementation, following Ayman's September 28 request and choice of emergent inflation with controlled shocks. Author: Codex. Source: working tree over `17d5c0b`, including the household income timing fix and small scenario runners. Rules: v1.4. This is the bounded W07/W14 measurement and wage slice; it does not select a central bank controller.
+
+## Intent and evidence
+
+Prices should emerge from firm decisions and resource constraints. Inflation records their broad movement and feeds an annual wage review. Existing household shopping already buys fewer units at higher prices. Preserve that effect and all payment counterparties. Performance remains a release gate.
+
+Executed pre-change probe: inflation targets 0% and 50% produced identical weekly observed economic states for 24 households over 52 ticks, seeds 1337 and 7, normal and performance modes. Source: the target has no engine consumer; periodic worker raises were random 2–3% every 50 ticks, and independent wage rules could cut pay weekly.
+
+Primary sources: [ECB explanation of inflation](https://www.ecb.europa.eu/ecb-and-you/explainers/tell-me-more/html/what_is_inflation.en.html) explains broad price changes and purchasing power; [BLS CPI concepts](https://www.bls.gov/opub/hom/cpi/concepts.htm) distinguishes price indexes from a full cost-of-living index. These sources support measurement principles, not this simulator's weights, pay policy or numerical thresholds.
+
+## Selected mechanisms and timing
+
+1. **Posted consumer price index.** Fixed synthetic expenditure weights: Food 35%, Housing 35%, Services 20%, Healthcare 10%. They are configurable assumptions, not survey estimates. First post-warmup opening quote observation is 100. Within each category, geometrically average price relatives at sellers present in consecutive observations; combine category levels with fixed weights. Entry/exit alone has no price effect. Firm exit clears quote and review state before an ID can be reused. Missing comparisons carry the prior category level and disclose matched basket coverage. This does not adjust quality or represent transaction prices, subsidy incidence, lease cohorts or inaccessible supply. Observe opening quotes before planning, so actors never see future price decisions. Keep 53 observations at the default 52 weeks/year and only the previous seller quotes. Year-on-year inflation requires a complete 52-week interval; a first-year zero is not evidence of stability.
+2. **Legacy private Food/Services pay.** Replace weekly offer changes and the separate periodic raise for these firms with a common annual review. Each firm's clock begins at its first post-warmup observation; review after 52 ticks. Target positive observed inflation since its last review, capped at 10% per review. Grant only the part supported by last realized revenue after scheduled debt service (existing maximum labor share) and an eight-week cash payroll reserve. A freeze is allowed; unused adjustments do not become wage arrears. Deflation alone does not cut nominal pay. Eight consecutive loss-making weeks with inadequate reserves can permit a 2% contract/offer cut, at most once per 52 ticks. These are chosen parameters. No automatic wage increase from demand or failed recruitment; vacancies may remain unfilled until expectations fall or a scheduled review increases offers. Policy floors and the existing 1.5× unemployment-benefit offer floor remain binding. Final contract changes settle after sales for next week's work; current earned pay and its tax stay frozen. Public/specialized firms and named payment scenarios retain their existing wage institutions.
+3. **Evidence and controlled shocks.** Expose index, availability, coverage, real wage and real cash measures, without changing nominal balances. Add small deterministic scenarios for temporary demand/supply disturbances, controlled price paths, affordability, distress and recovery over two years. Controlled price paths test transmission; they are not evidence that a market-generated shock has a particular aggregate effect. Remove the artificial 2%-per-week price escalator in the disabled-stabilizer pricing branch; that branch holds its price.
+
+## Shared interfaces and accounting
+
+`inflation.py` owns index state and per-firm review clocks; `Economy` owns observation, decision calls and final contract application. `InflationConfig` owns weights and bounded review assumptions. Both execution modes observe once per week. The annual controller prevents the older private wage-cut writer from also firing. Existing labor roster mirrors, frozen payroll, tax and firm/household cash settlement remain the single payment owners. No index observation moves cash, credits a firm, or reprices an existing loan.
+
+| Rules | Resolution and evidence required |
+|---|---|
+| R03/R06/R12, M02 | Opening-price observation; phase-9 future contract write; private legacy gate; mirrored employment ownership; named payment compatibility |
+| R04/R05 | Actual payroll must equal household gross receipts; index has no ledger flow; affordability can block a raise |
+| R07/R08 | Existing traits still affect pricing, hiring, budgets and matching; firms with different reserves can grant different adjustments; annual delay can reduce real pay |
+| R09/R10, K04/K05 | Version and name the new price measure; retain old means and inert target; same seeds/settings and explicit shocks; no empirical calibration claim |
+| R11 | O(firms) weekly measurement, O(firms) compact review state, bounded price history; reuse existing contract loops; benchmark 1k/10k in both modes |
+
+## Verification and limits
+
+Acceptance: flat and proportional price paths; weighted sector movements; seller entry/exit and missing observations; annual lag without look-ahead; unchanged cash from measurement; first and second review; no raise before due; affordability freeze/partial raise; nominal protection in deflation; distress duration/cooldown; one contract update and paired payroll; replay and normal/performance agreement for observation cadence; public CLI evidence. Supply/demand experiments must record quantities, prices, income, needs and reserves, with unchanged seeded controls.
+
+Runtime: compare the complete selected package to the pre-inflation working tree, with interleaved independent processes and paired median/p95 bootstrap intervals. Start with five pairs for each 1k/10k × normal/performance cell. Upper 95% interval must stay within the existing 5% budget; extend noisy cells without discarding samples. Report firm-count divergence and memory. No automatic monetary-policy response, production-network input inflation, fiscal indexation or empirical calibration is claimed by this slice.

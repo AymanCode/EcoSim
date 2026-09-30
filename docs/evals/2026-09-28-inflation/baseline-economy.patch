@@ -1,0 +1,664 @@
+--- a/backend/economy.py
++++ b/backend/economy.py
+@@ -808,6 +808,109 @@
+     # AND legacy fallback logic. Should be split into:
+     # - _compute_batch_consumption_budgets()
+     # - _execute_legacy_consumption_planning()
++    def _household_consumption_budgets(
++        self, households, unemployment_rate: float, unemployment_benefit: float,
++        *, settled_income: bool = False,
++    ) -> np.ndarray:
++        """Compute monetary budgets without repeating household seller choices."""
++        # Extract household attributes as NumPy arrays
++        # SOLID: DIP Violation - Directly accesses household internals
++        cash_balances = np.array([h.cash_balance for h in households], dtype=np.float64)
++        spending_tendencies = np.array([h.spending_tendency for h in households], dtype=np.float64)
++        frugalities = np.maximum(np.array([h.frugality for h in households], dtype=np.float64), 0.1)
++
++        # FIX E: per-income-source MPC. Each cash inflow type has its own
++        # marginal-propensity-to-consume coefficient. Wage and benefit income
++        # flow to high-MPC households (poor); dividend income to low-MPC
++        # (rich). This produces realistic aggregate saving rates and prevents
++        # the panic-spiral the old confidence/panic_factor code created.
++        employment_status = np.array([h.employer_id is not None for h in households], dtype=bool)
++        if not settled_income:
++            wages = np.array([h.wage for h in households], dtype=np.float64)
++        if self.payment_sequence != "legacy":
++            from payment_behavior import planning_inputs
++            net_wages, payment_liquidity, _pressure = planning_inputs(self)
++            wages = np.asarray(net_wages, dtype=np.float64)
++        drawdown_rates = np.array([h.savings_drawdown_rate for h in households], dtype=np.float64)
++        dividend_incomes = np.maximum(np.array([h.last_dividend_income for h in households], dtype=np.float64), 0.0)
++
++        cfg = CONFIG.households
++        mpc_wage = cfg.mpc_wage
++        mpc_benefit = cfg.mpc_benefit
++        mpc_dividend = cfg.mpc_dividend
++
++        # Counter-cyclical anti-paradox-of-thrift: at high unemployment, raise
++        # MPCs instead of suppressing them. Old code multiplied spending by
++        # (1 - panic_factor), accelerating downturns.
++        if unemployment_rate > cfg.crisis_unemployment_threshold:
++            boost = cfg.crisis_mpc_boost
++            mpc_wage = min(1.0, mpc_wage + boost)
++            mpc_benefit = min(1.0, mpc_benefit + boost)
++            mpc_dividend = min(1.0, mpc_dividend + boost)
++
++        # Personality-driven saving applies to wage income only AND only outside
++        # crisis. During crisis (unemployment > threshold) panic dominates
++        # personality and we let MPCs reflect the boosted base. Old dampening
++        # was suppressing aggregate spending by 15-20pp despite the per-source
++        # MPC fix.
++        saving_rates = np.clip(drawdown_rates, 0.0, 1.0)
++        in_crisis = unemployment_rate > cfg.crisis_unemployment_threshold
++        if in_crisis:
++            wage_mpc_personalized = np.full(len(households), mpc_wage, dtype=np.float64)
++        else:
++            wage_mpc_personalized = np.where(
++                employment_status,
++                np.maximum(0.70, mpc_wage * (1.0 - 0.3 * saving_rates)),
++                mpc_wage,
++            )
++
++        # Income separation: wage when employed, benefit when unemployed.
++        if settled_income:
++            # The household observes this week's actual take-home receipts.
++            wage_income = np.maximum(np.array([h.last_wage_income + h.last_other_income
++                                               for h in households], dtype=np.float64), 0.0)
++            benefit_income = np.array([h.last_transfer_income for h in households], dtype=np.float64)
++        else:
++            wage_income = np.where(employment_status, wages, 0.0)
++            benefit_income = np.where(employment_status, 0.0, unemployment_benefit)
++
++        # Per-source budgets, summed.
++        base_budget = (
++            wage_income * wage_mpc_personalized
++            + benefit_income * mpc_benefit
++            + dividend_incomes * mpc_dividend
++        )
++
++        # Trait factor still modulates discretionary spend slightly (frugal
++        # personalities spend less even on the same income), but bounded
++        # tighter than the old [0.6, 1.4] range to avoid undoing the MPC fix.
++        trait_multiplier = np.clip(spending_tendencies / frugalities, 0.85, 1.15)
++        base_budget = base_budget * trait_multiplier
++
++        # Accessible liquidity: cash + 90% of bank deposits (can be withdrawn pre-purchase)
++        bank_deposits = np.array([h.bank_deposit for h in households], dtype=np.float64)
++        deposit_liquidity = 0.90 * np.maximum(bank_deposits, 0.0)
++        accessible_liquidity = np.maximum(cash_balances, 0.0) + deposit_liquidity
++        if self.payment_sequence != "legacy":
++            accessible_liquidity = np.asarray(payment_liquidity, dtype=np.float64)
++
++        # Savings drawdown: personality-derived fraction of accessible liquidity (slow trickle)
++        drawdown = drawdown_rates * accessible_liquidity
++
++        # Desperation mode: when income-based budget < survival minimum, raid savings faster
++        subsistence_min = CONFIG.households.subsistence_min_cash
++        in_desperation = base_budget < subsistence_min
++        emergency_rates = np.minimum(drawdown_rates * 5.0, 0.20)
++        desperation_drawdown = np.minimum(
++            emergency_rates * accessible_liquidity,
++            np.maximum(0.0, subsistence_min - base_budget),
++        )
++        drawdown = np.where(in_desperation, desperation_drawdown, drawdown)
++
++        budgets = np.minimum(base_budget + drawdown, accessible_liquidity)
++
++        return budgets
++
+     def _batch_plan_consumption(
+         self,
+         market_prices: Dict[str, float],
+@@ -815,12 +918,16 @@
+         good_category_lookup: Optional[Dict[str, str]] = None,
+         unemployment_rate: float = 0.0,
+         unemployment_benefit: float = 30.0,
++        *,
++        settled_income: bool = False,
++        households: Optional[List[HouseholdAgent]] = None,
++        budgets: Optional[np.ndarray] = None,
+     ) -> Dict[int, Dict]:
+         """
+         Vectorized batch consumption planning for all households.
+ 
+-        Replaces 10k individual calls to household.plan_consumption() with NumPy operations.
+-        Returns identical results to individual calls, but 10-20x faster.
++        Shares budget arrays and seller data across households. The live legacy
++        path uses settled take-home income; direct calls retain forecast inputs.
+ 
+         Args:
+             market_prices: Dictionary mapping good_name to current price
+@@ -852,100 +959,14 @@
+         def is_housing_good(good: str) -> bool:
+             return cat_lk.get(good, good.lower()) == "housing"
+ 
+-        # Extract household attributes as NumPy arrays
+-        # SOLID: DIP Violation - Directly accesses household internals
+-        cash_balances = np.array([h.cash_balance for h in self.households], dtype=np.float64)
+-        spending_tendencies = np.array([h.spending_tendency for h in self.households], dtype=np.float64)
+-        frugalities = np.array([max(h.frugality, 0.1) for h in self.households], dtype=np.float64)
+-        food_prefs = np.array([h.food_preference for h in self.households], dtype=np.float64)
+-        housing_prefs = np.array([h.housing_preference for h in self.households], dtype=np.float64)
+-        services_prefs = np.array([h.services_preference for h in self.households], dtype=np.float64)
+-
+-        # FIX E: per-income-source MPC. Each cash inflow type has its own
+-        # marginal-propensity-to-consume coefficient. Wage and benefit income
+-        # flow to high-MPC households (poor); dividend income to low-MPC
+-        # (rich). This produces realistic aggregate saving rates and prevents
+-        # the panic-spiral the old confidence/panic_factor code created.
+-        employment_status = np.array([h.is_employed for h in self.households], dtype=bool)
+-        wages = np.array([h.wage for h in self.households], dtype=np.float64)
+-        if self.payment_sequence != "legacy":
+-            from payment_behavior import planning_inputs
+-            net_wages, payment_liquidity, _pressure = planning_inputs(self)
+-            wages = np.asarray(net_wages, dtype=np.float64)
+-        drawdown_rates = np.array([h.savings_drawdown_rate for h in self.households], dtype=np.float64)
+-        dividend_incomes = np.array(
+-            [max(0.0, float(h.last_dividend_income)) for h in self.households],
+-            dtype=np.float64,
+-        )
+-
+-        cfg = CONFIG.households
+-        mpc_wage = cfg.mpc_wage
+-        mpc_benefit = cfg.mpc_benefit
+-        mpc_dividend = cfg.mpc_dividend
+-
+-        # Counter-cyclical anti-paradox-of-thrift: at high unemployment, raise
+-        # MPCs instead of suppressing them. Old code multiplied spending by
+-        # (1 - panic_factor), accelerating downturns.
+-        if unemployment_rate > cfg.crisis_unemployment_threshold:
+-            boost = cfg.crisis_mpc_boost
+-            mpc_wage = min(1.0, mpc_wage + boost)
+-            mpc_benefit = min(1.0, mpc_benefit + boost)
+-            mpc_dividend = min(1.0, mpc_dividend + boost)
+-
+-        # Personality-driven saving applies to wage income only AND only outside
+-        # crisis. During crisis (unemployment > threshold) panic dominates
+-        # personality and we let MPCs reflect the boosted base. Old dampening
+-        # was suppressing aggregate spending by 15-20pp despite the per-source
+-        # MPC fix.
+-        saving_rates = np.clip(drawdown_rates, 0.0, 1.0)
+-        in_crisis = unemployment_rate > cfg.crisis_unemployment_threshold
+-        if in_crisis:
+-            wage_mpc_personalized = np.full(len(self.households), mpc_wage, dtype=np.float64)
+-        else:
+-            wage_mpc_personalized = np.where(
+-                employment_status,
+-                np.maximum(0.70, mpc_wage * (1.0 - 0.3 * saving_rates)),
+-                mpc_wage,
++        households = self.households if households is None else households
++        if budgets is None:
++            budgets = self._household_consumption_budgets(
++                households, unemployment_rate, unemployment_benefit, settled_income=settled_income,
+             )
+-
+-        # Income separation: wage when employed, benefit when unemployed.
+-        wage_income = np.where(employment_status, wages, 0.0)
+-        benefit_income = np.where(employment_status, 0.0, unemployment_benefit)
+-
+-        # Per-source budgets, summed.
+-        base_budget = (
+-            wage_income * wage_mpc_personalized
+-            + benefit_income * mpc_benefit
+-            + dividend_incomes * mpc_dividend
+-        )
+-
+-        # Trait factor still modulates discretionary spend slightly (frugal
+-        # personalities spend less even on the same income), but bounded
+-        # tighter than the old [0.6, 1.4] range to avoid undoing the MPC fix.
+-        trait_multiplier = np.clip(spending_tendencies / frugalities, 0.85, 1.15)
+-        base_budget = base_budget * trait_multiplier
+-
+-        # Accessible liquidity: cash + 90% of bank deposits (can be withdrawn pre-purchase)
+-        bank_deposits = np.array([h.bank_deposit for h in self.households], dtype=np.float64)
+-        deposit_liquidity = 0.90 * np.maximum(bank_deposits, 0.0)
+-        accessible_liquidity = np.maximum(cash_balances, 0.0) + deposit_liquidity
+-        if self.payment_sequence != "legacy":
+-            accessible_liquidity = np.asarray(payment_liquidity, dtype=np.float64)
+-
+-        # Savings drawdown: personality-derived fraction of accessible liquidity (slow trickle)
+-        drawdown = drawdown_rates * accessible_liquidity
+-
+-        # Desperation mode: when income-based budget < survival minimum, raid savings faster
+-        subsistence_min = CONFIG.households.subsistence_min_cash
+-        in_desperation = base_budget < subsistence_min
+-        emergency_rates = np.minimum(drawdown_rates * 5.0, 0.20)
+-        desperation_drawdown = np.minimum(
+-            emergency_rates * accessible_liquidity,
+-            np.maximum(0.0, subsistence_min - base_budget),
+-        )
+-        drawdown = np.where(in_desperation, desperation_drawdown, drawdown)
+-
+-        budgets = np.minimum(base_budget + drawdown, accessible_liquidity)
++        food_prefs = np.array([h.food_preference for h in households], dtype=np.float64)
++        housing_prefs = np.array([h.housing_preference for h in households], dtype=np.float64)
++        services_prefs = np.array([h.services_preference for h in households], dtype=np.float64)
+ 
+         # Precompute price caches per category for reuse
+         price_cache: Dict[str, tuple] = {}
+@@ -986,12 +1007,12 @@
+         standard_categories = ["food", "housing", "services"]
+         category_weights_matrix = np.array([
+             [household.category_weights.get(cat, 0.0) for cat in standard_categories]
+-            for household in self.households
++            for household in households
+         ], dtype=np.float64)
+         preference_matrix = np.column_stack((food_prefs, housing_prefs, services_prefs))
+         biased_matrix = category_weights_matrix * preference_matrix
+         precomputed_fractions = []
+-        for idx, household in enumerate(self.households):
++        for idx, household in enumerate(households):
+             bias: Dict[str, float] = {}
+             for cat_idx, cat in enumerate(standard_categories):
+                 val = biased_matrix[idx, cat_idx]
+@@ -1012,7 +1033,7 @@
+         household_consumption_plans = {}
+         awareness_market_views = None
+ 
+-        for idx, household in enumerate(self.households):
++        for idx, household in enumerate(households):
+             budget = budgets[idx]
+ 
+             if budget <= 0:
+@@ -1127,6 +1148,57 @@
+         """Return cached consumption plans when performance mode is enabled."""
+         return self._cached_consumption_plans
+ 
++    def _plan_legacy_consumption_after_income(
++        self, market_prices, category_market_snapshot, good_category_lookup,
++        unemployment_rate, unemployment_benefit,
++    ) -> Dict[int, Dict]:
++        """One shopping decision using received income and credit.
++
++        Performance mode keeps seller choices for five ticks but updates money
++        budgets every tick. Only a previously empty basket needs new choices.
++        """
++        if not self.performance_mode or self.current_tick % 5 == 0:
++            plans = self._batch_plan_consumption(
++                market_prices, category_market_snapshot, good_category_lookup,
++                unemployment_rate, unemployment_benefit, settled_income=True,
++            )
++            if self.performance_mode:
++                self._cached_consumption_plans = plans
++            return plans
++
++        budgets = self._household_consumption_budgets(
++            self.households, unemployment_rate, unemployment_benefit, settled_income=True,
++        )
++        cached = self._cached_consumption_plans
++        food_prices = [opt["price"] for opt in category_market_snapshot.get("food", []) if opt["price"] > 0]
++        food_cap = (CONFIG.households.food_health_high_threshold * sum(food_prices) / len(food_prices)
++                    if food_prices else 0.0)
++        refresh_households, refresh_budgets = [], []
++        for household, budget in zip(self.households, budgets):
++            hid = household.household_id
++            previous = cached.get(hid)
++            if previous is None:
++                refresh_households.append(household)
++                refresh_budgets.append(budget)
++                continue
++            reference_budget = previous.setdefault("_reference_budget", previous["budget"])
++            if budget > 0 and (reference_budget <= 0 or not previous["planned_purchases"]):
++                refresh_households.append(household)
++                refresh_budgets.append(budget)
++                continue
++            # Apply the ratio inside the existing market pass, avoiding an
++            # extra pass and a new dictionary for every household's sellers.
++            previous["budget"] = float(budget)
++            previous["_purchase_scale"] = float(budget) / reference_budget if reference_budget > 0 else 0.0
++            previous["_food_budget_cap"] = food_cap
++        if refresh_households:
++            cached.update(self._batch_plan_consumption(
++                market_prices, category_market_snapshot, good_category_lookup,
++                unemployment_rate, unemployment_benefit, settled_income=True,
++                households=refresh_households, budgets=np.asarray(refresh_budgets, dtype=np.float64),
++            ))
++        return cached
++
+     def apply_sector_subsidy_payment(self, requested_share: float) -> Tuple[float, float]:
+         """Pay a sector subsidy request from the shared per-tick subsidy cap.
+ 
+@@ -1211,6 +1283,46 @@
+ 
+         return scaled_household_cost, scaled_government_cost, scale
+ 
++    def _apply_household_income(
++        self,
++        transfer_plan: Dict[int, float],
++        wage_taxes: Dict[int, float],
++        frozen_wages: Optional[Dict[int, float]] = None,
++    ) -> None:
++        """Credit legacy wages/benefits once, before the weekly shopping decision.
++
++        Ordinary payroll was debited at production. CEO pay is debited here;
++        the caller settles the matching treasury tax/transfer totals.
++        """
++        ceo_pay: Dict[int, float] = {}
++        for firm in self.firms:
++            if firm.ceo_household_id in self.household_lookup and firm.employees:
++                salary = 3.0 * float(np.median([
++                    firm.actual_wages.get(hid, firm.wage_offer) for hid in firm.employees
++                ]))
++                firm.cash_balance -= salary
++                ceo_pay[firm.ceo_household_id] = ceo_pay.get(firm.ceo_household_id, 0.0) + salary
++
++        for household in self.households:
++            hid = household.household_id
++            wage = (frozen_wages.get(hid, 0.0) if frozen_wages is not None
++                    else household.wage if household.is_employed else 0.0)
++            wage += ceo_pay.get(hid, 0.0)
++            transfers = transfer_plan.get(hid, 0.0)
++            tax = wage_taxes.get(hid, 0.0)
++            household.last_tick_cash_start = household.cash_balance
++            household.last_wage_income = wage
++            household.last_transfer_income = transfers
++            household.last_other_income = -tax
++            household.cash_balance += wage + transfers - tax
++            ledger = household.last_tick_ledger
++            if abs(wage) > 1e-12:
++                ledger["wage"] = ledger.get("wage", 0.0) + float(wage)
++            if abs(transfers) > 1e-12:
++                ledger["transfers"] = ledger.get("transfers", 0.0) + float(transfers)
++            if abs(tax) > 1e-12:
++                ledger["taxes"] = ledger.get("taxes", 0.0) - float(tax)
++
+     # SOLID: SRP Violation - This method handles loan repayments, income application,
+     # tax deduction, medical payments, purchase processing, inventory management,
+     # consumption tracking, and wellbeing updates ALL in one method.
+@@ -1224,6 +1336,7 @@
+         good_category_lookup: Optional[Dict[str, str]] = None,
+         frozen_wages: Optional[Dict[int, float]] = None,
+         payment_receipt_only: bool = False,
++        income_already_settled: bool = False,
+     ) -> None:
+         """
+         Optimized batch update of all household states.
+@@ -1270,14 +1383,8 @@
+         # Government receives loan repayments
+         self.government.cash_balance += total_loan_repayments
+ 
+-        # Pre-build lookup tables to avoid O(HH × firms) nested loops
+-        # CEO lookup: household_id -> list of (firm, median_wage)
+-        ceo_lookup: Dict[int, list] = {}
+-        for firm in ([] if payment_receipt_only else self.firms):
+-            if firm.ceo_household_id is not None and firm.employees:
+-                wages_list = [firm.actual_wages.get(e_id, firm.wage_offer) for e_id in firm.employees]
+-                median_wage = float(np.median(wages_list))
+-                ceo_lookup.setdefault(firm.ceo_household_id, []).append((firm, median_wage))
++        if not payment_receipt_only and not income_already_settled:
++            self._apply_household_income(transfer_plan, wage_taxes, frozen_wages)
+ 
+         # Category lookup: use provided or empty dict for direct access
+         cat_lookup = good_category_lookup or {}
+@@ -1287,42 +1394,7 @@
+             hid = household.household_id
+             household.met_housing_need = False
+ 
+-            # H4: Record starting cash for anomaly detection
+-            if not payment_receipt_only:
+-                household.last_tick_cash_start = household.cash_balance
+-
+-            # Apply income and taxes
+-            if frozen_wages is not None:
+-                wage_income = frozen_wages.get(hid, 0.0)
+-            else:
+-                wage_income = household.wage if household.employer_id is not None else 0.0
+-
+-            # Add CEO salary if household is a CEO of any firm
+-            ceo_salary = 0.0
+-            ceo_entries = ceo_lookup.get(hid)
+-            if ceo_entries and not payment_receipt_only:
+-                for firm, median_wage in ceo_entries:
+-                    sal = median_wage * 3.0  # CEO earns 3x median worker
+-                    ceo_salary += sal
+-                    firm.cash_balance -= sal
+-
+-            transfers = transfer_plan.get(hid, 0.0)
+-            taxes_paid = wage_taxes.get(hid, 0.0)
+-
+-            # H4: Track income components
+-            if not payment_receipt_only:
+-                household.last_wage_income = wage_income + ceo_salary
+-                household.last_transfer_income = transfers
+-                household.last_other_income = -taxes_paid  # Taxes are negative income
+-                household.cash_balance += wage_income + ceo_salary + transfers - taxes_paid
+             ledger = household.last_tick_ledger
+-            wage_flow = wage_income + ceo_salary
+-            if abs(wage_flow) > 1e-12 and not payment_receipt_only:
+-                ledger["wage"] = ledger.get("wage", 0.0) + float(wage_flow)
+-            if abs(transfers) > 1e-12 and not payment_receipt_only:
+-                ledger["transfers"] = ledger.get("transfers", 0.0) + float(transfers)
+-            if abs(taxes_paid) > 1e-12 and not payment_receipt_only:
+-                ledger["taxes"] = ledger.get("taxes", 0.0) - float(taxes_paid)
+ 
+             # Only unregistered legacy loans use this path; registered medical
+             # loans were already serviced in the bank collection phase.
+@@ -1912,8 +1984,9 @@
+             for household_id, plan in household_labor_plans.items()
+         }
+ 
+-        # Consumption planning now vectorized (major speedup)
+-        if (not self.performance_mode) or (self.current_tick % 5 == 0):
++        # Named payment experiments retain their original decision boundary.
++        # Legacy shopping is planned once, after actual income and credit.
++        if payment_arm and ((not self.performance_mode) or (self.current_tick % 5 == 0)):
+             household_consumption_plans = self._batch_plan_consumption(
+                 self.last_tick_prices,
+                 category_market_snapshot,
+@@ -1923,7 +1996,7 @@
+             )
+             if self.performance_mode:
+                 self._cached_consumption_plans = household_consumption_plans
+-        else:
++        elif payment_arm:
+             household_consumption_plans = self._apply_cached_consumption_plans()
+ 
+         # Phase 2a: Consumption credit (Fix 25) — bridge low-cash households
+@@ -2066,7 +2139,7 @@
+                 production_plan["updated_expected_sales"]
+             )
+ 
+-        # Phase 5b: Pre-purchase deposit withdrawals — move planned-spend shortfall to cash
++        # Phase 5b: Income, shopping decision and deposit withdrawal.
+         if payment_arm:
+             from payment_loans import prepare_household_dues
+             from payment_sectors import payment_deposit_quotes
+@@ -2079,6 +2152,22 @@
+             quotes = payment_deposit_quotes(self, household_consumption_plans, due_by_household)
+             self._payment_withdraw_deposits(quotes)
+         else:
++            # Payroll has already been debited from employers at production.
++            # Assess and settle the household side once before shopping; the
++            # firm profit/property assessment still waits for actual sales.
++            household_tax_snapshots = self._build_household_tax_snapshots(frozen_wages=frozen_wages)
++            early_wage_taxes = self.government.plan_taxes(household_tax_snapshots, [])["wage_taxes"]
++            household_transfer_snapshots = self._build_household_transfer_snapshots()
++            transfer_plan = self.government.plan_transfers(household_transfer_snapshots)
++            self._apply_household_income(transfer_plan, early_wage_taxes, frozen_wages)
++            self.government.apply_fiscal_results(sum(early_wage_taxes.values()), 0.0, sum(transfer_plan.values()))
++            # Firm capital spending has already happened; make its existing
++            # household proceeds available at the same shopping boundary.
++            self._recycle_capital_investment()
++            household_consumption_plans = self._plan_legacy_consumption_after_income(
++                self.last_tick_prices, category_market_snapshot, good_category_lookup,
++                unemployment_rate, gov_benefit,
++            )
+             self._withdraw_deposits_for_planned_consumption(household_consumption_plans)
+ 
+         # Phase 6: Goods market clearing
+@@ -2161,9 +2250,10 @@
+             self._process_healthcare_services(per_firm_sales)
+ 
+         # Phase 7: Government plans taxes
+-        household_tax_snapshots = self._build_household_tax_snapshots(
+-            frozen_wages=({hid: row["gross"] for hid, row in self.payment_book.paid_income.items()} if payment_arm else frozen_wages)
+-        )
++        if payment_arm:
++            household_tax_snapshots = self._build_household_tax_snapshots(
++                frozen_wages={hid: row["gross"] for hid, row in self.payment_book.paid_income.items()}
++            )
+         firm_tax_snapshots = self._build_firm_tax_snapshots(per_firm_sales)
+         price_ceiling_tax_by_firm_id = {
+             int(snapshot["firm_id"]): float(snapshot.get("price_ceiling_tax", 0.0))
+@@ -2174,23 +2264,20 @@
+                                      if payment_arm else {})
+ 
+         tax_plan = self.government.plan_taxes(
+-            ([] if payment_arm else household_tax_snapshots),
++            [],
+             firm_tax_snapshots
+         )
++        tax_plan["wage_taxes"] = dict(self.payment_book.wage_taxes) if payment_arm else early_wage_taxes
+         if payment_arm:
+-            tax_plan["wage_taxes"] = dict(self.payment_book.wage_taxes)
+             self.payment_state["services_pending_receipts"] = {}
+ 
+         # Phase 8: Government plans transfers
+         if payment_arm:
+             transfer_plan = dict(self.payment_book.benefits)
+-        else:
+-            household_transfer_snapshots = self._build_household_transfer_snapshots()
+-            transfer_plan = self.government.plan_transfers(household_transfer_snapshots)
+ 
+         # Phase 8.5: Recycle capital investment spending to households
+-        self._recycle_capital_investment()
+         if payment_arm:
++            self._recycle_capital_investment()
+             from payment_projects import distribute_payment_project_proceeds
+             distribute_payment_project_proceeds(self)
+ 
+@@ -2258,6 +2345,7 @@
+             good_category_lookup,
+             frozen_wages=frozen_wages,
+             payment_receipt_only=payment_arm,
++            income_already_settled=not payment_arm,
+         )
+         if payment_arm:
+             self.payment_book.release_late_income()
+@@ -2274,9 +2362,9 @@
+         self.last_tick_gov_transfers = total_transfers
+ 
+         self.government.apply_fiscal_results(
+-            (0.0 if payment_arm else total_wage_taxes),
++            0.0,  # Household taxes/transfers have already settled before shopping.
+             total_profit_taxes + total_price_ceiling_taxes,  # Include price ceiling tax as profit tax
+-            (0.0 if payment_arm else total_transfers),
++            0.0,
+             total_property_taxes
+         )
+         if payment_arm:
+@@ -4164,7 +4252,8 @@
+         per_household_purchases: Dict[int, Dict[str, Tuple[float, float]]] = {}
+         per_firm_sales: Dict[int, Dict[str, float]] = {}
+ 
+-        # Firm arrays for fast lookup
++        # These buffers are accessed one scalar at a time in the matching loop.
++        # Python floats avoid NumPy scalar boxing without changing sale order.
+         firm_ids = [f.firm_id for f in firms]
+         id_to_idx = {fid: idx for idx, fid in enumerate(firm_ids)}
+         firm_available = [
+@@ -4178,16 +4267,16 @@
+                 firm.price = effective_price
+             firm_market_prices.append(effective_price)
+ 
+-        firm_prices = np.array(firm_market_prices, dtype=np.float64)
++        firm_prices = [float(price) for price in firm_market_prices]
+         firm_goods = [f.good_name for f in firms]
+-        firm_remaining = np.array(firm_available, dtype=np.float64)
++        firm_remaining = [float(available) for available in firm_available]
+ 
+         # Array accumulators indexed by firm position. Avoids a nested-dict
+         # mutation per sale; materialized into per_firm_sales at the end with
+         # the same {firm_id: {"units_sold","revenue"}} shape downstream expects.
+         n_firms = len(firms)
+-        firm_units_sold = np.zeros(n_firms, dtype=np.float64)
+-        firm_revenue = np.zeros(n_firms, dtype=np.float64)
++        firm_units_sold = [0.0] * n_firms
++        firm_revenue = [0.0] * n_firms
+ 
+         _good_name_to_cat = {f.good_name: (f.good_category or "").lower() for f in firms}
+         # Per-idx category, so unmet-demand branching skips a dict.get per event.
+@@ -4207,6 +4296,10 @@
+             goods_to_indices.setdefault(firm.good_name, []).append(idx)
+         for good_name, idx_list in goods_to_indices.items():
+             idx_list.sort(key=lambda i: (firm_prices[i], firm_ids[i]))
++        good_min_positive_price = {
++            good: next((firm_prices[i] for i in indices if firm_prices[i] > 0), 0.0)
++            for good, indices in goods_to_indices.items()
++        }
+         # cursor[good] = index into idx_list before which every firm is exhausted.
+         # Exhaustion is monotonic within a tick (firm_remaining only decreases),
+         # so advancing past a sold-out prefix never skips a firm with stock.
+@@ -4214,19 +4307,31 @@
+ 
+         # Process households in insertion order. Plans are constructed by household order,
+         # so this avoids an O(H log H) sort each tick.
++        integer_targets = (int, np.integer)
+         for household_id, consumption_plan in household_consumption_plans.items():
+             per_household_purchases[household_id] = {}
+             planned = consumption_plan["planned_purchases"]
++            purchase_scale = consumption_plan.get("_purchase_scale")
++            if purchase_scale is not None:
++                budget_remaining = min(consumption_plan["budget"], max(0.0, self.household_lookup[household_id].cash_balance))
++                food_remaining = consumption_plan["_food_budget_cap"]
+ 
+             for target, desired_qty in planned.items():
++                if purchase_scale is not None:
++                    desired_qty *= purchase_scale
+                 if desired_qty <= 0:
+                     continue
+ 
+                 # Direct firm id target (check for both int and np.integer)
+-                if isinstance(target, (int, np.integer)):
++                if isinstance(target, integer_targets):
+                     idx = id_to_idx.get(int(target))  # Convert np.int32 to Python int for dict lookup
+                     if idx is None:
+                         continue
++                    if purchase_scale is not None and firm_prices[idx] > 0:
++                        limit = min(budget_remaining, food_remaining) if firm_cat_by_idx[idx] == "food" else budget_remaining
++                        desired_qty = min(desired_qty, max(0.0, limit) / firm_prices[idx])
++                        if desired_qty <= 0:
++                            continue
+                     available = firm_remaining[idx]
+                     if available <= 0:
+                         _cat = firm_cat_by_idx[idx]
+@@ -4257,6 +4362,10 @@
+                         record_firm_unmet(firm_ids[idx], _unmet)
+                     firm_remaining[idx] -= qty
+                     price = firm_prices[idx]
++                    if purchase_scale is not None:
++                        budget_remaining -= qty * price
++                        if firm_cat_by_idx[idx] == "food":
++                            food_remaining -= qty * price
+                     firm_units_sold[idx] += qty
+                     firm_revenue[idx] += qty * price
+ 
+@@ -4294,8 +4403,15 @@
+                     if available <= 0:
+                         continue
+                     qty = min(remaining, available)
++                    if purchase_scale is not None and firm_prices[idx] > 0:
++                        limit = min(budget_remaining, food_remaining) if firm_cat_by_idx[idx] == "food" else budget_remaining
++                        qty = min(qty, max(0.0, limit) / firm_prices[idx])
+                     firm_remaining[idx] -= qty
+                     price = firm_prices[idx]
++                    if purchase_scale is not None:
++                        budget_remaining -= qty * price
++                        if firm_cat_by_idx[idx] == "food":
++                            food_remaining -= qty * price
+                     firm_units_sold[idx] += qty
+                     firm_revenue[idx] += qty * price
+                     total_bought += qty
+@@ -4304,6 +4420,11 @@
+ 
+                 if remaining > 0:
+                     _cat = _good_name_to_cat.get(good_name, "")
++                    if purchase_scale is not None:
++                        limit = min(budget_remaining, food_remaining) if _cat == "food" else budget_remaining
++                        minimum_price = good_min_positive_price[good_name]
++                        if minimum_price > 0:
++                            remaining = min(remaining, max(0.0, limit) / minimum_price)
+                     if _cat == "food":
+                         _unmet_food += remaining
+                     elif _cat == "services":

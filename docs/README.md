@@ -43,6 +43,7 @@ Active documentation for the current EcoSim codebase. Code and runtime configura
 | [testing/full_app_evidence_test.md](testing/full_app_evidence_test.md) | End-to-end evidence standard for the dashboard, server, stream, warehouse, and REST readback |
 | [testing/agent-scenarios.md](testing/agent-scenarios.md) | Small household and business experiments: cash, benefits, credit, rent, debt, health, demand, payroll, closure and a 24-household town |
 | [testing/business-scenarios.md](testing/business-scenarios.md) | Controlled customer demand: money/no money, startups, hiring, wage changes, capacity, weak demand and recovery across complete business weeks |
+| [testing/inflation-scenarios.md](testing/inflation-scenarios.md) | Observed price changes, annual private pay reviews and temporary demand/supply tests (`CONFIG.inflation.enabled`) |
 | [reviews/2026-09-28-household-business-audit.md](reviews/2026-09-28-household-business-audit.md) | Plain-language audit of household money situations, business responses and their interactions with banks, government, housing and healthcare |
 | [reviews/2026-09-28-household-income-timing.md](reviews/2026-09-28-household-income-timing.md) | Same-week use of wages, benefits and credit, cached-budget behavior, payment ownership and performance evidence |
 

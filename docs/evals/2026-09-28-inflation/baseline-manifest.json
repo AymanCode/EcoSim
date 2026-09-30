@@ -1,0 +1,9 @@
+{
+  "commit": "17d5c0bedf560d8deb7e76ba5615ceb2789eb24e",
+  "baseline": "working tree before the inflation implementation; household timing changes included",
+  "source_sha256": {
+    "economy.py": "c399f2830db7ce86127440849a19981056d60f792fe8190e8fb5b68510dd77f1",
+    "agents.py": "357b32d884e04df8af43af6011247fb5d1631b382030b978df5c982486c6a982",
+    "config.py": "19309a6d38200ebafa22dcb2f02f0fb85444cd9ced2c35a9747bb23c973de9f3"
+  }
+}
