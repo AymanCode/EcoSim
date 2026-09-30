@@ -235,3 +235,71 @@ def test_cached_orders_respect_current_price_cash_food_cap_and_supply(
         assert sales[1]["revenue"] == pytest.approx(quantity * price)
         assert quantity * price <= min(cash, food_cap)
         assert economy.food_unmet_demand == pytest.approx(expected_unmet)
+
+
+@pytest.mark.parametrize("target", [1, "Shop"])
+@pytest.mark.parametrize("planned, scale", [(1.0, 3.0), (0.6, 2.5)])
+def test_b28_scaled_cached_housing_keeps_the_one_unit_cap(target, planned, scale):
+    """Audit B28(a): every planner path buys at most one housing unit a week."""
+    with isolated_run(1337):
+        economy = small_world(1337, cash=1_000, category="Housing")
+        firm = economy.firms[0]
+        firm.price = 10
+        firm.inventory_units = 5
+        plans = {1: {
+            "household_id": 1, "budget": 500, "planned_purchases": {target: planned},
+            "_purchase_scale": scale, "_food_budget_cap": 0.0,
+        }}
+        purchases, sales = economy._clear_goods_market(plans, economy.firms)
+        quantity, _price = purchases[1]["Shop"]
+        assert quantity == pytest.approx(1.0)
+        assert sales[1]["units_sold"] == pytest.approx(1.0)
+
+
+def _two_food_sellers(cash):
+    """Two Food firms selling the same good: the cheap one has little stock."""
+    economy = small_world(1337, cash=cash)
+    cheap = economy.firms[0]
+    cheap.price, cheap.inventory_units = 20, 0.5
+    dear = FirmAgent(
+        firm_id=2, good_name="Shop", good_category="Food", cash_balance=10_000.0,
+        inventory_units=10.0, price=25.0, wage_offer=40.0, expected_sales_units=40.0,
+        quality_level=5.0, production_capacity_units=200.0, productivity_per_worker=12.0,
+        personality="moderate", is_baseline=False,
+    )
+    economy.firms.append(dear)
+    return economy
+
+
+def test_b28_spent_budget_ends_the_seller_scan_and_records_no_unmet_demand():
+    """Audit B28(b): a budget-limited shortfall is not supply-limited unmet demand."""
+    with isolated_run(1337):
+        economy = _two_food_sellers(cash=15)
+        plans = {1: {
+            "household_id": 1, "budget": 100, "planned_purchases": {"Shop": 10},
+            "_purchase_scale": 1.0, "_food_budget_cap": 1_000.0,
+        }}
+        purchases, sales = economy._clear_goods_market(plans, economy.firms)
+        quantity, price = purchases[1]["Shop"]
+        # 0.5 at 20 from the cheap seller, then the last 5 buys 0.2 at 25.
+        assert quantity == pytest.approx(0.7)
+        assert quantity * price == pytest.approx(15.0)
+        assert sales[2]["units_sold"] == pytest.approx(0.2)
+        assert economy.food_unmet_demand == pytest.approx(0.0)
+        assert sum(economy.current_tick_unmet_demand_by_firm.values()) == pytest.approx(0.0)
+
+
+def test_b28_spent_budget_records_no_unmet_demand_at_a_later_sold_out_firm():
+    """Audit B28(b): once the money is gone, a sold-out seller is not short of supply."""
+    with isolated_run(1337):
+        economy = _two_food_sellers(cash=10)
+        economy.firms[1].inventory_units = 0.0
+        plans = {1: {
+            "household_id": 1, "budget": 100, "planned_purchases": {1: 5, 2: 5},
+            "_purchase_scale": 1.0, "_food_budget_cap": 1_000.0,
+        }}
+        purchases, _sales = economy._clear_goods_market(plans, economy.firms)
+        quantity, _price = purchases[1]["Shop"]
+        assert quantity == pytest.approx(0.5)
+        assert economy.current_tick_unmet_demand_by_firm.get(2, 0.0) == pytest.approx(0.0)
+        assert economy.food_unmet_demand == pytest.approx(0.0)

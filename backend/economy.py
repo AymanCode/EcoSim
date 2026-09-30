@@ -4796,8 +4796,10 @@ class Economy:
             planned = consumption_plan["planned_purchases"]
             # Performance-mode cached plan (legacy): quantities are reference
             # choices scaled to this week's budget, capped by current cash,
-            # the budget and the planner's food spending ceiling. Only the
-            # affordable part of an unfilled order counts as unmet demand.
+            # the budget, the planner's food spending ceiling and its one-unit
+            # housing cap (audit B28a). Only the affordable part of an unfilled
+            # order counts as unmet demand, and once the money is spent the
+            # household stops scanning (audit B28b).
             purchase_scale = consumption_plan.get("_purchase_scale")
             if purchase_scale is not None:
                 budget_remaining = min(
@@ -4805,9 +4807,12 @@ class Economy:
                     max(0.0, household_lookup[household_id].cash_balance),
                 )
                 food_remaining = consumption_plan["_food_budget_cap"]
+                housing_remaining = 1.0
 
             for target, desired_qty in planned.items():
                 if purchase_scale is not None:
+                    if budget_remaining <= 0:
+                        break
                     desired_qty *= purchase_scale
                 if desired_qty <= 0:
                     continue
@@ -4817,10 +4822,13 @@ class Economy:
                     idx = id_to_idx.get(int(target))  # Convert np.int32 to Python int for dict lookup
                     if idx is None:
                         continue
-                    if purchase_scale is not None and firm_prices[idx] > 0:
-                        limit = (min(budget_remaining, food_remaining)
-                                 if firm_cat_by_idx[idx] == "food" else budget_remaining)
-                        desired_qty = min(desired_qty, max(0.0, limit) / firm_prices[idx])
+                    if purchase_scale is not None:
+                        if firm_cat_by_idx[idx] == "housing":
+                            desired_qty = min(desired_qty, housing_remaining)
+                        if firm_prices[idx] > 0:
+                            limit = (min(budget_remaining, food_remaining)
+                                     if firm_cat_by_idx[idx] == "food" else budget_remaining)
+                            desired_qty = min(desired_qty, max(0.0, limit) / firm_prices[idx])
                         if desired_qty <= 0:
                             continue
                     available = firm_remaining[idx]
@@ -4857,6 +4865,8 @@ class Economy:
                         budget_remaining -= qty * price
                         if firm_cat_by_idx[idx] == "food":
                             food_remaining -= qty * price
+                        elif firm_cat_by_idx[idx] == "housing":
+                            housing_remaining -= qty
                     firm_units_sold[idx] += qty
                     firm_revenue[idx] += qty * price
 
@@ -4885,19 +4895,25 @@ class Economy:
                 remaining = desired_qty
                 total_bought = 0.0
                 price_sum = 0.0
+                good_is_housing = _good_name_to_cat.get(good_name, "") == "housing"
+                if purchase_scale is not None and good_is_housing:
+                    remaining = min(remaining, housing_remaining)
 
                 for scan in range(cursor, n_idx):
                     if remaining <= 0:
                         break
                     idx = idx_list[scan]
+                    if purchase_scale is not None:
+                        limit = (min(budget_remaining, food_remaining)
+                                 if firm_cat_by_idx[idx] == "food" else budget_remaining)
+                        if limit <= 0:
+                            break
                     available = firm_remaining[idx]
                     if available <= 0:
                         continue
                     qty = min(remaining, available)
                     if purchase_scale is not None and firm_prices[idx] > 0:
-                        limit = (min(budget_remaining, food_remaining)
-                                 if firm_cat_by_idx[idx] == "food" else budget_remaining)
-                        qty = min(qty, max(0.0, limit) / firm_prices[idx])
+                        qty = min(qty, limit / firm_prices[idx])
                     firm_remaining[idx] -= qty
                     price = firm_prices[idx]
                     if purchase_scale is not None:
@@ -4921,6 +4937,9 @@ class Economy:
                         _unmet_food += remaining
                     elif _cat == "services":
                         _unmet_services += remaining
+
+                if purchase_scale is not None and good_is_housing:
+                    housing_remaining -= total_bought
 
                 if total_bought > 0:
                     per_household_purchases[household_id][good_name] = (
