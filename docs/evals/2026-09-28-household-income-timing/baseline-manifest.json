@@ -1,0 +1,25 @@
+{
+  "commit": "17d5c0bedf560d8deb7e76ba5615ceb2789eb24e",
+  "python": "3.13.2",
+  "platform": "macOS-27.0-arm64-arm-64bit-Mach-O",
+  "sources": {
+    "backend/economy.py": "e9a45b71660a74829d8a5708e9b5acf5eae0f2dfc96e3bc09e4373b22c6de2e2",
+    "backend/agents.py": "357b32d884e04df8af43af6011247fb5d1631b382030b978df5c982486c6a982",
+    "backend/config.py": "19309a6d38200ebafa22dcb2f02f0fb85444cd9ced2c35a9747bb23c973de9f3"
+  },
+  "workloads": {
+    "households": [
+      1000,
+      10000
+    ],
+    "modes": [
+      "normal",
+      "performance"
+    ],
+    "warmup_and_development_ticks": 40,
+    "measured_ticks": 12,
+    "paired_repetitions": 5,
+    "seed": 1337
+  },
+  "acceptance": "Interleaved paired baseline/candidate, same initial snapshot and RNG. Report median and p95, paired bootstrap 95% interval, firm counts and RSS; 5% project threshold. Inconclusive cells require more repeats or simplification."
+}

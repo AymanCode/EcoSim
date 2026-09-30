@@ -1,0 +1,420 @@
+{
+  "baseline_sha256": "e9a45b71660a74829d8a5708e9b5acf5eae0f2dfc96e3bc09e4373b22c6de2e2",
+  "candidate_sha256": "c399f2830db7ce86127440849a19981056d60f792fe8190e8fb5b68510dd77f1",
+  "script_sha256": "b1166333a5de5fbd9484aa5329c8d96c107d00b331141d7e190984f338e2e8bc",
+  "households": 10000,
+  "seed": 1337,
+  "cyclic_gc_during_timed_step": false,
+  "runs": [
+    {
+      "mode": "normal",
+      "tick": 40,
+      "repeat": 0,
+      "kind": "baseline",
+      "ms": 1179.3535,
+      "initial_firms": 251,
+      "final_firms": 248
+    },
+    {
+      "mode": "normal",
+      "tick": 40,
+      "repeat": 0,
+      "kind": "candidate",
+      "ms": 1149.198333,
+      "initial_firms": 251,
+      "final_firms": 248
+    },
+    {
+      "mode": "normal",
+      "tick": 40,
+      "repeat": 1,
+      "kind": "candidate",
+      "ms": 1149.286333,
+      "initial_firms": 251,
+      "final_firms": 248
+    },
+    {
+      "mode": "normal",
+      "tick": 40,
+      "repeat": 1,
+      "kind": "baseline",
+      "ms": 1188.403417,
+      "initial_firms": 251,
+      "final_firms": 248
+    },
+    {
+      "mode": "normal",
+      "tick": 40,
+      "repeat": 2,
+      "kind": "baseline",
+      "ms": 1180.077417,
+      "initial_firms": 251,
+      "final_firms": 248
+    },
+    {
+      "mode": "normal",
+      "tick": 40,
+      "repeat": 2,
+      "kind": "candidate",
+      "ms": 1144.969625,
+      "initial_firms": 251,
+      "final_firms": 248
+    },
+    {
+      "mode": "normal",
+      "tick": 40,
+      "repeat": 3,
+      "kind": "candidate",
+      "ms": 1144.994083,
+      "initial_firms": 251,
+      "final_firms": 248
+    },
+    {
+      "mode": "normal",
+      "tick": 40,
+      "repeat": 3,
+      "kind": "baseline",
+      "ms": 1184.394125,
+      "initial_firms": 251,
+      "final_firms": 248
+    },
+    {
+      "mode": "normal",
+      "tick": 40,
+      "repeat": 4,
+      "kind": "baseline",
+      "ms": 1179.8565,
+      "initial_firms": 251,
+      "final_firms": 248
+    },
+    {
+      "mode": "normal",
+      "tick": 40,
+      "repeat": 4,
+      "kind": "candidate",
+      "ms": 1147.441834,
+      "initial_firms": 251,
+      "final_firms": 248
+    },
+    {
+      "mode": "normal",
+      "tick": 41,
+      "repeat": 0,
+      "kind": "baseline",
+      "ms": 859.033875,
+      "initial_firms": 248,
+      "final_firms": 248
+    },
+    {
+      "mode": "normal",
+      "tick": 41,
+      "repeat": 0,
+      "kind": "candidate",
+      "ms": 819.381292,
+      "initial_firms": 248,
+      "final_firms": 248
+    },
+    {
+      "mode": "normal",
+      "tick": 41,
+      "repeat": 1,
+      "kind": "candidate",
+      "ms": 823.7045,
+      "initial_firms": 248,
+      "final_firms": 248
+    },
+    {
+      "mode": "normal",
+      "tick": 41,
+      "repeat": 1,
+      "kind": "baseline",
+      "ms": 852.736042,
+      "initial_firms": 248,
+      "final_firms": 248
+    },
+    {
+      "mode": "normal",
+      "tick": 41,
+      "repeat": 2,
+      "kind": "baseline",
+      "ms": 863.733459,
+      "initial_firms": 248,
+      "final_firms": 248
+    },
+    {
+      "mode": "normal",
+      "tick": 41,
+      "repeat": 2,
+      "kind": "candidate",
+      "ms": 819.921459,
+      "initial_firms": 248,
+      "final_firms": 248
+    },
+    {
+      "mode": "normal",
+      "tick": 41,
+      "repeat": 3,
+      "kind": "candidate",
+      "ms": 835.904667,
+      "initial_firms": 248,
+      "final_firms": 248
+    },
+    {
+      "mode": "normal",
+      "tick": 41,
+      "repeat": 3,
+      "kind": "baseline",
+      "ms": 856.587459,
+      "initial_firms": 248,
+      "final_firms": 248
+    },
+    {
+      "mode": "normal",
+      "tick": 41,
+      "repeat": 4,
+      "kind": "baseline",
+      "ms": 859.5135,
+      "initial_firms": 248,
+      "final_firms": 248
+    },
+    {
+      "mode": "normal",
+      "tick": 41,
+      "repeat": 4,
+      "kind": "candidate",
+      "ms": 823.272083,
+      "initial_firms": 248,
+      "final_firms": 248
+    },
+    {
+      "mode": "performance",
+      "tick": 40,
+      "repeat": 0,
+      "kind": "baseline",
+      "ms": 1129.20525,
+      "initial_firms": 239,
+      "final_firms": 238
+    },
+    {
+      "mode": "performance",
+      "tick": 40,
+      "repeat": 0,
+      "kind": "candidate",
+      "ms": 1121.476417,
+      "initial_firms": 239,
+      "final_firms": 237
+    },
+    {
+      "mode": "performance",
+      "tick": 40,
+      "repeat": 1,
+      "kind": "candidate",
+      "ms": 1103.702917,
+      "initial_firms": 239,
+      "final_firms": 237
+    },
+    {
+      "mode": "performance",
+      "tick": 40,
+      "repeat": 1,
+      "kind": "baseline",
+      "ms": 1132.967583,
+      "initial_firms": 239,
+      "final_firms": 238
+    },
+    {
+      "mode": "performance",
+      "tick": 40,
+      "repeat": 2,
+      "kind": "baseline",
+      "ms": 1135.154542,
+      "initial_firms": 239,
+      "final_firms": 238
+    },
+    {
+      "mode": "performance",
+      "tick": 40,
+      "repeat": 2,
+      "kind": "candidate",
+      "ms": 1105.626208,
+      "initial_firms": 239,
+      "final_firms": 237
+    },
+    {
+      "mode": "performance",
+      "tick": 40,
+      "repeat": 3,
+      "kind": "candidate",
+      "ms": 1107.712792,
+      "initial_firms": 239,
+      "final_firms": 237
+    },
+    {
+      "mode": "performance",
+      "tick": 40,
+      "repeat": 3,
+      "kind": "baseline",
+      "ms": 1125.226666,
+      "initial_firms": 239,
+      "final_firms": 238
+    },
+    {
+      "mode": "performance",
+      "tick": 40,
+      "repeat": 4,
+      "kind": "baseline",
+      "ms": 1127.326458,
+      "initial_firms": 239,
+      "final_firms": 238
+    },
+    {
+      "mode": "performance",
+      "tick": 40,
+      "repeat": 4,
+      "kind": "candidate",
+      "ms": 1102.94975,
+      "initial_firms": 239,
+      "final_firms": 237
+    },
+    {
+      "mode": "performance",
+      "tick": 41,
+      "repeat": 0,
+      "kind": "baseline",
+      "ms": 314.52225,
+      "initial_firms": 238,
+      "final_firms": 238
+    },
+    {
+      "mode": "performance",
+      "tick": 41,
+      "repeat": 0,
+      "kind": "candidate",
+      "ms": 306.603209,
+      "initial_firms": 238,
+      "final_firms": 234
+    },
+    {
+      "mode": "performance",
+      "tick": 41,
+      "repeat": 1,
+      "kind": "candidate",
+      "ms": 301.454625,
+      "initial_firms": 238,
+      "final_firms": 234
+    },
+    {
+      "mode": "performance",
+      "tick": 41,
+      "repeat": 1,
+      "kind": "baseline",
+      "ms": 296.280916,
+      "initial_firms": 238,
+      "final_firms": 238
+    },
+    {
+      "mode": "performance",
+      "tick": 41,
+      "repeat": 2,
+      "kind": "baseline",
+      "ms": 372.7755,
+      "initial_firms": 238,
+      "final_firms": 238
+    },
+    {
+      "mode": "performance",
+      "tick": 41,
+      "repeat": 2,
+      "kind": "candidate",
+      "ms": 305.253041,
+      "initial_firms": 238,
+      "final_firms": 234
+    },
+    {
+      "mode": "performance",
+      "tick": 41,
+      "repeat": 3,
+      "kind": "candidate",
+      "ms": 299.020667,
+      "initial_firms": 238,
+      "final_firms": 234
+    },
+    {
+      "mode": "performance",
+      "tick": 41,
+      "repeat": 3,
+      "kind": "baseline",
+      "ms": 297.143834,
+      "initial_firms": 238,
+      "final_firms": 238
+    },
+    {
+      "mode": "performance",
+      "tick": 41,
+      "repeat": 4,
+      "kind": "baseline",
+      "ms": 295.855417,
+      "initial_firms": 238,
+      "final_firms": 238
+    },
+    {
+      "mode": "performance",
+      "tick": 41,
+      "repeat": 4,
+      "kind": "candidate",
+      "ms": 302.307375,
+      "initial_firms": 238,
+      "final_firms": 234
+    }
+  ],
+  "summary": [
+    {
+      "mode": "normal",
+      "tick": 40,
+      "initial_firms": 251,
+      "baseline_ms": 1180.077417,
+      "candidate_ms": 1147.441834,
+      "paired_delta_pct": -2.975041424761038,
+      "ci95_pct": [
+        -3.3265989055796807,
+        -2.556923517842602
+      ]
+    },
+    {
+      "mode": "normal",
+      "tick": 41,
+      "initial_firms": 248,
+      "baseline_ms": 859.033875,
+      "candidate_ms": 823.272083,
+      "paired_delta_pct": -4.216503522050563,
+      "ci95_pct": [
+        -5.072398150550283,
+        -2.414556947184998
+      ]
+    },
+    {
+      "mode": "performance",
+      "tick": 40,
+      "initial_firms": 239,
+      "baseline_ms": 1129.20525,
+      "candidate_ms": 1105.626208,
+      "paired_delta_pct": -2.1623468363589193,
+      "ci95_pct": [
+        -2.6012611417626785,
+        -0.6844489077605598
+      ]
+    },
+    {
+      "mode": "performance",
+      "tick": 41,
+      "initial_firms": 238,
+      "baseline_ms": 297.143834,
+      "candidate_ms": 302.307375,
+      "paired_delta_pct": 0.6316244139193516,
+      "ci95_pct": [
+        -18.113437980768587,
+        2.1807807561623926
+      ]
+    }
+  ]
+}
