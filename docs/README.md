@@ -23,7 +23,7 @@ Active documentation for the current EcoSim codebase. Code and runtime configura
 | [ECONOMIC_IMPLEMENTATION_PLAN.md](ECONOMIC_IMPLEMENTATION_PLAN.md) | Implementation workflow and historical PAY-01 evidence; links to the integrated coordinated package |
 | [ECONOMIC_IMPLEMENTATION_EXECUTION.md](ECONOMIC_IMPLEMENTATION_EXECUTION.md) | Integrated payment/agent mechanisms, explicit assumptions, public options and acceptance boundaries |
 | [reviews/ECONOMIC_IMPLEMENTATION_REVIEW.md](reviews/ECONOMIC_IMPLEMENTATION_REVIEW.md) | Fable and coordinator findings, tests, reproducible comparisons and the unmet new-scenario performance target |
-| [ECONOMIC_AGENT_RULES.md](ECONOMIC_AGENT_RULES.md) | Active rules v1.2 for proposal writers: current tick order, actor interactions, markets, accounting, information, individuality, performance and known limitations |
+| [ECONOMIC_AGENT_RULES.md](ECONOMIC_AGENT_RULES.md) | Active rules v1.5 for proposal writers: current tick order, actor interactions, markets, accounting, information, individuality, performance and known limitations |
 | [proposals/agent_round_01/README.md](proposals/agent_round_01/README.md) | Six Sol/high economic-role proposals, 17 ideas, primary citations, coordinator corrections and cross-agent integration decisions; no implementation |
 | [proposals/agent_round_02/README.md](proposals/agent_round_02/README.md) | Fable source audit, concrete candidate mechanisms and actual cross-role objections/compromises for all 17 proposals; documents only |
 | [reviews/ECONOMIC_AGENT_RULES_REVIEW.md](reviews/ECONOMIC_AGENT_RULES_REVIEW.md) | Fable's rules audit, source-verified coordinator dispositions and corrections incorporated in v1.1 |
@@ -41,6 +41,10 @@ Active documentation for the current EcoSim codebase. Code and runtime configura
 | [POLICY_FORECASTING_SCHEMA.md](POLICY_FORECASTING_SCHEMA.md) | Frozen dataset schema for the policy forecasting pipeline |
 | [evals/ECOSIM_LLM_ECONOMIC_GOVERNANCE_EVAL_PROTOCOL.md](evals/ECOSIM_LLM_ECONOMIC_GOVERNANCE_EVAL_PROTOCOL.md) | Draft protocol, claim boundaries, episode design, baselines, scoring, and reporting for the AI-governance benchmark |
 | [testing/full_app_evidence_test.md](testing/full_app_evidence_test.md) | End-to-end evidence standard for the dashboard, server, stream, warehouse, and REST readback |
+| [testing/agent-scenarios.md](testing/agent-scenarios.md) | Small household and business experiments: cash, benefits, credit, rent, debt, health, demand, payroll, closure and a 24-household town |
+| [testing/business-scenarios.md](testing/business-scenarios.md) | Controlled customer demand: money/no money, startups, hiring, wage changes, capacity, weak demand and recovery across complete business weeks |
+| [reviews/2026-09-28-household-business-audit.md](reviews/2026-09-28-household-business-audit.md) | Plain-language audit of household money situations, business responses and their interactions with banks, government, housing and healthcare |
+| [reviews/2026-09-28-household-income-timing.md](reviews/2026-09-28-household-income-timing.md) | Same-week use of wages, benefits and credit, cached-budget behavior, payment ownership and performance evidence |
 
 ## Component Docs
 

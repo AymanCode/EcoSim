@@ -2,75 +2,19 @@
 
 Ported onto the remediation code on 2026-09-29 from the 2026-09-28 session
 written against 17d5c0b (docs/reviews/2026-09-28-household-income-timing.md).
-``isolated_run`` and ``small_world`` are copies of that session's
-``tools/checks/run_agent_scenarios.py`` fixtures, kept here until that runner
-is ported.
+``isolated_run`` and ``small_world`` come from the ported
+``tools/checks/run_agent_scenarios.py``.
 """
 
-import contextlib
 import copy
-import random
 
-import numpy as np
 import pytest
 
-from agents import BankAgent, FirmAgent, GovernmentAgent, HouseholdAgent
-from config import CONFIG, clone_config, use_config
-from economy import Economy
+from agents import FirmAgent
 from tests_contracts.factories import patch_agent_method
 
 
-@contextlib.contextmanager
-def isolated_run(seed):
-    """Restore both global RNG streams and the context-local configuration."""
-    python_state, numpy_state = random.getstate(), np.random.get_state()
-    config = clone_config()
-    config.random_seed = seed
-    config.payment_sequence = "legacy"
-    random.seed(seed)
-    np.random.seed(seed)
-    try:
-        with use_config(config):
-            yield
-    finally:
-        random.setstate(python_state)
-        np.random.set_state(numpy_state)
-
-
-def small_world(seed, *, cash=100.0, deposits=0.0, category="Food", workers=1):
-    """Explicit fixtures, not a calibrated town. Each variant starts afresh."""
-    random.seed(seed)
-    np.random.seed(seed)
-    households = [HouseholdAgent(i + 1, skills_level=0.5, age=30, cash_balance=cash)
-                  for i in range(workers)]
-    firm = FirmAgent(
-        firm_id=1, good_name="Shop", good_category=category, cash_balance=10_000.0,
-        inventory_units=10.0 if category == "Food" else 0.0, price=10.0,
-        wage_offer=40.0, expected_sales_units=40.0, quality_level=5.0,
-        production_capacity_units=200.0, productivity_per_worker=12.0,
-        personality="moderate", is_baseline=False,
-        max_rental_units=1 if category == "Housing" else 0,
-    )
-    bank = BankAgent(cash_reserves=10_000.0)
-    government = GovernmentAgent(cash_balance=20_000.0, unemployment_benefit_level=30.0,
-                                 transfer_budget=0.0, wage_tax_rate=0.15, profit_tax_rate=0.20)
-    for household in households:
-        household.employer_id = firm.firm_id
-        household.wage = household.expected_wage = 40.0
-        household.health = 0.8
-        household.spending_tendency = household.frugality = 1.0
-        household.savings_drawdown_rate = 0.02
-        household.subsistence_min_cash = 50.0
-        household.food_consumed_last_tick = CONFIG.households.food_health_high_threshold
-        household.bank_deposit = deposits
-        bank.accept_deposit(household.household_id, deposits)
-        firm.employees.append(household.household_id)
-        firm.actual_wages[household.household_id] = household.wage
-    firm.age_in_ticks = 30
-    firm.last_revenue = 400.0
-    firm.last_profit = 100.0
-    firm.last_units_sold = firm.sales_velocity_ema = 40.0
-    return Economy(households, [firm], government, bank=bank)
+from tools.checks.run_agent_scenarios import isolated_run, small_world
 
 
 @pytest.mark.parametrize("performance_mode", [False, True])

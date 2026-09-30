@@ -55,7 +55,7 @@ The large-economy factory lives in [`backend/tools/runners/run_large_simulation.
 
 ## Tick Lifecycle
 
-The authoritative lifecycle is `Economy.step()` in [`backend/economy.py`](../backend/economy.py). The current sequence is:
+The authoritative lifecycle is `Economy.step()` in [`backend/economy.py`](../backend/economy.py). The default `legacy` sequence is:
 
 1. Refresh warmup state, activate queued firms after warmup, reset per-tick telemetry, apply post-warmup stimulus if active, refresh subsidy caps, reset bank telemetry, apply random shocks, reset healthcare tick state, lock doctor health where configured, and enqueue healthcare requests.
 2. Build market views and unemployment statistics.
@@ -64,31 +64,30 @@ The authoritative lifecycle is `Economy.step()` in [`backend/economy.py`](../bac
 5. Issue working-capital bridge credit where enabled and eligible.
 6. Process firm investment loan requests through the bank.
 7. Enforce the active minimum-wage floor in firm wage plans.
-8. Households update education status, job-search cooldowns tick, labor plans are created, unemployment guardrails normalize search/reservation state, and consumption plans are generated or reused in performance mode.
+8. Households update education status, job-search cooldowns tick, labor plans are created, and unemployment guardrails normalize search/reservation state.
 9. If the bank exists, households may request consumption loans and the bank may originate them.
 10. Labor matching runs through the configured matcher, records hire/layoff events, and records failed-hiring regime events.
 11. Firms and households apply labor outcomes; firm rosters are synchronized with household employment state.
 12. Firms produce goods/services and update expected sales.
-13. Households withdraw up to the configured accessible share of deposits to cover planned purchases before market clearing.
+13. Household wages/CEO pay, progressive wage tax and benefits settle once. Existing capital-investment proceeds reach households. Households plan shopping from actual take-home receipts and current liquidity, then withdraw accessible deposits. Performance mode reuses seller choices while refreshing monetary budgets every week.
 14. Food, Services, and tradable goods clear through the goods market.
 15. Services firms may expand employee-slot infrastructure; bank-backed service infrastructure loans may be offered.
 16. Housing rental market clears, repairs apply, housing firms consider unit expansion, and bank-backed housing expansion loans may be offered.
 17. Miscellaneous revenue is redistributed through the internal misc firm path.
 18. Healthcare firms process queued visits up to effective capacity; households pay with cash/deposits, subsidies, or medical loans where available.
-19. Government plans wage/profit/property/investment-related taxes and transfers.
-20. Capital-investment spending is recycled.
-21. Firms receive sales revenue, pay taxes, and apply price/wage updates.
-22. Bank loan repayments are collected after wages and sales are available.
-23. Household wage income, CEO income, transfers, taxes, purchases, medical loan payments, and ledgers are applied.
-24. Government fiscal results are applied.
-25. Bank deposit rates update, household deposit sweeps/withdrawals run, credit scores update, and settled loans are cleaned up.
-26. Government infrastructure, technology, social spending, and bond purchases are applied and routed back into circulation where appropriate.
-27. Investment taxes are collected and fiscal pressure/spending efficiency are updated.
-28. Household wellbeing updates run, with lower cadence in performance mode.
-29. Bankrupt private firms exit and eligible new firms enter under-served sectors.
-30. If rule-based government stabilizers are enabled and the LLM government is disabled, automatic government policy adjustment runs.
-31. Statistics, health diagnostics, firm-distress diagnostics, and sector-shortage diagnostics update.
-32. Firm profits and healthcare worker bonuses are distributed to household owners/workers, household ledgers finalize, affordability telemetry updates, and the simulation clock advances.
+19. Government assesses firm profit/property taxes from sales. Household tax and benefit totals retain the earlier assessment.
+20. Firms receive sales revenue, pay taxes, and apply price/wage updates.
+21. Bank loan repayments are collected after wages and sales are available.
+22. Household purchases, remaining medical fallback payments and consumption receipts are applied; income already received is skipped.
+23. Remaining firm fiscal results settle. Household wage taxes and benefits remain in weekly telemetry without a second cash transfer.
+24. Bank deposit rates update, household deposit sweeps/withdrawals run, credit scores update, and settled loans are cleaned up.
+25. Government infrastructure, technology, social spending, and bond purchases are applied and routed back into circulation where appropriate.
+26. Investment taxes are collected and fiscal pressure/spending efficiency are updated.
+27. Household wellbeing updates run, with lower cadence in performance mode.
+28. Bankrupt private firms exit and eligible new firms enter under-served sectors.
+29. If rule-based government stabilizers are enabled and the LLM government is disabled, automatic government policy adjustment runs.
+30. Statistics, health diagnostics, firm-distress diagnostics, and sector-shortage diagnostics update.
+31. Firm profits and healthcare worker bonuses are distributed to household owners/workers, household ledgers finalize, affordability telemetry updates, and the simulation clock advances.
 
 The server applies pending runtime config changes and completed LLM decisions only at safe boundaries around this tick loop.
 
@@ -103,7 +102,7 @@ Key current mechanics:
 - Long-term unemployed reservation wages are clamped to an observable market anchor by default after `ECOSIM_UNEMPLOYED_CLAMP_TICKS=8`.
 - Employed households can perform staggered on-the-job search after warmup. If a switching attempt fails to match, the household keeps its prior employer.
 - Matching wage premiums in the current matcher are `25% * skill_level` plus `3%` per year of category experience, capped at `30%`.
-- Consumption planning uses wage income, benefit income, dividend income, personality-driven saving behavior, current cash, and accessible deposit liquidity.
+- Default consumption planning uses actual take-home wage/benefit receipts, personality-driven saving behavior, current cash (including approved credit and released capital proceeds), and accessible deposit liquidity. Cash received after shopping, including end-of-week dividends, enters the following week's wallet. See [the timing contract](reviews/2026-09-28-household-income-timing.md) for the default and cached-plan boundaries; named payment experiments retain their specified sequences.
 - Health, happiness, and morale update from food, housing, services, employment, wage satisfaction, healthcare, poverty stress, and government social multipliers.
 - Medical training has student/resident/doctor stages. Residents and doctors add healthcare capacity; doctors are seeded during large-economy initialization.
 
