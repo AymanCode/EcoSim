@@ -62,7 +62,15 @@ METRIC_DEFINITIONS = {
     },
     "realized_inflation": {
         "units": "fraction per observed period",
-        "definition": "Requires an explicitly named price series and lag. The stored target is not this measure; these runners do not export CPI inflation.",
+        "definition": "Requires a named price series and lag. The stored target is not this measure. Legacy runner columns do not export the engine's new posted consumer price index.",
+    },
+    "consumer_price_index": {
+        "units": "index, first post-warmup observation = 100",
+        "definition": "ecosim.posted-consumer-prices.v1: fixed synthetic category weights and matched-seller geometric price relatives; quoted prices, without quality adjustment. Missing comparisons carry their prior category index; read inflation_matched_basket_share. Stays at 100 (inflation_observed = 0) when CONFIG.inflation.enabled is False.",
+    },
+    "inflation_annual": {
+        "units": "fraction over ticks_per_year observations",
+        "definition": "Change in consumer_price_index over a complete year. Read only when inflation_annual_available is 1; otherwise the flat numeric field's zero is a placeholder. The live inflation snapshot uses null when unavailable.",
     },
 }
 

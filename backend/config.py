@@ -22,6 +22,28 @@ class TimeConfig:
 
 
 @dataclass
+class InflationConfig:
+    """Synthetic consumer price measurement and private wage review assumptions.
+
+    ``enabled`` is the single switch for the inflation model (ported 2026-09-29).
+    True: the posted consumer price index is observed each post-warmup week and
+    legacy private Food/Services firms use the annual pay review instead of the
+    weekly wage rules; the disabled-stabilizer pricing branch holds its price.
+    False: the pre-port behavior (weekly ``plan_wage``, 50-tick continuing-worker
+    raise, revenue-ratio wage cut, 2%/week escalator) and no index observation.
+    """
+
+    enabled: bool = True
+    basket_weights: Dict[str, float] = field(default_factory=lambda: {
+        "food": 0.35, "housing": 0.35, "services": 0.20, "healthcare": 0.10,
+    })
+    annual_wage_raise_cap: float = 0.10
+    distress_wage_cut: float = 0.02
+    distress_weeks: int = 8
+    payroll_reserve_weeks: float = 8.0
+
+
+@dataclass
 class HouseholdBehaviorConfig:
     """Household behavioral parameters."""
 
@@ -903,6 +925,7 @@ class SimulationConfig:
 
     # Sub-configurations
     time: TimeConfig = field(default_factory=TimeConfig)
+    inflation: InflationConfig = field(default_factory=InflationConfig)
     households: HouseholdBehaviorConfig = field(default_factory=HouseholdBehaviorConfig)
     firms: FirmBehaviorConfig = field(default_factory=FirmBehaviorConfig)
     government: GovernmentPolicyConfig = field(default_factory=GovernmentPolicyConfig)
@@ -960,6 +983,23 @@ class SimulationConfig:
             raise ValueError("ticks_per_year must be positive")
         if self.time.warmup_ticks < 0:
             raise ValueError("warmup_ticks cannot be negative")
+
+        # Validate the inflation model switch and review assumptions
+        inflation = self.inflation
+        if not isinstance(inflation.enabled, bool):
+            raise ValueError("inflation.enabled must be a bool")
+        weights = inflation.basket_weights
+        if (not weights
+                or any(k not in {"food", "housing", "services", "healthcare"} for k in weights)
+                or any(not math.isfinite(float(v)) or v < 0 for v in weights.values())
+                or sum(weights.values()) <= 0):
+            raise ValueError("inflation.basket_weights must be finite, nonnegative and positive in total")
+        if not 0.0 <= inflation.annual_wage_raise_cap <= 1.0:
+            raise ValueError("inflation.annual_wage_raise_cap must be in [0, 1]")
+        if not 0.0 <= inflation.distress_wage_cut < 1.0:
+            raise ValueError("inflation.distress_wage_cut must be in [0, 1)")
+        if inflation.distress_weeks < 1 or not inflation.payroll_reserve_weeks > 0:
+            raise ValueError("inflation.distress_weeks must be >= 1 and payroll_reserve_weeks positive")
 
         # Validate bounds
         if not (0.0 <= self.households.min_savings_rate <= 1.0):

@@ -1872,6 +1872,7 @@ class FirmHealthSnapshot:
 _PLANNER_DIAGNOSTIC_PREFIXES = (
     "hiring_block_", "survival_turnaround_", "production_governor_", "services_",
     "pricing_", "housing_", "baseline_food_", "expected_sales_", "capital_", "lost_sales_",
+    "wage_review_",
 )
 _PLANNER_DIAGNOSTIC_KEYS = frozenset((
     "adaptive_hiring_allowed", "demand_supports_hiring", "hire_limit_effective",
@@ -1998,6 +1999,10 @@ class FirmAgent(AgentMixin):
     # Binding policy minimum wage (GovernmentAgent.get_minimum_wage()), set by the
     # economy before each tick's firm planning; 0.0 until then (audit B19).
     policy_minimum_wage: float = 0.0
+    # Inflation model (CONFIG.inflation.enabled): True while the economy's annual
+    # pay review owns this firm's offer and future contracts (legacy, post-warmup,
+    # private Food/Services). Set each tick in firm planning.
+    annual_wage_control: bool = False
 
     # Loan tracking (for government startup loans)
     government_loan_principal: float = 0.0  # Original loan amount
@@ -4015,7 +4020,9 @@ class FirmAgent(AgentMixin):
 
         if self.stabilization_disabled:
             price_next = max(self.min_price, self.price)
-            if not self.is_baseline:
+            # With the inflation model on, this branch holds its price; the
+            # fixed 2%/week escalator is kept only for CONFIG.inflation.enabled=False.
+            if not self.is_baseline and not CONFIG.inflation.enabled:
                 price_next = max(self.min_price * 0.5, price_next * 1.02)
             markup_next = self._markup_for_price(price_next)
             return {"price_next": price_next, "markup_next": markup_next}
@@ -4846,6 +4853,8 @@ class FirmAgent(AgentMixin):
               higher of the config floor and the policy minimum)
             - Updates self.actual_wages dict and self.wage_offer
         """
+        if self.annual_wage_control:
+            return  # Economy's annual/distress review owns these future contracts.
         if revenue <= 0 or not self.employees:
             return
 

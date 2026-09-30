@@ -3037,6 +3037,8 @@ class SimulationManager:
                         "governmentPolicy": self._snapshot_government_levers(),
                         "happiness": stats["mean_happiness"] * 100,
                         "avgWage": stats["mean_wage"],
+                        "inflation": self.economy.consumer_prices.snapshot(),
+                        "avgRealWage": stats["mean_wage"] * 100.0 / self.economy.consumer_prices.level,
                         "avgExpectedWage": stats.get("mean_expected_wage", 0.0),
                         "avgExpectedWageUnemployed": stats.get("mean_unemployed_expected_wage", 0.0),
                         "netWorth": total_net_worth / 1000000.0,

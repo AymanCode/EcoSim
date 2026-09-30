@@ -59,6 +59,7 @@ from agents import (
     build_awareness_market_views,
 )
 from utils.category_utils import build_good_category_lookup
+from inflation import ConsumerPriceIndex, WageReview
 from payments import PaymentBook, MONEY_EPS, proportional
 
 if TYPE_CHECKING:  # typing only; the payment arm imports it lazily at run time
@@ -201,6 +202,10 @@ class Economy:
             for field in fields(get_config()) if field.name.startswith("payment_")
         }
         self.payment_sequence = str(getattr(CONFIG, "payment_sequence", "legacy"))
+        # Inflation model (CONFIG.inflation.enabled): measurement state and one
+        # annual pay-review clock per reviewed firm. Observing prices moves no money.
+        self.consumer_prices = ConsumerPriceIndex(CONFIG.inflation.basket_weights, CONFIG.time.ticks_per_year)
+        self.wage_reviews: Dict[int, WageReview] = {}
         if self.payment_sequence not in {"legacy", "income_first", "income_late"}:
             raise ValueError("unsupported payment sequence")
         self.payment_care_mode = str(getattr(CONFIG, "payment_care_mode", "patient_pay"))
@@ -1990,6 +1995,11 @@ class Economy:
 
         # Random economic shocks (stochastic events)
         self._apply_random_shocks()
+        if CONFIG.inflation.enabled and not self.in_warmup:
+            # Opening quotes, before any firm plans this week's prices.
+            self.consumer_prices.observe(self.current_tick, self.firms)
+            live_ids = {firm.firm_id for firm in self.firms}
+            self.wage_reviews = {fid: review for fid, review in self.wage_reviews.items() if fid in live_ids}
         self._reset_healthcare_tick_state()
         self._apply_doctor_health_lock()
         if payment_arm:
@@ -2085,6 +2095,7 @@ class Economy:
         )
         # A plain attribute read; only GovernmentAgent.apply_policy_levers changes it.
         planning_minimum_wage = self.government.get_minimum_wage()
+        inflation_enabled = bool(CONFIG.inflation.enabled)
 
         for firm in self.firms:
             firm.clear_planner_diagnostics()
@@ -2160,15 +2171,36 @@ class Economy:
             self._apply_price_stabilization_to_plan(firm, price_plan)
             tick.firm_price_plans[firm.firm_id] = price_plan
 
-            # Plan wage (pass unemployment rate + short-MA for Phillips Curve)
-            wage_plan = firm.plan_wage(
-                unemployment_rate=unemployment_rate,
-                unemployment_benefit=gov_benefit,
-                in_warmup=self.in_warmup,
-                health_snapshot=health_snapshot,
-                unemployment_short_ma=self.unemployment_short_ma,
-                minimum_wage_floor=planning_minimum_wage,
+            # Inflation model: legacy private Food/Services firms replace the
+            # weekly wage rules with an annual pay review (CONFIG.inflation).
+            firm.annual_wage_control = (
+                inflation_enabled and self.payment_sequence == "legacy" and not self.in_warmup
+                and not firm.is_baseline and firm.good_category.lower() in {"food", "services"}
             )
+            if firm.annual_wage_control:
+                review = self.wage_reviews.get(firm.firm_id)
+                if review is None:
+                    review = self.wage_reviews[firm.firm_id] = WageReview(
+                        self.current_tick, self.consumer_prices.level,
+                        self.current_tick - self.consumer_prices.ticks_per_year,
+                    )
+                # Floors: policy minimum wage (B19, via firm._minimum_wage), the
+                # config floor, and the existing 1.5x unemployment-benefit offer floor.
+                wage_plan = review.plan(
+                    firm, self.consumer_prices, self.current_tick, CONFIG.inflation,
+                    max(firm._minimum_wage(), gov_benefit * 1.5),
+                    planned_hires=production_plan["planned_hires_count"],
+                )
+            else:
+                # Plan wage (pass unemployment rate + short-MA for Phillips Curve)
+                wage_plan = firm.plan_wage(
+                    unemployment_rate=unemployment_rate,
+                    unemployment_benefit=gov_benefit,
+                    in_warmup=self.in_warmup,
+                    health_snapshot=health_snapshot,
+                    unemployment_short_ma=self.unemployment_short_ma,
+                    minimum_wage_floor=planning_minimum_wage,
+                )
             tick.firm_wage_plans[firm.firm_id] = wage_plan
 
             # Healthcare labor is managed out-of-band from market hiring:
@@ -2679,9 +2711,23 @@ class Economy:
             })
 
             # Apply price and wage updates
+            wage_plan = firm_wage_plans[firm.firm_id]
+            contract_factor = wage_plan.get("contract_factor", 1.0)
+            if contract_factor != 1.0:
+                # Annual review: future contracts only; this week's earned payroll
+                # and its tax are already frozen.
+                for worker_id in firm.employees:
+                    household = self.household_lookup.get(worker_id)
+                    if household is not None and household.employer_id == firm.firm_id:
+                        firm.actual_wages[worker_id] = max(
+                            wage_plan["review_minimum_wage"],
+                            firm.actual_wages.get(worker_id, household.wage) * contract_factor,
+                        )
+                        household.last_wage_update_tick = self.current_tick
+                firm._invalidate_wage_bill_cache()
             firm.apply_price_and_wage_updates(
                 firm_price_plans[firm.firm_id],
-                firm_wage_plans[firm.firm_id]
+                wage_plan
             )
 
             # Mirror actual worker contracts to households whose employer still matches
@@ -4486,6 +4532,8 @@ class Economy:
         _rng = random.Random(CONFIG.random_seed + self.current_tick * 4_001_909)
 
         for firm in self.firms:
+            if firm.annual_wage_control:
+                continue  # The annual pay review replaces this periodic raise.
             if not firm.employees:
                 continue
 
@@ -5711,6 +5759,9 @@ class Economy:
                         firm.rent_arrears_receivable_by_tenant.clear()
         # Remove bankrupt firms
         for firm in firms_to_remove:
+            # IDs can be reused by entry. A replacement is a new seller/employer.
+            self.consumer_prices.previous_quotes.pop((firm.firm_id, (firm.good_category or "").lower()), None)
+            self.wage_reviews.pop(firm.firm_id, None)
             if self.payment_sequence != "legacy":
                 from payment_projects import cancel_payment_projects_for_exit
                 cancel_payment_projects_for_exit(self, firm)
@@ -8807,4 +8858,17 @@ class Economy:
         # Current tick
         metrics["current_tick"] = self.current_tick
 
+        # Inflation model (additive keys). With CONFIG.inflation.enabled False the
+        # index is never observed: it stays at 100 and inflation_observed is 0.
+        price_index = self.consumer_prices
+        metrics.update({
+            "consumer_price_index": price_index.level,
+            "inflation_weekly": price_index.weekly_rate if price_index.weekly_rate is not None else 0.0,
+            "inflation_annual": price_index.annual_rate if price_index.annual_rate is not None else 0.0,
+            "inflation_annual_available": float(price_index.annual_rate is not None),
+            "inflation_observed": float(price_index.last_tick is not None),
+            "inflation_matched_basket_share": price_index.coverage,
+            "mean_real_wage": metrics.get("mean_wage", 0.0) * 100.0 / price_index.level,
+            "mean_real_household_cash": metrics.get("mean_household_cash", 0.0) * 100.0 / price_index.level,
+        })
         return metrics

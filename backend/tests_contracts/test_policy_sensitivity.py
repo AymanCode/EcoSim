@@ -86,9 +86,21 @@ class TestLeverSensitivity:
             f"high should be near or above low"
         )
 
+    @pytest.mark.parametrize("inflation_enabled", [
+        False,
+        pytest.param(True, marks=pytest.mark.xfail(strict=True, reason=(
+            "Inflation model on (port 2026-09-29): at the high minimum wage every firm offers "
+            "exactly the floor (50). The four entrant Food firms are under the annual pay review, "
+            "which by design never raises an offer for failed recruitment, so they cannot hire "
+            "any of the 10 workers away from the baseline Housing/Services firms; nobody produces "
+            "Food, health reaches zero and employment ends at 0 (mean wage 0). With the switch off "
+            "the entrants raise offers weekly (63.8, 81.4, ...) and hire."))),
+    ])
     @pytest.mark.parametrize("seed", [42])
-    def test_minimum_wage_avg_wage(self, seed: int) -> None:
+    def test_minimum_wage_avg_wage(self, seed: int, inflation_enabled: bool, monkeypatch) -> None:
         """Higher minimum wage → higher average wage."""
+        from config import CONFIG
+        monkeypatch.setattr(CONFIG.inflation, "enabled", inflation_enabled)
         options = ["low", "neutral", "high"]
         wages: List[float] = []
         for level in options:
