@@ -4733,7 +4733,8 @@ class Economy:
         per_household_purchases: Dict[int, Dict[str, Tuple[float, float]]] = {}
         per_firm_sales: Dict[int, Dict[str, float]] = {}
 
-        # Firm arrays for fast lookup
+        # These buffers are read one scalar at a time in the matching loop.
+        # Python floats avoid NumPy scalar boxing without changing sale order.
         firm_ids = [f.firm_id for f in firms]
         id_to_idx = {fid: idx for idx, fid in enumerate(firm_ids)}
         firm_available = [
@@ -4747,16 +4748,16 @@ class Economy:
                 firm.price = effective_price
             firm_market_prices.append(effective_price)
 
-        firm_prices = np.array(firm_market_prices, dtype=np.float64)
+        firm_prices = [float(price) for price in firm_market_prices]
         firm_goods = [f.good_name for f in firms]
-        firm_remaining = np.array(firm_available, dtype=np.float64)
+        firm_remaining = [float(available) for available in firm_available]
 
         # Array accumulators indexed by firm position. Avoids a nested-dict
         # mutation per sale; materialized into per_firm_sales at the end with
         # the same {firm_id: {"units_sold","revenue"}} shape downstream expects.
         n_firms = len(firms)
-        firm_units_sold = np.zeros(n_firms, dtype=np.float64)
-        firm_revenue = np.zeros(n_firms, dtype=np.float64)
+        firm_units_sold = [0.0] * n_firms
+        firm_revenue = [0.0] * n_firms
 
         _good_name_to_cat = {f.good_name: (f.good_category or "").lower() for f in firms}
         # Per-idx category, so unmet-demand branching skips a dict.get per event.
