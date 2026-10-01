@@ -31,6 +31,19 @@ class InflationConfig:
     weekly wage rules; the disabled-stabilizer pricing branch holds its price.
     False: the pre-port behavior (weekly ``plan_wage``, 50-tick continuing-worker
     raise, revenue-ratio wage cut, 2%/week escalator) and no index observation.
+
+    With the switch on, a reviewed firm's offer floor is ``max(policy/config
+    minimum wage, 1.5 x unemployment benefit)`` and it is final (reviewed
+    contracts are floored at it on review ticks). In ``plan_wage`` the 1.5x
+    floor is not always final: the warm-up path caps offers after it (labor
+    share of revenue per worker, 40.0 for firms with no employees) and the
+    generic Services path floors only at the minimum wage. So this is stricter
+    than the weekly rules; the owner has not decided whether to keep it. A
+    firm with no employees sets its offer weekly through
+    ``plan_wage`` until its first hire (owner decision 2026-10-01), and a review
+    that falls due without payroll does not reset its clock. The switch is read
+    live each tick: off for more than 52 ticks and on again, old clocks fire at
+    once.
     """
 
     enabled: bool = True
