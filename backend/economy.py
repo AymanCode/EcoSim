@@ -2173,9 +2173,13 @@ class Economy:
 
             # Inflation model: legacy private Food/Services firms replace the
             # weekly wage rules with an annual pay review (CONFIG.inflation).
+            # Owner decision 2026-10-01: a firm with no employees sets its opening
+            # offer the weekly way (plan_wage) until its first hire; its review
+            # (and clock) starts once it has workers.
             firm.annual_wage_control = (
                 inflation_enabled and self.payment_sequence == "legacy" and not self.in_warmup
                 and not firm.is_baseline and firm.good_category.lower() in {"food", "services"}
+                and bool(firm.employees)
             )
             if firm.annual_wage_control:
                 review = self.wage_reviews.get(firm.firm_id)

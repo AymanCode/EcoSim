@@ -116,6 +116,10 @@ class WageReview:
             factor = 1.0 - config.distress_wage_cut
             reason = "sustained_distress_cut"
             self.last_cut_tick = tick
+        elif tick - self.review_tick >= index.ticks_per_year and payroll <= 0:
+            # Owner decision 2026-10-01: a firm with no payroll does not use up
+            # its review; the clock stays due until it has workers.
+            reason = "annual_review_no_payroll"
         elif tick - self.review_tick >= index.ticks_per_year:
             requested = max(0.0, min(config.annual_wage_raise_cap, observed_change))
             # A raise must fit both recurring revenue and a cash payroll buffer.

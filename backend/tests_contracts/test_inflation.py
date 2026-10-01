@@ -342,3 +342,105 @@ def test_continuing_worker_raise_and_revenue_cut_skip_reviewed_firms(factory):
     firm.annual_wage_control = False
     economy._update_continuing_employee_wages()
     assert firm.actual_wages[1] > 40
+
+
+# --- owner decisions 2026-10-01 (review-fix wave) ---------------------------
+
+
+def test_review_without_payroll_does_not_reset_the_clock(factory):
+    """An empty firm must not use up its annual review; it fires once payroll exists."""
+    firm = factory.firm(firm_id=1, category="Food", is_baseline=False, wage_offer=40,
+                        employees=[], actual_wages={}, cash_balance=10000,
+                        last_revenue=1000, last_profit=100)
+    index = ConsumerPriceIndex({"food": 1})
+    index.level = 110
+    review = WageReview(0, 100, -52)
+    plan = review.plan(firm, index, 52, InflationConfig(), 36)
+    assert plan["contract_factor"] == 1
+    assert (review.review_tick, review.review_index) == (0, 100)
+    firm.employees.append(1)
+    firm.actual_wages[1] = 40
+    firm._invalidate_wage_bill_cache()
+    plan = review.plan(firm, index, 53, InflationConfig(), 36)
+    assert plan["contract_factor"] == pytest.approx(1.1)
+    assert (review.review_tick, review.review_index) == (53, 110)
+
+
+def test_empty_reviewed_entrant_sets_offer_weekly_until_first_hire(factory, monkeypatch):
+    """Owner decision 2026-10-01: zero employees -> weekly plan_wage; first hire -> annual review."""
+    from agents import FirmAgent
+
+    household = factory.household(household_id=1, cash_balance=10000)
+    firm = factory.firm(firm_id=1, category="Food", is_baseline=False, wage_offer=40,
+                        employees=[], actual_wages={}, cash_balance=10000,
+                        last_revenue=1000, last_profit=100, price=50.0, inventory_units=0.0)
+    economy = factory.economy(households=[household], firms=[firm])
+    economy.government.unemployment_benefit_level = 0
+    economy.warmup_ticks = 0
+    economy.in_warmup = False
+    economy.current_tick = 17
+    monkeypatch.setattr(economy, "_apply_random_shocks", lambda: None)
+    patch_agent_method(monkeypatch, firm, "plan_capital_investment", lambda **kw: None)
+
+    def production_plan(*args, **kwargs):
+        firm.last_tick_planned_hires = 1
+        return {"planned_production_units": 1, "planned_hires_count": 1,
+                "planned_layoffs_ids": [], "updated_expected_sales": 1}
+
+    patch_agent_method(monkeypatch, firm, "plan_production_and_labor", production_plan)
+    weekly_calls = []
+    original_plan_wage = FirmAgent.plan_wage
+
+    def spy_plan_wage(**kwargs):
+        weekly_calls.append(economy.current_tick)
+        return original_plan_wage(firm, **kwargs)
+
+    patch_agent_method(monkeypatch, firm, "plan_wage", spy_plan_wage)
+    hire_at = {20}
+
+    def matching(*args):
+        if economy.current_tick in hire_at:
+            return ({1: {"hired_households_ids": [1], "confirmed_layoffs_ids": [],
+                         "actual_wages": {1: firm.wage_offer}}},
+                    {1: {"employer_id": 1, "wage": firm.wage_offer, "employer_category": "Food"}})
+        employer = 1 if firm.employees else None
+        # Failed recruitment: applicants rejected the offer as below their reservation wage.
+        return ({1: {"hired_households_ids": [], "confirmed_layoffs_ids": [], "actual_wages": {},
+                     "failed_match_reason": "reservation_above_wage_offer",
+                     "reservation_reject_count": 3, "median_rejected_reservation_wage": 80.0}},
+                {1: {"employer_id": employer, "wage": firm.actual_wages.get(1, 0.0),
+                     "employer_category": "Food" if employer else None}})
+
+    monkeypatch.setattr(economy, "_run_labor_matching", matching)
+    offers = []
+    for _ in range(6):  # Ticks 17..22: empty and failing to hire until the hire at tick 20.
+        economy.step()
+        offers.append(firm.wage_offer)
+    assert weekly_calls == [17, 18, 19, 20]
+    # Weekly plan_wage while empty: raises after each failed recruitment (ticks 18-20).
+    assert offers[0] < offers[1] < offers[2] < offers[3]
+    assert firm.annual_wage_control is True and firm.employees == [1]
+    assert economy.wage_reviews[1].review_tick == 21  # The clock starts with the first payroll.
+    assert offers[3] == offers[4] == offers[5]  # Under review: no weekly offer moves.
+
+
+def test_policy_minimum_wage_raise_mid_year_lifts_offer_then_contracts(factory):
+    """Switch on: a mid-year policy minimum wage rise lifts the reviewed offer that tick, contracts the next."""
+    household = factory.household(household_id=1, employer_id=1, wage=40, cash_balance=10000)
+    firm = firm_for_review(factory)
+    economy = factory.economy(households=[household], firms=[firm])
+    economy.government.unemployment_benefit_level = 0
+    economy.warmup_ticks = 0
+    economy.in_warmup = False
+    economy.current_tick = 30
+    economy.wage_reviews[1] = WageReview(10, 100, -42)  # Mid-year: next review due at tick 62.
+    economy.step()
+    assert firm.annual_wage_control is True and firm.wage_offer == pytest.approx(40)
+    economy.government._minimum_wage_floor = 55.0
+    economy.step()
+    assert firm.decision_diagnostics["wage_review_reason"] == "annual_review_not_due"
+    assert firm.wage_offer == pytest.approx(55.0)  # The offer rises the tick the policy rises.
+    assert firm.actual_wages[1] == pytest.approx(40)  # Contract factor 1: no contract change yet.
+    economy.step()
+    assert firm.actual_wages[1] == pytest.approx(55.0)  # Next tick's labor outcome lifts the contract.
+    assert household.wage == pytest.approx(55.0)
