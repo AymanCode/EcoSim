@@ -3074,6 +3074,22 @@ class FirmAgent(AgentMixin):
             )
         else:
             planned_hires = max(0, target_workers - current_workers)
+            lost_sales = float(self.last_tick_raw_lost_sales_units)
+            sell_through = float(health_snapshot.sell_through_rate)
+            if (
+                planned_hires == 0
+                and service_worker_slots > 0
+                and target_workers == service_worker_slots
+                and (lost_sales > 0.0 or sell_through >= 0.95)
+            ):
+                # Diagnostics only: demand is there but every worker slot is filled.
+                self._record_hiring_block(
+                    "services_slot_cap",
+                    worker_slots=service_worker_slots,
+                    current_workers=current_workers,
+                    lost_sales_units=lost_sales,
+                    sell_through=sell_through,
+                )
         effective_workers = max(0, current_workers + planned_hires - len(planned_layoffs))
         service_workers_planned = min(effective_workers, service_worker_slots)
         planned_capacity = self._capacity_for_workers(service_workers_planned)
