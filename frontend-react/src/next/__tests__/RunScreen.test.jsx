@@ -46,6 +46,10 @@ describe('RunScreen', () => {
     const arms = [fixtureArm(TOWN_A), townB()]
     const { container } = render(<Clocked arms={arms} />)
     scrubTo(20)
+    const cards = container.querySelectorAll('.lt-towns .lt-card')
+    expect(cards).toHaveLength(2)
+    expect(cards[0]).toHaveTextContent('Town A')
+    expect(cards[1]).toHaveTextContent('Town B')
     const columns = container.querySelectorAll('.nx-col')
     expect(columns).toHaveLength(2)
     expect(columns[0]).toHaveTextContent('Town A')
@@ -53,7 +57,6 @@ describe('RunScreen', () => {
     expect(columns[1]).toHaveTextContent('Town B')
     expect(columns[1]).toHaveTextContent('a higher minimum wage')
     columns.forEach(column => {
-      expect(column.querySelector('.nx-townc')).toBeInTheDocument()
       expect(column.querySelector('.nx-biz')).toBeInTheDocument()
       expect(column.querySelector('.nx-hh')).toBeInTheDocument()
     })
@@ -121,6 +124,9 @@ describe('RunScreen', () => {
     const { container } = render(<Clocked arms={arms} />)
     expect(container.querySelectorAll('.nx-col')).toHaveLength(1)
     expect(container.querySelector('.nx-cols')).toHaveClass('is-single')
+    expect(container.querySelector('.nx-solo .nx-biz')).toBeInTheDocument()
+    expect(container.querySelector('.nx-solo .nx-hh')).toBeInTheDocument()
+    expect(container.querySelectorAll('.lt-card')).toHaveLength(1)
     scrubTo(18)
     const shown = container.querySelector('.nx-verdict').textContent
     expect(shown).toBe(verdict(arms, 18))

@@ -14,8 +14,9 @@ import NumbersSheet from './numbers/NumbersSheet.jsx'
 import StableText from './components/StableText.jsx'
 import StatCard from './components/StatCard.jsx'
 import StoryChart from './components/StoryChart.jsx'
-import Town from './components/Town.jsx'
 import TownHall from './components/TownHall.jsx'
+import Legend from './town/Legend.jsx'
+import TownCard from './town/TownCard.jsx'
 import './next.css'
 
 const escapeRegExp = text => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
@@ -62,10 +63,11 @@ function leadMarkup(text, arms) {
 // A column head names the rules the town has in force at the week shown, on
 // one line (the full wording in its title). A live town keeps an (empty)
 // status line for the server's notices, so a notice is announced when it
-// arrives.
+// arrives. The town itself is drawn in its card above the columns; a single
+// town's column puts its businesses beside its households.
 function TownColumn({ arm, tick, single, live, notice, onTrack, canReshuffle }) {
-  const town = <Town arm={arm} tick={tick} />
   const businesses = <BusinessList arm={arm} tick={tick} />
+  const households = <HouseholdCards arm={arm} tick={tick} onTrack={onTrack} canReshuffle={canReshuffle} />
   const rules = describePolicy(rulesDiff(rulesAt(arm, tick)))
   return (
     <section className="nx-col" aria-label={arm.label}>
@@ -79,8 +81,7 @@ function TownColumn({ arm, tick, single, live, notice, onTrack, canReshuffle }) 
           {notice ? `${COPY.live.notice} ${COPY.app.detail(notice)}` : null}
         </p>
       )}
-      {single ? <div className="nx-solo">{town}{businesses}</div> : <>{town}{businesses}</>}
-      <HouseholdCards arm={arm} tick={tick} onTrack={onTrack} canReshuffle={canReshuffle} />
+      {single ? <div className="nx-solo">{businesses}{households}</div> : <>{businesses}{households}</>}
     </section>
   )
 }
@@ -159,6 +160,9 @@ export default function RunScreen({
   const [hallFocus, setHallFocus] = useState(false)
   const hallId = `${useId()}-hall`
   const single = arms.length === 1
+  // Enlarge shows one town on its own (by label) until the viewer shows them all again.
+  const [focused, setFocused] = useState(null)
+  const focus = arms.some(arm => arm.label === focused) ? focused : null
   // A live run shows its towns from the first week every town has reached.
   const building = Boolean(live) && maxTick < 1
   const panel = live ? <LivePanel live={live} arms={arms} maxTick={maxTick} horizon={horizon} /> : null
@@ -303,6 +307,22 @@ export default function RunScreen({
               </StableText>
               <Moments arms={arms} tick={tick} rows={momentRows} />
               {panel}
+
+              <section className={`lt-towns is-${arms.length}${focus ? ' is-focus' : ''}`} data-stable="towns">
+                {arms.map(arm => (
+                  <TownCard
+                    key={arm.label}
+                    arm={arm}
+                    tick={tick}
+                    towns={arms.length}
+                    canFocus={!single}
+                    focused={focus === arm.label}
+                    hidden={Boolean(focus) && focus !== arm.label}
+                    onFocus={() => setFocused(focus === arm.label ? null : arm.label)}
+                  />
+                ))}
+              </section>
+              <Legend arms={arms} tick={tick} />
 
               <div className={`nx-cols${single ? ' is-single' : ''}`}>
                 {arms.map((arm, i) => (
