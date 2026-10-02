@@ -19,6 +19,8 @@ import TownHall from './components/TownHall.jsx'
 import './next.css'
 
 const escapeRegExp = text => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+const HTML_ESCAPES = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }
+const escapeHtml = text => String(text).replace(/[&<>"']/g, char => HTML_ESCAPES[char])
 
 // Why the Town hall cannot change rules in this phase of a live run, or null.
 const HALL_LOCKS = {
@@ -28,15 +30,33 @@ const HALL_LOCKS = {
   lost: COPY.hall.locked.lost,
 }
 
+// The lead sentence in parts: plain text, and each town's name with its
+// colour. <Lead> renders them and leadMarkup writes the same as HTML for the
+// lead's measuring copy, so the two cannot drift apart.
+function leadParts(text, arms) {
+  const labels = arms.map(arm => arm.label).filter(Boolean)
+  if (!labels.length) return [{ text }]
+  const colors = Object.fromEntries(arms.map(arm => [arm.label, townTextColor(arm.color)]))
+  return text.split(new RegExp(`(${labels.map(escapeRegExp).join('|')})`))
+    .map((part, i) => (colors[part] && i % 2 === 1 ? { text: part, color: colors[part] } : { text: part }))
+}
+
 // The lead sentence with each town's name in its colour.
 function Lead({ text, arms }) {
-  const labels = arms.map(arm => arm.label).filter(Boolean)
-  if (!labels.length) return text
-  const colors = Object.fromEntries(arms.map(arm => [arm.label, townTextColor(arm.color)]))
-  const parts = text.split(new RegExp(`(${labels.map(escapeRegExp).join('|')})`))
-  return parts.map((part, i) => (colors[part] && i % 2 === 1
-    ? <span key={i} className="nx-tname" style={{ color: colors[part] }}>{part}</span>
-    : part))
+  return leadParts(text, arms).map((part, i) => (part.color
+    ? <span key={i} className="nx-tname" style={{ color: part.color }}>{part.text}</span>
+    : part.text))
+}
+
+// The HTML <Lead> renders for `text`. A town's name is its own inline box, and
+// the browser measures each box's text separately and rounds each width, so a
+// line with names can come out a fraction of a pixel wider than the same
+// words as plain text and wrap one word sooner: the lead's room is measured
+// with this markup, not the plain sentence.
+function leadMarkup(text, arms) {
+  return leadParts(text, arms).map(part => (part.color
+    ? `<span class="nx-tname" style="color: ${escapeHtml(part.color)}">${escapeHtml(part.text)}</span>`
+    : escapeHtml(part.text))).join('')
 }
 
 // A column head names the rules the town has in force at the week shown, on
@@ -152,6 +172,7 @@ export default function RunScreen({
   const ticksKey = arms.map(arm => arm.ticks.length).join(',')
   const weeks = useMemo(() => commonTicks(arms), [arms, ticksKey]) // eslint-disable-line react-hooks/exhaustive-deps
   const leadTexts = useMemo(() => [...new Set(weeks.map(week => leadSentence(arms, week)))], [arms, weeks])
+  const leadHtml = useCallback(text => leadMarkup(text, arms), [arms])
   const verdictTexts = useMemo(() => [...new Set(weeks.map(week => verdict(arms, week)))], [arms, weeks])
   const momentRows = useMemo(() => {
     const rows = new Map()
@@ -277,7 +298,7 @@ export default function RunScreen({
             </>
           ) : (
             <>
-              <StableText className="nx-lead" texts={leadTexts} stable="lead">
+              <StableText className="nx-lead" texts={leadTexts} stable="lead" markup={leadHtml}>
                 <Lead text={leadSentence(arms, tick)} arms={arms} />
               </StableText>
               <Moments arms={arms} tick={tick} rows={momentRows} />

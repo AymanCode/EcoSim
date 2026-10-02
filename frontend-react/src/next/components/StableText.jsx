@@ -6,8 +6,10 @@ import { useCallback, useEffect, useLayoutEffect, useRef } from 'react'
 // measured once per width with a hidden copy of the box (new candidates alone
 // when `texts` grows), and all again when web fonts finish loading. The height
 // is written to the box's style, not React state, so a measurement never
-// re-renders the page. Pass a memoised `texts` array.
-export default function StableText({ as: Tag = 'p', className, texts, stable, children }) {
+// re-renders the page. Pass a memoised `texts` array. When the box shows more
+// than plain text, `markup(text)` gives the HTML it renders for a text (a
+// memoised function), so the hidden copy wraps exactly as the box does.
+export default function StableText({ as: Tag = 'p', className, texts, stable, markup, children }) {
   const boxRef = useRef(null)
   const heights = useRef(new Map())
   // The latest measure, for the resize and font listeners registered once.
@@ -26,7 +28,8 @@ export default function StableText({ as: Tag = 'p', className, texts, stable, ch
       const key = `${Math.round(width * 10) / 10}|${text}`
       let height = heights.current.get(key)
       if (height == null) {
-        probe.textContent = text
+        if (markup) probe.innerHTML = markup(text)
+        else probe.textContent = text
         height = probe.getBoundingClientRect().height
         heights.current.set(key, height)
       }
@@ -34,7 +37,7 @@ export default function StableText({ as: Tag = 'p', className, texts, stable, ch
     }
     probe.remove()
     box.style.minHeight = tallest ? `${Math.ceil(tallest)}px` : ''
-  }, [texts])
+  }, [texts, markup])
 
   useLayoutEffect(() => {
     measureRef.current = measure
@@ -70,5 +73,5 @@ export default function StableText({ as: Tag = 'p', className, texts, stable, ch
     }
   }, [])
 
-  return <Tag ref={boxRef} className={className} data-stable={stable}>{children}</Tag>
+  return <Tag ref={boxRef} className={className} data-stable={stable} data-reserve="">{children}</Tag>
 }
