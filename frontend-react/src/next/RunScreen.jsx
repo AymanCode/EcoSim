@@ -315,6 +315,8 @@ export default function RunScreen({
                     arm={arm}
                     tick={tick}
                     towns={arms.length}
+                    playing={playing}
+                    speed={speed}
                     canFocus={!single}
                     focused={focus === arm.label}
                     hidden={Boolean(focus) && focus !== arm.label}

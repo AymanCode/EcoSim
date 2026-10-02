@@ -24,6 +24,8 @@ export const shopColours = (sector, closed) => (closed ? CLOSED_COLOURS : SHOP_C
 export const FLOW_COLOURS = { spend: '#E3A92B', pay: '#3B9B68', tax: '#7B61C6', help: '#2696AB' }
 export const CAR_COLOURS = ['#D9534F', '#4F7CC9', '#F2C14E', '#5BA37A', '#EDE7DC', '#8A6FC4', '#E58A4B']
 export const SHIRTS = ['#4F7CC9', '#D07A45', '#5BA37A', '#8A6FC4', '#C0627B', '#3F8FA0']
+// Someone walking home laid off (red) or to a new job (green).
+export const WALKER_SHIRTS = { lay: '#C8483B', hire: '#3B9B68' }
 
 // Sign pills: text colour and fill per kind of sign.
 export const PILL_TONES = {
@@ -48,7 +50,8 @@ export const FIGURE = {
   box: { x: 0.6, y: -5.6, width: 2.8, height: 2.3, fill: '#C49A66', stroke: '#8A6440', strokeWidth: 0.4 },
 }
 
-function el(doc, tag, attrs, parent) {
+// An svg element with these attributes, added to `parent` when given.
+export function el(doc, tag, attrs, parent) {
   const node = doc.createElementNS(NS, tag)
   for (const [name, value] of Object.entries(attrs)) node.setAttribute(name, String(value))
   if (parent) parent.appendChild(node)

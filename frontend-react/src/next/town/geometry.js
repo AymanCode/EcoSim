@@ -81,6 +81,17 @@ export const PAINT_ORDER = (() => {
   return items.sort((a, b) => a.depth - b.depth || a.item.gx - b.item.gx).map(entry => entry.item)
 })()
 
+// The scene's six clouds: where each starts in the sky and its four puffs. The
+// weather shows as many as the mood calls for; the motion loop drifts them.
+export const CLOUDS = Array.from({ length: 6 }, (_, c) => {
+  const s = 0.8 + (c % 3) * 0.25
+  return {
+    x: round1(-320 + c * 120 + mulberry32(c + 17)() * 60),
+    y: -36 + (c % 3) * 16 + (c > 2 ? 40 : 0),
+    puffs: [[0, 0, 11], [12, -4, 13], [25, 1, 10], [11, 4, 10]].map(([dx, dy, r]) => ({ cx: round1(dx * s), cy: round1(dy * s), rx: round1(r * s * 1.25), ry: round1(r * s * 0.8) })),
+  }
+})
+
 // A small stable hash of text, for ids that are not numbers.
 function textSeed(text) {
   let hash = 2166136261

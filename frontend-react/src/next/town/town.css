@@ -1,8 +1,9 @@
 /* The living towns: the town cards, their grid and legend, and the diorama's
    scene, ported from mockup 08. The card chrome uses the page's --nx- tokens;
    the scene keeps the mockup's own palette. Weather colours arrive as CSS
-   variables on each scene's svg (weather.js); the fallbacks are a calm
-   "getting by" day. Nothing here changes a box's size as the weeks change. */
+   variables on the scene parts that read them, marked data-weather
+   (weather.js); the fallbacks are a calm "getting by" day. Nothing here
+   changes a box's size as the weeks change. */
 
 /* ---------- the grid of town cards ---------- */
 .nx .lt-towns { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 18px; margin-top: 22px }
@@ -244,14 +245,14 @@
 .nx .lt-rain.is-snow line { stroke: #FFFFFF; stroke-width: 2.1; stroke-dasharray: .1 40; animation: lt-snowfall 3.2s linear infinite }
 @keyframes lt-snowfall { from { transform: translate(0, -24px) } to { transform: translate(6px, 30px) } }
 
-/* What the motion loop adds (Task 6): walkers, coin pings, floating moments,
-   dust puffs and the bank's red flash. */
+/* What the motion loop adds (useSceneMotion): walkers, coin pings, floating
+   moments, dust puffs and the bank's red flash. */
 .nx .lt-walker { stroke: #4A443C; stroke-linecap: round }
 .nx .lt-ping { fill: none; stroke-width: 1.4; animation: lt-ping .7s ease-out forwards; transform-box: fill-box; transform-origin: center }
 @keyframes lt-ping { from { opacity: .9; transform: scale(.4) } to { opacity: 0; transform: scale(2.2) } }
 .nx .lt-moment { animation: lt-rise 2.8s ease-out forwards }
 @keyframes lt-rise { 0% { opacity: 0; transform: translateY(6px) } 12% { opacity: 1; transform: translateY(0) } 75% { opacity: 1 } 100% { opacity: 0; transform: translateY(-16px) } }
-.nx .lt-puff { animation: lt-puff 1.1s ease-out forwards; transform-box: fill-box; transform-origin: center }
+.nx .lt-puff { fill: #CFC6B6; animation: lt-puff 1.1s ease-out forwards; transform-box: fill-box; transform-origin: center }
 @keyframes lt-puff { from { opacity: .8; transform: scale(.4) } to { opacity: 0; transform: scale(2.4) } }
 .nx .lt-flash.is-on { animation: lt-flash 1.2s ease-out forwards }
 @keyframes lt-flash { 0% { opacity: 0 } 15% { opacity: .55 } 100% { opacity: 0 } }
