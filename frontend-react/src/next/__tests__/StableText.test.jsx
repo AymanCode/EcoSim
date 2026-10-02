@@ -46,6 +46,20 @@ describe('StableText', () => {
     expect(container.querySelector('[data-stable="v"]').style.minHeight).toBe('90px')
   })
 
+  test('measures the markup the box renders when given, not the plain text', () => {
+    width = 400
+    // A town name in its own span makes a line wrap sooner: here, one line more.
+    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function rect() {
+      const lines = 1 + (this.querySelector?.('span') ? 1 : 0)
+      return { width, height: lines * 30, top: 0, left: 0, right: width, bottom: lines * 30, x: 0, y: 0, toJSON() {} }
+    })
+    const markup = text => `<span class="nx-tname">${text}</span>`
+    const { container } = render(<StableText texts={['Town A']} stable="m" markup={markup}><span>Town A</span></StableText>)
+    expect(container.querySelector('[data-stable="m"]').style.minHeight).toBe('60px')
+    const { container: plain } = render(<StableText texts={['Town A']} stable="p">Town A</StableText>)
+    expect(plain.querySelector('[data-stable="p"]').style.minHeight).toBe('30px')
+  })
+
   test('new candidates are measured alone; fonts loading measures them all again', async () => {
     width = 400
     fakeLayout()

@@ -3,7 +3,7 @@ import { expect, test } from '@playwright/test'
 // Changing the week must not move or resize anything on the Run screen (spec
 // section 6). For each width, open the recorded demo, step the timeline
 // through every week, and compare every watched box with week 1.
-const WIDTHS = [390, 489, 560, 600, 700, 768, 1024, 1280, 1440]
+const WIDTHS = [390, 489, 560, 592, 600, 700, 768, 1024, 1280, 1440]
 const TOLERANCE = 0.5
 
 // Every element marked data-stable, every direct child of the Run screen's
@@ -72,13 +72,29 @@ async function firstCut(page) {
   })
 }
 
+// The first box with reserved room (StableText, marked data-reserve) that is
+// taller than its reservation, or null: its text is longer than the room it
+// was measured for, so the page below it would move.
+async function firstOutgrown(page) {
+  return page.evaluate(() => {
+    for (const el of document.querySelectorAll('[data-reserve]')) {
+      const height = el.getBoundingClientRect().height
+      const room = parseFloat(el.style.minHeight)
+      if (!(height <= room + 0.5)) return `${el.dataset.stable} ${height.toFixed(1)} > ${el.style.minHeight || 'no room'}: "${el.textContent.trim().slice(0, 140)}"`
+    }
+    return null
+  })
+}
+
 // Steps from week 1 to `max`. `moved` lists every week whose boxes differ from
-// week 1's, `cut` every week with text that does not fit its box.
+// week 1's, `cut` every week with text that does not fit its box, `outgrown`
+// every week with a reserved box taller than its room.
 async function walk(page, max) {
   await goToWeek(page, 1)
   const base = await boxes(page)
   const moved = []
   const cut = []
+  const outgrown = []
   for (let week = 1; week <= max; week += 1) {
     if (week > 1) {
       await goToWeek(page, week)
@@ -87,16 +103,19 @@ async function walk(page, max) {
     }
     const text = await firstCut(page)
     if (text) cut.push(`week ${week}: ${text}`)
+    const grown = await firstOutgrown(page)
+    if (grown) outgrown.push(`week ${week}: ${grown}`)
   }
-  return { moved, cut }
+  return { moved, cut, outgrown }
 }
 
 for (const width of WIDTHS) {
-  test(`nothing moves and no text is cut when the week changes at ${width}px`, async ({ page }) => {
+  test(`nothing moves, no text is cut and no reserved box outgrows its room as the week changes at ${width}px`, async ({ page }) => {
     const max = await openDemo(page, width)
-    const { moved, cut } = await walk(page, max)
+    const { moved, cut, outgrown } = await walk(page, max)
     expect(moved, moved.slice(0, 12).join('\n')).toEqual([])
     expect(cut, cut.slice(0, 12).join('\n')).toEqual([])
+    expect(outgrown, outgrown.slice(0, 12).join('\n')).toEqual([])
   })
 }
 
@@ -106,7 +125,8 @@ test('nothing moves when the week changes with the first town\'s businesses all 
   await goToWeek(page, max)
   await page.getByRole('button', { name: /^See all/ }).first().click()
   await expect(page.getByRole('region', { name: /^Every business in / })).toHaveCount(1)
-  const { moved, cut } = await walk(page, max)
+  const { moved, cut, outgrown } = await walk(page, max)
   expect(moved, moved.slice(0, 12).join('\n')).toEqual([])
   expect(cut, cut.slice(0, 12).join('\n')).toEqual([])
+  expect(outgrown, outgrown.slice(0, 12).join('\n')).toEqual([])
 })
