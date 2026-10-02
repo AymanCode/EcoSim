@@ -1,4 +1,5 @@
-// What a card says about the place under the pointer, for one week's model.
+// What a card says about the place under the pointer, for one week's model,
+// and where the card sits beside the pointer (cardSpot).
 import { COPY, HOUSEHOLD_STATES, NOT_MEASURED, formatMoneyShort, householdsPerHouse, sectorName } from '../catalog.js'
 import { householdStateSentence, weekLabel } from '../narration.js'
 import { WEEKS } from './model.js'
@@ -68,4 +69,21 @@ export function placeCard(model, target, total) {
     }
   }
   return null
+}
+
+// Where a card of `size` px starts along one axis of a drawing `room` px
+// across, for a pointer at `at` px: GAP px after the pointer, or GAP px
+// before it when it would cross the far edge. When it fits on neither side
+// (a phone's drawing is not much bigger than the card) it goes against the
+// edge farther from the pointer, so it covers as little as it can of what is
+// pointed at. Never closer than EDGE px to an edge; a card bigger than the
+// drawing starts at the near edge.
+const GAP = 14
+const EDGE = 6
+export function cardSpot(at, size, room) {
+  const after = at + GAP
+  const before = at - GAP - size
+  if (after + size <= room - EDGE) return after
+  if (before >= EDGE) return before
+  return Math.max(EDGE, at > room / 2 ? EDGE : room - EDGE - size)
 }

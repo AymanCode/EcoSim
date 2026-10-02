@@ -8,11 +8,14 @@
 // `scrubs` counts the viewer's moves on the timeline, so a week reached by
 // scrubbing is never taken for a step forward, and `ended` says the run has
 // stopped at its end (not paused by the viewer), so what is in flight lands.
+// Pointing at a place in the drawing shows its card (usePlaceCard), which
+// lies over the drawing and never takes room.
 import { useId, useMemo, useState } from 'react'
 import { COPY, NOT_MEASURED, describePolicy, formatMetric, formatMoneyShort } from '../catalog.js'
-import { rulesAt, rulesDiff, snapshotAt } from '../data/derive.js'
+import { rulesAt, rulesDiff, snapshotAt, valueAt } from '../data/derive.js'
 import Diorama from './Diorama.jsx'
 import { townAt } from './model.js'
+import usePlaceCard from './usePlaceCard.js'
 import './town.css'
 
 const D = COPY.diorama
@@ -73,6 +76,8 @@ export default function TownCard({
   // identity of the arm's inner arrays or the lots map.
   const model = useMemo(() => townAt(arm, tick), [arm, tick, weeks]) // eslint-disable-line react-hooks/exhaustive-deps
   const titleId = useId()
+  // Each house stands for its share of this week's households.
+  const { overlay, handlers } = usePlaceCard(model, valueAt(arm, 'householdsTotal', tick))
   const rules = describePolicy(rulesDiff(rulesAt(arm, tick)))
   const closed = snapshotAt(arm, tick)?.firmsClosed?.length ?? 0
   const { counts, facts } = model
@@ -93,8 +98,9 @@ export default function TownCard({
           </button>
         )}
       </header>
-      <div className="lt-canvas">
+      <div className="lt-canvas" {...handlers}>
         <Diorama model={model} color={arm.color} playing={playing} speed={speed} towns={towns} scrubs={scrubs} hidden={hidden} ended={ended} />
+        {overlay}
         {children}
       </div>
       <dl className="lt-facts">

@@ -142,3 +142,33 @@ test('nothing moves when the week changes with the second town enlarged, at 1440
   expect(cut, cut.slice(0, 12).join('\n')).toEqual([])
   expect(outgrown, outgrown.slice(0, 12).join('\n')).toEqual([])
 })
+
+// A place card kept open (a click on a place in a living town) follows the
+// week; it lies over the drawing, so the week's changes to it move nothing.
+// At 390px the card covers much of the drawing, the hardest case for it.
+test('nothing moves when the week changes with a place card kept open, at 390px', async ({ page }) => {
+  const max = await openDemo(page, 390)
+  await goToWeek(page, 1)
+  await page.locator('.lt-canvas').first().scrollIntoViewIfNeeded()
+  const hall = await page.evaluate(() => {
+    const canvas = document.querySelector('.lt-canvas')
+    const box = canvas.getBoundingClientRect()
+    for (let x = box.left + 2; x < box.right; x += 3) {
+      for (let y = box.top + 2; y < box.bottom; y += 3) {
+        if (document.elementFromPoint(x, y)?.closest('[data-kind="hall"]')) return { x, y }
+      }
+    }
+    return null
+  })
+  await page.mouse.click(hall.x, hall.y)
+  await page.mouse.move(1, 1)
+  const card = page.locator('.lt-place.is-pinned')
+  await expect(card).toHaveCount(1)
+  const first = await card.textContent()
+  const { moved, cut, outgrown } = await walk(page, max)
+  expect(moved, moved.slice(0, 12).join('\n')).toEqual([])
+  expect(cut, cut.slice(0, 12).join('\n')).toEqual([])
+  expect(outgrown, outgrown.slice(0, 12).join('\n')).toEqual([])
+  await expect(card).toHaveCount(1)
+  expect(await card.textContent()).not.toBe(first)
+})

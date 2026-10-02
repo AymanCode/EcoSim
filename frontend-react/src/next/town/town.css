@@ -91,8 +91,10 @@
    the back and motion svgs lie exactly over it. The back and motion layers
    are compositor layers of their own (what moves there every frame never
    redraws the world) and let the pointer through to the world. */
-.nx .lt-canvas { position: relative }
-.nx .lt-stage { position: relative; isolation: isolate }
+/* A tap on the drawing does not flash the whole box (the box listens for
+   clicks for the place cards), and a quick double click selects no text. */
+.nx .lt-canvas { position: relative; -webkit-tap-highlight-color: transparent }
+.nx .lt-stage { position: relative; isolation: isolate; -webkit-user-select: none; user-select: none }
 .nx .lt-stage > svg { display: block; width: 100%; height: auto }
 .nx .lt-stage > .lt-scene { position: relative; z-index: 1 }
 .nx .lt-stage > .lt-layer { position: absolute; inset: 0; height: 100%; pointer-events: none; will-change: transform }
@@ -144,6 +146,55 @@
 .nx .lt-legend i.is-lost { box-sizing: border-box; border: 1.5px dashed #C8483B }
 .nx .lt-legend i.is-pin { background: #3B9B68; box-shadow: 0 0 0 2px #fff, 0 0 0 3px #C9BFAE }
 .nx .lt-legend .lt-scale { color: var(--nx-ink4-text) }
+
+/* ---------- place cards ----------
+   Pointing at a house, a shop, the town hall, the bank or a pin shows its
+   card beside the pointer, clicking keeps it (usePlaceCard.js,
+   PlaceCard.jsx). It lies over the drawing and takes no room, lets the
+   pointer through unless it is kept, and fades in (never out: a card that
+   goes, goes at once). Dark like mockup 08's card, in the page's tokens.
+   Each tag is its tone at 22 % over the card (good --nx-work, warn
+   --nx-look, bad --nx-home, quiet --nx-ink3, info the help coins' teal
+   #2696AB) with its text a lighter tint of the same tone; PlaceCard.test.jsx
+   checks every text colour here reads at 4.5:1 or better. */
+.nx .lt-scene [data-kind] { cursor: pointer }
+.nx .lt-place {
+  position: absolute;
+  left: 0;
+  top: 0;
+  z-index: 4;
+  min-width: min(210px, calc(100% - 12px));
+  max-width: min(270px, calc(100% - 12px));
+  padding: 12px 14px;
+  border-radius: 14px;
+  background: var(--nx-ink);
+  color: var(--nx-panel2);
+  font-size: 13px;
+  line-height: 1.45;
+  box-shadow: 0 16px 40px -16px rgba(23, 32, 43, .55);
+  pointer-events: none;
+  visibility: hidden;
+  opacity: 0;
+  transform: translateY(4px);
+}
+.nx .lt-place.is-on { visibility: visible; opacity: 1; transform: none; transition: opacity .15s ease, transform .15s ease }
+.nx .lt-place.is-pinned { pointer-events: auto; cursor: default }
+.nx .lt-place-title { margin-bottom: 2px; font-family: var(--nx-disp), var(--nx-body), sans-serif; font-size: 16px; font-weight: 600; line-height: 1.25; color: var(--nx-panel) }
+.nx .lt-place-sub { margin-bottom: 6px; font-size: 12px; color: var(--nx-ink4) }
+.nx .lt-place-row { display: flex; justify-content: space-between; gap: 12px }
+.nx .lt-place-row > span:first-child { color: var(--nx-slate) }
+.nx .lt-place-row > span:last-child { color: var(--nx-panel); font-variant-numeric: tabular-nums; white-space: nowrap }
+.nx .lt-place-note { margin-top: 4px; color: var(--nx-line2) }
+.nx .lt-place-tag { display: inline-block; margin-top: 7px; padding: 2px 8px; border-radius: 999px; font-size: 11.5px; font-weight: 600; line-height: 1.45 }
+.nx .lt-place-tag.is-good { background: rgba(46, 158, 107, .22); color: #6DBB97 }
+.nx .lt-place-tag.is-warn { background: rgba(201, 138, 27, .22); color: #D7A754 }
+.nx .lt-place-tag.is-bad { background: rgba(214, 74, 94, .22); color: #E48996 }
+.nx .lt-place-tag.is-quiet { background: rgba(110, 122, 135, .22); color: #A8AFB7 }
+.nx .lt-place-tag.is-info { background: rgba(38, 150, 171, .22); color: #67B6C4 }
+@container lt-card (max-width: 520px) {
+  .nx .lt-place { padding: 9px 11px; font-size: 12.5px; border-radius: 12px }
+  .nx .lt-place-title { font-size: 15px }
+}
 
 /* ---------- the scene ----------
    Nothing in the scene has a CSS animation or transition: on an SVG shape
@@ -258,5 +309,5 @@
 /* States and weather still change; nothing loops or travels (the loop also
    stands still), and the mood chip changes colour at once. */
 @media (prefers-reduced-motion: reduce) {
-  .nx .lt-stage *, .nx .lt-mood { animation: none !important; transition: none !important }
+  .nx .lt-stage *, .nx .lt-mood, .nx .lt-place { animation: none !important; transition: none !important }
 }
