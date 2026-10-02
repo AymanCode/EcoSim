@@ -667,27 +667,21 @@ function howToNotes({ armCount = 2, perHouse = householdsPerHouse(null), firstPo
   return [
     tick,
     rules,
-    `Every **house** stands for ${perHouse}. Amber houses, with an empty window, show the share of working-age people looking for work. Red houses, with a dashed outline, are households that lost their home. Green houses are the rest.`,
-    "Every building on **Main street** is a firm. Taller means more staff. A flag means it's struggling to pay wages or rent, a cross means it closed.",
+    `Every **house** stands for ${perHouse}. Lit windows mean the people there have work; dark houses show the share of working-age people looking for work. An empty outline with a FOR SALE sign means those households lost their home.`,
+    "Every **shop** along the two roads is a business, coloured by what it sells. Taller means more staff. A crane means it's hiring, SALE in the window means it's struggling to pay wages or rent, and boards mean it closed. The weather follows how the town is doing.",
   ]
 }
 
 export const COPY = {
   town: {
-    hall: 'Town hall',
-    bank: 'Bank',
-    mainStreet: 'Main street',
     houseScale: total => {
       const per = Number(total) / 100
       if (Number.isInteger(per) && per >= 1) return `each house is ${counted(per, 'household')}`
       return 'each house is 1 in 100 households'
     },
     hallChanged: 'Town hall: new rules this month',
-    moreBuildings: n => `+${n} more`,
     outOfWork: 'out of work',
     typicalPay: 'typical weekly pay',
-    firms: n => counted(n, 'firm'),
-    firmStates: (struggling, closed) => `${struggling} struggling, ${closed} closed`,
     altHouses: (work, look, home) => `Out of every 100 households: ${work} working, ${look} looking for work, ${home} lost their home.`,
     altFirms: (open, struggling, closed) => `${counted(open, 'firm')} open: ${struggling} struggling. ${closed} closed in the last year.`,
   },
@@ -699,6 +693,11 @@ export const COPY = {
     mainStreet: 'Main Street, up close',
     mainStreetFor: (label, rules) => `${label} · ${rules}`,
     moreLots: n => `+${n} more`,
+    // The facts row under a town's drawing; the values come from formatMetric.
+    facts: {
+      shops: struggling => (struggling > 0 ? `shops open · ${struggling} struggling` : 'shops open'),
+      hall: owes => (owes ? 'the town hall owes' : 'in the town hall'),
+    },
     signs: { hiring: 'HIRING', sale: 'SALE', closed: 'CLOSED', lease: 'FOR LEASE', fresh: 'NEW', forSale: 'FOR SALE', owes: 'owes', hall: 'TOWN HALL', bank: 'BANK' },
     moments: { closed: 'Closed', opened: 'Opened!', lost: n => `−${n} jobs`, gained: n => `+${n} jobs`, badLoans: amount => `Bad loans ${amount}` },
     banner: {

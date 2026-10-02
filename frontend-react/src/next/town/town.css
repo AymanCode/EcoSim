@@ -1,0 +1,262 @@
+/* The living towns: the town cards, their grid and legend, and the diorama's
+   scene, ported from mockup 08. The card chrome uses the page's --nx- tokens;
+   the scene keeps the mockup's own palette. Weather colours arrive as CSS
+   variables on each scene's svg (weather.js); the fallbacks are a calm
+   "getting by" day. Nothing here changes a box's size as the weeks change. */
+
+/* ---------- the grid of town cards ---------- */
+.nx .lt-towns { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 18px; margin-top: 22px }
+.nx .lt-towns.is-1, .nx .lt-towns.is-focus { grid-template-columns: minmax(0, 1fr) }
+@media (max-width: 1100px) {
+  .nx .lt-towns { grid-template-columns: minmax(0, 1fr) }
+}
+
+/* ---------- a town card ---------- */
+.nx .lt-card { position: relative; padding: 0; overflow: hidden; border-radius: 16px; container: lt-card / inline-size }
+.nx .lt-card[hidden] { display: none }
+
+/* One line, always: the name, the rules (cut short with an ellipsis; the full
+   wording is the title), a fixed-width mood chip and a fixed-width button. On
+   a narrow card the rules take a line of their own under the name. */
+.nx .lt-head {
+  display: grid;
+  grid-template-columns: auto auto minmax(0, 1fr) auto auto;
+  grid-template-areas: 'dot name rules mood focus';
+  align-items: center;
+  column-gap: 10px;
+  padding: 14px 16px 12px 18px;
+}
+.nx .lt-dot { grid-area: dot; width: 10px; height: 10px; border-radius: 3px; display: block }
+.nx .lt-head h2 { grid-area: name; font-size: 20px; line-height: 1.2; white-space: nowrap }
+.nx .lt-rules {
+  grid-area: rules;
+  min-width: 0;
+  font-size: 13.5px;
+  line-height: 1.5;
+  color: var(--nx-ink3-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.nx .lt-mood {
+  grid-area: mood;
+  box-sizing: border-box;
+  width: 9.6em;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px 4px 7px;
+  border-radius: 999px;
+  font-size: 12.5px;
+  line-height: 18px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  transition: background-color .6s ease, color .6s ease;
+}
+.nx .lt-mood svg { width: 18px; height: 18px; flex: none; display: block }
+.nx .lt-mood span { overflow: hidden; text-overflow: ellipsis }
+.nx .lt-mood.is-thriving { background: #FDF0D6; color: #8A5A0B }
+.nx .lt-mood.is-okay { background: #EEF1E4; color: #4F6A2E }
+.nx .lt-mood.is-struggling { background: #E9EBEE; color: #4D5866 }
+.nx .lt-mood.is-hard { background: #DDE2EA; color: #2E3C52 }
+.nx .lt-focus {
+  grid-area: focus;
+  box-sizing: border-box;
+  width: 7.6em;
+  padding: 4px 8px;
+  border: 1px solid var(--nx-line2);
+  border-radius: 999px;
+  background: var(--nx-panel);
+  font-size: 12.5px;
+  line-height: 18px;
+  color: var(--nx-ink2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.nx .lt-focus:hover { background: var(--nx-panel2); color: var(--nx-ink) }
+@container lt-card (max-width: 520px) {
+  .nx .lt-head {
+    grid-template-columns: auto minmax(0, 1fr) auto auto;
+    grid-template-areas: 'dot name mood focus' 'rules rules rules rules';
+    row-gap: 4px;
+    padding: 12px 12px 10px 14px;
+  }
+}
+
+/* The drawing keeps the scene's aspect ratio at every width. */
+.nx .lt-canvas { position: relative }
+.nx .lt-canvas svg.lt-scene { display: block; width: 100%; height: auto }
+
+/* Four facts: each value on one line, each label in a two-line area. */
+.nx .lt-facts {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 6px 16px;
+  margin: 0;
+  padding: 10px 18px 14px;
+  border-top: 1px solid var(--nx-line);
+}
+.nx .lt-facts > div { display: flex; flex-direction: column-reverse; justify-content: flex-end; min-width: 0 }
+.nx .lt-facts dd {
+  margin: 0;
+  font-family: var(--nx-disp), var(--nx-body), sans-serif;
+  font-size: 21px;
+  font-weight: 600;
+  line-height: 1.2;
+  color: var(--nx-ink);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.nx .lt-facts dd.is-owed { color: var(--nx-home-text) }
+.nx .lt-facts dt {
+  margin-top: 2px;
+  font-size: 12.5px;
+  line-height: 1.5;
+  height: 3em;
+  overflow: hidden;
+  color: var(--nx-ink3-text);
+}
+@container lt-card (max-width: 560px) {
+  .nx .lt-facts { grid-template-columns: repeat(2, minmax(0, 1fr)); padding: 8px 14px 12px }
+}
+
+/* ---------- the shared legend ---------- */
+.nx .lt-legend { display: flex; flex-wrap: wrap; gap: 6px 20px; margin-top: 14px; font-size: 12.5px; line-height: 1.5; color: var(--nx-ink3-text) }
+.nx .lt-legend span { display: inline-flex; align-items: center; gap: 7px; white-space: nowrap }
+.nx .lt-legend i { width: 10px; height: 10px; border-radius: 50%; flex: none; display: inline-block }
+.nx .lt-legend i.is-sq { border-radius: 2px }
+.nx .lt-legend i.is-lit { background: #FFD15C }
+.nx .lt-legend i.is-dark { background: #646E7D }
+.nx .lt-legend i.is-lost { box-sizing: border-box; border: 1.5px dashed #C8483B }
+.nx .lt-legend i.is-pin { background: #3B9B68; box-shadow: 0 0 0 2px #fff, 0 0 0 3px #C9BFAE }
+.nx .lt-legend .lt-scale { color: var(--nx-ink4-text) }
+
+/* ---------- the scene ---------- */
+.nx .lt-scene text { font-family: var(--nx-body), system-ui, sans-serif }
+.nx .lt-scene .lt-sky-top { stop-color: var(--lt-sky-top, #F1E6D6) }
+.nx .lt-scene .lt-sky-bottom { stop-color: var(--lt-sky-bottom, #FBF7F0) }
+.nx .lt-scene .lt-sun { opacity: var(--lt-sun, .5) }
+.nx .lt-scene [data-cloud] { fill: var(--lt-cloud-fill, #F0F1F2) }
+.nx .lt-scene .lt-grass.is-a { fill: var(--lt-grass-a, #C5D3A6) }
+.nx .lt-scene .lt-grass.is-b { fill: var(--lt-grass-b, #BDCC9D) }
+.nx .lt-scene .lt-shade { opacity: var(--lt-shade, 0); mix-blend-mode: multiply; pointer-events: none }
+.nx .lt-scene .lt-glows, .nx .lt-scene .lt-rain, .nx .lt-scene .lt-signs,
+.nx .lt-scene [data-layer='pings'], .nx .lt-scene [data-layer='coins'], .nx .lt-scene [data-layer='moments'] { pointer-events: none }
+
+/* Houses: lit, dark, long dark (faded, weeds) and lost (an empty outline). */
+.nx .lt-house polygon, .nx .lt-house rect, .nx .lt-house path, .nx .lt-house circle { transition: fill .6s ease, stroke .6s ease, opacity .6s ease }
+.nx .lt-house .lt-wl { fill: #F3E9DA }
+.nx .lt-house .lt-wr { fill: #DCCDB8 }
+.nx .lt-house .lt-gable { fill: #E9DECB }
+.nx .lt-house .lt-rf { fill: #C7684A }
+.nx .lt-house .lt-rb { fill: #AD573C }
+.nx .lt-house .lt-win { fill: #FFD15C }
+.nx .lt-house .lt-chim { fill: #9A5E46 }
+.nx .lt-house.is-look .lt-wl { fill: #BDB9B2 }
+.nx .lt-house.is-look .lt-wr { fill: #A39F98 }
+.nx .lt-house.is-look .lt-gable { fill: #B2AEA7 }
+.nx .lt-house.is-look .lt-rf { fill: #646E7D }
+.nx .lt-house.is-look .lt-rb { fill: #545D6B }
+.nx .lt-house.is-look .lt-win { fill: #363C48 }
+.nx .lt-house.is-look .lt-chim { fill: #6E6A66 }
+.nx .lt-house.is-look.is-long .lt-wl { fill: #ADA79C }
+.nx .lt-house.is-look.is-long .lt-wr { fill: #958F85 }
+.nx .lt-house.is-look.is-long .lt-rf { fill: #5C6470 }
+.nx .lt-house.is-home .lt-wl, .nx .lt-house.is-home .lt-wr, .nx .lt-house.is-home .lt-gable,
+.nx .lt-house.is-home .lt-rf, .nx .lt-house.is-home .lt-rb {
+  fill: rgba(200, 72, 59, .06);
+  stroke: #C8483B;
+  stroke-width: .8;
+  stroke-dasharray: 2 2;
+}
+.nx .lt-house.is-home .lt-win, .nx .lt-house.is-home .lt-chim { opacity: 0 }
+.nx .lt-house .lt-flowers, .nx .lt-house .lt-weeds, .nx .lt-house .lt-sale, .nx .lt-house .lt-smoke { opacity: 0 }
+.nx .lt-house.is-work .lt-flowers { opacity: 1 }
+.nx .lt-house.is-look.is-long .lt-weeds { opacity: 1 }
+.nx .lt-house.is-home .lt-sale { opacity: 1 }
+.nx .lt-house.is-work.is-smoky .lt-smoke { opacity: 1 }
+.nx .lt-smoke circle { fill: #F4F1EC; transform-box: fill-box; transform-origin: center }
+/* Only smoke that shows moves. */
+.nx .lt-house.is-work.is-smoky .lt-smoke circle { animation: lt-smoke 2.8s ease-out infinite }
+.nx .lt-house.is-work.is-smoky .lt-smoke circle:nth-child(2) { animation-delay: -.95s }
+.nx .lt-house.is-work.is-smoky .lt-smoke circle:nth-child(3) { animation-delay: -1.9s }
+@keyframes lt-smoke { 0% { transform: translate(0, 0) scale(.5); opacity: 0 } 15% { opacity: .85 } 100% { transform: translate(5px, -14px) scale(1.7); opacity: 0 } }
+
+/* Window glows, stronger the darker the town. */
+.nx .lt-glow { opacity: 0; transition: opacity .8s ease }
+.nx .lt-glow.is-on { opacity: var(--lt-glow, .6) }
+
+/* Seasons: blossom in spring, orange in autumn, bare trees and snow in winter. */
+.nx .lt-snow, .nx .lt-snowtip { opacity: 0; transition: opacity 1.2s ease; fill: #FBFCFF }
+.nx .lt-scene.season-winter .lt-snow, .nx .lt-scene.season-winter .lt-snowtip { opacity: .96 }
+.nx .lt-scene.season-winter .lt-house.is-home .lt-snow { opacity: 0 }
+.nx .lt-tree .lt-leaf1 { fill: #7FA165; transition: fill 1.4s ease, opacity 1.2s ease }
+.nx .lt-tree .lt-leaf2 { fill: #97B97B; transition: fill 1.4s ease, opacity 1.2s ease }
+.nx .lt-tree .lt-branches { opacity: 0; transition: opacity 1.2s ease; stroke: #7A5C3E; stroke-width: 1; fill: none; stroke-linecap: round }
+.nx .lt-scene.season-spring .lt-tree.is-blossom .lt-leaf1 { fill: #EFA9BC }
+.nx .lt-scene.season-spring .lt-tree.is-blossom .lt-leaf2 { fill: #F7CBD7 }
+.nx .lt-scene.season-autumn .lt-tree .lt-leaf1 { fill: #D58743 }
+.nx .lt-scene.season-autumn .lt-tree .lt-leaf2 { fill: #E8A95C }
+.nx .lt-scene.season-autumn .lt-tree.is-blossom .lt-leaf1 { fill: #C4643A }
+.nx .lt-scene.season-winter .lt-tree .lt-leaf1, .nx .lt-scene.season-winter .lt-tree .lt-leaf2 { opacity: 0 }
+.nx .lt-scene.season-winter .lt-tree .lt-branches { opacity: 1 }
+
+/* Shops: lit windows, flickering while struggling, dark once closed. */
+.nx .lt-shop .lt-win { fill: #FFD36B }
+.nx .lt-shop.is-struggling .lt-win { animation: lt-flicker 2.6s infinite steps(1) }
+.nx .lt-shop.is-closed .lt-win { fill: #5A606C }
+@keyframes lt-flicker { 0%, 100% { opacity: 1 } 38% { opacity: .25 } 44% { opacity: 1 } 71% { opacity: .4 } 76% { opacity: 1 } }
+.nx .lt-flag-wave { animation: lt-wave 1.8s ease-in-out infinite; transform-box: fill-box; transform-origin: left center }
+@keyframes lt-wave { 0%, 100% { transform: skewY(0deg) scaleX(1) } 50% { transform: skewY(-6deg) scaleX(.92) } }
+.nx .lt-balloons { animation: lt-bob 2.2s ease-in-out infinite }
+@keyframes lt-bob { 0%, 100% { transform: translateY(0) } 50% { transform: translateY(-2.5px) } }
+.nx .lt-crane-hook { animation: lt-hook 3s ease-in-out infinite }
+@keyframes lt-hook { 0%, 100% { transform: translateY(0) } 50% { transform: translateY(3px) } }
+
+/* Sign pills and the treasury's amount. */
+.nx .lt-pill text { font-weight: 700; letter-spacing: .35px; text-anchor: middle; dominant-baseline: central }
+/* A light halo keeps the treasury's amount readable over the town hall. */
+.nx .lt-amount { font-size: 8px; font-weight: 600; fill: #8A6514; paint-order: stroke; stroke: rgba(255, 255, 255, .8); stroke-width: 2.2px; stroke-linejoin: round }
+.nx .lt-amount.is-owed { fill: #C8483B }
+
+/* New rules: a ring round the town hall pulses twice, then stays until the
+   rules are WEEKS.pulse weeks old. */
+.nx .lt-hall-ring { fill: none; stroke-width: 2.2; transform-box: fill-box; transform-origin: center; animation: lt-hall-pulse 500ms var(--nx-ease) 2 }
+@keyframes lt-hall-pulse { 50% { opacity: .3; transform: scale(1.06) } }
+
+/* Pins over the homes of people you follow. */
+.nx .lt-pin { stroke: #fff; stroke-width: 1.5 }
+.nx .lt-pin.is-work { fill: #3B9B68 }
+.nx .lt-pin.is-look { fill: #C98A1B }
+.nx .lt-pin.is-low { fill: #C8483B }
+.nx .lt-pin.is-idle { fill: #8F877A }
+.nx .lt-person text { font-size: 7px; font-weight: 700; fill: #fff; text-anchor: middle; dominant-baseline: central; pointer-events: none }
+
+/* Rain, or snow in winter; taken out entirely when there is none. */
+.nx .lt-rain { opacity: var(--lt-rain, 0) }
+.nx .lt-rain.is-dry { display: none }
+.nx .lt-rain line { stroke: #8FA0B8; stroke-width: .9; stroke-linecap: round; animation: lt-rain .7s linear infinite }
+@keyframes lt-rain { from { transform: translate(0, -20px) } to { transform: translate(-7px, 26px) } }
+.nx .lt-rain.is-snow line { stroke: #FFFFFF; stroke-width: 2.1; stroke-dasharray: .1 40; animation: lt-snowfall 3.2s linear infinite }
+@keyframes lt-snowfall { from { transform: translate(0, -24px) } to { transform: translate(6px, 30px) } }
+
+/* What the motion loop adds (Task 6): walkers, coin pings, floating moments,
+   dust puffs and the bank's red flash. */
+.nx .lt-walker { stroke: #4A443C; stroke-linecap: round }
+.nx .lt-ping { fill: none; stroke-width: 1.4; animation: lt-ping .7s ease-out forwards; transform-box: fill-box; transform-origin: center }
+@keyframes lt-ping { from { opacity: .9; transform: scale(.4) } to { opacity: 0; transform: scale(2.2) } }
+.nx .lt-moment { animation: lt-rise 2.8s ease-out forwards }
+@keyframes lt-rise { 0% { opacity: 0; transform: translateY(6px) } 12% { opacity: 1; transform: translateY(0) } 75% { opacity: 1 } 100% { opacity: 0; transform: translateY(-16px) } }
+.nx .lt-puff { animation: lt-puff 1.1s ease-out forwards; transform-box: fill-box; transform-origin: center }
+@keyframes lt-puff { from { opacity: .8; transform: scale(.4) } to { opacity: 0; transform: scale(2.4) } }
+.nx .lt-flash.is-on { animation: lt-flash 1.2s ease-out forwards }
+@keyframes lt-flash { 0% { opacity: 0 } 15% { opacity: .55 } 100% { opacity: 0 } }
+
+/* States and weather still change; nothing loops or travels. */
+@media (prefers-reduced-motion: reduce) {
+  .nx .lt-scene *, .nx .lt-mood { animation: none !important; transition: none !important }
+}

@@ -9,10 +9,10 @@ const CSS = fs.readFileSync(new URL('../next.css', here), 'utf8')
 const BACKGROUNDS = ['#FFFFFF', '#F3F5F7', '#EEF1F4']
 // Text drawn in white sits on a dark fill set elsewhere; each of these is checked below.
 const WHITE_ON_DARK = [
-  '.nx-verdict', '.nx-abtn.is-dark', ".nx-mchip[aria-pressed='true']", '.nx-hc .av', '.nx-flag-mark', ".pin[aria-pressed='true']",
+  '.nx-verdict', '.nx-abtn.is-dark', ".nx-mchip[aria-pressed='true']", '.nx-hc .av', ".pin[aria-pressed='true']",
   '.nx-start', ".nx-seg button[aria-pressed='true']", '.nx-big',
 ]
-const TEXT_FILL = /\btext\b|nx-label|nx-flag-mark|nx-bldg-more|nx-ann|nx-ahead|nx-endl|nx-warm-label/
+const TEXT_FILL = /\btext\b|nx-ann|nx-ahead|nx-endl|nx-warm-label/
 
 function luminance(hex) {
   const [r, g, b] = [1, 3, 5].map(i => parseInt(hex.slice(i, i + 2), 16) / 255)
@@ -89,8 +89,8 @@ describe('text contrast in next.css', () => {
   })
 
   test('white text sits on fills dark enough for it', () => {
-    const fills = RULES.filter(({ selector }) => /\.nx-hc \.av\.is-\w+-bg|\.nx-flag\b(?!-)/.test(selector))
-    expect(fills.length).toBeGreaterThanOrEqual(5)
+    const fills = RULES.filter(({ selector }) => /\.nx-hc \.av\.is-\w+-bg/.test(selector))
+    expect(fills.length).toBeGreaterThanOrEqual(4)
     for (const { selector, decls } of fills) {
       const colour = resolve(decls.background ?? decls.fill)
       expect(contrast(colour, '#FFFFFF'), selector).toBeGreaterThanOrEqual(4.5)

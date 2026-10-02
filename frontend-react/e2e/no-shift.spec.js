@@ -130,3 +130,15 @@ test('nothing moves when the week changes with the first town\'s businesses all 
   expect(cut, cut.slice(0, 12).join('\n')).toEqual([])
   expect(outgrown, outgrown.slice(0, 12).join('\n')).toEqual([])
 })
+
+// Enlarge is a viewer's choice too: one town at full width while the weeks change.
+test('nothing moves when the week changes with the second town enlarged, at 1440px', async ({ page }) => {
+  const max = await openDemo(page, 1440)
+  await page.getByRole('button', { name: 'Enlarge' }).nth(1).click()
+  await expect(page.locator('.lt-card:not([hidden])')).toHaveCount(1)
+  await expect(page.getByRole('button', { name: 'Show both' })).toHaveCount(1)
+  const { moved, cut, outgrown } = await walk(page, max)
+  expect(moved, moved.slice(0, 12).join('\n')).toEqual([])
+  expect(cut, cut.slice(0, 12).join('\n')).toEqual([])
+  expect(outgrown, outgrown.slice(0, 12).join('\n')).toEqual([])
+})
