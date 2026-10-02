@@ -265,6 +265,7 @@ def test_batch_consumption_precomputes_awareness_array_indices(monkeypatch):
         category_fraction_override=None,
         category_array_cache=None,
         debug_category_fractions=None,
+        min_food_first=False,
     ):
         captured_cache.update(category_array_cache or {})
         return {}

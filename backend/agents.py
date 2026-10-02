@@ -1034,11 +1034,18 @@ class HouseholdAgent(AgentMixin):
         biased_weights_override: Optional[Dict[str, float]] = None,
         category_fraction_override: Optional[Dict[str, float]] = None,
         category_array_cache: Optional[Dict[str, Dict[str, object]]] = None,
-        debug_category_fractions: Optional[Dict[str, float]] = None
+        debug_category_fractions: Optional[Dict[str, float]] = None,
+        min_food_first: bool = False,
     ) -> Dict[int, float]:
         """
         Plan purchases using budget allocations influenced by preferences/traits.
         Feature 3: Softmax utilities only computed on the awareness pool (not all firms).
+
+        With ``min_food_first`` (the live legacy shopping decision), the money
+        for ``min_food_per_tick`` units at the mean posted Food price, bounded
+        by the budget and the food satiation cap, is set aside for food before
+        the category fractions split the rest, and at least that much is spent
+        on food.
         """
         planned: Dict[int, float] = {}
 
@@ -1108,9 +1115,21 @@ class HouseholdAgent(AgentMixin):
             debug_category_fractions.clear()
             debug_category_fractions.update(fractions)
 
+        # Precompute food satiation cap once (avg_price is same for all households)
+        food_avg_price = 0.0
+        food_max_budget_cap = float('inf')
+        if category_array_cache and "food" in category_array_cache:
+            food_avg_price = float(category_array_cache["food"]["prices"].mean())
+            if food_avg_price > 0:
+                food_max_budget_cap = household_cfg.food_health_high_threshold * food_avg_price
+
+        food_floor = 0.0
+        if min_food_first and fractions.get("food", 0.0) > 0 and food_avg_price > 0:
+            food_floor = max(0.0, min(self.min_food_per_tick * food_avg_price, budget, food_max_budget_cap))
+
         housing_share = fractions.pop("housing", 0.0)
-        housing_budget_cap = max(0.0, budget * housing_share)
-        remaining_budget = budget
+        housing_budget_cap = max(0.0, (budget - food_floor) * housing_share)
+        remaining_budget = budget - food_floor
         housing_qty_remaining = 1.0
 
         if housing_budget_cap > 0 and remaining_budget > 0:
@@ -1166,17 +1185,14 @@ class HouseholdAgent(AgentMixin):
         total_other_share = sum(fractions.values())
         weights_remaining = total_other_share
 
-        # Precompute food satiation cap once (avg_price is same for all households)
-        food_avg_price = 0.0
-        food_max_budget_cap = float('inf')
-        if category_array_cache and "food" in category_array_cache:
-            food_avg_price = float(category_array_cache["food"]["prices"].mean())
-            if food_avg_price > 0:
-                food_max_budget_cap = household_cfg.food_health_high_threshold * food_avg_price
-
         for category, share in fractions.items():
-            if share <= 0 or remaining_budget <= 0 or weights_remaining <= 0:
+            floor = food_floor if category == "food" else 0.0
+            if share <= 0 or remaining_budget + floor <= 0 or weights_remaining <= 0:
                 continue
+            if floor > 0:
+                # Food's set-aside joins the pool it is drawn from, whatever happens below.
+                remaining_budget += floor
+                food_floor = 0.0
 
             # Use precomputed arrays from cache
             arrays = category_array_cache.get(category) if category_array_cache else None
@@ -1202,7 +1218,7 @@ class HouseholdAgent(AgentMixin):
                 weights_remaining -= share
                 continue
 
-            category_budget = remaining_budget * (share / weights_remaining)
+            category_budget = floor + (remaining_budget - floor) * (share / weights_remaining)
             weights_remaining -= share
             if category_budget <= 0:
                 continue
@@ -1266,10 +1282,15 @@ class HouseholdAgent(AgentMixin):
             quantities *= adjustments
             # Filter to positive quantities and accumulate into planned dict
             pos_mask = quantities > 0
-            fids_pos = firm_ids[pos_mask].tolist()
-            qtys_pos = quantities[pos_mask].tolist()
             prices_pos = prices[pos_mask]
             spent = float((quantities[pos_mask] * prices_pos).sum())
+            if 0.0 < spent < floor:
+                # The minimum-food money is spent on food, not returned by the
+                # expensive-seller adjustment.
+                quantities = quantities * (floor / spent)
+                spent = float((quantities[pos_mask] * prices_pos).sum())
+            fids_pos = firm_ids[pos_mask].tolist()
+            qtys_pos = quantities[pos_mask].tolist()
             for fid, qty in zip(fids_pos, qtys_pos):
                 planned[fid] = planned.get(fid, 0.0) + qty
             remaining_budget = max(0.0, remaining_budget - min(spent, remaining_budget))

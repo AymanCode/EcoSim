@@ -1220,6 +1220,8 @@ class Economy:
             }
 
         precomputed_fractions = static_traits["precomputed_fractions"]
+        # The live legacy decision buys minimum food before splitting by preference.
+        min_food_first = settled_income and self.payment_sequence == "legacy"
 
         # Build consumption plans (fallback to Python loop for now due to complex logic)
         household_consumption_plans = {}
@@ -1276,7 +1278,8 @@ class Economy:
                     budget,
                     price_cache,
                     category_fraction_override=precomputed_fractions[idx],
-                    category_array_cache=category_array_cache
+                    category_array_cache=category_array_cache,
+                    min_food_first=min_food_first,
                 )
                 household_consumption_plans[household.household_id] = {
                     "household_id": household.household_id,
@@ -1366,6 +1369,9 @@ class Economy:
           nonnegative, 0 when unfunded).
         - ``_food_budget_cap``: the full planner's food spending ceiling,
           ``food_health_high_threshold`` x mean positive Food price.
+        - ``_food_floor``: the full planner's minimum-food set-aside,
+          ``min_food_per_tick`` x mean positive Food price, bounded by the
+          budget and the food cap (0 when the basket has no Food seller).
 
         A household with no cached plan, or a funded household whose cached
         basket is empty or was planned on a zero budget, gets new seller
@@ -1391,6 +1397,8 @@ class Economy:
             CONFIG.households.food_health_high_threshold * sum(food_prices) / len(food_prices)
             if food_prices else 0.0
         )
+        food_mean_price = sum(food_prices) / len(food_prices) if food_prices else 0.0
+        firm_lookup = self.firm_lookup
         refresh: List[int] = []
         for idx, household in enumerate(self.households):
             budget = float(budgets[idx])
@@ -1407,6 +1415,15 @@ class Economy:
             previous["budget"] = budget
             previous["_purchase_scale"] = budget / reference_budget if reference_budget > 0 else 0.0
             previous["_food_budget_cap"] = food_cap
+            # Minimum food first, as the full planner (only for a basket with food).
+            buys_food = any(
+                (getattr(firm_lookup.get(target), "good_category", "") or "").lower() == "food"
+                for target in previous["planned_purchases"]
+            )
+            previous["_food_floor"] = (
+                max(0.0, min(household.min_food_per_tick * food_mean_price, budget, food_cap))
+                if buys_food and food_mean_price > 0 else 0.0
+            )
         if refresh:
             cached.update(self._batch_plan_consumption(
                 market_prices, category_market_snapshot, good_category_lookup,
@@ -4903,6 +4920,9 @@ class Economy:
                 )
                 food_remaining = consumption_plan["_food_budget_cap"]
                 housing_remaining = 1.0
+                # Minimum-food money still owed to food: other goods cannot use
+                # it, and a food order is topped up to it (item 1b).
+                food_floor_remaining = consumption_plan.get("_food_floor", 0.0)
 
             for target, desired_qty in planned.items():
                 if purchase_scale is not None:
@@ -4921,8 +4941,13 @@ class Economy:
                         if firm_cat_by_idx[idx] == "housing":
                             desired_qty = min(desired_qty, housing_remaining)
                         if firm_prices[idx] > 0:
-                            limit = (min(budget_remaining, food_remaining)
-                                     if firm_cat_by_idx[idx] == "food" else budget_remaining)
+                            if firm_cat_by_idx[idx] == "food":
+                                limit = min(budget_remaining, food_remaining)
+                                desired_qty = max(
+                                    desired_qty, min(food_floor_remaining, limit) / firm_prices[idx]
+                                )
+                            else:
+                                limit = budget_remaining - food_floor_remaining
                             desired_qty = min(desired_qty, max(0.0, limit) / firm_prices[idx])
                         if desired_qty <= 0:
                             continue
@@ -4960,6 +4985,7 @@ class Economy:
                         budget_remaining -= qty * price
                         if firm_cat_by_idx[idx] == "food":
                             food_remaining -= qty * price
+                            food_floor_remaining = max(0.0, food_floor_remaining - qty * price)
                         elif firm_cat_by_idx[idx] == "housing":
                             housing_remaining -= qty
                     firm_units_sold[idx] += qty
