@@ -55,7 +55,7 @@ function HouseholdCard({ subject, arm, tick, pinned, onTogglePin }) {
           <span className={`nx-chip is-${state}`}><i aria-hidden="true" />{HOUSEHOLD_STATES[state].chip}</span>
           <span className="cash" title={cash}><b>{formatMoney(subject.cash)}</b> {COPY.households.saved}</span>
         </div>
-        <div className="ev" title={story}>
+        <div className="ev" title={story} data-fits="household-news">
           {sentence}
           {event && <span className="when"> · {weekLabel(event.tick)}</span>}
         </div>

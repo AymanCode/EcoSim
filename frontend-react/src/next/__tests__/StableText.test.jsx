@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test, vi } from 'vitest'
-import { render } from '@testing-library/react'
+import { act, render } from '@testing-library/react'
 import StableText from '../components/StableText.jsx'
 
 // jsdom has no layout: fake each element's height from its text length (one
@@ -11,7 +11,21 @@ function fakeLayout() {
     return { width, height: lines * 30, top: 0, left: 0, right: width, bottom: lines * 30, x: 0, y: 0, toJSON() {} }
   })
 }
-afterEach(() => vi.restoreAllMocks())
+// Measurements of hidden copies (probes), told apart from the box by its data-stable.
+const probeCalls = () => HTMLElement.prototype.getBoundingClientRect.mock.contexts
+  .filter(element => !element.hasAttribute('data-stable')).length
+
+// A stand-in for document.fonts: ready at once, and fires 'loadingdone' on demand.
+function fakeFonts() {
+  const fonts = new EventTarget()
+  fonts.ready = Promise.resolve(fonts)
+  Object.defineProperty(document, 'fonts', { value: fonts, configurable: true })
+  return fonts
+}
+afterEach(() => {
+  vi.restoreAllMocks()
+  delete document.fonts
+})
 
 describe('StableText', () => {
   test('reserves the height of the longest candidate, not the current text', () => {
@@ -30,5 +44,20 @@ describe('StableText', () => {
     const { container, rerender } = render(<StableText texts={['a']} stable="v">a</StableText>)
     rerender(<StableText texts={['a', 'y'.repeat(50)]} stable="v">a</StableText>)
     expect(container.querySelector('[data-stable="v"]').style.minHeight).toBe('90px')
+  })
+
+  test('new candidates are measured alone; fonts loading measures them all again', async () => {
+    width = 400
+    fakeLayout()
+    const fonts = fakeFonts()
+    const { container, rerender } = render(<StableText texts={['a', 'b']} stable="v">a</StableText>)
+    await act(async () => {})
+    const settled = probeCalls()
+    rerender(<StableText texts={['a', 'b', 'z'.repeat(50)]} stable="v">a</StableText>)
+    await act(async () => {})
+    expect(probeCalls() - settled).toBe(1)
+    expect(container.querySelector('[data-stable="v"]').style.minHeight).toBe('90px')
+    await act(async () => { fonts.dispatchEvent(new Event('loadingdone')) })
+    expect(probeCalls() - settled).toBe(4)
   })
 })

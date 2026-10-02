@@ -74,7 +74,7 @@ function BusinessRow({ row }) {
   const name = firmDisplayName(row.firm)
   const sector = sectorName(row.firm.sector)
   return (
-    <li className={`nx-brow${row.state === 'closed' ? ' is-closed' : ''}`}>
+    <li className={`nx-brow${row.state === 'closed' ? ' is-closed' : ''}`} data-fits="business-row">
       <div className="rk">{row.rank ?? ''}</div>
       <div className="nm">
         <span className="nx-bname" title={name}>{name}</span>

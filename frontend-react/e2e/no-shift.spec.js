@@ -59,24 +59,44 @@ async function openDemo(page, width) {
   return Number(await page.locator('input[type=range]').first().getAttribute('max'))
 }
 
-// Steps from week 1 to `max` and lists every week whose boxes differ from week 1's.
-async function shifts(page, max) {
+// The first clamped or fixed-height text box (marked data-fits) whose text
+// does not fit in it, or null: cutting text would hide what a viewer needs.
+async function firstCut(page) {
+  return page.evaluate(() => {
+    for (const el of document.querySelectorAll('[data-fits]')) {
+      if (el.scrollHeight > el.clientHeight + 1) {
+        return `${el.dataset.fits} ${el.scrollHeight} > ${el.clientHeight}: "${el.textContent.trim().slice(0, 140)}"`
+      }
+    }
+    return null
+  })
+}
+
+// Steps from week 1 to `max`. `moved` lists every week whose boxes differ from
+// week 1's, `cut` every week with text that does not fit its box.
+async function walk(page, max) {
   await goToWeek(page, 1)
   const base = await boxes(page)
-  const problems = []
-  for (let week = 2; week <= max; week += 1) {
-    await goToWeek(page, week)
-    const diff = firstDifference(base, await boxes(page))
-    if (diff) problems.push(`week ${week}: ${diff}`)
+  const moved = []
+  const cut = []
+  for (let week = 1; week <= max; week += 1) {
+    if (week > 1) {
+      await goToWeek(page, week)
+      const diff = firstDifference(base, await boxes(page))
+      if (diff) moved.push(`week ${week}: ${diff}`)
+    }
+    const text = await firstCut(page)
+    if (text) cut.push(`week ${week}: ${text}`)
   }
-  return problems
+  return { moved, cut }
 }
 
 for (const width of WIDTHS) {
-  test(`nothing moves when the week changes at ${width}px`, async ({ page }) => {
+  test(`nothing moves and no text is cut when the week changes at ${width}px`, async ({ page }) => {
     const max = await openDemo(page, width)
-    const problems = await shifts(page, max)
-    expect(problems, problems.slice(0, 12).join('\n')).toEqual([])
+    const { moved, cut } = await walk(page, max)
+    expect(moved, moved.slice(0, 12).join('\n')).toEqual([])
+    expect(cut, cut.slice(0, 12).join('\n')).toEqual([])
   })
 }
 
@@ -86,6 +106,7 @@ test('nothing moves when the week changes with the first town\'s businesses all 
   await goToWeek(page, max)
   await page.getByRole('button', { name: /^See all/ }).first().click()
   await expect(page.getByRole('region', { name: /^Every business in / })).toHaveCount(1)
-  const problems = await shifts(page, max)
-  expect(problems, problems.slice(0, 12).join('\n')).toEqual([])
+  const { moved, cut } = await walk(page, max)
+  expect(moved, moved.slice(0, 12).join('\n')).toEqual([])
+  expect(cut, cut.slice(0, 12).join('\n')).toEqual([])
 })

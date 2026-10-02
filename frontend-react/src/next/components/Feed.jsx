@@ -56,6 +56,7 @@ export default function Feed({ arms, tick, limit = 8 }) {
         ) : (
           <ul className="nx-feed">
             {rows.map(({ arm, line }) => {
+              const when = COPY.feed.when(weekLabel(line.tick), arm.label)
               const text = line.town ?? eventGroupSentence(line.events, { firmName: firm => firmDisplayName(arm.firmDirectory?.byId?.[firm.id] ?? firm) })
               return (
                 <li
@@ -63,11 +64,12 @@ export default function Feed({ arms, tick, limit = 8 }) {
                   className={line.town ? 'is-town' : undefined}
                   data-tick={line.tick}
                   data-count={line.events?.length ?? 0}
+                  data-fits="feed-row"
                 >
                   <i style={{ background: arm.color }} aria-hidden="true" />
                   <div>
-                    <span className="w">{COPY.feed.when(weekLabel(line.tick), arm.label)}</span>
-                    <span className="t" title={text}>{text}</span>
+                    <span className="w" title={when}>{when}</span>
+                    <span className="t" title={text} data-fits="feed-text">{text}</span>
                   </div>
                 </li>
               )
