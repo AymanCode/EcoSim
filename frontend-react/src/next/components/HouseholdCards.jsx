@@ -37,7 +37,7 @@ function HouseholdCard({ subject, arm, tick, pinned, onTogglePin }) {
   return (
     <li className={`nx-hc${pinned ? ' is-pinned' : ''}`}>
       <div className={`av is-${state}-bg`} aria-hidden="true">{name.charAt(0)}</div>
-      <div>
+      <div className="nx-hctext">
         <div className="n">
           <span className="nx-hname">{COPY.households.nameAge(name, subject.age)}</span>
           <button
@@ -69,7 +69,7 @@ function EmptySlot() {
   return (
     <li className="nx-hc is-slot" aria-hidden="true">
       <div className="av" />
-      <div>
+      <div className="nx-hctext">
         <div className="n">{'\u00a0'}</div>
         <div className="j">{'\u00a0'}</div>
         <div className="m"><span className="nx-chip">{'\u00a0'}</span></div>

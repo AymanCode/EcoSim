@@ -3,7 +3,7 @@ import { expect, test } from '@playwright/test'
 // Changing the week must not move or resize anything on the Run screen (spec
 // section 6). For each width, open the recorded demo, step the timeline
 // through every week, and compare every watched box with week 1.
-const WIDTHS = [390, 489, 768, 1024, 1280, 1440]
+const WIDTHS = [390, 489, 560, 600, 700, 768, 1024, 1280, 1440]
 const TOLERANCE = 0.5
 
 // Every element marked data-stable, every direct child of the Run screen's
