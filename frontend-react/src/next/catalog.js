@@ -707,6 +707,7 @@ export const COPY = {
     closedWhen: when => `closed ${when}`,
     seeAll: n => `See all ${n}`,
     showFewer: 'Show fewer',
+    allLabel: town => `Every business in ${town}`,
     empty: 'No businesses are open yet.',
   },
   households: {

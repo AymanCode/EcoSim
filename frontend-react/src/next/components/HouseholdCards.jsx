@@ -64,7 +64,25 @@ function HouseholdCard({ subject, arm, tick, pinned, onTogglePin }) {
   )
 }
 
+// An empty slot, built like a card so it is exactly as tall, and hidden.
+function EmptySlot() {
+  return (
+    <li className="nx-hc is-slot" aria-hidden="true">
+      <div className="av" />
+      <div>
+        <div className="n">{'\u00a0'}</div>
+        <div className="j">{'\u00a0'}</div>
+        <div className="m"><span className="nx-chip">{'\u00a0'}</span></div>
+        <div className="ev">{'\u00a0'}</div>
+      </div>
+    </li>
+  )
+}
+
 // Four households from the tracked sample; "Follow" keeps one in the first slot.
+// The panel always has four slots (empty ones when the sample is smaller) and
+// a line for its buttons, so a sample that changes size never resizes it
+// (spec section 6).
 // In a live town (`onTrack(action, householdId)`) Follow also pins or unpins
 // the household on the server: it asks the server to follow it first, since
 // the week shown may be older than the server's sample. "Meet other families"
@@ -102,10 +120,9 @@ export default function HouseholdCards({ arm, tick, onTrack, canReshuffle = true
   return (
     <div className="nx-card nx-hh" data-stable={`households:${arm?.label}`}>
       <div className="nx-bh"><h3>{COPY.households.title}</h3><span>{COPY.households.subtitle}</span></div>
-      {cards.length === 0 ? (
-        <p className="nx-empty">{COPY.households.empty}</p>
-      ) : (
-        <ul className="nx-hgrid">
+      <div className="nx-hbody">
+        {cards.length === 0 && <p className="nx-empty">{COPY.households.empty}</p>}
+        <ul className="nx-hgrid" aria-hidden={cards.length === 0 || undefined}>
           {cards.map(subject => (
             <HouseholdCard
               key={subject.id}
@@ -116,16 +133,19 @@ export default function HouseholdCards({ arm, tick, onTrack, canReshuffle = true
               onTogglePin={togglePin}
             />
           ))}
+          {Array.from({ length: PAGE - cards.length }, (_, i) => <EmptySlot key={`slot-${i}`} />)}
         </ul>
-      )}
-      {rest.length > slots && (
-        <button type="button" className="nx-more" onClick={() => setOffset(value => value + slots)}>
-          {COPY.households.showOthers}
-        </button>
-      )}
-      {onTrack && (
-        <button type="button" className="nx-more" disabled={!canReshuffle} onClick={meetOthers}>{COPY.live.meetOthers}</button>
-      )}
+      </div>
+      <div className="nx-hfoot">
+        {rest.length > slots && (
+          <button type="button" className="nx-more" onClick={() => setOffset(value => value + slots)}>
+            {COPY.households.showOthers}
+          </button>
+        )}
+        {onTrack && (
+          <button type="button" className="nx-more" disabled={!canReshuffle} onClick={meetOthers}>{COPY.live.meetOthers}</button>
+        )}
+      </div>
     </div>
   )
 }

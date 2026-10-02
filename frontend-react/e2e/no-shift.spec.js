@@ -3,7 +3,7 @@ import { expect, test } from '@playwright/test'
 // Changing the week must not move or resize anything on the Run screen (spec
 // section 6). For each width, open the recorded demo, step the timeline
 // through every week, and compare every watched box with week 1.
-const WIDTHS = [390, 489, 1024, 1440]
+const WIDTHS = [390, 489, 768, 1024, 1280, 1440]
 const TOLERANCE = 0.5
 
 // Every element marked data-stable, every direct child of the Run screen's
@@ -50,21 +50,42 @@ function firstDifference(base, now) {
   return null
 }
 
+// Opens the recorded demo at `width` and returns its last week.
+async function openDemo(page, width) {
+  await page.setViewportSize({ width, height: 900 })
+  await page.goto('/?view=next&demo')
+  await page.locator('input[type=range]').first().waitFor()
+  await page.evaluate(() => document.fonts.ready)
+  return Number(await page.locator('input[type=range]').first().getAttribute('max'))
+}
+
+// Steps from week 1 to `max` and lists every week whose boxes differ from week 1's.
+async function shifts(page, max) {
+  await goToWeek(page, 1)
+  const base = await boxes(page)
+  const problems = []
+  for (let week = 2; week <= max; week += 1) {
+    await goToWeek(page, week)
+    const diff = firstDifference(base, await boxes(page))
+    if (diff) problems.push(`week ${week}: ${diff}`)
+  }
+  return problems
+}
+
 for (const width of WIDTHS) {
   test(`nothing moves when the week changes at ${width}px`, async ({ page }) => {
-    await page.setViewportSize({ width, height: 900 })
-    await page.goto('/?view=next&demo')
-    await page.locator('input[type=range]').first().waitFor()
-    await page.evaluate(() => document.fonts.ready)
-    const max = Number(await page.locator('input[type=range]').first().getAttribute('max'))
-    await goToWeek(page, 1)
-    const base = await boxes(page)
-    const problems = []
-    for (let week = 2; week <= max; week += 1) {
-      await goToWeek(page, week)
-      const diff = firstDifference(base, await boxes(page))
-      if (diff) problems.push(`week ${week}: ${diff}`)
-    }
+    const max = await openDemo(page, width)
+    const problems = await shifts(page, max)
     expect(problems, problems.slice(0, 12).join('\n')).toEqual([])
   })
 }
+
+// "See all" is a viewer's choice that stays open while the weeks change.
+test('nothing moves when the week changes with the first town\'s businesses all shown, at 1440px', async ({ page }) => {
+  const max = await openDemo(page, 1440)
+  await goToWeek(page, max)
+  await page.getByRole('button', { name: /^See all/ }).first().click()
+  await expect(page.getByRole('region', { name: /^Every business in / })).toHaveCount(1)
+  const problems = await shifts(page, max)
+  expect(problems, problems.slice(0, 12).join('\n')).toEqual([])
+})
