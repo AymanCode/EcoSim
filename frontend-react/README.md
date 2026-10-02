@@ -56,7 +56,7 @@ npm run test:e2e
 - `place-cards.spec.js`: pointing at or tapping each kind of place shows a card inside the drawing that takes no room.
 - `town-layers.spec.js`: the town drawings' world layers run no CSS animation while the demo plays, and the pointer passes through the sky and motion layers to the world.
 
-It is not wired into CI. The reports it writes (`playwright-report/`, `test-results/`) are gitignored.
+It is not wired into CI. It prints a plain list of results; a failing run leaves its artifacts in `test-results/`, which is gitignored.
 
 ## The Run Screen's Towns
 
