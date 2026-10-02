@@ -35,6 +35,16 @@ describe('Moments', () => {
     expect(region.querySelector('ul')).toBeInTheDocument()
   })
 
+  test('keeps room for every row of chips the towns can show, without reading it out', () => {
+    const arms = [fixtureArm(TOWN_A), fixtureArm(TOWN_B)]
+    render(<Moments arms={[fixtureArm(TOWN_A)]} tick={24} rows={[moments(arms, WEEK)]} />)
+    const region = screen.getByRole('log', { name: 'What just happened' })
+    expect(within(region).queryAllByRole('listitem')).toHaveLength(0)
+    const room = region.querySelector('.nx-moments-room')
+    expect(room).toHaveAttribute('aria-hidden', 'true')
+    expect([...room.querySelectorAll('.nx-moment')].map(chip => chip.textContent)).toEqual(moments(arms, WEEK).map(moment => moment.text))
+  })
+
   test('announces only the chips that arrive, politely', () => {
     render(<Moments arms={[fixtureArm(TOWN_A)]} tick={24} />)
     const region = screen.getByRole('log', { name: 'What just happened' })

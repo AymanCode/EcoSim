@@ -1,7 +1,7 @@
-import { Activity, useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from 'react'
+import { Activity, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { COPY, STAT_METRICS, STORY_METRICS, describePolicy, townTextColor } from './catalog.js'
-import { rulesAt, rulesDiff } from './data/derive.js'
-import { leadSentence, verdict } from './narration.js'
+import { commonTicks, rulesAt, rulesDiff } from './data/derive.js'
+import { leadSentence, moments, verdict } from './narration.js'
 import BusinessList from './components/BusinessList.jsx'
 import EndPanel from './components/EndPanel.jsx'
 import Feed from './components/Feed.jsx'
@@ -11,6 +11,7 @@ import HowToRead from './components/HowToRead.jsx'
 import LostPanel from './components/LostPanel.jsx'
 import Moments from './components/Moments.jsx'
 import NumbersSheet from './numbers/NumbersSheet.jsx'
+import StableText from './components/StableText.jsx'
 import StatCard from './components/StatCard.jsx'
 import StoryChart from './components/StoryChart.jsx'
 import Town from './components/Town.jsx'
@@ -38,18 +39,20 @@ function Lead({ text, arms }) {
     : part))
 }
 
-// A column head names the rules the town has in force at the week shown. A
-// live town keeps an (empty) status line for the server's notices, so a
-// notice is announced when it arrives.
+// A column head names the rules the town has in force at the week shown, on
+// one line (the full wording in its title). A live town keeps an (empty)
+// status line for the server's notices, so a notice is announced when it
+// arrives.
 function TownColumn({ arm, tick, single, live, notice, onTrack, canReshuffle }) {
   const town = <Town arm={arm} tick={tick} />
   const businesses = <BusinessList arm={arm} tick={tick} />
+  const rules = describePolicy(rulesDiff(rulesAt(arm, tick)))
   return (
     <section className="nx-col" aria-label={arm.label}>
-      <div className="nx-colhead">
+      <div className="nx-colhead" data-stable={`town-rules:${arm.label}`}>
         <i style={{ background: arm.color }} aria-hidden="true" />
         <h2>{arm.label}</h2>
-        <span>{describePolicy(rulesDiff(rulesAt(arm, tick)))}</span>
+        <span title={rules}>{rules}</span>
       </div>
       {live && (
         <p className="nx-notice" role="status">
@@ -142,6 +145,23 @@ export default function RunScreen({
   // New families appear in the live week only, so meeting them waits for a
   // running town and the viewer on the newest week.
   const canReshuffle = live?.phase === 'running' && live.following !== false
+
+  // Every lead, verdict and row of moments the towns can show, so their boxes
+  // keep one height as the week changes (spec section 6). A live run's arms
+  // can grow in place, so the weeks also follow each town's week count.
+  const ticksKey = arms.map(arm => arm.ticks.length).join(',')
+  const weeks = useMemo(() => commonTicks(arms), [arms, ticksKey]) // eslint-disable-line react-hooks/exhaustive-deps
+  const leadTexts = useMemo(() => [...new Set(weeks.map(week => leadSentence(arms, week)))], [arms, weeks])
+  const verdictTexts = useMemo(() => [...new Set(weeks.map(week => verdict(arms, week)))], [arms, weeks])
+  const momentRows = useMemo(() => {
+    const rows = new Map()
+    for (const week of weeks) {
+      const row = moments(arms, week)
+      const key = row.map(moment => moment.text).join('\n')
+      if (row.length && !rows.has(key)) rows.set(key, row)
+    }
+    return [...rows.values()]
+  }, [arms, weeks])
 
   // The numbers sheet: whether it is open, what opened it (focus goes back
   // there when the viewer closes it, else to the timeline's button), and the
@@ -257,8 +277,10 @@ export default function RunScreen({
             </>
           ) : (
             <>
-              <p className="nx-lead"><Lead text={leadSentence(arms, tick)} arms={arms} /></p>
-              <Moments arms={arms} tick={tick} />
+              <StableText className="nx-lead" texts={leadTexts} stable="lead">
+                <Lead text={leadSentence(arms, tick)} arms={arms} />
+              </StableText>
+              <Moments arms={arms} tick={tick} rows={momentRows} />
               {panel}
 
               <div className={`nx-cols${single ? ' is-single' : ''}`}>
@@ -286,7 +308,7 @@ export default function RunScreen({
                   playing={playing}
                 />
                 <div className="nx-side">
-                  <p className="nx-verdict">{verdict(arms, tick)}</p>
+                  <StableText className="nx-verdict" texts={verdictTexts} stable="verdict">{verdict(arms, tick)}</StableText>
                   <div className="nx-stats">
                     {STAT_METRICS.map(key => <StatCard key={key} metricKey={key} arms={arms} tick={tick} />)}
                   </div>
