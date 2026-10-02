@@ -25,6 +25,7 @@ from tests_contracts.factories import (
     make_firms,
     make_government,
     make_households,
+    make_services_expansion_ready,
     patch_agent_method,
 )
 
@@ -178,9 +179,8 @@ def test_a2_long_term_capital_loan_conserves_money(fixed_seed):
     services.lost_sales_streak = 5  # sustained-demand gate
     firms.append(services)
     economy = _legacy_economy_with_bank(firms=firms, government=government)
-    # Every household starts unemployed, so the 10% trigger is met on tick 0.
-    unemployed = sum(1 for h in economy.households if not h.is_employed)
-    assert unemployed / len(economy.households) >= CONFIG.firms.long_term_capital_unemployment_trigger
+    # Slot-bound with unmet demand: the legacy Services trigger (2026-10-02).
+    make_services_expansion_ready(economy, services)
 
     before = total_money_with_bank(economy)
     economy.step()
@@ -458,6 +458,7 @@ def test_capital_recycle_is_recorded_in_household_ledger(fixed_seed, monkeypatch
     services.lost_sales_streak = 5  # sustained-demand gate
     firms.append(services)
     economy = _legacy_economy_with_bank(firms=firms, government=government)
+    make_services_expansion_ready(economy, services)
 
     recycled: List[float] = []
     original_recycle = economy._recycle_capital_investment

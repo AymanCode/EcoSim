@@ -606,7 +606,14 @@ class FirmBehaviorConfig:
     long_term_capital_annual_rate: float = 0.025      # 2.5% baseline
     long_term_capital_min_amount: float = 5_000.0
     long_term_capital_max_amount: float = 25_000.0
+    # Economy-wide unemployment at or above which the loan is offered. Since
+    # 2026-10-02 read only for Housing and for Services on the payment arms;
+    # legacy Services use the firm-level demand trigger below.
     long_term_capital_unemployment_trigger: float = 0.10
+    # Legacy Services: offered only to a slot-bound firm whose unmet demand over
+    # the last five weeks (service_unmet_demand_window) is at least this share of
+    # its output over the same weeks (owner decision 2026-10-02).
+    services_expansion_min_excess_demand_ratio: float = 0.25
     long_term_capital_cooldown_ticks: int = 26        # 6-month cooldown per firm
     services_capacity_cost_per_unit: float = 500.0    # services: $500 per capacity unit
     housing_rental_unit_construction_cost: float = 2_000.0  # housing: $2k per unit
@@ -1031,6 +1038,9 @@ class SimulationConfig:
             raise ValueError("tie_break_scale must be finite and non-negative")
         if self.labor_market.switcher_vacancy_cap_per_firm < 0:
             raise ValueError("switcher_vacancy_cap_per_firm must be non-negative")
+        ratio = self.firms.services_expansion_min_excess_demand_ratio
+        if not (math.isfinite(ratio) and ratio >= 0.0):
+            raise ValueError("services_expansion_min_excess_demand_ratio must be finite and non-negative")
 
         # Validate range tuples (low <= high)
         for name, (lo, hi) in [

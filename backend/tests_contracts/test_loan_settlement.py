@@ -222,7 +222,9 @@ def test_legacy_long_term_capital_loan_is_in_firm_loan_mirrors():
     from origination until its final payment."""
     from agents import BankAgent
     from config import CONFIG
-    from tests_contracts.factories import make_economy, make_firm, make_firms, make_government, make_households
+    from tests_contracts.factories import (
+        make_economy, make_firm, make_firms, make_government, make_households, make_services_expansion_ready,
+    )
 
     government = make_government()
     firms = make_firms(("Food", "Healthcare"), num_per_category=1, government=government)
@@ -233,6 +235,7 @@ def test_legacy_long_term_capital_loan_is_in_firm_loan_mirrors():
                            firms=firms, government=government, seed=333)
     economy.bank = BankAgent(cash_reserves=50_000.0)
     assert economy.payment_sequence == "legacy"
+    make_services_expansion_ready(economy, services)
 
     economy.step()
 

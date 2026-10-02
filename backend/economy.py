@@ -6389,7 +6389,20 @@ class Economy:
         category = (firm.good_category or "").lower()
         if category not in {"services", "housing"}:
             return False
-        if unemployment_rate < float(cfg.long_term_capital_unemployment_trigger):
+        if category == "services" and self.payment_sequence == "legacy":
+            # Firm-level demand trigger (owner 2026-10-02): every worker slot is
+            # filled and recent unmet demand is a large share of output.
+            slots = int(firm.production_capacity_units)
+            window = firm.service_unmet_demand_window
+            output = float(firm.last_units_produced) * len(window)
+            if (
+                slots <= 0
+                or len(firm.employees) < slots
+                or output <= 0.0
+                or sum(window) / output < float(cfg.services_expansion_min_excess_demand_ratio)
+            ):
+                return False
+        elif unemployment_rate < float(cfg.long_term_capital_unemployment_trigger):
             return False
         if (int(self.current_tick) - int(firm.last_long_term_loan_tick)) < int(
             cfg.long_term_capital_cooldown_ticks
