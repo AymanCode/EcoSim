@@ -83,3 +83,73 @@ export function pickWeighted(list, weights, total, random = Math.random) {
   }
   return list[list.length - 1]
 }
+
+// ---------- poses for what loops or plays once ----------
+// The scene's moving details as pure functions of time, so the motion loop
+// can write them as plain attributes (no CSS animations: on an SVG part the
+// browser gives every animated shape a compositor layer of its own, and the
+// shapes drawn after it more layers, measured at 566 layers for two towns).
+// Each takes a phase or progress from 0 to 1 and matches the mockup's CSS
+// keyframes closely enough to look the same.
+
+// CSS ease-out (cubic-bezier(0, 0, .58, 1)), closely enough.
+export const easeOut = t => 1 - (1 - t) ** 2
+// Smoothly there and back again over one cycle.
+const swell = p => (1 - Math.cos(2 * Math.PI * p)) / 2
+const f2 = value => Number(value.toFixed(2))
+
+// How long each loop takes (ms).
+export const LOOP_MS = { smoke: 2800, flag: 1800, balloons: 2200, hook: 3000, flicker: 2600, rain: 700, snow: 3200 }
+
+// A chimney's three puffs are a third of a cycle apart; at the scene clock's
+// zero they stand where the drawing puts them (SMOKE_REST).
+export const smokePhase = (now, i) => (now / LOOP_MS.smoke + 0.25 + i / 3) % 1
+export const SMOKE_REST = [0, 1, 2].map(i => smokePhase(0, i))
+
+// A chimney puff drawn at (0, 0): it rises up and to the right, grows and fades.
+export function smokePose(p) {
+  const e = easeOut(p)
+  const opacity = p < 0.15 ? 0.85 * easeOut(p / 0.15) : 0.85 * (1 - easeOut((p - 0.15) / 0.85))
+  return { transform: `translate(${f2(5 * e)} ${f2(-14 * e)}) scale(${f2(0.5 + 1.2 * e)})`, opacity: f2(opacity) }
+}
+
+// A flag waving from its pole (its left edge at (0, 0)).
+export const flagPose = p => `skewY(${f2(-6 * swell(p))}) scale(${f2(1 - 0.08 * swell(p))} 1)`
+
+// Balloons bob up, a crane's hook swings down, and back.
+export const bobPose = (p, lift) => `translate(0 ${f2(lift * swell(p))})`
+
+// A struggling shop's lights: on, then dim for a moment, twice a cycle.
+export function flickerOpacity(p) {
+  if (p >= 0.38 && p < 0.44) return 0.25
+  if (p >= 0.71 && p < 0.76) return 0.4
+  return 1
+}
+
+// Where a falling drop (or snowflake) is in its fall.
+export function fallOffset(p, snow) {
+  return snow ? [f2(6 * p), f2(-24 + 54 * p)] : [f2(-7 * p), f2(-20 + 46 * p)]
+}
+
+// A floating sign rises into view, holds, then rises on and fades (2.8 s).
+export function risePose(t) {
+  if (t < 0.12) {
+    const e = easeOut(t / 0.12)
+    return { dy: f2(6 * (1 - e)), opacity: f2(e) }
+  }
+  const e = easeOut((t - 0.12) / 0.88)
+  return { dy: f2(-16 * e), opacity: t < 0.75 ? 1 : f2(1 - easeOut((t - 0.75) / 0.25)) }
+}
+
+// A ring where a coin lands (0.7 s), and a puff of dust where a shop closed (1.1 s).
+export const pingPose = t => ({ scale: f2(0.4 + 1.8 * easeOut(t)), opacity: f2(0.9 * (1 - easeOut(t))) })
+export const puffPose = t => ({ scale: f2(0.4 + 2 * easeOut(t)), opacity: f2(0.8 * (1 - easeOut(t))) })
+
+// The town hall's ring pulses twice (two 0.5 s beats) when the rules change.
+export function ringPose(t) {
+  const beat = swell((t * 2) % 1)
+  return { scale: f2(1 + 0.06 * beat), opacity: f2(1 - 0.7 * beat) }
+}
+
+// The bank's red flash when loans go bad (1.2 s).
+export const flashOpacity = t => f2(t < 0.15 ? 0.55 * easeOut(t / 0.15) : 0.55 * (1 - easeOut((t - 0.15) / 0.85)))

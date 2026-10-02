@@ -1,4 +1,4 @@
-import { StrictMode, useState } from 'react'
+import { StrictMode, useRef, useState } from 'react'
 import { afterEach, beforeAll, beforeEach, describe, expect, test, vi } from 'vitest'
 import { fireEvent, render, screen } from '@testing-library/react'
 import TownCard from '../town/TownCard.jsx'
@@ -6,6 +6,10 @@ import RunScreen from '../RunScreen.jsx'
 import { COPY } from '../catalog.js'
 import { townAt } from '../town/model.js'
 import { scenePalette } from '../town/mood.js'
+import { LAYOUT } from '../town/geometry.js'
+import { syncHeights, stepHeights } from '../town/heights.js'
+import { Shop } from '../town/shops.jsx'
+import useSceneMotion from '../town/useSceneMotion.js'
 import { demoArms, fixtureArm } from './fixture.js'
 
 let A, B
@@ -220,6 +224,32 @@ describe('TownCard keeps what the old town drawing showed', () => {
     for (const layer of ['coins', 'pings', 'moments']) expect(container.querySelector(`[data-layer="${layer}"]`).childNodes).toHaveLength(0)
   })
 
+  test('three stacked layers: the sky at the back, the world, and what moves on top', () => {
+    const { container } = render(<TownCard arm={A} tick={70} towns={2} />)
+    const stage = container.querySelector('.lt-canvas > .lt-stage')
+    const layers = [...stage.children]
+    expect(layers.map(layer => layer.dataset.layer)).toEqual(['back', 'world', 'motion'])
+    for (const layer of layers) {
+      expect(layer.tagName.toLowerCase()).toBe('svg')
+      expect(layer.getAttribute('viewBox')).toBe(layers[0].getAttribute('viewBox'))
+      expect(layer).toHaveAttribute('aria-hidden', 'true')
+    }
+    const [back, world, motion] = layers
+    // The back and motion layers take no pointer events (town.css) and hold
+    // nothing a viewer points at; everything with data-kind is in the world.
+    expect(back).toHaveClass('lt-layer')
+    expect(motion).toHaveClass('lt-layer')
+    expect(world).toHaveClass('lt-scene')
+    const kinds = [...container.querySelectorAll('[data-kind]')]
+    expect(kinds.length).toBeGreaterThan(100)
+    expect(kinds.every(node => world.contains(node))).toBe(true)
+    expect(world.querySelectorAll('[data-slot]')).toHaveLength(256)
+    expect(back.querySelector('[data-layer="clouds"]')).not.toBeNull()
+    expect(back.querySelector('[data-weather="sky"]')).not.toBeNull()
+    for (const name of ['rain', 'pings', 'coins', 'moments']) expect(motion.querySelector(`[data-layer="${name}"]`), name).not.toBeNull()
+    expect(world.querySelector('[data-flash="bank"]')).not.toBeNull()
+  })
+
   test('the weather follows the mood: sky colours, cloud count, rain or snow', () => {
     const { container, rerender } = render(<TownCard arm={A} tick={100} towns={2} />)
     const model = townAt(A, 100)
@@ -339,8 +369,11 @@ describe('TownCard motion between weeks', () => {
     rerender(card(70, { playing: true }))
     expect(layer(container, 'moments').textContent).toContain('Bad loans $19k')
     expect(layer(container, 'moments').querySelectorAll('.lt-puff').length).toBeGreaterThan(0)
-    frames(50)
-    expect(container.querySelector('[data-flash="bank"]')).toHaveClass('is-on')
+    const flash = () => Number(container.querySelector('[data-flash="bank"]').getAttribute('opacity'))
+    frames(150)
+    expect(flash()).toBeGreaterThan(0.3)
+    frames(1500)
+    expect(flash()).toBe(0)
   })
 
   test('a newer sign over the same place replaces the older one', () => {
@@ -387,19 +420,77 @@ describe('TownCard motion between weeks', () => {
     rerender(card(11, { playing: true }))
     frames(600)
     const walker = container.querySelector('[data-slot] > .lt-walker.is-moving')
-    const where = () => [walker.getAttribute('transform'), flying(container).map(coin => `${coin.getAttribute('cx')},${coin.getAttribute('cy')}`).join(' ')]
+    const sign = layer(container, 'moments').querySelector('.lt-moment')
+    const where = () => [
+      walker.getAttribute('transform'),
+      flying(container).map(coin => `${coin.getAttribute('cx')},${coin.getAttribute('cy')}`).join(' '),
+      `${sign.getAttribute('transform')} ${sign.getAttribute('opacity')}`,
+    ]
     rerender(card(11, { playing: false }))
     const paused = where()
     expect(paused[1]).not.toBe('')
     frames(2000)
     expect(where()).toEqual(paused)
     expect(walker.isConnected).toBe(true)
-    expect(layer(container, 'moments')).toHaveAttribute('data-paused')
+    expect(sign.isConnected).toBe(true)
     expect(vi.getTimerCount()).toBe(0)
     rerender(card(11, { playing: true }))
-    expect(layer(container, 'moments')).not.toHaveAttribute('data-paused')
     frames(100)
     expect(where()[0]).not.toBe(paused[0])
+    expect(where()[2]).not.toBe(paused[2])
+  })
+
+  test('chimneys smoke, flags wave and struggling shops flicker while playing; paused or with reduced motion they stand still', () => {
+    const smoke = container => container.querySelector('.lt-house.is-work.is-smoky .lt-smoke circle')
+    const flag = container => container.querySelector('.lt-shop.is-struggling .lt-flag-wave')
+    const lights = container => container.querySelector('.lt-shop.is-struggling .lt-wins')
+    const pose = container => [smoke(container).getAttribute('transform'), smoke(container).getAttribute('opacity'), flag(container).getAttribute('transform')]
+    const { container, rerender, unmount } = render(card(70, { playing: false }))
+    // Drawn standing (React's pose), and nothing moves while paused.
+    const drawn = pose(container)
+    expect(drawn[0]).toMatch(/^translate\(.+\) scale\(.+\)$/)
+    frames(1000)
+    expect(pose(container)).toEqual(drawn)
+    rerender(card(70, { playing: true }))
+    frames(300)
+    const moved = pose(container)
+    expect(moved[0]).not.toBe(drawn[0])
+    expect(moved[2]).not.toBe(drawn[2])
+    // The lights dim for a moment twice in each 2.6 s.
+    const seen = new Set()
+    for (let i = 0; i < 30; i += 1) {
+      frames(100)
+      seen.add(lights(container).getAttribute('opacity'))
+    }
+    expect([...seen].sort()).toEqual(['0.25', '0.4', '1'])
+    rerender(card(70, { playing: false }))
+    const paused = pose(container)
+    frames(1000)
+    expect(pose(container)).toEqual(paused)
+    unmount()
+
+    reduceMotion()
+    const reduced = render(card(70, { playing: true }))
+    frames(1000)
+    expect(pose(reduced.container)).toEqual(drawn)
+  })
+
+  test('a shop that recovers keeps its lights on', () => {
+    // Week 28 to 29: firm 7 stops struggling in Town A.
+    const before = townAt(A, 28).shops.filter(shop => shop.state === 'struggling').map(shop => shop.id)
+    const recovered = townAt(A, 29).shops.filter(shop => before.includes(shop.id) && shop.state !== 'struggling' && shop.state !== 'closed')
+    expect(recovered.length).toBeGreaterThan(0)
+    const { container, rerender } = render(card(28, { playing: true }))
+    const wins = id => container.querySelector(`[data-kind="shop"][data-id="${id}"] .lt-wins`)
+    let dim = false
+    for (let i = 0; i < 30 && !dim; i += 1) {
+      frames(50)
+      dim = wins(recovered[0].id).getAttribute('opacity') !== '1'
+    }
+    expect(dim).toBe(true)
+    rerender(card(29, { playing: true }))
+    frames(1000)
+    expect(wins(recovered[0].id)).not.toHaveAttribute('opacity')
   })
 
   test('cars and people on the roads follow the model, in the tile slots', () => {
@@ -495,7 +586,7 @@ describe('TownCard motion between weeks', () => {
     expect(layer(container, 'moments').childNodes).toHaveLength(0)
     frames(300)
     expect(layer(container, 'coins').querySelectorAll('circle')).toHaveLength(0)
-    expect(container.querySelector('[data-flash="bank"]')).not.toHaveClass('is-on')
+    expect(container.querySelector('[data-flash="bank"]')).toHaveAttribute('opacity', '0')
     expect(container.querySelectorAll('[data-slot] > .lt-walker.is-moving')).toHaveLength(0)
   })
 
@@ -514,6 +605,150 @@ describe('TownCard motion between weeks', () => {
     expect(houseIndexes(container, 'look').size).toBe(townAt(A, 14).counts.look)
     // Showing it again is a jump, not a step: no floating signs.
     expect(layer(container, 'moments').childNodes).toHaveLength(0)
+  })
+
+  test('the town hall\'s ring pulses twice when new rules arrive while playing, and just stands when scrubbed to', () => {
+    const arm = fixtureArm()
+    arm.policyChanges = [{ id: 'c1', tick: 15, policy: 'minimum_wage_policy', value: 'high' }]
+    const ring = container => container.querySelector('.lt-hall-ring')
+    const played = render(<TownCard arm={arm} tick={14} towns={1} playing />)
+    played.rerender(<TownCard arm={arm} tick={15} towns={1} playing />)
+    const scales = new Set()
+    for (let i = 0; i < 10; i += 1) {
+      frames(100)
+      scales.add(ring(played.container).getAttribute('transform'))
+    }
+    expect(scales.size).toBeGreaterThan(3)
+    frames(500)
+    expect(ring(played.container)).not.toHaveAttribute('transform')
+    expect(ring(played.container)).not.toHaveAttribute('opacity')
+    played.unmount()
+
+    const scrubbed = render(<TownCard arm={arm} tick={14} towns={1} />)
+    scrubbed.rerender(<TownCard arm={arm} tick={15} towns={1} />)
+    frames(300)
+    expect(ring(scrubbed.container)).not.toBeNull()
+    expect(ring(scrubbed.container)).not.toHaveAttribute('transform')
+  })
+
+  test('when the run ends, what is in flight lands and the loop sleeps; the viewer\'s pause freezes it', () => {
+    const inFlight = container => layer(container, 'moments').childNodes.length + flying(container).length
+      + container.querySelectorAll('[data-slot] > .lt-walker.is-moving').length
+    // The clock stops on the run's last week: that week was still a step.
+    const ended = render(card(10, { playing: true }))
+    ended.rerender(card(11, { playing: false, ended: true }))
+    expect(layer(ended.container, 'moments').childNodes.length).toBeGreaterThan(0)
+    expect(ended.container.querySelectorAll('[data-slot] > .lt-walker.is-moving').length).toBeGreaterThan(0)
+    frames(5000)
+    expect(inFlight(ended.container)).toBe(0)
+    expect(vi.getTimerCount()).toBe(0)
+    ended.unmount()
+
+    const paused = render(card(10, { playing: true }))
+    paused.rerender(card(11, { playing: true }))
+    frames(300)
+    paused.rerender(card(11, { playing: false }))
+    const before = inFlight(paused.container)
+    frames(5000)
+    expect(before).toBeGreaterThan(0)
+    expect(inFlight(paused.container)).toBe(before)
+  })
+})
+
+// Shop heights ease in the scene loop (heights.js), with the shop's nodes
+// found once, the scaffold poles growing with the walls.
+describe('shop heights', () => {
+  const lot = LAYOUT.lots[0]
+  const shop = floors => ({ id: 7, lot: 0, sector: 'Food', state: 'growing', fresh: true, isNew: false, floors, staff: floors * 9, closedFor: 0 })
+  const drawn = floors => {
+    const { container, unmount } = render(<svg data-layer="world"><Shop shop={shop(floors)} lot={lot} /></svg>)
+    const out = [...container.querySelectorAll('.lt-pole')].map(pole => pole.getAttribute('y2'))
+    unmount()
+    return out
+  }
+
+  test('a scaffolded shop\'s poles and rings follow its height as it eases', () => {
+    const [low, high] = [drawn(1), drawn(4)]
+    const { container, rerender } = render(<svg data-layer="world"><Shop shop={shop(1)} lot={lot} /></svg>)
+    const s = { world: container.querySelector('svg'), heights: new Map(), easing: new Set(), now: 0 }
+    syncHeights(s, [shop(1)], false)
+    rerender(<svg data-layer="world"><Shop shop={shop(4)} lot={lot} /></svg>)
+    syncHeights(s, [shop(4)], true)
+    const poles = () => [...container.querySelectorAll('.lt-pole')].map(pole => pole.getAttribute('y2'))
+    const shownRings = () => [...container.querySelectorAll('polyline[data-z]')].filter(ring => ring.style.display !== 'none').length
+    // React drew the new height; the loop put it back where it was.
+    expect(poles()).toEqual(low)
+    // One floor (20 high) shows the rings at 5, 11 and 17 of the seven.
+    expect(container.querySelectorAll('polyline[data-z]')).toHaveLength(7)
+    expect(shownRings()).toBe(3)
+    s.now = 150
+    stepHeights(s)
+    expect(poles()).not.toEqual(low)
+    expect(poles()).not.toEqual(high)
+    s.now = 450
+    stepHeights(s)
+    expect(poles()).toEqual(high)
+    expect(shownRings()).toBe(container.querySelectorAll('polyline[data-z]').length)
+    expect(s.easing.size).toBe(0)
+  })
+})
+
+// Main Street (Task 8) brings its own places; the loop asks them, not the island.
+describe('a scene with its own places', () => {
+  beforeEach(() => { vi.useFakeTimers({ toFake: ['requestAnimationFrame', 'cancelAnimationFrame', 'performance'] }) })
+  afterEach(() => { vi.useRealTimers() })
+
+  function Strip({ model, places, playing }) {
+    const ref = useRef(null)
+    useSceneMotion(ref, { model, places, playing, speed: 1, towns: 1 })
+    return (
+      <div ref={ref}>
+        <svg data-layer="world"><g data-lane="" /></svg>
+        <svg data-layer="motion"><g data-layer="pings" /><g data-layer="coins" /><g data-layer="moments" /></svg>
+      </div>
+    )
+  }
+
+  test('traffic, walkers, coins and signs go where the places say', () => {
+    const calls = { put: 0 }
+    const walker = s => {
+      const node = document.createElementNS('http://www.w3.org/2000/svg', 'circle')
+      s.where.lane.appendChild(node)
+      return { node, x: 0 }
+    }
+    const places = {
+      attach: root => ({ lane: root.querySelector('[data-lane]') }),
+      house: index => [index, 100],
+      shop: () => [300, 50],
+      shopTop: () => [300, 20],
+      hall: [200, 50],
+      bankTop: [250, 20],
+      traffic: () => ({ cars: 0, walkers: 3 }),
+      newCar: walker,
+      newWalker: walker,
+      moveCar() {},
+      moveWalker(s, thing, dt) {
+        thing.x += dt * 10
+        thing.node.setAttribute('cx', thing.x.toFixed(2))
+      },
+      route: () => ({ door: [300], home: [0] }),
+      put(s, thing, [x]) {
+        calls.put += 1
+        if (thing.node.parentNode !== s.where.lane) s.where.lane.appendChild(thing.node)
+        thing.node.setAttribute('cx', x.toFixed(2))
+      },
+    }
+    const { container, rerender } = render(<Strip model={townAt(A, 10)} places={places} playing />)
+    const lane = container.querySelector('[data-lane]')
+    expect(lane.childNodes).toHaveLength(3)
+    rerender(<Strip model={townAt(A, 11)} places={places} playing />)
+    // Week 11: people laid off walk home, drawn where the places put them.
+    expect(lane.querySelectorAll('.lt-walker.is-moving').length).toBeGreaterThan(0)
+    expect(calls.put).toBeGreaterThan(0)
+    expect(container.querySelector('[data-layer="moments"]').childNodes.length).toBeGreaterThan(0)
+    vi.advanceTimersByTime(500)
+    expect(lane.firstChild.getAttribute('cx')).not.toBeNull()
+    expect(container.querySelectorAll('[data-layer="coins"] circle').length).toBeGreaterThan(0)
   })
 })
 
@@ -536,6 +771,21 @@ describe('Run screen towns in motion', () => {
     fireEvent.change(scrubbed.container.querySelector('input[type=range]'), { target: { value: '70' } })
     expect(scrubbed.container.querySelector('input[type=range]')).toHaveValue('70')
     expect(signs(scrubbed.container)).toBe(0)
+  })
+
+  test('the replay\'s last week is still a step, and what it set going lands', () => {
+    // A replay that ends at week 70: the clock stops there as it arrives.
+    const end = { ...props, maxTick: 70 }
+    vi.useFakeTimers({ toFake: ['requestAnimationFrame', 'cancelAnimationFrame', 'performance'] })
+    try {
+      const { container, rerender } = render(<RunScreen arms={[A, B]} tick={69} playing onScrub={() => {}} {...end} />)
+      rerender(<RunScreen arms={[A, B]} tick={70} playing={false} onScrub={() => {}} {...end} />)
+      expect(signs(container)).toBeGreaterThan(0)
+      vi.advanceTimersByTime(5000)
+      expect(signs(container)).toBe(0)
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   test('a live run held on a past week does not move, though its towns run on', () => {

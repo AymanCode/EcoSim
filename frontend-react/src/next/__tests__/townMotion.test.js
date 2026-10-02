@@ -1,5 +1,8 @@
 import { beforeAll, describe, expect, test } from 'vitest'
-import { COIN_DOLLARS, coinsDue, easeToward, isStep, weekMoments, weekWalkers } from '../town/motion.js'
+import {
+  COIN_DOLLARS, SMOKE_REST, coinsDue, easeToward, fallOffset, flashOpacity, flickerOpacity, isStep, pingPose, puffPose,
+  ringPose, risePose, smokePhase, smokePose, weekMoments, weekWalkers,
+} from '../town/motion.js'
 import { townAt } from '../town/model.js'
 import { scenePalette } from '../town/mood.js'
 import { paintWeather, weatherOf } from '../town/weather.js'
@@ -55,6 +58,42 @@ describe('motion helpers', () => {
   })
 })
 
+describe('poses the loop writes', () => {
+  test('a chimney puff rises, grows and fades; the drawing starts where the loop does', () => {
+    const start = smokePose(0)
+    const end = smokePose(0.999)
+    expect(start).toEqual({ transform: 'translate(0 0) scale(0.5)', opacity: 0 })
+    expect(end.transform).toBe('translate(5 -14) scale(1.7)')
+    expect(end.opacity).toBeLessThan(0.01)
+    expect(smokePose(0.15).opacity).toBe(0.85)
+    expect(SMOKE_REST).toEqual([0, 1, 2].map(i => smokePhase(0, i)))
+    expect(smokePhase(2800, 0)).toBeCloseTo(smokePhase(0, 0))
+  })
+
+  test('lights dim twice a cycle; drops fall and wrap', () => {
+    expect([0, 0.4, 0.5, 0.72, 0.9].map(flickerOpacity)).toEqual([1, 0.25, 1, 0.4, 1])
+    expect(fallOffset(0, false)).toEqual([0, -20])
+    expect(fallOffset(1, false)).toEqual([-7, 26])
+    expect(fallOffset(1, true)).toEqual([6, 30])
+  })
+
+  test('signs, rings, puffs, the bank flash and the hall ring start and end at rest', () => {
+    expect(risePose(0)).toEqual({ dy: 6, opacity: 0 })
+    expect(risePose(0.12)).toEqual({ dy: 0, opacity: 1 })
+    expect(risePose(0.5).opacity).toBe(1)
+    expect(risePose(1)).toEqual({ dy: -16, opacity: 0 })
+    expect(pingPose(0)).toEqual({ scale: 0.4, opacity: 0.9 })
+    expect(pingPose(1)).toEqual({ scale: 2.2, opacity: 0 })
+    expect(puffPose(1)).toEqual({ scale: 2.4, opacity: 0 })
+    expect(flashOpacity(0)).toBe(0)
+    expect(flashOpacity(0.15)).toBe(0.55)
+    expect(flashOpacity(1)).toBe(0)
+    expect(ringPose(0)).toEqual({ scale: 1, opacity: 1 })
+    expect(ringPose(0.25)).toEqual({ scale: 1.06, opacity: 0.3 })
+    expect(ringPose(1)).toEqual({ scale: 1, opacity: 1 })
+  })
+})
+
 describe('weather painter', () => {
   const scene = () => {
     const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg')
@@ -71,6 +110,20 @@ describe('weather painter', () => {
     expect(names(grass)).toEqual(['--lt-grass-a', '--lt-grass-b'])
     expect(names(all)).toHaveLength(12)
     expect(all.style.getPropertyValue('--lt-sky-top')).toBe(scenePalette(0.3, 'summer').skyTop)
+  })
+
+  test('the world layer\'s parts can be left for a later paint', () => {
+    const root = document.createElement('div')
+    root.innerHTML = '<svg data-layer="back"><g data-weather="sky"></g></svg><svg data-layer="world"><g data-weather="grass"></g><rect data-weather="shade"></rect></svg>'
+    const weather = weatherOf(root)
+    paintWeather(weather, 0.2, 'summer', { world: false })
+    const [sky, grass, shade] = root.querySelectorAll('[data-weather]')
+    expect(sky.style.getPropertyValue('--lt-sky-top')).toBe(scenePalette(0.2, 'summer').skyTop)
+    expect(grass.style.length).toBe(0)
+    expect(shade.style.length).toBe(0)
+    paintWeather(weather, 0.2, 'summer')
+    expect(grass.style.getPropertyValue('--lt-grass-a')).toBe(scenePalette(0.2, 'summer').grassA)
+    expect(shade.style.getPropertyValue('--lt-shade')).toBe(scenePalette(0.2, 'summer').shade.toFixed(3))
   })
 
   test('painting again writes only what changed', () => {

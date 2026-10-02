@@ -70,6 +70,12 @@ export function figureNode(doc, shirt, carry = false) {
   return { g, legs }
 }
 
+// Swings a walking figure's legs (its `d`) for a step at `phase` (radians).
+export function swingLegs(legs, phase) {
+  const k = r1(Math.sin(phase) * 1.2)
+  legs.setAttribute('d', `M0 -2.6 l${-k} 2.6 M0 -2.6 l${k} 2.6`)
+}
+
 // A small car drawn around (0, 0), facing along the x or y road; the loop
 // moves it with a translate.
 export function carNode(doc, axis, colour) {

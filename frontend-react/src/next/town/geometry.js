@@ -15,6 +15,7 @@ export const STREET_CAPACITY = 26
 export const VIEWBOX = '-302 -50 604 364'
 
 const round1 = value => Math.round(value * 10) / 10
+export const r1 = round1
 
 // Screen position of a point on the island; z lifts it straight up.
 export function iso(gx, gy, z = 0) {
@@ -22,6 +23,9 @@ export function iso(gx, gy, z = 0) {
 }
 
 export const pts = list => list.map(([x, y]) => `${round1(x)},${round1(y)}`).join(' ')
+
+// Text set on a building's left face (it slopes down to the right).
+export const onFace = at => `matrix(1 0.5 0 1 ${round1(at[0])} ${round1(at[1])})`
 
 export function mulberry32(seed) {
   let a = seed | 0
