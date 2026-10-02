@@ -715,8 +715,9 @@ export const COPY = {
     },
     summary: {
       mood: band => ({ thriving: 'The town is thriving.', okay: 'The town is getting by.', struggling: 'The town is struggling.', hard: 'The town is going through hard times.' })[band],
-      weather: (season, mood) => `It is ${season}; ${mood === 'hard' ? 'it is raining' : mood === 'struggling' ? 'it is cloudy' : 'the sun is out'}.`,
-      overflow: n => `${n} more businesses than lots; they are not drawn.`,
+      // Winter's rain is snow, and a little snow falls in any mood (spec 4.1).
+      weather: (season, mood) => `It is ${season}; ${season === 'winter' ? 'it is snowing' : mood === 'hard' ? 'it is raining' : mood === 'struggling' ? 'it is cloudy' : 'the sun is out'}.`,
+      overflow: n => `${counted(n, 'more business', 'more businesses')} than lots; ${n === 1 ? 'it is' : 'they are'} not drawn.`,
     },
     card: {
       house: { work: 'A working home', look: 'Looking for work', home: 'Lost their home', sub: per => `stands for ${per}` },
@@ -728,12 +729,13 @@ export const COPY = {
       thisWeek: (hired, laid) => `This week: ${[hired ? `hired ${hired}` : '', laid ? `let ${laid} go` : ''].filter(Boolean).join(', ')}.`,
       richest: 'The richest shop in town, not counting the co-ops.',
       states: { building: 'Being built', fresh: 'Just opened', growing: 'Growing, hiring', struggling: 'Struggling to pay its bills', steady: 'Steady', closed: 'Closed' },
-      hall: 'Town hall', taxes: 'Taxes in this week', help: 'Help paid to families', saved: 'Saved', owes: 'Owes', queue: n => `${n} people queuing for help.`,
-      inDebt: 'In debt', inBlack: 'In the black',
+      // The queue in the picture is a scale (one figure per $2,800 of help), so the card describes it and counts no one.
+      hall: 'Town hall', taxes: 'Taxes in this week', help: 'Help paid to families this week', saved: 'Saved', owes: 'Owes', queue: 'A queue of families is waiting for help.',
+      inDebt: 'In debt', hasSavings: 'Has savings', notMeasured: 'Not measured',
       bank: 'The bank', bankSub: 'lends to shops and families', loans: 'Loans out', bad: 'Gone bad this week', badTag: 'Loans going bad', lending: 'Lending',
-      person: 'someone you follow', worksAt: firm => `Works at ${firm}`, outFor: weeks => `Out of work for ${weeks} week${weeks === 1 ? '' : 's'}`,
+      person: 'someone you follow',
       savings: 'Savings', health: 'Health', happiness: 'Happiness', rentOwed: 'Rent owed',
-      word: value => (value == null ? '–' : value >= 0.66 ? 'good' : value >= 0.33 ? 'so-so' : 'low'),
+      word: value => (value == null ? NOT_MEASURED : value >= 0.66 ? 'good' : value >= 0.33 ? 'so-so' : 'low'),
       working: 'Working', looking: 'Looking for work',
     },
   },

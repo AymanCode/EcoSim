@@ -1,7 +1,9 @@
 import { beforeAll, describe, expect, test } from 'vitest'
+import { householdName } from '../names.js'
 import { placeCard } from '../town/cards.js'
 import { WEEKS, townAt } from '../town/model.js'
 import { demoArms } from './fixture.js'
+import { firm, liveArm, subject } from './townFixture.js'
 
 let model
 beforeAll(() => { model = townAt(demoArms()[0], 70) })
@@ -59,10 +61,7 @@ const sample = {
   ],
   hall: { cash: 5200, income: 3000, support: 0, queue: 0 },
   bank: { loans: 120, bad: 0, badNow: false },
-  people: [
-    { name: 'Ana', age: null, working: false, cash: 20, health: null, happiness: 0.5, weeksOut: 1, rentOwed: 140, employer: null },
-    { name: 'Raj', age: 40, working: true, cash: 900, health: 0.7, happiness: 0.2, weeksOut: 0, rentOwed: 0, employer: 'Oak Bakery' },
-  ],
+  people: [],
 }
 
 describe('placeCard at its edges', () => {
@@ -92,25 +91,102 @@ describe('placeCard at its edges', () => {
     expect(placeCard(sample, { kind: 'shop', id: 5 }).note).toBe('Empty and up for lease.')
   })
 
-  test('hall in the black with no queue, bank lending, a person with rent owed and no age', () => {
+  test('the hall with savings and no queue, and the bank when lending is fine', () => {
     const hall = placeCard(sample, { kind: 'hall' })
-    expect(hall.rows[2]).toEqual(['Saved', '$5.2k'])
+    expect(hall.rows).toEqual([['Taxes in this week', '$3k'], ['Help paid to families this week', '$0'], ['Saved', '$5.2k']])
     expect(hall.note).toBeNull()
-    expect(hall.tag).toEqual({ text: 'In the black', tone: 'good' })
+    expect(hall.tag).toEqual({ text: 'Has savings', tone: 'good' })
     expect(placeCard(sample, { kind: 'bank' }).tag).toEqual({ text: 'Lending', tone: 'good' })
-    const ana = placeCard(sample, { kind: 'person', index: 0 })
-    expect(ana.title).toBe('Ana')
-    expect(ana.rows).toEqual([['Savings', '$20'], ['Health', '–'], ['Happiness', 'so-so'], ['Rent owed', '$140']])
-    expect(ana.note).toBe('Out of work for 1 week')
-    const raj = placeCard(sample, { kind: 'person', index: 1 })
-    expect(raj.title).toBe('Raj, 40')
-    expect(raj.note).toBe('Works at Oak Bakery')
-    expect(raj.rows.map(([label]) => label)).not.toContain('Rent owed')
+  })
+
+  test('the queue is described, never counted', () => {
+    for (const queue of [1, 2, 9]) {
+      const { note } = placeCard({ ...sample, hall: { ...sample.hall, queue } }, { kind: 'hall' })
+      expect(note).toBe('A queue of families is waiting for help.')
+    }
   })
 
   test('no model or no target gives no card', () => {
     expect(placeCard(null, { kind: 'hall' })).toBeNull()
     expect(placeCard(sample, null)).toBeNull()
     expect(placeCard(sample, { kind: 'person', index: 9 })).toBeNull()
+  })
+})
+
+describe('placeCard for figures the town did not report', () => {
+  const unmeasured = {
+    ...sample,
+    hall: { cash: null, income: null, support: null, queue: 0 },
+    bank: { loans: null, bad: null, badNow: false },
+  }
+
+  test('the hall says not measured, not $0, and gives no good or bad news', () => {
+    const hall = placeCard(unmeasured, { kind: 'hall' })
+    expect(hall.rows).toEqual([['Taxes in this week', 'not measured'], ['Help paid to families this week', 'not measured'], ['Saved', 'not measured']])
+    expect(hall.tag).toEqual({ text: 'Not measured', tone: 'quiet' })
+  })
+
+  test('the bank says not measured for both rows and gives a quiet tag', () => {
+    const bank = placeCard(unmeasured, { kind: 'bank' })
+    expect(bank.rows).toEqual([['Loans out', 'not measured'], ['Gone bad this week', 'not measured']])
+    expect(bank.tag).toEqual({ text: 'Not measured', tone: 'quiet' })
+  })
+
+  test('a bank with loans but no bad-loan figure is lending; bad loans still show', () => {
+    const lending = placeCard({ ...unmeasured, bank: { loans: 40, bad: null, badNow: false } }, { kind: 'bank' })
+    expect(lending.rows[0]).toEqual(['Loans out', '40'])
+    expect(lending.tag.text).toBe('Lending')
+    expect(placeCard({ ...unmeasured, bank: { loans: null, bad: 8000, badNow: true } }, { kind: 'bank' }).tag.text).toBe('Loans going bad')
+  })
+
+  test('a hall in debt still says so', () => {
+    const hall = placeCard({ ...unmeasured, hall: { ...unmeasured.hall, cash: -4000 } }, { kind: 'hall' })
+    expect(hall.rows[2]).toEqual(['Owes', '$4k'])
+    expect(hall.tag).toEqual({ text: 'In debt', tone: 'bad' })
+  })
+})
+
+describe('placeCard for a person says what the Households panel says', () => {
+  const card = (extra, firms = [firm(1)]) => {
+    const arm = liveArm([[20, { firms, subjects: [subject(7, extra)] }]])
+    return placeCard(townAt(arm, 20), { kind: 'person', index: 0 })
+  }
+
+  test('someone who just lost their job and someone out for weeks', () => {
+    const just = card({ unemploymentDuration: 0 })
+    expect(just.note).toBe('Just started looking for work.')
+    expect(just.tag).toEqual({ text: 'Looking for work', tone: 'warn' })
+    expect(card({ unemploymentDuration: 41 }).note).toBe('Has been looking for work for 41 weeks.')
+    expect(card({ unemploymentDuration: 1 }).note).toBe('Has been looking for work for 1 week.')
+  })
+
+  test('someone who cannot work is not looking for work', () => {
+    const idle = card({ canWork: false })
+    expect(idle.note).toBe('Not working right now.')
+    expect(idle.tag).toEqual({ text: 'Not working', tone: 'quiet' })
+  })
+
+  test('someone who lost their home, even if they have a job', () => {
+    const home = card({ isEmployed: true, housingSecurity: false })
+    expect(home.note).toBe('Has no home right now.')
+    expect(home.tag).toEqual({ text: 'Lost their home', tone: 'bad' })
+  })
+
+  test('someone working names the shop, or no shop at all; never a dangling "Works at"', () => {
+    const named = card({ isEmployed: true, employer: 'Shop 1' })
+    expect(named.note).toMatch(/^Steady work at .+\.$/)
+    expect(named.tag).toEqual({ text: 'Working', tone: 'good' })
+    const unnamed = card({ isEmployed: true, employer: null })
+    expect(unnamed.note).toBe('In steady work.')
+    expect(unnamed.note).not.toMatch(/Works at/i)
+  })
+
+  test('rent owed is a row only when there is some; no age and unknown figures read plainly', () => {
+    const behind = card({ isEmployed: true, rentArrears: 140, age: null })
+    expect(behind.title).toBe(householdName(7))
+    expect(behind.rows.at(-1)).toEqual(['Rent owed', '$140'])
+    expect(behind.note).toBe('Working, but $140 behind on rent.')
+    const vague = card({ cash: null, health: null, happiness: 0.5 })
+    expect(vague.rows).toEqual([['Savings', 'not measured'], ['Health', 'not measured'], ['Happiness', 'so-so']])
   })
 })

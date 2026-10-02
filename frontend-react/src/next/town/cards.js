@@ -1,9 +1,10 @@
 // What a card says about the place under the pointer, for one week's model.
-import { COPY, formatMoneyShort, householdsPerHouse, sectorName } from '../catalog.js'
-import { weekLabel } from '../narration.js'
+import { COPY, HOUSEHOLD_STATES, NOT_MEASURED, formatMoneyShort, householdsPerHouse, sectorName } from '../catalog.js'
+import { householdStateSentence, weekLabel } from '../narration.js'
 import { WEEKS } from './model.js'
 
 const T = COPY.diorama.card
+const PERSON_TONES = { work: 'good', look: 'warn', home: 'bad', idle: 'quiet' }
 
 export function placeCard(model, target, total) {
   if (!model || !target) return null
@@ -37,17 +38,21 @@ export function placeCard(model, target, total) {
   }
   if (target.kind === 'hall') {
     const { cash, income, support, queue } = model.hall
+    // An unmeasured figure reads "not measured", never $0 or a good-news tag.
+    const known = Number.isFinite(cash)
+    const tag = !known ? { text: T.notMeasured, tone: 'quiet' } : cash < 0 ? { text: T.inDebt, tone: 'bad' } : { text: T.hasSavings, tone: 'good' }
     return {
       title: T.hall, sub: null,
-      rows: [[T.taxes, formatMoneyShort(income)], [T.help, formatMoneyShort(support)], [cash < 0 ? T.owes : T.saved, formatMoneyShort(Math.abs(cash ?? 0))]],
-      note: queue ? T.queue(queue) : null, tag: cash < 0 ? { text: T.inDebt, tone: 'bad' } : { text: T.inBlack, tone: 'good' },
+      rows: [[T.taxes, formatMoneyShort(income)], [T.help, formatMoneyShort(support)], [known && cash < 0 ? T.owes : T.saved, formatMoneyShort(known ? Math.abs(cash) : null)]],
+      note: queue ? T.queue : null, tag,
     }
   }
   if (target.kind === 'bank') {
     const { loans, bad, badNow } = model.bank
+    const tag = badNow ? { text: T.badTag, tone: 'bad' } : loans == null && bad == null ? { text: T.notMeasured, tone: 'quiet' } : { text: T.lending, tone: 'good' }
     return {
-      title: T.bank, sub: T.bankSub, rows: [[T.loans, loans == null ? '–' : String(loans)], [T.bad, formatMoneyShort(bad)]],
-      note: null, tag: badNow ? { text: T.badTag, tone: 'bad' } : { text: T.lending, tone: 'good' },
+      title: T.bank, sub: T.bankSub, rows: [[T.loans, loans == null ? NOT_MEASURED : String(loans)], [T.bad, formatMoneyShort(bad)]],
+      note: null, tag,
     }
   }
   if (target.kind === 'person') {
@@ -55,10 +60,11 @@ export function placeCard(model, target, total) {
     if (!person) return null
     const rows = [[T.savings, formatMoneyShort(person.cash)], [T.health, T.word(person.health)], [T.happiness, T.word(person.happiness)]]
     if (person.rentOwed > 0) rows.push([T.rentOwed, formatMoneyShort(person.rentOwed)])
+    // The same words as the Households panel: its chip and its sentence for the state.
     return {
       title: person.age == null ? person.name : `${person.name}, ${person.age}`, sub: T.person, rows,
-      note: person.working ? T.worksAt(person.employer ?? '') : T.outFor(person.weeksOut),
-      tag: person.working ? { text: T.working, tone: 'good' } : { text: T.looking, tone: 'warn' },
+      note: householdStateSentence(person.subject, { employerName: person.employer }),
+      tag: { text: HOUSEHOLD_STATES[person.state].chip, tone: PERSON_TONES[person.state] },
     }
   }
   return null
