@@ -39,6 +39,8 @@ function sparklines(arms, metricKey, tick) {
   return { paths, band }
 }
 
+// The values row keeps room for two lines when towns are compared, so values
+// that wrap in some weeks never resize the card (spec section 6).
 export default function StatCard({ metricKey, arms, tick }) {
   const clipId = `nx-mini-${useId().replace(/:/g, '')}`
   const metric = METRICS[metricKey] ?? { name: metricKey, meaning: '' }
@@ -48,7 +50,7 @@ export default function StatCard({ metricKey, arms, tick }) {
   return (
     <div className="nx-stat">
       <h4>{metric.name}</h4>
-      <div className="pair">
+      <div className="pair" style={{ '--nx-pv-lines': Math.min(rows.length, 2) }}>
         {rows.map(row => (
           <div className="nx-pv" key={row.label}>
             <b><i style={{ background: row.color }} aria-hidden="true" />{formatMetric(metricKey, row.value)}</b>

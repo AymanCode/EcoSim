@@ -196,6 +196,9 @@
    firms open and close. */
 .nx .nx-biz { margin-top: 14px; container-type: inline-size; --nx-brow: 56px }
 .nx .nx-blistbox { min-height: calc(var(--nx-rows, 7) * var(--nx-brow) + 2px) }
+/* "See all": every firm in a box three rows taller, scrolling inside itself. */
+.nx .nx-blistbox.is-open { height: calc((var(--nx-rows, 7) + 3) * var(--nx-brow) + 2px); overflow-y: auto }
+.nx .nx-blistbox.is-open:focus-visible { outline: 2px solid var(--nx-a); outline-offset: 2px; border-radius: 6px }
 .nx .nx-bfoot { min-height: 30px }
 .nx .nx-blist { margin-top: 2px }
 .nx .nx-brow {
@@ -282,6 +285,12 @@
   min-width: 0;
 }
 .nx .nx-hc.is-pinned { border-color: var(--nx-line2); background: var(--nx-panel) }
+/* Four slots and a button line, always: an empty slot is a hidden card, and
+   with no sample at all the note sits over the empty slots. */
+.nx .nx-hc.is-slot { visibility: hidden }
+.nx .nx-hbody { position: relative }
+.nx .nx-hbody > .nx-empty { position: absolute; top: 0; left: 0; right: 0 }
+.nx .nx-hfoot { min-height: 30px }
 .nx .nx-hc .av {
   width: 40px;
   height: 40px;
@@ -339,7 +348,22 @@
 /* Stat cards */
 .nx .nx-stat { background: var(--nx-panel); border: 1px solid var(--nx-line); border-radius: 14px; padding: 12px 14px; min-width: 0 }
 .nx .nx-stat h4 { font-size: 14px }
-.nx .nx-stat .pair { display: flex; gap: 16px; margin-top: 6px; align-items: flex-end; flex-wrap: wrap }
+/* The values keep room for --nx-pv-lines lines (two when towns are compared,
+   set by StatCard), so a week whose values wrap onto a second line never
+   resizes the card. A value is 40 px tall: a 21 px figure, 2 px, a 17 px name. */
+.nx .nx-stat .pair {
+  --nx-pair-gap: 16px;
+  display: flex;
+  gap: var(--nx-pair-gap);
+  margin-top: 6px;
+  align-items: flex-end;
+  align-content: flex-start;
+  flex-wrap: wrap;
+  min-height: calc(var(--nx-pv-lines, 1) * 40px + (var(--nx-pv-lines, 1) - 1) * var(--nx-pair-gap));
+}
+.nx .nx-stat .nx-pv { white-space: nowrap }
+.nx .nx-stat .nx-pv b { line-height: 21px }
+.nx .nx-stat .nx-pv small { line-height: 17px }
 .nx .nx-pv b {
   font-family: var(--nx-disp), var(--nx-body), sans-serif;
   font-size: 20px;
@@ -641,7 +665,7 @@
 .nx .nx-stats { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 12px; margin-top: 12px }
 /* Two towns' values sit side by side in a half-width card. */
 .nx .nx-stats .nx-stat { padding: 12px 13px }
-.nx .nx-stats .pair { gap: 10px }
+.nx .nx-stats .pair { --nx-pair-gap: 10px }
 .nx .nx-stats .nx-pv b { letter-spacing: -.01em }
 /* The line naming more numbers, ending in the way into all of them */
 .nx .nx-morestats { margin-top: 10px; font-size: 13px; line-height: 1.45; color: var(--nx-ink3-text) }

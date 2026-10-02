@@ -7,7 +7,10 @@ import '../next.css'
 
 // Open firms richest first, then firms closed in the last year, faded. The
 // list keeps room for `max` rows and the button line under it, so the page
-// does not move as firms open and close (spec section 6).
+// does not move as firms open and close (spec section 6). "See all" shows
+// every firm in a box a few rows taller that scrolls inside itself (and takes
+// keyboard focus to scroll), so the page holds still with it open too; its
+// button stays until the viewer closes it.
 export default function BusinessList({ arm, tick, max = 7 }) {
   const [expanded, setExpanded] = useState(false)
   const snapshot = snapshotAt(arm, tick)
@@ -39,7 +42,13 @@ export default function BusinessList({ arm, tick, max = 7 }) {
   return (
     <div className="nx-card nx-biz" data-stable={`businesses:${arm?.label}`}>
       <div className="nx-bh"><h3>{COPY.businesses.title}</h3><span>{COPY.businesses.subtitle}</span></div>
-      <div className="nx-blistbox" style={{ '--nx-rows': max }}>
+      <div
+        className={`nx-blistbox${expanded ? ' is-open' : ''}`}
+        style={{ '--nx-rows': max }}
+        role={expanded ? 'region' : undefined}
+        aria-label={expanded ? COPY.businesses.allLabel(arm?.label) : undefined}
+        tabIndex={expanded ? 0 : undefined}
+      >
         {rows.length === 0 ? (
           <p className="nx-empty">{COPY.businesses.empty}</p>
         ) : (
@@ -49,7 +58,7 @@ export default function BusinessList({ arm, tick, max = 7 }) {
         )}
       </div>
       <div className="nx-bfoot">
-        {rows.length > max && (
+        {(rows.length > max || expanded) && (
           <button type="button" className="nx-more" aria-expanded={expanded} onClick={() => setExpanded(value => !value)}>
             {expanded ? COPY.businesses.showFewer : COPY.businesses.seeAll(rows.length)}
           </button>
