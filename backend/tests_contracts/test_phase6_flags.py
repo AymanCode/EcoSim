@@ -317,7 +317,7 @@ def test_b10_batch_fractions_apply_preferences_once_and_cache_follows_flag(facto
     household.category_weights = {"food": 0.5, "housing": 0.25, "services": 0.25}
     economy = factory.economy(households=[household], firms=[factory.firm(firm_id=1)])
 
-    assert CONFIG.households.fix_preference_applied_once is False
+    monkeypatch.setattr(CONFIG.households, "fix_preference_applied_once", False)
     squared = economy._household_static_traits()["precomputed_fractions"][0]
     # Flag off: the preference multiplies again, so food's share is 2^2 / (4 + 1 + 1).
     assert squared == pytest.approx({"food": 4.0 / 6.0, "housing": 1.0 / 6.0, "services": 1.0 / 6.0})

@@ -68,9 +68,13 @@ class HouseholdBehaviorConfig:
 
     # Per-household trait ranges (sampled once at initialization)
     spending_tendency_range: Tuple[float, float] = (0.1, 5.0)  # Widened from (0.7,1.3) to match normalization range
-    food_preference_range: Tuple[float, float] = (0.8, 1.2)
-    services_preference_range: Tuple[float, float] = (0.8, 1.2)
-    housing_preference_range: Tuple[float, float] = (0.4, 1.4)
+    # Widened 2026-10-02 (were (0.8, 1.2), (0.8, 1.2), (0.4, 1.4)) when
+    # fix_preference_applied_once went on: same centres, half-widths x2.1
+    # (food, services) and x1.6 (housing), so budget-share percentiles stay
+    # close to the old preference-squared spread.
+    food_preference_range: Tuple[float, float] = (0.58, 1.42)
+    services_preference_range: Tuple[float, float] = (0.58, 1.42)
+    housing_preference_range: Tuple[float, float] = (0.10, 1.70)
     quality_lavishness_range: Tuple[float, float] = (0.8, 1.3)
     frugality_range: Tuple[float, float] = (0.7, 1.3)
     saving_tendency_range: Tuple[float, float] = (0.0, 1.0)
@@ -362,11 +366,12 @@ class HouseholdBehaviorConfig:
     # does not invert for negative utilities.
     fix_seller_choice_noise: bool = False
     tie_break_scale: float = 1e-3
-    # Remediation phase 6 (audit B10), default off = old behavior: the batch
-    # consumption planner uses category_weights as stored (already
-    # normalize(base * preference)) instead of multiplying by the preferences
-    # a second time, so budget shares scale with preference, not its square.
-    fix_preference_applied_once: bool = False
+    # Remediation phase 6 (audit B10), on by default since the owner decision of
+    # 2026-10-02 (False restores the old behavior): the batch consumption
+    # planner uses category_weights as stored (already normalize(base *
+    # preference)) instead of multiplying by the preferences a second time, so
+    # budget shares scale with preference, not its square.
+    fix_preference_applied_once: bool = True
     pool_refresh_interval: int = 4  # Refresh awareness pool every N ticks
     pool_refresh_drop_count: int = 1  # Number of lowest-utility firms to drop per refresh
 
