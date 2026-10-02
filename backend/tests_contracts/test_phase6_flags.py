@@ -42,8 +42,13 @@ def _run_cut_then_next_tick(firm):
     return offer_after_update, dict(firm.actual_wages)
 
 
-def test_b12_flag_off_distress_cut_is_undone_next_tick(factory):
-    assert CONFIG.firms.fix_distress_wage_cut_persists is False
+def test_b12_flag_default_is_on():
+    # Owner decision 2026-10-02 (task R5 item 4).
+    assert CONFIG.firms.fix_distress_wage_cut_persists is True
+
+
+def test_b12_flag_off_distress_cut_is_undone_next_tick(factory, monkeypatch):
+    monkeypatch.setattr(CONFIG.firms, "fix_distress_wage_cut_persists", False)
     firm = _distressed_baseline_firm(factory)
     offer, wages = _run_cut_then_next_tick(firm)
     assert offer == pytest.approx(100.0)
