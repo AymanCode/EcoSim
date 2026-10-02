@@ -9,11 +9,13 @@
 // One requestAnimationFrame loop per scene. It never sets React state: it
 // writes attributes, classes and CSS variables, and adds its own nodes to the
 // layers and tile slots the Diorama leaves empty for it (data-layer,
-// data-slot). It runs while the run plays, or until what is moving has
-// finished and the weather has settled, then sleeps until the next week.
-// Paused or scrubbed, the weather changes at once and nothing travels; with
-// prefers-reduced-motion the same, and no floating signs either. A card
-// hidden by Enlarge does nothing at all.
+// data-slot). It runs while the run plays; paused, everything in flight stops
+// where it is (the scene's own clock stops, and so do the signs' and rings'
+// CSS animations) and the loop sleeps once the weather has settled. A change
+// of week that is not a single step forward while playing (a scrub, even one
+// week on, or a jump) clears what was moving and changes the weather at once.
+// With prefers-reduced-motion nothing travels and there are no floating
+// signs. A card hidden by Enlarge does nothing at all.
 import { useLayoutEffect, useRef } from 'react'
 import { COPY, formatMoneyShort } from '../catalog.js'
 import { CLOUDS, GRID, LAYOUT, ROAD, iso } from './geometry.js'
@@ -24,9 +26,9 @@ import { paintWeather, weatherOf } from './weather.js'
 const FLOWS = ['spend', 'pay', 'tax', 'help']
 const MOMENTS = COPY.diorama.moments
 // Most alive at once in one scene: coins (spec), the rings where coins land
-// (spec), floating signs and walkers (so a busy run at 8 weeks a second does
-// not pile them up: each lives about 3 seconds, 20 or more weeks).
-const MAX = { coins: 160, pings: 16, signs: 8, movers: 24 }
+// (spec), floating signs, dust puffs and walkers (so a busy run at 8 weeks a
+// second does not pile them up: each lives 1 to 3 seconds, 8 to 25 weeks).
+const MAX = { coins: 160, pings: 16, signs: 8, puffs: 12, movers: 24 }
 const LIFE = { ping: 720, sign: 2850, puff: 1150 }
 
 const clamp = (value, lo, hi) => Math.min(hi, Math.max(lo, value))
@@ -79,6 +81,10 @@ function sceneOf(svg, mode) {
       return { g, x: start.x, y: start.y, v: 6 + Math.random() * 6 }
     }),
     mood: null, moodShown: null, moodTarget: null, season: null,
+    // The scene's own clock (ms): it runs only while things move, so pausing
+    // stops coins, walkers and signs where they are.
+    now: 0,
+    paused: null,
     debt: { spend: Math.random(), pay: Math.random(), tax: Math.random(), help: Math.random() },
     pools: null,
     cars: [], walkers: [], movers: [],
@@ -167,7 +173,7 @@ function coinRoute(s, flow) {
   return [places.hall, house(look.length ? look : live)]
 }
 
-function launchCoin(s, flow, now) {
+function launchCoin(s, flow) {
   if (s.coins.length >= MAX.coins) return
   const [a, b] = coinRoute(s, flow)
   if (!a || !b) return
@@ -176,25 +182,25 @@ function launchCoin(s, flow, now) {
   if (!coin) coin = { c: el(s.doc, 'circle', { r: 3, stroke: 'rgba(255,255,255,.8)', 'stroke-width': 0.7 }, s.layers.coins) }
   coin.c.style.display = ''
   coin.c.setAttribute('fill', colour)
-  Object.assign(coin, { path: arcPath(a, b, 24 + Math.hypot(b[0] - a[0], b[1] - a[1]) * 0.12), to: b, colour, t0: now, dur: 950 + Math.random() * 550 })
+  Object.assign(coin, { path: arcPath(a, b, 24 + Math.hypot(b[0] - a[0], b[1] - a[1]) * 0.12), to: b, colour, t0: s.now, dur: 950 + Math.random() * 550 })
   s.coins.push(coin)
 }
 
-function ping(s, at, colour, now) {
+function ping(s, at, colour) {
   if (s.pings.length >= MAX.pings) return
   const node = el(s.doc, 'circle', { cx: r1(at[0]), cy: r1(at[1]), r: 3.2, class: 'lt-ping', stroke: colour }, s.layers.pings)
-  s.pings.push({ node, until: now + LIFE.ping })
+  s.pings.push({ node, until: s.now + LIFE.ping })
 }
 
-function stepCoins(s, now) {
+function stepCoins(s) {
   for (let n = s.coins.length - 1; n >= 0; n -= 1) {
     const coin = s.coins[n]
-    const t = (now - coin.t0) / coin.dur
+    const t = (s.now - coin.t0) / coin.dur
     if (t >= 1) {
       coin.c.style.display = 'none'
       s.coins.splice(n, 1)
       s.spare.push(coin)
-      ping(s, coin.to, coin.colour, now)
+      ping(s, coin.to, coin.colour)
       continue
     }
     const [x, y] = coin.path(easeInOut(clamp(t, 0, 1)))
@@ -207,26 +213,27 @@ function stepCoins(s, now) {
 
 // A floating sign over a place (`key`: a shop's id, or the bank). A newer sign
 // over the same place replaces the older one rather than piling on top of it.
-function sign(s, key, at, label, tone, now) {
+function sign(s, key, at, label, tone) {
   const older = s.signs.findIndex(item => item.key === key)
   if (older >= 0) s.signs.splice(older, 1)[0].node.remove()
   const g = el(s.doc, 'g', { class: 'lt-moment' }, s.layers.moments)
   g.appendChild(pillNode(s.doc, at[0], at[1] - 6, label, tone, 7))
-  s.signs.push({ key, node: g, until: now + LIFE.sign })
+  s.signs.push({ key, node: g, until: s.now + LIFE.sign })
   while (s.signs.length > MAX.signs) s.signs.shift().node.remove()
 }
 
-function puff(s, at, now) {
+function puff(s, at) {
   for (const [dx, dy] of [[-5, 4], [5, 3], [0, 6]]) {
     const node = el(s.doc, 'circle', { cx: r1(at[0] + dx), cy: r1(at[1] + dy + 10), r: 4, class: 'lt-puff' }, s.layers.moments)
-    s.puffs.push({ node, until: now + LIFE.puff })
+    s.puffs.push({ node, until: s.now + LIFE.puff })
   }
+  while (s.puffs.length > MAX.puffs) s.puffs.shift().node.remove()
 }
 
 // A person laid off walks from the shop to a dark home carrying a box; a new
 // hire walks from a lit home to the shop. The second from one shop sets off a
 // moment later, beside the first.
-function walkTo(s, shop, kind, j, now) {
+function walkTo(s, shop, kind, j) {
   if (s.movers.length >= MAX.movers) return
   const { look, live, work } = s.pools
   const homes = kind === 'lay' ? (look.length ? look : live) : work
@@ -237,16 +244,16 @@ function walkTo(s, shop, kind, j, now) {
   const home = [house.gx + 0.5, house.gy + 0.9]
   const { g, legs } = figureNode(s.doc, WALKER_SHIRTS[kind], kind === 'lay')
   g.classList.add('is-moving')
-  const mover = { node: g, legs, from: kind === 'lay' ? door : home, to: kind === 'lay' ? home : door, t0: now + j * 260, dur: 2600 + Math.random() * 600, slot: null, scale: ' scale(.9)' }
+  const mover = { node: g, legs, from: kind === 'lay' ? door : home, to: kind === 'lay' ? home : door, t0: s.now + j * 260, dur: 2600 + Math.random() * 600, slot: null, scale: ' scale(.9)' }
   g.style.opacity = j > 0 ? '0' : '1'
   place(s, mover, ...mover.from)
   s.movers.push(mover)
 }
 
-function stepMovers(s, now) {
+function stepMovers(s) {
   for (let k = s.movers.length - 1; k >= 0; k -= 1) {
     const mover = s.movers[k]
-    const t = (now - mover.t0) / mover.dur
+    const t = (s.now - mover.t0) / mover.dur
     if (t >= 1) {
       mover.node.remove()
       s.movers.splice(k, 1)
@@ -255,18 +262,18 @@ function stepMovers(s, now) {
     const e = clamp(t, 0, 1)
     place(s, mover, mover.from[0] + (mover.to[0] - mover.from[0]) * e, mover.from[1] + (mover.to[1] - mover.from[1]) * e)
     mover.node.style.opacity = t < 0 ? '0' : t > 0.9 ? r1((1 - t) * 10).toString() : '1'
-    swing(mover.legs, now / 90)
+    swing(mover.legs, s.now / 90)
   }
 }
 
 // Closures (with a puff of dust), openings, big layoffs and hirings, and bad
 // loans (the bank flashes), at most four signs; then the walkers.
-function popWeek(s, model, now) {
+function popWeek(s, model) {
   const { shops } = s.pools
   const { places } = s
   for (const id of model.week.closed) {
     const shop = shops.get(id)
-    if (shop) puff(s, places.shopTop(shop), now)
+    if (shop) puff(s, places.shopTop(shop))
   }
   // One sign per place a week, the most telling; only drawn shops count.
   const used = new Set()
@@ -279,15 +286,15 @@ function popWeek(s, model, now) {
   for (const moment of shown) {
     if (moment.kind === 'bad') {
       s.flashStep = 2
-      sign(s, 'bank', places.bankTop, MOMENTS.badLoans(formatMoneyShort(moment.amount)), 'closed', now)
+      sign(s, 'bank', places.bankTop, MOMENTS.badLoans(formatMoneyShort(moment.amount)), 'closed')
       continue
     }
     const at = places.shopTop(shops.get(moment.firmId))
     const key = moment.firmId
-    if (moment.kind === 'closed') sign(s, key, at, MOMENTS.closed, 'closed', now)
-    else if (moment.kind === 'opened') sign(s, key, at, MOMENTS.opened, 'fresh', now)
-    else if (moment.kind === 'lost') sign(s, key, at, MOMENTS.lost(moment.n), 'closed', now)
-    else sign(s, key, at, MOMENTS.gained(moment.n), 'hiring', now)
+    if (moment.kind === 'closed') sign(s, key, at, MOMENTS.closed, 'closed')
+    else if (moment.kind === 'opened') sign(s, key, at, MOMENTS.opened, 'fresh')
+    else if (moment.kind === 'lost') sign(s, key, at, MOMENTS.lost(moment.n), 'closed')
+    else sign(s, key, at, MOMENTS.gained(moment.n), 'hiring')
   }
   const perShop = new Map()
   for (const walker of weekWalkers(model)) {
@@ -295,13 +302,13 @@ function popWeek(s, model, now) {
     if (!shop) continue
     const j = perShop.get(walker.firmId) ?? 0
     perShop.set(walker.firmId, j + 1)
-    walkTo(s, shop, walker.kind, j, now)
+    walkTo(s, shop, walker.kind, j)
   }
 }
 
-const expire = (list, now) => {
+const expire = (s, list) => {
   for (let k = list.length - 1; k >= 0; k -= 1) {
-    if (list[k].until <= now) {
+    if (list[k].until <= s.now) {
       list[k].node.remove()
       list.splice(k, 1)
     }
@@ -324,12 +331,19 @@ function clearMoving(s) {
   s.flash?.classList.remove('is-on')
 }
 
+// While nothing moves, the loop only runs to settle the weather or flash the bank.
 const busy = (s, moving) => moving || s.mood !== s.moodTarget || s.flashStep > 0
-  || s.coins.length + s.pings.length + s.signs.length + s.puffs.length + s.movers.length > 0
+
+// Paused, the signs', puffs' and rings' CSS animations stop where they are too.
+function holdAnimations(s, paused) {
+  if (s.paused === paused) return
+  s.paused = paused
+  for (const layer of [s.layers.pings, s.layers.moments]) layer?.toggleAttribute('data-paused', paused)
+}
 
 // ---------- the hook ----------
 
-export default function useSceneMotion(svgRef, { model, playing = false, speed = 1, towns = 1, hidden = false, mode = 'island' }) {
+export default function useSceneMotion(svgRef, { model, playing = false, speed = 1, towns = 1, scrubs = 0, hidden = false, mode = 'island' }) {
   // The loop reads the latest props from here, written after each render.
   const live = useRef(null)
   useLayoutEffect(() => {
@@ -337,6 +351,7 @@ export default function useSceneMotion(svgRef, { model, playing = false, speed =
   })
   const scene = useRef(null)
   const lastTick = useRef(null)
+  const lastScrubs = useRef(null)
 
   // Once per scene: find the layers, slots and weather parts, and set up the
   // loop. Taking it down removes everything the loop added (StrictMode and
@@ -386,18 +401,19 @@ export default function useSceneMotion(svgRef, { model, playing = false, speed =
           place(s, walker, ...along(walker))
           swing(walker.legs, walker.ph)
         }
+        s.now += dt * 1000
         // No coins in the warm-up weeks, before the town has an economy.
         if (!m.warmUp && s.pools) {
           const due = coinsDue(s.debt, m.flows, dt * COIN_WEEKS_PER_SECOND * pace, pace, count)
           s.debt = due.debt
-          for (const flow of FLOWS) for (let n = 0; n < due.launches[flow]; n += 1) launchCoin(s, flow, now)
+          for (const flow of FLOWS) for (let n = 0; n < due.launches[flow]; n += 1) launchCoin(s, flow)
         }
+        stepMovers(s)
+        stepCoins(s)
+        expire(s, s.pings)
+        expire(s, s.signs)
+        expire(s, s.puffs)
       }
-      stepMovers(s, now)
-      stepCoins(s, now)
-      expire(s.pings, now)
-      expire(s.signs, now)
-      expire(s.puffs, now)
       if (!s.hidden && busy(s, moving)) s.raf = requestAnimationFrame(frame)
     }
     s.wake = () => {
@@ -408,6 +424,7 @@ export default function useSceneMotion(svgRef, { model, playing = false, speed =
     // Turning reduced motion on stops what is moving and settles the weather.
     const onPreference = event => {
       s.reduce = event.matches
+      holdAnimations(s, !(live.current?.playing && !s.reduce))
       if (!s.reduce) {
         s.wake()
         return
@@ -429,13 +446,16 @@ export default function useSceneMotion(svgRef, { model, playing = false, speed =
       for (const thing of [...s.cars, ...s.walkers]) thing.node.remove()
       scene.current = null
       lastTick.current = null
+      lastScrubs.current = null
     }
   }, [svgRef, mode])
 
   // Each new week: traffic follows the model and the mood gets a new target.
   // Playing, the weather eases to it; otherwise it changes at once. A single
   // forward step while playing adds this week's moments and walkers; any
-  // other change of week clears what was moving.
+  // other change of week clears what was moving. A week that arrives with a
+  // new scrub count came from the timeline (spec 4.2.12: never when scrubbing
+  // or jumping), even one week on while playing.
   useLayoutEffect(() => {
     const s = scene.current
     if (!s) return
@@ -450,7 +470,10 @@ export default function useSceneMotion(svgRef, { model, playing = false, speed =
     s.hidden = false
     const prev = lastTick.current
     lastTick.current = model.tick
-    const stepped = !shownAgain && isStep(prev, model.tick, playing)
+    const scrubbed = lastScrubs.current != null && lastScrubs.current !== scrubs
+    lastScrubs.current = scrubs
+    const stepped = !shownAgain && !scrubbed && isStep(prev, model.tick, playing)
+    holdAnimations(s, !(playing && !s.reduce))
     s.pools = poolsOf(model)
     syncTraffic(s, model.traffic)
     const newSeason = s.season !== model.season
@@ -462,8 +485,8 @@ export default function useSceneMotion(svgRef, { model, playing = false, speed =
     } else if (newSeason) {
       paintMood(s)
     }
-    if (stepped && !s.reduce) popWeek(s, model, performance.now())
+    if (stepped && !s.reduce) popWeek(s, model)
     else if (prev !== model.tick) clearMoving(s)
     s.wake()
-  }, [model, playing, hidden])
+  }, [model, playing, hidden, scrubs])
 }

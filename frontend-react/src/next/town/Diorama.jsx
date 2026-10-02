@@ -88,11 +88,11 @@ const PINGS = <g data-layer="pings" />
 const COINS = <g data-layer="coins" />
 const MOMENTS = <g data-layer="moments" />
 
-function Diorama({ model, color, sceneRef, playing = false, speed = 1, towns = 1, hidden = false }) {
+function Diorama({ model, color, sceneRef, playing = false, speed = 1, towns = 1, scrubs = 0, hidden = false }) {
   const id = useId().replace(/[^\w-]/g, '')
   const svgRef = useRef(null)
   useImperativeHandle(sceneRef, () => svgRef.current, [])
-  useSceneMotion(svgRef, { model, playing, speed, towns, hidden })
+  useSceneMotion(svgRef, { model, playing, speed, towns, scrubs, hidden })
 
   const byLot = new Array(LAYOUT.lots.length).fill(null)
   for (const shop of model.shops) byLot[shop.lot] = shop

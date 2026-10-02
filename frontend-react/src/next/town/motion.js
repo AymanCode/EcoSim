@@ -59,8 +59,10 @@ export function weekWalkers(model, limit = 6) {
   return out
 }
 
-// Part of the way from `current` to `target` for `dt` seconds (about 0.6 s to
-// settle at the default rate), landing on the target once it is close.
+// Part of the way from `current` to `target` for `dt` seconds: at the default
+// rate the time constant is 1 / 1.6 = 0.625 s (63% of the way after 0.625 s,
+// 95% after about 1.9 s). It lands on the target once within 0.004, which
+// takes ln(gap / 0.004) / rate seconds: about 2.7 s for a gap of 0.3.
 export function easeToward(current, target, dt, rate = 1.6) {
   const next = current + (target - current) * Math.min(1, dt * rate)
   return Math.abs(target - next) < 0.004 ? target : next
