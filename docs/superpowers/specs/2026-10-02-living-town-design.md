@@ -26,7 +26,7 @@ Top to bottom, under the existing timeline bar (`HorizonBar`):
 5. Per-town columns with the existing **Businesses** list and **Households** cards (kept: they are the browsable, keyboard-reachable panels newcomers liked).
 6. The existing story chart, verdict, stat cards, feed and "How to read this", unchanged except for section 6.
 
-The old `components/Town.jsx` drawing is replaced. Its screen-reader summary (`.nx-sr` list) and facts move into the town card.
+The old `components/Town.jsx` drawing is replaced. Its screen-reader summary (`.nx-sr` list) and facts move into the town card. The page keeps the Run screen's existing fonts and `--nx-*` colour tokens (`next.css`); only the drawings use the mockup's scene palette.
 
 ## 4. What the drawings show
 
@@ -43,7 +43,7 @@ Every detail is driven by the arm's data at the week on the clock. "This week" m
 
 ### 4.2 Businesses
 
-Shops stand on lots along the two roads, coloured by sector, one floor per 9 staff (1–6 floors), height easing to the new value when staff changes.
+Shops stand on the 50 lots along the two roads (nearest the crossing first), coloured by sector, one floor per 9 staff (1–6 floors), height easing to the new value when staff changes.
 
 7. **Growing**: a tower crane on the roof and a HIRING sign.
 8. **Struggling**: SALE painted on the shop window, flickering windows, an amber flag.
@@ -59,8 +59,8 @@ The 100 houses each stand for `householdsTotal / 100` households, as today. Each
 13. **Working homes**: lit window with a glow, chimney smoke on about 40 % of them, flowers in the garden.
 14. **Looking for work**: dark window, greyer walls and roof; after 12 weeks in that state the garden has weeds and the paint fades.
 15. **Lost their home**: a dashed red outline with a FOR SALE sign.
-16. **People you follow**: a pin over a house for each of the (up to) four households the Households panel shows, with the person's initial, coloured green when working, amber when looking, red when also unhappy (happiness below 0.2).
-17. **Main Street, up close**: the same shops at street level with their names on hover, signs written out (HIRING, SALE, CLOSED, FOR LEASE, NEW), the crown, the town hall with its banner, treasury and queue, people walking, and the same weather.
+16. **People you follow**: a pin over a fixed house (chosen from the household's id, near the middle of town) for each of the first four tracked households, the same four the Households panel shows by default, with the person's initial, coloured green when working, amber when looking, red when also unhappy (happiness below 0.2).
+17. **Main Street, up close**: the shops on the 26 lots nearest the crossing, at street level with their names on hover, signs written out (HIRING, SALE, CLOSED, FOR LEASE, NEW), the crown, the town hall with its banner, treasury and queue, people walking, and the same weather.
 
 Coins show money moving: gold for spending (homes to shops, weighted by staff), green for pay (shops to working homes, estimated as staff × typical weekly pay), purple for taxes (to the town hall, `townHallIncome`), teal for help (town hall to homes looking for work, `familySupportPaid`). One coin per about $1,800 at 1× speed; the rate is divided by the speed and by the number of towns over two, so busy screens stay calm.
 
