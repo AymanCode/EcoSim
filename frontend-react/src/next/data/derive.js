@@ -223,6 +223,14 @@ export function eventsUpTo(arm, tick, limit = Infinity) {
   return out
 }
 
+// The events recorded for exactly `tick`, in arrival order.
+export function eventsAt(arm, tick) {
+  const events = arm?.events ?? []
+  const out = []
+  for (let i = eventIndexAt(arm, tick); i >= 0 && events[i].tick === tick; i -= 1) out.push(events[i])
+  return out.reverse()
+}
+
 // A policy change's value arrives as text ("wage_tax_rate=0.2"): a lever whose
 // schema value is a number reads it back as one.
 function leverValue(lever, value) {
