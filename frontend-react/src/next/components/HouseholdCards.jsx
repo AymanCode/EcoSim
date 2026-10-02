@@ -21,13 +21,19 @@ function HouseholdCard({ subject, arm, tick, pinned, onTogglePin }) {
     ? firmDisplayName(directory?.byName?.[subject.employer] ?? { name: subject.employer, sector: subject.employerCategory })
     : null
   const event = latestEventFor(arm, subject.id, tick)
+  const job = jobLine(subject, employer)
+  const cash = `${formatMoney(subject.cash)} ${COPY.households.saved}`
   const sentence = event
     ? eventSentence(event, {
       firmName: firm => firmDisplayName(directory?.byId?.[firm.id] ?? firm),
       lostHome: subject.housingSecurity === false,
     })
     : householdStateSentence(subject, { employerName: employer })
+  const story = event ? `${sentence} · ${weekLabel(event.tick)}` : sentence
 
+  // Every line keeps its height as the weeks change: the job and savings on
+  // one line, the latest news in two (spec section 6). Cut-short text keeps
+  // its full wording in a title.
   return (
     <li className={`nx-hc${pinned ? ' is-pinned' : ''}`}>
       <div className={`av is-${state}-bg`} aria-hidden="true">{name.charAt(0)}</div>
@@ -44,12 +50,12 @@ function HouseholdCard({ subject, arm, tick, pinned, onTogglePin }) {
             {COPY.households.follow}
           </button>
         </div>
-        <div className="j">{jobLine(subject, employer)}</div>
+        <div className="j" title={job}>{job}</div>
         <div className="m">
           <span className={`nx-chip is-${state}`}><i aria-hidden="true" />{HOUSEHOLD_STATES[state].chip}</span>
-          <span className="cash"><b>{formatMoney(subject.cash)}</b> {COPY.households.saved}</span>
+          <span className="cash" title={cash}><b>{formatMoney(subject.cash)}</b> {COPY.households.saved}</span>
         </div>
-        <div className="ev">
+        <div className="ev" title={story}>
           {sentence}
           {event && <span className="when"> · {weekLabel(event.tick)}</span>}
         </div>
@@ -94,7 +100,7 @@ export default function HouseholdCards({ arm, tick, onTrack, canReshuffle = true
   }
 
   return (
-    <div className="nx-card nx-hh">
+    <div className="nx-card nx-hh" data-stable={`households:${arm?.label}`}>
       <div className="nx-bh"><h3>{COPY.households.title}</h3><span>{COPY.households.subtitle}</span></div>
       {cards.length === 0 ? (
         <p className="nx-empty">{COPY.households.empty}</p>

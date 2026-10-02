@@ -208,7 +208,7 @@ export default function Town({ arm, tick }) {
         ))}
         <span className="nx-scale">{COPY.town.houseScale(total)}</span>
       </div>
-      <div className="nx-facts">
+      <div className="nx-facts" data-stable={`town-facts:${arm?.label}`}>
         <div className="nx-fact"><div className="v">{formatMetric('peopleOutOfWorkPer100', outOfWork)}</div><div className="k">{COPY.town.outOfWork}</div></div>
         <div className="nx-fact"><div className="v">{formatMetric('typicalWeeklyPay', pay)}</div><div className="k">{COPY.town.typicalPay}</div></div>
         <div className="nx-fact"><div className="v">{COPY.town.firms(firmsOpen)}</div><div className="k">{COPY.town.firmStates(struggling, closed)}</div></div>

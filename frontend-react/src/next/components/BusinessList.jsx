@@ -5,7 +5,9 @@ import { firmDisplayName } from '../names.js'
 import { weekLabel } from '../narration.js'
 import '../next.css'
 
-// Open firms richest first, then firms closed in the last year, faded.
+// Open firms richest first, then firms closed in the last year, faded. The
+// list keeps room for `max` rows and the button line under it, so the page
+// does not move as firms open and close (spec section 6).
 export default function BusinessList({ arm, tick, max = 7 }) {
   const [expanded, setExpanded] = useState(false)
   const snapshot = snapshotAt(arm, tick)
@@ -35,32 +37,44 @@ export default function BusinessList({ arm, tick, max = 7 }) {
   const visible = expanded ? rows : rows.slice(0, max)
 
   return (
-    <div className="nx-card nx-biz">
+    <div className="nx-card nx-biz" data-stable={`businesses:${arm?.label}`}>
       <div className="nx-bh"><h3>{COPY.businesses.title}</h3><span>{COPY.businesses.subtitle}</span></div>
-      {rows.length === 0 ? (
-        <p className="nx-empty">{COPY.businesses.empty}</p>
-      ) : (
-        <ol className="nx-blist">
-          {visible.map(row => (
-            <li key={row.key} className={`nx-brow${row.state === 'closed' ? ' is-closed' : ''}`}>
-              <div className="rk">{row.rank ?? ''}</div>
-              <div className="nm">
-                <span className="nx-bname">{firmDisplayName(row.firm)}</span>
-                <small>{sectorName(row.firm.sector)}</small>
-              </div>
-              <div className="bar"><b style={{ width: `${row.width}%` }} /><span>{row.money}</span></div>
-              <div className="st">{COPY.businesses.staff(row.staff ?? 0)}</div>
-              <span className={`nx-tag is-${row.state}`}>{FIRM_STATES[row.state] ?? row.state}</span>
-            </li>
-          ))}
-        </ol>
-      )}
-      {rows.length > max && (
-        <button type="button" className="nx-more" aria-expanded={expanded} onClick={() => setExpanded(value => !value)}>
-          {expanded ? COPY.businesses.showFewer : COPY.businesses.seeAll(rows.length)}
-        </button>
-      )}
+      <div className="nx-blistbox" style={{ '--nx-rows': max }}>
+        {rows.length === 0 ? (
+          <p className="nx-empty">{COPY.businesses.empty}</p>
+        ) : (
+          <ol className="nx-blist">
+            {visible.map(row => <BusinessRow key={row.key} row={row} />)}
+          </ol>
+        )}
+      </div>
+      <div className="nx-bfoot">
+        {rows.length > max && (
+          <button type="button" className="nx-more" aria-expanded={expanded} onClick={() => setExpanded(value => !value)}>
+            {expanded ? COPY.businesses.showFewer : COPY.businesses.seeAll(rows.length)}
+          </button>
+        )}
+      </div>
     </div>
+  )
+}
+
+// One firm on one row: its name and trade cut short with the full wording in
+// their titles.
+function BusinessRow({ row }) {
+  const name = firmDisplayName(row.firm)
+  const sector = sectorName(row.firm.sector)
+  return (
+    <li className={`nx-brow${row.state === 'closed' ? ' is-closed' : ''}`}>
+      <div className="rk">{row.rank ?? ''}</div>
+      <div className="nm">
+        <span className="nx-bname" title={name}>{name}</span>
+        <small title={sector}>{sector}</small>
+      </div>
+      <div className="bar"><b style={{ width: `${row.width}%` }} /><span>{row.money}</span></div>
+      <div className="st">{COPY.businesses.staff(row.staff ?? 0)}</div>
+      <span className={`nx-tag is-${row.state}`}>{FIRM_STATES[row.state] ?? row.state}</span>
+    </li>
   )
 }
 
