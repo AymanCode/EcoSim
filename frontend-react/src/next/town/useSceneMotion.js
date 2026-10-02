@@ -50,7 +50,7 @@ function sceneOf(root, places) {
     world: layer('world') ?? root,
     layers: { coins: layer('coins'), pings: layer('pings'), moments: layer('moments') },
     weather: weatherOf(root),
-    ambient: ambientOf(root),
+    ambient: ambientOf(root, places),
     flash: { node: root.querySelector('[data-flash]'), t0: null },
     ring: { node: null, t0: null },
     mood: null, moodShown: null, moodTarget: null, season: null, worldAt: 0,
@@ -147,7 +147,8 @@ export default function useSceneMotion(rootRef, { model, places, playing = false
       s.last = performance.now()
       s.raf = requestAnimationFrame(frame)
     }
-    // Turning reduced motion on stops what is moving and settles the weather.
+    // Turning reduced motion on stops what is moving, puts the loops back in
+    // their drawn pose and settles the weather.
     const onPreference = event => {
       s.reduce = event.matches
       if (!s.reduce) {
@@ -155,6 +156,7 @@ export default function useSceneMotion(rootRef, { model, places, playing = false
         return
       }
       clearMoving(s)
+      restAmbient(s.ambient)
       if (s.moodTarget != null) {
         s.mood = s.moodTarget
         paintMood(s, true)
@@ -187,9 +189,11 @@ export default function useSceneMotion(rootRef, { model, places, playing = false
     const s = scene.current
     if (!s) return
     if (hidden) {
+      // The card hides on the week of this render: shops stand at its heights.
       s.hidden = true
       cancelAnimationFrame(s.raf)
       s.raf = 0
+      syncHeights(s, model.shops, false)
       clearMoving(s)
       return
     }
@@ -213,9 +217,11 @@ export default function useSceneMotion(rootRef, { model, places, playing = false
     } else if (newSeason) {
       paintMood(s, true)
     }
+    // Heights first: a jump then settles any shop still easing where React
+    // has just drawn it, not at the height it was easing to.
+    syncHeights(s, model.shops, stepped)
     if (stepped) popWeek(s, model)
     else if (prev.tick !== model.tick) clearMoving(s)
-    syncHeights(s, model.shops, stepped)
     collectAmbient(s.ambient, s.world, model.houses)
     watchRing(s, s.world, moving)
     s.wake()
