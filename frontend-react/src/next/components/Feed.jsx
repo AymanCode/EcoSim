@@ -48,7 +48,7 @@ export default function Feed({ arms, tick, limit = 8 }) {
     .slice(0, limit)
 
   return (
-    <section className="nx-sect">
+    <section className="nx-sect nx-feedsect">
       <h3>{COPY.feed.title} <span>{COPY.feed.subtitle}</span></h3>
       <div className="nx-feedbox" data-stable="feed" style={{ '--nx-rows': limit }}>
         {rows.length === 0 ? (

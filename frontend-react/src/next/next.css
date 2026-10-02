@@ -265,11 +265,7 @@
 }
 
 /* Households */
-/* --nx-evlines: the lines each card keeps for its news (two; three below 520 px). */
-.nx .nx-hh { margin-top: 14px; container-type: inline-size; --nx-evlines: 2 }
-@media (max-width: 520px) {
-  .nx .nx-hh { --nx-evlines: 3 }
-}
+.nx .nx-hh { margin-top: 14px; container-type: inline-size }
 .nx .nx-hgrid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 10px }
 @container (min-width: 900px) {
   .nx .nx-hgrid { grid-template-columns: repeat(4, minmax(0, 1fr)) }
@@ -336,7 +332,14 @@
 .nx .nx-chip.is-idle { background: var(--nx-panel2); color: var(--nx-ink3-text) }
 .nx .nx-hc .cash { font-size: 12.5px; color: var(--nx-ink3-text); min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
 .nx .nx-hc .cash b { color: var(--nx-ink); font-weight: 600; font-variant-numeric: tabular-nums }
+/* The news keeps --nx-evlines lines, set by the width of the card's text
+   column (a container), not the window: the card grid's columns make cards
+   narrower on some wider windows. Two lines from 210 px (room for about 420
+   px of text, a fifth more than the longest news in the demo), three from
+   140 px, four below. */
+.nx .nx-hctext { container: nx-hctext / inline-size }
 .nx .nx-hc .ev {
+  --nx-evlines: 2;
   font-size: 12.5px;
   color: var(--nx-ink3-text);
   margin-top: 6px;
@@ -348,6 +351,12 @@
   overflow: hidden;
 }
 .nx .nx-hc .ev .when { color: var(--nx-ink4-text); white-space: nowrap }
+@container nx-hctext (max-width: 209.98px) {
+  .nx .nx-hc .ev { --nx-evlines: 3 }
+}
+@container nx-hctext (max-width: 139.98px) {
+  .nx .nx-hc .ev { --nx-evlines: 4 }
+}
 
 /* Stat cards */
 .nx .nx-stat { background: var(--nx-panel); border: 1px solid var(--nx-line); border-radius: 14px; padding: 12px 14px; min-width: 0 }
@@ -433,7 +442,10 @@
 .nx .nx-feed li.is-town > div { color: var(--nx-ink); font-weight: 500 }
 .nx .nx-howto li > i { background: var(--nx-ink4) }
 /* The feed keeps room for --nx-rows rows, each a fixed height: one line of
-   when and --nx-flines of what (two; three below 520 px). A row is its 9 px
+   when and --nx-flines of what, set by the width of the feed's section (a
+   container), not the window: two lines while the sentences have 300 px or
+   more (room for about 600 px of text, half again the longest sentence in
+   the demo; the row's dot takes 26 px), three below. A row is its 9 px
    paddings and 1 px rule plus, in em of the rows' 13.5 px text (the box uses
    the same size), the 12 px when line (1.29em), the sentence lines (1.45em
    each) and a little slack, so it follows the text size. */
@@ -446,7 +458,8 @@
 .nx .nx-feedbox .nx-feed li { height: var(--nx-frow); align-content: start }
 .nx .nx-feedbox .nx-feed .w { white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
 .nx .nx-feedbox .nx-feed .t { display: -webkit-box; -webkit-line-clamp: var(--nx-flines); -webkit-box-orient: vertical; overflow: hidden }
-@media (max-width: 520px) {
+.nx .nx-feedsect { container: nx-feed / inline-size }
+@container nx-feed (max-width: 325.98px) {
   .nx .nx-feedbox { --nx-flines: 3 }
 }
 
@@ -503,7 +516,12 @@
 .nx .nx-clock { display: flex; align-items: baseline; gap: 8px; font-size: 14px; color: var(--nx-ink2); white-space: nowrap; min-width: 196px }
 .nx .nx-clock i { width: 8px; height: 8px; border-radius: 50%; background: var(--nx-ink4); display: inline-block; align-self: center; transition: background-color var(--nx-change) var(--nx-ease) }
 .nx .nx-clock i.is-on { background: var(--nx-work) }
-.nx .nx-week { font-weight: 600; color: var(--nx-ink); font-variant-numeric: tabular-nums }
+.nx .nx-week, .nx .nx-week-room { font-weight: 600; color: var(--nx-ink); font-variant-numeric: tabular-nums }
+/* The week shown sits over its hidden longest label, so the clock never
+   changes width as the weeks go by and the bar never rewraps. */
+.nx .nx-weekbox { display: inline-grid }
+.nx .nx-weekbox > * { grid-area: 1 / 1 }
+.nx .nx-week-room { visibility: hidden }
 .nx .nx-of { color: var(--nx-ink4-text) }
 .nx .nx-scrubber { position: relative; flex: 1; min-width: 160px; padding-bottom: 15px }
 .nx .nx-scrub {
