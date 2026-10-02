@@ -48,9 +48,9 @@ export default function StatCard({ metricKey, arms, tick }) {
   const { paths, band } = sparklines(arms, metricKey, tick)
 
   return (
-    <div className="nx-stat">
+    <div className="nx-stat" data-stable={`stat:${metricKey}`}>
       <h4>{metric.name}</h4>
-      <div className="pair" style={{ '--nx-pv-lines': Math.min(rows.length, 2) }}>
+      <div className="pair" style={{ '--nx-pv-lines': Math.min(rows.length, 2) }} data-fits="stat-values">
         {rows.map(row => (
           <div className="nx-pv" key={row.label}>
             <b><i style={{ background: row.color }} aria-hidden="true" />{formatMetric(metricKey, row.value)}</b>

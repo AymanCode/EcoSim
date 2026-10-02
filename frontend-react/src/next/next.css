@@ -265,7 +265,11 @@
 }
 
 /* Households */
-.nx .nx-hh { margin-top: 14px; container-type: inline-size }
+/* --nx-evlines: the lines each card keeps for its news (two; three below 520 px). */
+.nx .nx-hh { margin-top: 14px; container-type: inline-size; --nx-evlines: 2 }
+@media (max-width: 520px) {
+  .nx .nx-hh { --nx-evlines: 3 }
+}
 .nx .nx-hgrid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 10px }
 @container (min-width: 900px) {
   .nx .nx-hgrid { grid-template-columns: repeat(4, minmax(0, 1fr)) }
@@ -337,9 +341,9 @@
   color: var(--nx-ink3-text);
   margin-top: 6px;
   line-height: 1.4;
-  min-height: 2.8em;
+  min-height: calc(var(--nx-evlines) * 1.4em);
   display: -webkit-box;
-  -webkit-line-clamp: 2;
+  -webkit-line-clamp: var(--nx-evlines);
   -webkit-box-orient: vertical;
   overflow: hidden;
 }
@@ -429,11 +433,22 @@
 .nx .nx-feed li.is-town > div { color: var(--nx-ink); font-weight: 500 }
 .nx .nx-howto li > i { background: var(--nx-ink4) }
 /* The feed keeps room for --nx-rows rows, each a fixed height: one line of
-   when, two of what. */
-.nx .nx-feedbox { --nx-frow: 78px; min-height: calc(var(--nx-rows, 8) * var(--nx-frow) + 8px) }
+   when and --nx-flines of what (two; three below 520 px). A row is its 9 px
+   paddings and 1 px rule plus, in em of the rows' 13.5 px text (the box uses
+   the same size), the 12 px when line (1.29em), the sentence lines (1.45em
+   each) and a little slack, so it follows the text size. */
+.nx .nx-feedbox {
+  --nx-flines: 2;
+  --nx-frow: calc(19px + 1.29em + var(--nx-flines) * 1.45em + 0.15em);
+  font-size: 13.5px;
+  min-height: calc(var(--nx-rows, 8) * var(--nx-frow) + 8px);
+}
 .nx .nx-feedbox .nx-feed li { height: var(--nx-frow); align-content: start }
 .nx .nx-feedbox .nx-feed .w { white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
-.nx .nx-feedbox .nx-feed .t { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden }
+.nx .nx-feedbox .nx-feed .t { display: -webkit-box; -webkit-line-clamp: var(--nx-flines); -webkit-box-orient: vertical; overflow: hidden }
+@media (max-width: 520px) {
+  .nx .nx-feedbox { --nx-flines: 3 }
+}
 
 /* App shell */
 .nx.nx-app { min-height: 100vh; background: var(--nx-page) }

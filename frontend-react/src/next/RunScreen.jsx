@@ -312,7 +312,7 @@ export default function RunScreen({
                   <div className="nx-stats">
                     {STAT_METRICS.map(key => <StatCard key={key} metricKey={key} arms={arms} tick={tick} />)}
                   </div>
-                  <p className="nx-morestats">
+                  <p className="nx-morestats" data-stable="morestats">
                     {COPY.numbers.more}{' '}
                     <button type="button" className="nx-more" onClick={event => openNumbers(event.currentTarget)}>
                       {COPY.numbers.open}
