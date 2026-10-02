@@ -1,7 +1,7 @@
 // Puts a mood and season on a scene: CSS variables the scene's styles read,
 // the cloud count, and rain or snow. The motion loop (useSceneMotion) paints
 // it every frame while the mood eases; with no rain at all the rain layer is
-// taken out (is-dry), so its drops do not keep animating unseen.
+// taken out (is-dry), so its drops are not drawn unseen.
 //
 // The variables go on the few parts of the scene marked data-weather, not on
 // the svg itself: a custom property set on the svg makes the browser restyle
@@ -9,6 +9,12 @@
 // week change's 18 ms of style work at 1440 px). Each part names what it
 // reads (data-weather="sky", "grass" ...), so a sky that changes does not
 // restyle the 256 ground tiles; a part marked data-weather="" gets them all.
+//
+// Parts inside the world layer (data-layer="world": the grass, the shade and
+// the window glows) can be left out of a paint ({ world: false }). While the
+// mood eases, the loop repaints the sky, sun, clouds and rain every frame but
+// these only a few times a second, so the world layer is not redrawn for them
+// every frame.
 import { scenePalette } from './mood.js'
 
 // The variables each kind of part reads.
@@ -34,22 +40,23 @@ function variables(p) {
 
 // A scene's weather parts, found once, and what was last written to each, so
 // painting again writes only what changed.
-export function weatherOf(svg) {
-  const parts = [...svg.querySelectorAll('[data-weather]')].map(el => {
+export function weatherOf(root) {
+  const parts = [...root.querySelectorAll('[data-weather]')].map(el => {
     const kinds = el.dataset.weather.split(/\s+/).filter(Boolean)
-    return { el, names: kinds.length ? kinds.flatMap(kind => READS[kind] ?? []) : ALL, written: {} }
+    return { el, names: kinds.length ? kinds.flatMap(kind => READS[kind] ?? []) : ALL, world: Boolean(el.closest('[data-layer="world"]')), written: {} }
   })
   return {
     parts,
-    clouds: [...svg.querySelectorAll('[data-cloud]')].map(el => ({ el, k: Number(el.dataset.cloud), opacity: null })),
-    rain: svg.querySelector('[data-layer="rain"]'),
+    clouds: [...root.querySelectorAll('[data-cloud]')].map(el => ({ el, k: Number(el.dataset.cloud), opacity: null })),
+    rain: root.querySelector('[data-layer="rain"]'),
   }
 }
 
-export function paintWeather(scene, mood, season) {
+export function paintWeather(scene, mood, season, { world = true } = {}) {
   const p = scenePalette(mood, season)
   const vars = variables(p)
   for (const part of scene.parts) {
+    if (part.world && !world) continue
     for (const name of part.names) {
       if (part.written[name] === vars[name]) continue
       part.written[name] = vars[name]

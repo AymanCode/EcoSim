@@ -91,6 +91,9 @@ const changedRules = arms => arms.some(arm => (arm.receipts ?? []).some(receipt 
   receipt.status === 'applied' && Object.keys(receipt.applied ?? {}).length > 0
 )))
 
+// The live phases in which a run has stopped for good, not paused.
+const END_PHASES = new Set(['horizon', 'finished', 'lost'])
+
 // A live run's end or lost panel, or nothing while it runs.
 function LivePanel({ live, arms, maxTick, horizon }) {
   if (live.phase === 'lost') {
@@ -169,6 +172,10 @@ export default function RunScreen({
   // week does not, though its towns run on. Every move on the timeline is
   // counted, so the drawings never take a scrubbed week for a step forward.
   const moving = playing && (!live || live.following !== false)
+  // A run that has stopped at its end (the replay's last week, or a live run
+  // at its horizon, finished or lost) rather than paused by the viewer: what
+  // is in flight in the drawings lands instead of freezing.
+  const ended = !moving && (live ? live.following !== false && END_PHASES.has(live.phase) : tick >= maxTick)
   const [scrubs, setScrubs] = useState(0)
   const scrub = week => {
     setScrubs(count => count + 1)
@@ -327,6 +334,7 @@ export default function RunScreen({
                     playing={moving}
                     speed={speed}
                     scrubs={scrubs}
+                    ended={ended}
                     canFocus={!single}
                     focused={focus === arm.label}
                     hidden={Boolean(focus) && focus !== arm.label}

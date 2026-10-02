@@ -6,7 +6,8 @@
 // fixed aspect ratio, each value one line and each label a two-line area.
 // While the run plays, the drawing moves between weeks (useSceneMotion);
 // `scrubs` counts the viewer's moves on the timeline, so a week reached by
-// scrubbing is never taken for a step forward.
+// scrubbing is never taken for a step forward, and `ended` says the run has
+// stopped at its end (not paused by the viewer), so what is in flight lands.
 import { useId, useMemo, useState } from 'react'
 import { COPY, NOT_MEASURED, describePolicy, formatMetric, formatMoneyShort } from '../catalog.js'
 import { rulesAt, rulesDiff, snapshotAt } from '../data/derive.js'
@@ -60,7 +61,7 @@ function factsOf({ out, pay, open, struggling, hallCash }) {
 }
 
 export default function TownCard({
-  arm: armNow, tick: tickNow, focused = false, canFocus = false, onFocus, towns = 1, hidden = false, playing = false, speed = 1, scrubs = 0, children,
+  arm: armNow, tick: tickNow, focused = false, canFocus = false, onFocus, towns = 1, hidden = false, playing = false, speed = 1, scrubs = 0, ended = false, children,
 }) {
   // A card hidden by Enlarge keeps the week it showed when it was hidden and
   // does no work (no model, no weather, no motion) until it is shown again.
@@ -93,7 +94,7 @@ export default function TownCard({
         )}
       </header>
       <div className="lt-canvas">
-        <Diorama model={model} color={arm.color} playing={playing} speed={speed} towns={towns} scrubs={scrubs} hidden={hidden} />
+        <Diorama model={model} color={arm.color} playing={playing} speed={speed} towns={towns} scrubs={scrubs} hidden={hidden} ended={ended} />
         {children}
       </div>
       <dl className="lt-facts">
