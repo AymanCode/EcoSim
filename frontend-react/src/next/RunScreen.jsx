@@ -165,6 +165,15 @@ export default function RunScreen({
   const focus = arms.some(arm => arm.label === focused) ? focused : null
   // A live run shows its towns from the first week every town has reached.
   const building = Boolean(live) && maxTick < 1
+  // The towns move while the clock plays forward: a live run held on a past
+  // week does not, though its towns run on. Every move on the timeline is
+  // counted, so the drawings never take a scrubbed week for a step forward.
+  const moving = playing && (!live || live.following !== false)
+  const [scrubs, setScrubs] = useState(0)
+  const scrub = week => {
+    setScrubs(count => count + 1)
+    onScrub(week)
+  }
   const panel = live ? <LivePanel live={live} arms={arms} maxTick={maxTick} horizon={horizon} /> : null
   // New families appear in the live week only, so meeting them waits for a
   // running town and the viewer on the newest week.
@@ -252,7 +261,7 @@ export default function RunScreen({
         maxTick={maxTick}
         playing={playing}
         onToggle={onToggle}
-        onScrub={onScrub}
+        onScrub={scrub}
         speed={speed}
         onSpeed={onSpeed}
         live={live}
@@ -315,8 +324,9 @@ export default function RunScreen({
                     arm={arm}
                     tick={tick}
                     towns={arms.length}
-                    playing={playing}
+                    playing={moving}
                     speed={speed}
+                    scrubs={scrubs}
                     canFocus={!single}
                     focused={focus === arm.label}
                     hidden={Boolean(focus) && focus !== arm.label}

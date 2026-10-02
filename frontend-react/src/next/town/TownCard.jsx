@@ -4,7 +4,9 @@
 // part keeps its size as the week changes (spec section 6): the header stays
 // on one line, the mood chip and the button have fixed widths, the drawing a
 // fixed aspect ratio, each value one line and each label a two-line area.
-// While the run plays, the drawing moves between weeks (useSceneMotion).
+// While the run plays, the drawing moves between weeks (useSceneMotion);
+// `scrubs` counts the viewer's moves on the timeline, so a week reached by
+// scrubbing is never taken for a step forward.
 import { useId, useMemo, useState } from 'react'
 import { COPY, NOT_MEASURED, describePolicy, formatMetric, formatMoneyShort } from '../catalog.js'
 import { rulesAt, rulesDiff, snapshotAt } from '../data/derive.js'
@@ -58,7 +60,7 @@ function factsOf({ out, pay, open, struggling, hallCash }) {
 }
 
 export default function TownCard({
-  arm: armNow, tick: tickNow, focused = false, canFocus = false, onFocus, towns = 1, hidden = false, playing = false, speed = 1, children,
+  arm: armNow, tick: tickNow, focused = false, canFocus = false, onFocus, towns = 1, hidden = false, playing = false, speed = 1, scrubs = 0, children,
 }) {
   // A card hidden by Enlarge keeps the week it showed when it was hidden and
   // does no work (no model, no weather, no motion) until it is shown again.
@@ -91,7 +93,7 @@ export default function TownCard({
         )}
       </header>
       <div className="lt-canvas">
-        <Diorama model={model} color={arm.color} playing={playing} speed={speed} towns={towns} hidden={hidden} />
+        <Diorama model={model} color={arm.color} playing={playing} speed={speed} towns={towns} scrubs={scrubs} hidden={hidden} />
         {children}
       </div>
       <dl className="lt-facts">
