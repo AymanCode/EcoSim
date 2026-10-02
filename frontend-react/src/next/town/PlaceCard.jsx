@@ -8,22 +8,45 @@
 // never takes room or moves anything, and it is decoration for pointer
 // users: aria-hidden, with nothing to focus. Keyboard and screen-reader users
 // have the town card's summary list and the Businesses and Households panels.
-// After each render the card measures itself and sits beside the pointer,
-// inside the drawing (cardSpot), so a kept card whose rows change with the
-// week, or a drawing that changes size, never pushes it past an edge.
+// While a card shows, it measures itself after each render and sits beside
+// the pointer, inside the drawing (cardSpot), so a kept card whose rows
+// change with the week never pushes past an edge; and it is placed again
+// when the drawing changes size with no render (a window resized, a phone
+// turned). With no card nothing is measured, so a week change costs no
+// layout read.
 import { useLayoutEffect, useRef } from 'react'
 import { cardSpot } from './cards.js'
 
+// Measures the card where it starts (at the drawing's top left: by the right
+// edge it would have less room, and wrap narrower and taller) and puts it by
+// the point (x, y), as fractions of the drawing.
+function place(element, x, y) {
+  const room = element?.offsetParent
+  if (!room) return
+  element.style.left = '0px'
+  element.style.top = '0px'
+  const width = element.offsetWidth
+  const height = element.offsetHeight
+  element.style.left = `${cardSpot(x * room.clientWidth, width, room.clientWidth)}px`
+  element.style.top = `${cardSpot(y * room.clientHeight, height, room.clientHeight)}px`
+}
+
 export default function PlaceCard({ card, x = 0, y = 0, pinned = false }) {
   const ref = useRef(null)
+  const at = useRef({ x, y })
+  const on = Boolean(card)
+  useLayoutEffect(() => {
+    at.current = { x, y }
+    if (on) place(ref.current, x, y)
+  })
   useLayoutEffect(() => {
     const element = ref.current
-    const room = element?.offsetParent
-    if (!card || !room) return
-    element.style.left = `${cardSpot(x * room.clientWidth, element.offsetWidth, room.clientWidth)}px`
-    element.style.top = `${cardSpot(y * room.clientHeight, element.offsetHeight, room.clientHeight)}px`
-  })
-  const on = Boolean(card)
+    const room = on ? element?.offsetParent : null
+    if (!room || typeof ResizeObserver === 'undefined') return undefined
+    const observer = new ResizeObserver(() => place(element, at.current.x, at.current.y))
+    observer.observe(room)
+    return () => observer.disconnect()
+  }, [on])
   return (
     <div ref={ref} className={`lt-place${on ? ' is-on' : ''}${on && pinned ? ' is-pinned' : ''}`} aria-hidden="true">
       {card && (

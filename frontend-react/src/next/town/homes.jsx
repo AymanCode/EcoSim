@@ -130,7 +130,10 @@ export const Tree = memo(function Tree({ tree }) {
 })
 
 // A pin over the house of someone you follow, coloured by how they are doing
-// (lt-pin is-work, is-look, is-low or is-idle) with their initial.
+// (lt-pin is-work, is-look, is-low or is-idle) with their initial. An unseen
+// circle twice the pin's size takes the pointer, so a finger on a phone (where
+// the pin is about 8 px across) finds the person.
+const PIN_HIT = 14
 export const Pin = memo(function Pin({ index, house, tone, initial }) {
   const tile = LAYOUT.houses[house]
   const c = P(tile.gx + 0.5, tile.gy + 0.5, 32)
@@ -138,6 +141,7 @@ export const Pin = memo(function Pin({ index, house, tone, initial }) {
   return (
     <g className="lt-person" data-kind="person" data-index={index}>
       <Line a={c} b={base} stroke="#fff" strokeWidth={1.2} />
+      <circle className="lt-pin-hit" cx={r1(c[0])} cy={r1(c[1])} r={PIN_HIT} fill="transparent" />
       <circle className={`lt-pin is-${tone}`} cx={r1(c[0])} cy={r1(c[1])} r={6.8} />
       <text x={r1(c[0])} y={r1(c[1])}>{initial}</text>
     </g>

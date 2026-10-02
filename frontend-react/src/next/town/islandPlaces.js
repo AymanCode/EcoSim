@@ -1,8 +1,8 @@
 // The island's places for the motion loop (useSceneMotion): everything the
 // loop needs to know about where things are in this kind of picture. The loop
 // asks a scene's places object and nothing else about its layout, so another
-// kind of scene (Main Street, Task 8) plugs in its own object with the same
-// members:
+// kind of scene (Main Street: streetPlaces.js) plugs in its own object with
+// the same members:
 //
 //   attach(root)            what the scene finds once in its drawing, kept
 //                           as s.where (here: the per-tile slots)
@@ -12,7 +12,9 @@
 //   traffic(model)          how many cars and people are out this week
 //   newCar(s), newWalker(s) a car or person (a node and its state), drawn
 //   moveCar(s, car, dt), moveWalker(s, walker, dt)
-//                           moves one on for dt seconds, and draws it
+//                           moves one on for dt seconds, and draws it (a
+//                           scene whose traffic never has cars needs no
+//                           newCar or moveCar)
 //   route(shop, home, j)    a person walking between a shop's door and home
 //                           number `home`, in the places' own coordinates
 //   mover(node)             a walking person's placement state, around its node
@@ -22,6 +24,8 @@
 //                           ({ to, from }); without it the clouds stand still
 //   heights                 (optional) how the scene's shops ease to a new
 //                           height (see heights.js); without it they do not
+//   arc(a, b)               (optional) how high a coin from a to b arches;
+//                           without it, coins.js uses the island's arch
 //
 // On the island, positions are tile coordinates [gx, gy]; cars and people
 // walk the two roads; anything moving is drawn inside the slot of the tile

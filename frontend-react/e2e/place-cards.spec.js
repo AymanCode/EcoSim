@@ -26,11 +26,11 @@ async function openDemo(page, width) {
   await page.locator('.lt-canvas').first().scrollIntoViewIfNeeded()
 }
 
-// Points on the first town's drawing where the pointer finds each kind of
-// place, and the places nearest each edge of the drawing.
-async function spots(page) {
-  return page.evaluate(() => {
-    const canvas = document.querySelector('.lt-canvas')
+// Points on the first town's drawing (or the drawing at `selector`) where the
+// pointer finds each kind of place, and the places nearest each edge of it.
+async function spots(page, selector = '.lt-canvas') {
+  return page.evaluate(selector => {
+    const canvas = document.querySelector(selector)
     const box = canvas.getBoundingClientRect()
     const hits = []
     for (let x = box.left + 2; x < box.right - 1; x += 4) {
@@ -50,7 +50,7 @@ async function spots(page) {
     out.top = nearest(hit => hit.y - box.top)
     out.bottom = nearest(hit => box.bottom - hit.y)
     return out
-  })
+  }, selector)
 }
 
 // A point on the first town's empty ground that no kept card covers (a kept
@@ -69,10 +69,11 @@ async function ground(page) {
   })
 }
 
-// The first town's card: its classes, its text, and whether it lies inside the drawing.
-async function placeCard(page) {
-  return page.evaluate(() => {
-    const canvas = document.querySelector('.lt-canvas')
+// The first town's card (or the card of the drawing at `selector`): its
+// classes, its text, and whether it lies inside the drawing.
+async function placeCard(page, selector = '.lt-canvas') {
+  return page.evaluate(selector => {
+    const canvas = document.querySelector(selector)
     const card = canvas.querySelector('.lt-place')
     const c = canvas.getBoundingClientRect()
     const r = card.getBoundingClientRect()
@@ -84,10 +85,10 @@ async function placeCard(page) {
       inside: r.left >= c.left - 0.5 && r.right <= c.right + 0.5 && r.top >= c.top - 0.5 && r.bottom <= c.bottom + 0.5,
       box: [r.left, r.top, r.width, r.height].map(Math.round).join(','),
     }
-  })
+  }, selector)
 }
 
-const pageSize = page => page.evaluate(() => [document.scrollingElement.scrollHeight, ...[...document.querySelectorAll('.lt-card')].map(card => {
+const pageSize = page => page.evaluate(() => [document.scrollingElement.scrollHeight, ...[...document.querySelectorAll('.lt-card, .lt-street')].map(card => {
   const r = card.getBoundingClientRect()
   return `${r.width.toFixed(1)}x${r.height.toFixed(1)}`
 })].join(' '))
@@ -113,6 +114,28 @@ for (const width of [390, 1440]) {
     expect((await placeCard(page)).visible).toBe(false)
   })
 }
+
+// Main Street's places have the same cards, inside the street's drawing.
+test('pointing at each kind of place on Main Street shows its card inside the street, taking no room, at 1440px', async ({ page }) => {
+  await openDemo(page, 1440)
+  const street = '.lt-street .lt-canvas'
+  await page.locator(street).scrollIntoViewIfNeeded()
+  const spot = await spots(page, street)
+  const before = await pageSize(page)
+  for (const name of ['house', 'shop', 'hall', 'bank', 'person', 'left', 'right', 'top', 'bottom']) {
+    expect(spot[name], name).toBeTruthy()
+    await page.mouse.move(spot[name].x, spot[name].y)
+    await expect(page.locator('.lt-street .lt-place.is-on')).toBeVisible()
+    const card = await placeCard(page, street)
+    expect(card.visible, name).toBe(true)
+    expect(card.inside, `${name} card at ${card.box}`).toBe(true)
+  }
+  await page.mouse.move(spot.shop.x, spot.shop.y)
+  expect((await placeCard(page, street)).text).toMatch(/Staff|Closed/)
+  expect(await pageSize(page)).toBe(before)
+  await page.mouse.move(1, 1)
+  await expect.poll(async () => (await placeCard(page, street)).on).toBe(false)
+})
 
 test('a click keeps a card while the pointer moves on; a click on the ground or on the card closes it, at 1440px', async ({ page }) => {
   await openDemo(page, 1440)

@@ -692,13 +692,17 @@ export const COPY = {
     showAll: n => (n === 2 ? 'Show both' : 'Show all'),
     mainStreet: 'Main Street, up close',
     mainStreetFor: (label, rules) => `${label} · ${rules}`,
+    // The segmented control that picks which town's Main Street is shown.
+    streetPicker: 'Pick a town',
+    // Main Street's text alternative (its drawing is aria-hidden).
+    streetSummary: (shown, hiring, closed) => `Main Street shows ${counted(shown, 'shop')}: ${hiring} hiring, ${closed} closed.`,
     moreLots: n => `+${n} more`,
     // The facts row under a town's drawing; the values come from formatMetric.
     facts: {
       shops: struggling => (struggling > 0 ? `shops open · ${struggling} struggling` : 'shops open'),
       hall: owes => (owes ? 'the town hall owes' : 'in the town hall'),
     },
-    signs: { hiring: 'HIRING', sale: 'SALE', closed: 'CLOSED', lease: 'FOR LEASE', fresh: 'NEW', forSale: 'FOR SALE', owes: 'owes', hall: 'TOWN HALL', bank: 'BANK' },
+    signs: { hiring: 'HIRING', sale: 'SALE', closed: 'CLOSED', lease: 'FOR LEASE', fresh: 'NEW', forSale: 'FOR SALE', owes: 'owes', owesSlip: 'OWES', hall: 'TOWN HALL', bank: 'BANK' },
     moments: { closed: 'Closed', opened: 'Opened!', lost: n => `−${n} jobs`, gained: n => `+${n} jobs`, badLoans: amount => `Bad loans ${amount}` },
     banner: {
       minimum_wage_policy: 'NEW MIN. WAGE', benefit_level: 'NEW BENEFITS', wage_tax_rate: 'NEW WAGE TAX', profit_tax_rate: 'NEW PROFIT TAX',

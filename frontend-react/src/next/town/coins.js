@@ -54,7 +54,9 @@ function launchCoin(s, flow) {
   if (!coin) coin = { c: el(s.doc, 'circle', { r: 3, stroke: 'rgba(255,255,255,.8)', 'stroke-width': 0.7 }, s.layers.coins) }
   coin.c.style.display = ''
   coin.c.setAttribute('fill', colour)
-  Object.assign(coin, { path: arcPath(a, b, 24 + Math.hypot(b[0] - a[0], b[1] - a[1]) * 0.12), to: b, colour, t0: s.now, dur: 950 + Math.random() * 550 })
+  // The arch's height: the scene's own (places.arc), or the island's.
+  const lift = s.places.arc ? s.places.arc(a, b) : 24 + Math.hypot(b[0] - a[0], b[1] - a[1]) * 0.12
+  Object.assign(coin, { path: arcPath(a, b, lift), to: b, colour, t0: s.now, dur: 950 + Math.random() * 550 })
   s.coins.push(coin)
 }
 
