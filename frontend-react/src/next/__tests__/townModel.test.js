@@ -1,7 +1,10 @@
 import { beforeAll, describe, expect, test } from 'vitest'
 import { COPY, DEFAULT_POLICY } from '../catalog.js'
+import { ingest } from '../data/session.js'
+import { LOT_CAPACITY, mulberry32 } from '../town/geometry.js'
 import { townAt } from '../town/model.js'
 import { demoArms, fixtureArm } from './fixture.js'
+import { firm, frame, freshCopy, liveArm, subject } from './townFixture.js'
 
 let A, B
 beforeAll(() => { [A, B] = demoArms() })
@@ -109,5 +112,126 @@ describe('townAt', () => {
     expect(model.houses).toHaveLength(100)
     expect(model.hall.banner).toBeNull()
     expect(model.traffic).toEqual({ cars: 0, walkers: 4 })
+  })
+})
+
+// Each shop's id and how new it is, for comparing one arm's answer with another's.
+const ages = (arm, tick) => townAt(arm, tick).shops.map(({ id, age, fresh, isNew }) => ({ id, age, fresh, isNew }))
+
+describe('townAt when weeks land late or are rewritten', () => {
+  // Firm 1 is there from the start; firm 2 first opens in week 72, which arrives after weeks 73 and 74.
+  const grown = () => liveArm([
+    [70, { firms: [firm(1)] }], [71, { firms: [firm(1)] }],
+    [73, { firms: [firm(1), firm(2)] }], [74, { firms: [firm(1), firm(2)] }],
+  ])
+
+  test('a week that lands in the middle moves a firm\'s first week', () => {
+    const arm = grown()
+    expect(ages(arm, 74).find(shop => shop.id === 2).age).toBe(1)
+    ingest(arm, frame(72, { firms: [firm(1), firm(2)] }))
+    const two = tick => ages(arm, tick).find(shop => shop.id === 2)
+    expect(two(74)).toMatchObject({ age: 2, fresh: true, isNew: false })
+    expect(two(72)).toMatchObject({ age: 0, fresh: true })
+    expect(two(73).age).toBe(1)
+    for (const tick of arm.ticks) expect(ages(arm, tick)).toEqual(ages(freshCopy(arm), tick))
+  })
+
+  test('a repeated week, overwritten in place, moves it back', () => {
+    const arm = grown()
+    ingest(arm, frame(72, { firms: [firm(1), firm(2)] }))
+    expect(ages(arm, 74).find(shop => shop.id === 2).age).toBe(2)
+    ingest(arm, frame(72, { firms: [firm(1)] }))
+    expect(ages(arm, 74).find(shop => shop.id === 2).age).toBe(1)
+    expect(ages(arm, 72).map(shop => shop.id)).toEqual([1])
+    for (const tick of arm.ticks) expect(ages(arm, tick)).toEqual(ages(freshCopy(arm), tick))
+  })
+
+  test('matches an arm with nothing cached after any mix of new, late and repeated weeks', () => {
+    const rand = mulberry32(77)
+    const some = () => [1, 2, 3, 4, 5, 6].filter(() => rand() < 0.45).map(id => firm(id))
+    const arm = liveArm([])
+    for (let step = 0; step < 40; step += 1) {
+      ingest(arm, frame(1 + Math.floor(rand() * 12), { firms: some() }))
+      for (const tick of arm.ticks) expect(ages(arm, tick)).toEqual(ages(freshCopy(arm), tick))
+    }
+  })
+})
+
+describe('townAt town-wide figures with more firms than lots', () => {
+  const PAY = 40
+  // Firms 1..LOT_CAPACITY take the lots; the last two have none. Firm 1 is a co-op.
+  const crowded = ({ lastCash, thirdCash }) => {
+    const firms = Array.from({ length: LOT_CAPACITY + 2 }, (_, i) => {
+      const id = i + 1
+      if (id === 1) return firm(id, { isBaseline: true, cash: 9e7, staff: 20 })
+      if (id === 3) return firm(id, { cash: thirdCash })
+      if (id === LOT_CAPACITY + 2) return firm(id, { cash: lastCash, staff: 30 })
+      if (id === LOT_CAPACITY + 1) return firm(id, { state: 'struggling' })
+      return firm(id)
+    })
+    return liveArm([[1, { firms, curated: { typicalWeeklyPay: PAY } }]])
+  }
+
+  test('open, struggling and pay count every firm, drawn or not', () => {
+    const model = townAt(crowded({ lastCash: 5000, thirdCash: 2000 }), 1)
+    expect(model.shops).toHaveLength(LOT_CAPACITY)
+    expect(model.overflow).toBe(2)
+    expect(model.facts.open).toBe(LOT_CAPACITY + 2)
+    expect(model.facts.struggling).toBe(1)
+    // Staff: the co-op 20, the last firm 30, the other 50 firms 10 each.
+    expect(model.flows.pay).toBe((20 + 30 + 10 * (LOT_CAPACITY - 1) + 10) * PAY)
+  })
+
+  test('the crown goes to the richest private firm in town, drawn only if it has a lot', () => {
+    const richestIsLast = townAt(crowded({ lastCash: 5e6, thirdCash: 2000 }), 1)
+    expect(richestIsLast.shops.filter(shop => shop.richest)).toEqual([])
+    const richestIsDrawn = townAt(crowded({ lastCash: 1500, thirdCash: 2000 }), 1)
+    expect(richestIsDrawn.shops.filter(shop => shop.richest).map(shop => shop.id)).toEqual([3])
+  })
+})
+
+describe('townAt with figures the town did not report', () => {
+  const arm = liveArm([[20, { firms: [firm(1, { cash: null })], curated: {} }]])
+
+  test('a missing figure stays missing, and the drawing scales read it as nothing', () => {
+    const model = townAt(arm, 20)
+    expect(model.hall).toMatchObject({ cash: null, income: null, support: null, queue: 0 })
+    expect(model.bank).toMatchObject({ loans: null, bad: null, papers: 0, badNow: false })
+    expect(model.flows).toEqual({ spend: 0, pay: 0, tax: 0, help: 0 })
+    expect(model.traffic.cars).toBe(0)
+    expect(model.shops[0].cash).toBeNull()
+  })
+
+  test('no crown for a firm whose cash is not known', () => {
+    expect(townAt(arm, 20).shops.filter(shop => shop.richest)).toEqual([])
+  })
+})
+
+describe('townAt people follow the household rules', () => {
+  const week = subjects => liveArm([[20, { firms: [firm(1)], subjects }]])
+  const pins = subjects => townAt(week(subjects), 20).people
+
+  test('working, looking, unhappy and looking, and unable to work each have a state and a pin colour', () => {
+    const [working, looking, unhappy, idle] = pins([
+      subject(1, { isEmployed: true, employer: 'Shop 1' }),
+      subject(2, { unemploymentDuration: 6 }),
+      subject(3, { unemploymentDuration: 6, happiness: 0.1 }),
+      subject(4, { canWork: false }),
+    ])
+    expect([working.state, working.working, working.tone]).toEqual(['work', true, 'work'])
+    expect([looking.state, looking.working, looking.tone]).toEqual(['look', false, 'look'])
+    expect([unhappy.state, unhappy.tone]).toEqual(['look', 'low'])
+    expect([idle.state, idle.working, idle.tone]).toEqual(['idle', false, 'idle'])
+  })
+
+  test('a household that lost its home is red even with a job; only the first four are pinned', () => {
+    const [first] = pins([subject(5, { isEmployed: true, housingSecurity: false })])
+    expect([first.state, first.working, first.tone]).toEqual(['home', false, 'low'])
+    expect(pins([1, 2, 3, 4, 5].map(id => subject(id)))).toHaveLength(4)
+  })
+
+  test('an unhappy household that cannot work is red, and a content one is grey', () => {
+    const [sad, content] = pins([subject(1, { canWork: false, happiness: 0.1 }), subject(2, { canWork: false, happiness: 0.9 })])
+    expect([sad.tone, content.tone]).toEqual(['low', 'idle'])
   })
 })
