@@ -48,11 +48,51 @@ describe('island layout', () => {
     expect(new Set(personHouses([5, 5 + 40])).size).toBe(2)
   })
 
+  test('always finishes, even for ids that are not numbers or more households than houses', () => {
+    const inRange = index => Number.isInteger(index) && index >= 0 && index < 40
+    const missing = personHouses([undefined, undefined])
+    expect(missing).toHaveLength(2)
+    expect(missing.every(inRange)).toBe(true)
+    expect(new Set(missing).size).toBe(2)
+    expect(personHouses([undefined, undefined])).toEqual(missing)
+
+    const odd = personHouses([null, NaN, Infinity, 'abc', 'abd', '12', 1.5, -3])
+    expect(odd).toHaveLength(8)
+    expect(odd.every(inRange)).toBe(true)
+    expect(new Set(odd).size).toBe(8)
+    expect(personHouses(['abc', 'abd'])).toEqual(personHouses(['abc', 'abd']))
+
+    const crowd = personHouses(Array.from({ length: 45 }, (_, id) => id))
+    expect(crowd).toHaveLength(45)
+    expect(crowd.every(inRange)).toBe(true)
+    expect(new Set(crowd.slice(0, 40)).size).toBe(40)
+    expect(personHouses([])).toEqual([])
+  })
+
   test('Main Street has 26 lots and 100 houses on the hill', () => {
     expect(STREET.lots).toHaveLength(STREET_CAPACITY)
     expect(STREET.houses).toHaveLength(HOUSES)
     const xs = STREET.lots.map(lot => lot.x)
     expect(new Set(xs).size).toBe(xs.length)
     for (const lot of STREET.lots) expect(lot.x + lot.w < STREET.hallX - 70 || lot.x > STREET.bankX + 40).toBe(true)
+  })
+
+  test('every Main Street lot sits inside the picture with even outer margins, nearest the hall first', () => {
+    const [left, right] = [STREET.lots.filter(lot => lot.x < STREET.hallX), STREET.lots.filter(lot => lot.x > STREET.hallX)]
+    expect(left).toHaveLength(13)
+    expect(right).toHaveLength(13)
+    for (const lot of STREET.lots) {
+      expect(lot.x).toBeGreaterThanOrEqual(8)
+      expect(lot.x + lot.w).toBeLessThanOrEqual(1192)
+    }
+    expect(Math.min(...STREET.lots.map(lot => lot.x))).toBeLessThanOrEqual(10)
+    expect(Math.max(...STREET.lots.map(lot => lot.x + lot.w))).toBeGreaterThanOrEqual(1190)
+    expect(STREET.lots[0].x).toBeGreaterThan(STREET.hallX)
+    expect(STREET.lots[1].x).toBeLessThan(STREET.hallX)
+    const away = lot => Math.abs(lot.x + lot.w / 2 - STREET.hallX)
+    for (let k = 2; k < STREET.lots.length; k += 1) expect(away(STREET.lots[k])).toBeGreaterThan(away(STREET.lots[k - 2]))
+    for (const side of [left, right]) {
+      for (let i = 1; i < side.length; i += 1) expect(Math.abs(side[i].x - side[i - 1].x)).toBeGreaterThanOrEqual(side[0].w)
+    }
   })
 })

@@ -81,13 +81,26 @@ export const PAINT_ORDER = (() => {
   return items.sort((a, b) => a.depth - b.depth || a.item.gx - b.item.gx).map(entry => entry.item)
 })()
 
+// A small stable hash of text, for ids that are not numbers.
+function textSeed(text) {
+  let hash = 2166136261
+  for (let i = 0; i < text.length; i += 1) hash = Math.imul(hash ^ text.charCodeAt(i), 16777619)
+  return hash | 0
+}
+
 // Each followed household lives in one of the 40 houses nearest the middle,
-// picked from its id; two households never share a house.
+// picked from a hash of its id; two households never share a house while there
+// is room. If every one of the 40 is already taken, the extra household simply
+// shares the house its id points to rather than waiting for a free one.
 export function personHouses(ids) {
   const used = new Set()
   return ids.map(id => {
-    let index = Math.abs(Math.trunc(Number(id) * 7919)) % 40
-    while (used.has(index)) index = (index + 1) % 40
+    const number = typeof id === 'number' || (typeof id === 'string' && id.trim() !== '') ? Number(id) : Number.NaN
+    const seed = Number.isFinite(number) ? Math.trunc(number) : textSeed(String(id))
+    const start = Math.floor(mulberry32(seed)() * 40)
+    let index = start
+    for (let step = 0; step < 40 && used.has(index); step += 1) index = (start + step + 1) % 40
+    if (used.has(index)) index = start
     used.add(index)
     return index
   })
@@ -95,13 +108,21 @@ export function personHouses(ids) {
 
 // Main Street: shops on 26 lots either side of the town hall and bank (lot 0
 // nearest the hall, alternating right and left), 100 houses in four terraced
-// rows on the hill behind.
+// rows on the hill behind. Each side spreads its 13 lots evenly from the
+// building nearest the hall out to an 8-unit margin at the edge of the picture.
 export const STREET = (() => {
-  const pitch = 35
+  const lotW = 30
+  const margin = 8
+  const perSide = STREET_CAPACITY / 2
+  const rightFrom = 755
+  const rightTo = 1200 - margin - lotW
+  const leftFrom = 475
+  const leftTo = margin
   const lots = []
   for (let k = 0; k < STREET_CAPACITY; k += 1) {
     const n = Math.floor(k / 2)
-    lots.push({ x: k % 2 === 0 ? 755 + n * pitch : 20 + (13 - n) * pitch, w: 30 })
+    const along = n / (perSide - 1)
+    lots.push({ x: round1(k % 2 === 0 ? rightFrom + (rightTo - rightFrom) * along : leftFrom + (leftTo - leftFrom) * along), w: lotW })
   }
   const rand = mulberry32(5)
   const houses = []
