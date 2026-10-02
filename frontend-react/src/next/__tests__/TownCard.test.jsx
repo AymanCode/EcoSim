@@ -1,5 +1,6 @@
-import { beforeAll, describe, expect, test } from 'vitest'
-import { fireEvent, render, screen } from '@testing-library/react'
+import { StrictMode } from 'react'
+import { afterEach, beforeAll, describe, expect, test } from 'vitest'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import TownCard from '../town/TownCard.jsx'
 import RunScreen from '../RunScreen.jsx'
 import { COPY } from '../catalog.js'
@@ -223,13 +224,21 @@ describe('TownCard keeps what the old town drawing showed', () => {
     const { container, rerender } = render(<TownCard arm={A} tick={100} towns={2} />)
     const model = townAt(A, 100)
     const palette = scenePalette(model.mood, model.season)
-    // The variables sit on the parts that read them: sky, sun, clouds, ground, shade, glows and rain.
+    // Each variable sits only on the part that reads it: sky, sun, clouds,
+    // ground, shade, glows and rain, so a changing sky never restyles the ground.
     const parts = [...container.querySelectorAll('[data-weather]')]
-    expect(parts).toHaveLength(7)
-    parts.forEach(part => {
-      expect(part.style.getPropertyValue('--lt-sky-top')).toBe(palette.skyTop)
-      expect(part.style.getPropertyValue('--lt-rain')).toBe(palette.rain.toFixed(2))
-    })
+    expect(parts.map(part => part.dataset.weather).sort()).toEqual(['clouds', 'glow', 'grass', 'rain', 'shade', 'sky', 'sun'])
+    const part = kind => container.querySelector(`[data-weather="${kind}"]`)
+    const vars = kind => [...part(kind).style].filter(name => name.startsWith('--lt-')).sort()
+    expect(part('sky').style.getPropertyValue('--lt-sky-top')).toBe(palette.skyTop)
+    expect(part('sky').style.getPropertyValue('--lt-sky-bottom')).toBe(palette.skyBottom)
+    expect(part('rain').style.getPropertyValue('--lt-rain')).toBe(palette.rain.toFixed(2))
+    expect(part('grass').style.getPropertyValue('--lt-grass-a')).toBe(palette.grassA)
+    expect(part('shade').style.getPropertyValue('--lt-shade')).toBe(palette.shade.toFixed(3))
+    expect(vars('grass')).toEqual(['--lt-grass-a', '--lt-grass-b'])
+    expect(vars('sun')).toEqual(['--lt-sun'])
+    expect(vars('clouds')).toEqual(['--lt-cloud-fill'])
+    expect(vars('glow')).toEqual(['--lt-glow'])
     expect(container.querySelector('svg.lt-scene').style.length).toBe(0)
     expect(container.querySelector('[data-layer="rain"]')).not.toHaveClass('is-dry')
     const shown = () => [...container.querySelectorAll('[data-cloud]')].filter(cloud => cloud.style.opacity !== '0').length
@@ -279,5 +288,178 @@ describe('Run screen towns', () => {
     render(<RunScreen arms={[A, B]} {...props} />)
     expect(screen.getAllByText('Businesses')).toHaveLength(2)
     expect(screen.getAllByText('Households')).toHaveLength(2)
+  })
+})
+
+// Everything that moves between weeks (useSceneMotion): the floating signs,
+// walkers and coins of a week played forward, traffic, the weather easing in,
+// and shop heights easing to their new floors.
+describe('TownCard motion between weeks', () => {
+  const realMatchMedia = window.matchMedia
+  afterEach(() => { window.matchMedia = realMatchMedia })
+  const reduceMotion = () => {
+    window.matchMedia = query => ({ ...realMatchMedia(query), matches: query.includes('prefers-reduced-motion: reduce') })
+  }
+  const later = ms => new Promise(resolve => setTimeout(resolve, ms))
+  const layer = (container, name) => container.querySelector(`[data-layer="${name}"]`)
+  const inSlots = (container, selector) => container.querySelectorAll(`[data-slot] > ${selector}`)
+  const skyTop = container => container.querySelector('[data-weather~="sky"]').style.getPropertyValue('--lt-sky-top')
+
+  test('scrubbing to another week adds no floating signs', () => {
+    const { container, rerender } = render(<TownCard arm={A} tick={69} towns={2} playing={false} speed={1} />)
+    rerender(<TownCard arm={A} tick={70} towns={2} playing={false} speed={1} />)
+    expect(container.querySelectorAll('[data-layer="moments"] > *')).toHaveLength(0)
+  })
+
+  test("a single forward step while playing pops the week's moments", () => {
+    const { container, rerender } = render(<TownCard arm={A} tick={69} towns={2} playing speed={1} />)
+    rerender(<TownCard arm={A} tick={70} towns={2} playing speed={1} />)
+    expect(container.querySelector('[data-layer="moments"]').textContent).toContain('Closed')
+  })
+
+  test('bad loans: a sign over the bank and the bank flashes red; a closure leaves a puff of dust', async () => {
+    const { container, rerender } = render(<TownCard arm={A} tick={69} towns={2} playing speed={1} />)
+    rerender(<TownCard arm={A} tick={70} towns={2} playing speed={1} />)
+    expect(layer(container, 'moments').textContent).toContain('Bad loans $19k')
+    expect(layer(container, 'moments').querySelectorAll('.lt-puff').length).toBeGreaterThan(0)
+    await waitFor(() => expect(container.querySelector('[data-flash="bank"]')).toHaveClass('is-on'))
+  })
+
+  test('a newer sign over the same place replaces the older one', () => {
+    // Weeks 70 and 71: loans go bad both weeks; one sign over the bank.
+    const { container, rerender } = render(<TownCard arm={A} tick={69} towns={2} playing speed={1} />)
+    rerender(<TownCard arm={A} tick={70} towns={2} playing speed={1} />)
+    rerender(<TownCard arm={A} tick={71} towns={2} playing speed={1} />)
+    const bank = [...layer(container, 'moments').querySelectorAll('.lt-moment')].filter(sign => sign.textContent.startsWith('Bad loans'))
+    expect(bank).toHaveLength(1)
+    expect(layer(container, 'moments').querySelectorAll('.lt-moment').length).toBeGreaterThan(1)
+  })
+
+  test('scrubbing away clears what the last step set moving', () => {
+    const { container, rerender } = render(<TownCard arm={A} tick={10} towns={2} playing speed={1} />)
+    rerender(<TownCard arm={A} tick={11} towns={2} playing speed={1} />)
+    expect(layer(container, 'moments').childNodes.length).toBeGreaterThan(0)
+    expect(container.querySelectorAll('[data-slot] > .lt-walker.is-moving').length).toBeGreaterThan(0)
+    rerender(<TownCard arm={A} tick={40} towns={2} playing={false} speed={1} />)
+    expect(layer(container, 'moments').childNodes).toHaveLength(0)
+    expect(container.querySelectorAll('[data-slot] > .lt-walker.is-moving')).toHaveLength(0)
+    expect(layer(container, 'coins').querySelectorAll('circle:not([style*="none"])')).toHaveLength(0)
+  })
+
+  test('people laid off walk home carrying a box', () => {
+    // Week 11: firm 1 lets 5 go; two of them are drawn walking home.
+    const { container, rerender } = render(<TownCard arm={A} tick={10} towns={2} playing speed={1} />)
+    rerender(<TownCard arm={A} tick={11} towns={2} playing speed={1} />)
+    const moving = [...container.querySelectorAll('[data-slot] > .lt-walker.is-moving')]
+    expect(moving).toHaveLength(2)
+    moving.forEach(walker => expect(walker.querySelector('rect')).not.toBeNull())
+  })
+
+  test('cars and people on the roads follow the model, in the tile slots', () => {
+    const { container, rerender } = render(<TownCard arm={B} tick={11} towns={2} playing={false} speed={1} />)
+    const count = tick => {
+      const { traffic } = townAt(B, tick)
+      expect(inSlots(container, '.lt-car')).toHaveLength(traffic.cars)
+      expect(inSlots(container, '.lt-walker:not(.is-moving)')).toHaveLength(traffic.walkers)
+    }
+    count(11)
+    rerender(<TownCard arm={B} tick={69} towns={2} playing={false} speed={1} />)
+    count(69)
+  })
+
+  test('the drawing\'s structure survives a week change, and so do the things the loop added', () => {
+    const { container, rerender } = render(<TownCard arm={B} tick={60} towns={2} playing={false} speed={1} />)
+    const slots = [...container.querySelectorAll('[data-slot]')]
+    const layers = [...container.querySelectorAll('[data-layer]')]
+    const cars = [...inSlots(container, '.lt-car')]
+    expect(cars.length).toBeGreaterThan(0)
+    rerender(<TownCard arm={B} tick={61} towns={2} playing={false} speed={1} />)
+    expect([...container.querySelectorAll('[data-slot]')].every((slot, i) => slot === slots[i])).toBe(true)
+    expect([...container.querySelectorAll('[data-layer]')].every((node, i) => node === layers[i])).toBe(true)
+    expect(cars.every(car => car.isConnected)).toBe(true)
+  })
+
+  test('mounting twice (StrictMode) leaves one set of cars and people, not two', () => {
+    const { container } = render(<StrictMode><TownCard arm={B} tick={69} towns={2} playing={false} speed={1} /></StrictMode>)
+    const { traffic } = townAt(B, 69)
+    expect(inSlots(container, '.lt-car')).toHaveLength(traffic.cars)
+    expect(inSlots(container, '.lt-walker')).toHaveLength(traffic.walkers)
+  })
+
+  test('coins carry money while playing, and none fly while paused', async () => {
+    const paused = render(<TownCard arm={B} tick={60} towns={2} playing={false} speed={1} />)
+    const playing = render(<TownCard arm={B} tick={60} towns={2} playing speed={1} />)
+    await later(400)
+    const flying = result => [...layer(result.container, 'coins').querySelectorAll('circle')].filter(coin => coin.style.display !== 'none')
+    expect(flying(playing).length).toBeGreaterThan(0)
+    expect(flying(paused)).toHaveLength(0)
+  })
+
+  test('while playing the weather eases toward the new week; paused, it changes at once', async () => {
+    const target = tick => {
+      const model = townAt(A, tick)
+      return scenePalette(model.mood, model.season).skyTop
+    }
+    // Weeks 30 to 31: the mood falls by 0.13.
+    const { container, rerender } = render(<TownCard arm={A} tick={30} towns={2} playing speed={1} />)
+    expect(skyTop(container)).toBe(target(30))
+    rerender(<TownCard arm={A} tick={31} towns={2} playing speed={1} />)
+    expect(skyTop(container)).toBe(target(30))
+    await waitFor(() => expect(skyTop(container)).toBe(target(31)), { timeout: 4000 })
+    rerender(<TownCard arm={A} tick={11} towns={2} playing={false} speed={1} />)
+    expect(skyTop(container)).toBe(target(11))
+  })
+
+  test('a shop that gains or loses a floor eases to its new height', async () => {
+    // Week 71 to 72: some open shops change floors.
+    const before = townAt(A, 71)
+    const after = townAt(A, 72)
+    const shop = after.shops.find(s => {
+      const old = before.shops.find(o => o.id === s.id)
+      return old && old.floors !== s.floors && s.state !== 'closed' && old.state !== 'closed' && !s.fresh
+    })
+    expect(shop).toBeTruthy()
+    const walls = container => container.querySelector(`[data-kind="shop"][data-id="${shop.id}"] .lt-shop-l`).getAttribute('points')
+    const drawn = tick => {
+      const { container, unmount } = render(<TownCard arm={A} tick={tick} towns={2} />)
+      const points = walls(container)
+      unmount()
+      return points
+    }
+    const [from, to] = [drawn(71), drawn(72)]
+    expect(from).not.toBe(to)
+    const { container, rerender } = render(<TownCard arm={A} tick={71} towns={2} playing speed={1} />)
+    rerender(<TownCard arm={A} tick={72} towns={2} playing speed={1} />)
+    expect(walls(container)).toBe(from)
+    await waitFor(() => expect(walls(container)).toBe(to), { timeout: 2000 })
+  })
+
+  test('with reduced motion: the weather changes at once, nothing travels, no floating signs', async () => {
+    reduceMotion()
+    const { container, rerender } = render(<TownCard arm={A} tick={69} towns={2} playing speed={1} />)
+    rerender(<TownCard arm={A} tick={70} towns={2} playing speed={1} />)
+    const model = townAt(A, 70)
+    expect(skyTop(container)).toBe(scenePalette(model.mood, model.season).skyTop)
+    expect(layer(container, 'moments').childNodes).toHaveLength(0)
+    await later(300)
+    expect(layer(container, 'coins').querySelectorAll('circle')).toHaveLength(0)
+    expect(container.querySelector('[data-flash="bank"]')).not.toHaveClass('is-on')
+    expect(container.querySelectorAll('[data-slot] > .lt-walker.is-moving')).toHaveLength(0)
+  })
+
+  test('a card hidden by Enlarge keeps its week and does no work until it is shown', () => {
+    const { container, rerender } = render(<TownCard arm={A} tick={11} towns={2} playing speed={1} />)
+    rerender(<TownCard arm={A} tick={12} towns={2} playing speed={1} hidden />)
+    const dark = houseIndexes(container, 'look').size
+    expect(dark).toBe(townAt(A, 12).counts.look)
+    // Week 13 has far fewer dark homes; the hidden card still shows week 12.
+    expect(townAt(A, 13).counts.look).not.toBe(dark)
+    rerender(<TownCard arm={A} tick={13} towns={2} playing speed={1} hidden />)
+    expect(houseIndexes(container, 'look').size).toBe(dark)
+    expect(layer(container, 'moments').childNodes).toHaveLength(0)
+    rerender(<TownCard arm={A} tick={14} towns={2} playing speed={1} />)
+    expect(houseIndexes(container, 'look').size).toBe(townAt(A, 14).counts.look)
+    // Showing it again is a jump, not a step: no floating signs.
+    expect(layer(container, 'moments').childNodes).toHaveLength(0)
   })
 })

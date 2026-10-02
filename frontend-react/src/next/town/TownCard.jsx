@@ -4,7 +4,8 @@
 // part keeps its size as the week changes (spec section 6): the header stays
 // on one line, the mood chip and the button have fixed widths, the drawing a
 // fixed aspect ratio, each value one line and each label a two-line area.
-import { useId, useMemo } from 'react'
+// While the run plays, the drawing moves between weeks (useSceneMotion).
+import { useId, useMemo, useState } from 'react'
 import { COPY, NOT_MEASURED, describePolicy, formatMetric, formatMoneyShort } from '../catalog.js'
 import { rulesAt, rulesDiff, snapshotAt } from '../data/derive.js'
 import Diorama from './Diorama.jsx'
@@ -56,11 +57,17 @@ function factsOf({ out, pay, open, struggling, hallCash }) {
   ]
 }
 
-export default function TownCard({ arm, tick, focused = false, canFocus = false, onFocus, towns = 1, hidden = false, children }) {
+export default function TownCard({
+  arm: armNow, tick: tickNow, focused = false, canFocus = false, onFocus, towns = 1, hidden = false, playing = false, speed = 1, children,
+}) {
+  // A card hidden by Enlarge keeps the week it showed when it was hidden and
+  // does no work (no model, no weather, no motion) until it is shown again.
+  const [frozen, setFrozen] = useState(null)
+  if (hidden !== (frozen !== null)) setFrozen(hidden ? { arm: armNow, tick: tickNow, weeks: armNow.ticks.length } : null)
+  const { arm, tick, weeks } = frozen ?? { arm: armNow, tick: tickNow, weeks: armNow.ticks.length }
   // An arm's weeks grow in place (data/session.js), so the model is memoised
   // on the week count too, as RunScreen memoises its weeks; never on the
   // identity of the arm's inner arrays or the lots map.
-  const weeks = arm.ticks.length
   const model = useMemo(() => townAt(arm, tick), [arm, tick, weeks]) // eslint-disable-line react-hooks/exhaustive-deps
   const titleId = useId()
   const rules = describePolicy(rulesDiff(rulesAt(arm, tick)))
@@ -84,7 +91,7 @@ export default function TownCard({ arm, tick, focused = false, canFocus = false,
         )}
       </header>
       <div className="lt-canvas">
-        <Diorama model={model} color={arm.color} />
+        <Diorama model={model} color={arm.color} playing={playing} speed={speed} towns={towns} hidden={hidden} />
         {children}
       </div>
       <dl className="lt-facts">

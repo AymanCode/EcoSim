@@ -3,8 +3,9 @@
 // the treasury, queue and loan papers in apply, and the pins). Same
 // coordinates and shapes; colours that follow a state live in town.css under
 // lt- class names, so a week change only swaps classes. Each part re-renders
-// only when what it draws changes.
-import { memo } from 'react'
+// only when what it draws changes. A shop that gains or loses a floor eases
+// to its new height (and its sign with it) with its own animation frames.
+import { memo, useLayoutEffect, useRef } from 'react'
 import { COPY, formatMoneyShort } from '../catalog.js'
 import { BANK, HALL, LAYOUT, iso as P, mulberry32, pts } from './geometry.js'
 import { WEEKS } from './model.js'
@@ -144,6 +145,69 @@ const leased = shop => shop.state === 'closed' && shop.closedFor >= WEEKS.lease
 // A closed shop sinks to a lower shell once it is up for lease.
 const drawnHeight = (shop, height) => (leased(shop) ? Math.min(height, 14) : height)
 
+// A shop's two walls on its lot, h high.
+function walls(lot, h) {
+  const x0 = lot.gx + 0.1
+  const y0 = lot.gy + 0.1
+  const w = 0.8
+  const d = 0.8
+  return {
+    left: pts([P(x0, y0 + d), P(x0 + w, y0 + d), P(x0 + w, y0 + d, h), P(x0, y0 + d, h)]),
+    right: pts([P(x0 + w, y0), P(x0 + w, y0 + d), P(x0 + w, y0 + d, h), P(x0 + w, y0, h)]),
+  }
+}
+
+const EASE_MS = 400
+const reducedMotion = () => Boolean(globalThis.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches)
+
+// Eases what a part shows from its last height to `height` over about 0.4 s.
+// React draws the part at `height`; paint(node, arg, shown, height) shifts the
+// drawing to the height shown, before the browser paints and then each frame,
+// without React state. With reduced motion the height jumps.
+function useEasedHeight(ref, height, paint, arg) {
+  const shown = useRef(height)
+  useLayoutEffect(() => {
+    const node = ref.current
+    const from = shown.current
+    if (from === height) return undefined
+    if (!node || reducedMotion()) {
+      shown.current = height
+      if (node) paint(node, arg, height, height)
+      return undefined
+    }
+    paint(node, arg, from, height)
+    let frame = 0
+    let start = null
+    const step = now => {
+      start ??= now
+      const t = Math.min(1, (now - start) / EASE_MS)
+      shown.current = t >= 1 ? height : from + (height - from) * (1 - (1 - t) ** 3)
+      paint(node, arg, shown.current, height)
+      if (t < 1) frame = requestAnimationFrame(step)
+    }
+    frame = requestAnimationFrame(step)
+    return () => cancelAnimationFrame(frame)
+  }, [ref, height, paint, arg])
+}
+
+// The walls stretch to the height shown; the roof and what stands on it move
+// with them; floor windows above the height shown wait until the walls reach them.
+function paintShop(node, lot, shown, height) {
+  const { left, right } = walls(lot, shown)
+  node.querySelector('.lt-shop-l')?.setAttribute('points', left)
+  node.querySelector('.lt-shop-r')?.setAttribute('points', right)
+  const top = node.querySelector('.lt-shop-top')
+  if (shown === height) top?.removeAttribute('transform')
+  else top?.setAttribute('transform', `translate(0 ${r1(height - shown)})`)
+  for (const win of node.querySelectorAll('[data-z]')) win.style.display = Number(win.dataset.z) > shown + 0.5 ? 'none' : ''
+}
+
+// A sign over the roof rides with it.
+function paintSign(node, _lot, shown, height) {
+  if (shown === height) node.removeAttribute('transform')
+  else node.setAttribute('transform', `translate(0 ${r1(height - shown)})`)
+}
+
 // A shop on its lot: walls in its sector's colours, an awning, a lit shop
 // window and a pair of windows per floor above. Being built: scaffolding.
 // Struggling: SALE on the window, flickering lights, an amber flag. Growing: a
@@ -156,8 +220,7 @@ function ShopDrawing({ shop, lot, height }) {
   const y0 = lot.gy + 0.1
   const w = 0.8
   const d = 0.8
-  const left = pts([P(x0, y0 + d), P(x0 + w, y0 + d), P(x0 + w, y0 + d, h), P(x0, y0 + d, h)])
-  const right = pts([P(x0 + w, y0), P(x0 + w, y0 + d), P(x0 + w, y0 + d, h), P(x0 + w, y0, h)])
+  const { left, right } = walls(lot, h)
   const roof = pts([P(x0, y0, h), P(x0 + w, y0, h), P(x0 + w, y0 + d, h), P(x0, y0 + d, h)])
   const snow = pts([P(x0 + 0.06, y0 + 0.06, h + 0.3), P(x0 + w - 0.06, y0 + 0.06, h + 0.3), P(x0 + w - 0.06, y0 + d - 0.06, h + 0.3), P(x0 + 0.06, y0 + d - 0.06, h + 0.3)])
   // While it is being built the walls are see-through, dashed and scaffolded.
@@ -167,6 +230,11 @@ function ShopDrawing({ shop, lot, height }) {
     <>
       <polygon className="lt-shop-l" points={left} fill={col.l} {...wall} />
       <polygon className="lt-shop-r" points={right} fill={col.r} {...wall} />
+    </>
+  )
+  // The roof and what stands on it, which move together as the height eases.
+  const roofTop = (
+    <>
       <polygon points={roof} fill={closed ? '#E3DED5' : '#F3EEE5'} />
       <polygon className="lt-snow" points={snow} />
     </>
@@ -181,6 +249,7 @@ function ShopDrawing({ shop, lot, height }) {
           <polyline key={z} points={pts([P(x0 - 0.05, y0 + d + 0.05, z), P(x0 + w + 0.05, y0 + d + 0.05, z), P(x0 + w + 0.05, y0 - 0.05, z)])} fill="none" stroke="#9C8F7C" strokeWidth={0.7} />
         ))}
         {[0, 0.5, 1].map(u => <Line key={u} a={P(x0 + w * u, y0 + d + 0.05, 0)} b={P(x0 + w * u, y0 + d + 0.05, h)} stroke="#9C8F7C" strokeWidth={0.7} />)}
+        <g className="lt-shop-top">{roofTop}</g>
       </>
     )
   }
@@ -190,8 +259,8 @@ function ShopDrawing({ shop, lot, height }) {
     const z0 = 12 + fl * 8
     const z1 = z0 + 4
     for (const u of [0.14, 0.56]) {
-      windows.push(<polygon key={`l${fl}-${u}`} className="lt-win" points={pts([P(x0 + w * u, y0 + d, z0), P(x0 + w * (u + 0.28), y0 + d, z0), P(x0 + w * (u + 0.28), y0 + d, z1), P(x0 + w * u, y0 + d, z1)])} />)
-      windows.push(<polygon key={`r${fl}-${u}`} className="lt-win" opacity={0.8} points={pts([P(x0 + w, y0 + d * u, z0), P(x0 + w, y0 + d * (u + 0.28), z0), P(x0 + w, y0 + d * (u + 0.28), z1), P(x0 + w, y0 + d * u, z1)])} />)
+      windows.push(<polygon key={`l${fl}-${u}`} className="lt-win" data-z={z1} points={pts([P(x0 + w * u, y0 + d, z0), P(x0 + w * (u + 0.28), y0 + d, z0), P(x0 + w * (u + 0.28), y0 + d, z1), P(x0 + w * u, y0 + d, z1)])} />)
+      windows.push(<polygon key={`r${fl}-${u}`} className="lt-win" data-z={z1} opacity={0.8} points={pts([P(x0 + w, y0 + d * u, z0), P(x0 + w, y0 + d * (u + 0.28), z0), P(x0 + w, y0 + d * (u + 0.28), z1), P(x0 + w, y0 + d * u, z1)])} />)
     }
   }
   return (
@@ -212,21 +281,30 @@ function ShopDrawing({ shop, lot, height }) {
           )}
         </>
       )}
-      {shop.state === 'struggling' && <Struggling x0={x0} y0={y0} w={w} d={d} h={h} />}
-      {shop.state === 'growing' && <Crane base={P(x0 + w * 0.75, y0 + d * 0.3, h)} />}
-      {shop.isNew && !closed && <Balloons top={P(x0 + w * 0.2, y0 + d * 0.8, h)} />}
+      {shop.state === 'struggling' && <SaleSign x0={x0} y0={y0} w={w} d={d} />}
+      <g className="lt-shop-top">
+        {roofTop}
+        {shop.state === 'struggling' && <Flag top={P(x0 + w / 2, y0 + d / 2, h)} />}
+        {shop.state === 'growing' && <Crane base={P(x0 + w * 0.75, y0 + d * 0.3, h)} />}
+        {shop.isNew && !closed && <Balloons top={P(x0 + w * 0.2, y0 + d * 0.8, h)} />}
+      </g>
     </>
   )
 }
 
-function Struggling({ x0, y0, w, d, h }) {
-  const top = P(x0 + w / 2, y0 + d / 2, h)
+// Struggling: SALE painted on the shop window, and an amber flag on the roof.
+function SaleSign({ x0, y0, w, d }) {
+  return (
+    <g className="lt-sale-sign" transform={onFace(P(x0 + w / 2, y0 + d, 3))}>
+      <rect x={-7.5} y={-2.6} width={15} height={5.2} rx={0.6} fill="#D9443A" />
+      <text x={0} y={0.2} fontSize={4.2} fontWeight={700} fill="#fff" textAnchor="middle" dominantBaseline="central">{SIGNS.sale}</text>
+    </g>
+  )
+}
+
+function Flag({ top }) {
   return (
     <>
-      <g className="lt-sale-sign" transform={onFace(P(x0 + w / 2, y0 + d, 3))}>
-        <rect x={-7.5} y={-2.6} width={15} height={5.2} rx={0.6} fill="#D9443A" />
-        <text x={0} y={0.2} fontSize={4.2} fontWeight={700} fill="#fff" textAnchor="middle" dominantBaseline="central">{SIGNS.sale}</text>
-      </g>
       <Line a={top} b={[top[0], top[1] - 13]} stroke="#6B6257" strokeWidth={0.9} />
       <path className="lt-flag-wave" d={`M${r1(top[0])} ${r1(top[1] - 13)} l8 2.5 l-8 2.5 z`} fill="#E09A1E" />
     </>
@@ -272,8 +350,10 @@ const sameShop = (a, b) => a.lot === b.lot && a.height === b.height && a.shop.id
   && a.shop.isNew === b.shop.isNew && leased(a.shop) === leased(b.shop)
 
 export const Shop = memo(function Shop({ shop, lot, height }) {
+  const ref = useRef(null)
+  useEasedHeight(ref, drawnHeight(shop, height), paintShop, lot)
   return (
-    <g className={`lt-shop is-${shop.state}`} data-kind="shop" data-id={shop.id}>
+    <g ref={ref} className={`lt-shop is-${shop.state}`} data-kind="shop" data-id={shop.id}>
       <ShopDrawing shop={shop} lot={lot} height={height} />
     </g>
   )
@@ -304,13 +384,15 @@ const sameSign = (a, b) => a.lot === b.lot && a.height === b.height && a.shop.id
   && a.shop.isNew === b.shop.isNew && leased(a.shop) === leased(b.shop) && a.shop.richest === b.shop.richest
 
 export const ShopSign = memo(function ShopSign({ shop, lot, height }) {
+  const ref = useRef(null)
+  useEasedHeight(ref, drawnHeight(shop, height), paintSign, lot)
   const sign = signFor(shop)
   if (!sign && !shop.richest) return null
   const lift = shop.state === 'growing' ? 30 : shop.isNew ? 24 : 12
   const [x, y] = P(lot.gx + 0.5, lot.gy + 0.5, drawnHeight(shop, height) + lift)
   const crownY = y - (sign ? 10 : 0)
   return (
-    <g data-sign={shop.id}>
+    <g ref={ref} data-sign={shop.id}>
       {sign && <TagPill x={x} y={y} label={sign.label} tone={sign.tone} />}
       {shop.richest && (
         <path className="lt-crown" d={`M${r1(x - 5)} ${r1(crownY + 2)} l1 -6 l2.5 3 l1.5 -4 l1.5 4 l2.5 -3 l1 6 z`} fill="#F2C14E" stroke="#B9861A" strokeWidth={0.6} strokeLinejoin="round" />
