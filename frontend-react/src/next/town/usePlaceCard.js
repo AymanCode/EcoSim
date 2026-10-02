@@ -10,9 +10,12 @@
 // `overlay` inside it (TownCard's .lt-canvas; Main Street's too). The drawing
 // marks what can be pointed at with data-kind, plus data-index (a house or a
 // person) or data-id (a shop); its back and motion layers let the pointer
-// through, so the element under the pointer is in the world layer. The state
-// lives in the component that calls this hook, never in the memoised
-// drawing, so pointing renders the card again and leaves the scene alone.
+// through, so the element under the pointer is in the world layer. Only
+// marks inside that box count. The state lives in the component that calls
+// this hook, never in the memoised drawing, so pointing renders the card
+// again and leaves the scene alone. While `hidden` (a town card hidden by
+// Enlarge) a card that was only pointed at goes, so it does not come back
+// stale when the town shows again; a kept card stays kept.
 //
 // A touch screen has no pointing: a tap opens and keeps a card, and a tap on
 // empty ground or on the card closes it. The browser follows each touch with
@@ -44,12 +47,17 @@ function pointerIn(event) {
   }
 }
 
-const placeAt = event => event.target.closest?.('[data-kind]') ?? null
+// The marked place under the pointer, if it is part of this drawing.
+function placeAt(event) {
+  const place = event.target.closest?.('[data-kind]')
+  return place && event.currentTarget.contains(place) ? place : null
+}
 const now = () => performance.now()
 
-export default function usePlaceCard(model, total) {
+export default function usePlaceCard(model, total, hidden = false) {
   // { target, pinned, x, y } while a card is shown, else null.
   const [shown, setShown] = useState(null)
+  if (hidden && shown && !shown.pinned) setShown(null)
   const touched = useRef(-Infinity)
   const card = shown ? placeCard(model, shown.target, total) : null
   const kept = Boolean(shown?.pinned && card)

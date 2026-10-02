@@ -137,6 +137,26 @@ test('nothing moves when the week changes with the second town enlarged, at 1440
   await page.getByRole('button', { name: 'Enlarge' }).nth(1).click()
   await expect(page.locator('.lt-card:not([hidden])')).toHaveCount(1)
   await expect(page.getByRole('button', { name: 'Show both' })).toHaveCount(1)
+  // Enlarge moves Main Street to that town.
+  await expect(page.locator('.lt-street-sub')).toHaveText(/^Town B · /)
+  const { moved, cut, outgrown } = await walk(page, max)
+  expect(moved, moved.slice(0, 12).join('\n')).toEqual([])
+  expect(cut, cut.slice(0, 12).join('\n')).toEqual([])
+  expect(outgrown, outgrown.slice(0, 12).join('\n')).toEqual([])
+})
+
+// Main Street's picker is a viewer's choice too: picking Town B moves
+// nothing, and nothing moves while the weeks change on its street.
+test('nothing moves when Town B is picked on Main Street, nor as the week changes, at 1440px', async ({ page }) => {
+  const max = await openDemo(page, 1440)
+  await goToWeek(page, 1)
+  const before = await boxes(page)
+  const pick = page.locator('.lt-street').getByRole('button', { name: 'Town B' })
+  await pick.click()
+  await expect(pick).toHaveAttribute('aria-pressed', 'true')
+  await expect(page.locator('.lt-street-sub')).toHaveText(/^Town B · /)
+  const picked = firstDifference(before, await boxes(page))
+  expect(picked, picked ?? '').toBeNull()
   const { moved, cut, outgrown } = await walk(page, max)
   expect(moved, moved.slice(0, 12).join('\n')).toEqual([])
   expect(cut, cut.slice(0, 12).join('\n')).toEqual([])

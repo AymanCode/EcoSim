@@ -76,8 +76,9 @@ export default function TownCard({
   // identity of the arm's inner arrays or the lots map.
   const model = useMemo(() => townAt(arm, tick), [arm, tick, weeks]) // eslint-disable-line react-hooks/exhaustive-deps
   const titleId = useId()
-  // Each house stands for its share of this week's households.
-  const { overlay, handlers } = usePlaceCard(model, valueAt(arm, 'householdsTotal', tick))
+  // Each house stands for its share of this week's households. Hidden, a
+  // card only pointed at goes.
+  const { overlay, handlers } = usePlaceCard(model, valueAt(arm, 'householdsTotal', tick), hidden)
   const rules = describePolicy(rulesDiff(rulesAt(arm, tick)))
   const closed = snapshotAt(arm, tick)?.firmsClosed?.length ?? 0
   const { counts, facts } = model

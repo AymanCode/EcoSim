@@ -147,6 +147,9 @@ export function townAt(arm, tick) {
       closed: events.filter(event => event.type === 'firm_closed').map(event => event.firmId),
       hires: [...hires], layoffs: [...layoffs], bad,
     },
-    facts: { out, pay, open: openFirms.length, struggling: openFirms.filter(firm => firm.state === 'struggling').length, hallCash: valueAt(arm, 'townHallCash', tick) },
+    facts: {
+      out, pay, open: openFirms.length, struggling: openFirms.filter(firm => firm.state === 'struggling').length, hallCash: valueAt(arm, 'townHallCash', tick),
+      staff: staffTotal,
+    },
   }
 }

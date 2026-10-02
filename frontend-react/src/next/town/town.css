@@ -147,6 +147,76 @@
 .nx .lt-legend i.is-pin { background: #3B9B68; box-shadow: 0 0 0 2px #fff, 0 0 0 3px #C9BFAE }
 .nx .lt-legend .lt-scale { color: var(--nx-ink4-text) }
 
+/* ---------- Main Street, up close ----------
+   One town's street from the side, under the legend (MainStreetCard.jsx,
+   MainStreet.jsx). The header is one line on a wide card and two on a narrow
+   one (the title, then the town and its rules beside the picker); the rules
+   are cut short with an ellipsis (the full wording is the title) and the
+   picker's buttons have fixed widths, so nothing in it changes size as the
+   weeks change. The drawing keeps the street's aspect ratio (the .lt-stage
+   rules below). */
+/* The card does not clip: on a phone the drawing is about 100 px tall, so a
+   place card hangs over what lies below it (z-index 1 keeps it above the
+   panels, under the timeline) rather than being cut off; the drawing clips
+   its own bottom corners to the card's. */
+.nx .lt-street { position: relative; z-index: 1; margin-top: 18px; padding: 0; border-radius: 16px; container: lt-street / inline-size }
+.nx .lt-street .lt-stage { overflow: hidden; border-radius: 0 0 15px 15px }
+.nx .lt-street-head {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-areas: 'title sub pick';
+  align-items: center;
+  column-gap: 12px;
+  padding: 14px 16px 12px 18px;
+}
+.nx .lt-street-head h2 { grid-area: title; font-size: 20px; line-height: 1.2; white-space: nowrap }
+.nx .lt-street-sub {
+  grid-area: sub;
+  min-width: 0;
+  font-size: 13.5px;
+  line-height: 1.5;
+  color: var(--nx-ink3-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* A segmented control like the timeline's speeds, each button 6.6em wide;
+   on a phone, three or four towns get narrower buttons without the dots. */
+.nx .lt-pick { grid-area: pick; display: flex; gap: 2px; padding: 2px; border-radius: 999px; background: var(--nx-panel2) }
+.nx .lt-pick button {
+  box-sizing: border-box;
+  flex: none;
+  width: 6.6em;
+  padding: 4px 9px;
+  border: 0;
+  border-radius: 999px;
+  background: none;
+  font-size: 12.5px;
+  line-height: 18px;
+  font-weight: 500;
+  color: var(--nx-ink3-text);
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.nx .lt-pick button i { display: inline-block; width: 8px; height: 8px; margin-right: 6px; border-radius: 2px }
+.nx .lt-pick button:hover { color: var(--nx-ink) }
+.nx .lt-pick button[aria-pressed='true'] { background: var(--nx-panel); color: var(--nx-ink); box-shadow: 0 1px 2px rgba(23, 32, 43, .1) }
+.nx .lt-pick button:focus-visible { border-radius: 999px }
+@container lt-street (max-width: 620px) {
+  .nx .lt-street-head {
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas: 'title title' 'sub pick';
+    row-gap: 6px;
+    padding: 12px 12px 10px 14px;
+  }
+}
+@container lt-street (max-width: 460px) {
+  .nx .lt-pick:has(> :nth-child(3)) button { width: 5.1em; padding: 4px 6px }
+  .nx .lt-pick:has(> :nth-child(3)) button i { display: none }
+}
+
 /* ---------- place cards ----------
    Pointing at a house, a shop, the town hall, the bank or a pin shows its
    card beside the pointer, clicking keeps it (usePlaceCard.js,
@@ -192,6 +262,10 @@
 .nx .lt-place-tag.is-quiet { background: rgba(110, 122, 135, .22); color: #A8AFB7 }
 .nx .lt-place-tag.is-info { background: rgba(38, 150, 171, .22); color: #67B6C4 }
 @container lt-card (max-width: 520px) {
+  .nx .lt-place { padding: 9px 11px; font-size: 12.5px; border-radius: 12px }
+  .nx .lt-place-title { font-size: 15px }
+}
+@container lt-street (max-width: 520px) {
   .nx .lt-place { padding: 9px 11px; font-size: 12.5px; border-radius: 12px }
   .nx .lt-place-title { font-size: 15px }
 }
@@ -286,13 +360,23 @@
    stays until the rules are WEEKS.pulse weeks old. */
 .nx .lt-hall-ring { fill: none; stroke-width: 2.2 }
 
-/* Pins over the homes of people you follow. */
+/* Main Street's hills and meadow take the weather's colours; its houses
+   share the island's classes, with a warm glow round a lit window. */
+.nx .lt-back .lt-hill-a { fill: var(--lt-hill-a, #DADDC4) }
+.nx .lt-back .lt-hill-b { fill: var(--lt-hill-b, #CBD4B2) }
+.nx .lt-back .lt-meadow { fill: var(--lt-meadow, #C3CDA8) }
+.nx .lt-house .lt-sglow { display: none }
+.nx .lt-house.is-work .lt-sglow { display: inline }
+
+/* Pins over the homes of people you follow. Each has an unseen, wider circle
+   that takes the pointer (lt-pin-hit). */
 .nx .lt-pin { stroke: #fff; stroke-width: 1.5 }
 .nx .lt-pin.is-work { fill: #3B9B68 }
 .nx .lt-pin.is-look { fill: #C98A1B }
 .nx .lt-pin.is-low { fill: #C8483B }
 .nx .lt-pin.is-idle { fill: #8F877A }
 .nx .lt-person text { font-size: 7px; font-weight: 700; fill: #fff; text-anchor: middle; dominant-baseline: central; pointer-events: none }
+.nx .lt-street-pin text { font-size: 8px }
 
 /* Rain, or snow in winter; taken out entirely when there is none. */
 .nx .lt-rain { opacity: var(--lt-rain, 0) }

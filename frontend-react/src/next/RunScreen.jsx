@@ -16,6 +16,7 @@ import StatCard from './components/StatCard.jsx'
 import StoryChart from './components/StoryChart.jsx'
 import TownHall from './components/TownHall.jsx'
 import Legend from './town/Legend.jsx'
+import MainStreetCard from './town/MainStreetCard.jsx'
 import TownCard from './town/TownCard.jsx'
 import './next.css'
 
@@ -166,6 +167,9 @@ export default function RunScreen({
   // Enlarge shows one town on its own (by label) until the viewer shows them all again.
   const [focused, setFocused] = useState(null)
   const focus = arms.some(arm => arm.label === focused) ? focused : null
+  // Which town Main Street shows (by index): the picker's choice, or the town
+  // last enlarged. Showing all the towns again leaves it there.
+  const [streetTown, setStreetTown] = useState(0)
   // A live run shows its towns from the first week every town has reached.
   const building = Boolean(live) && maxTick < 1
   // The towns move while the clock plays forward: a live run held on a past
@@ -325,7 +329,7 @@ export default function RunScreen({
               {panel}
 
               <section className={`lt-towns is-${arms.length}${focus ? ' is-focus' : ''}`} data-stable="towns">
-                {arms.map(arm => (
+                {arms.map((arm, i) => (
                   <TownCard
                     key={arm.label}
                     arm={arm}
@@ -338,11 +342,24 @@ export default function RunScreen({
                     canFocus={!single}
                     focused={focus === arm.label}
                     hidden={Boolean(focus) && focus !== arm.label}
-                    onFocus={() => setFocused(focus === arm.label ? null : arm.label)}
+                    onFocus={() => {
+                      if (focus !== arm.label) setStreetTown(i)
+                      setFocused(focus === arm.label ? null : arm.label)
+                    }}
                   />
                 ))}
               </section>
               <Legend arms={arms} tick={tick} />
+              <MainStreetCard
+                arms={arms}
+                tick={tick}
+                playing={moving}
+                speed={speed}
+                scrubs={scrubs}
+                ended={ended}
+                selected={Math.min(streetTown, arms.length - 1)}
+                onSelect={setStreetTown}
+              />
 
               <div className={`nx-cols${single ? ' is-single' : ''}`}>
                 {arms.map((arm, i) => (

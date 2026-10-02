@@ -1,5 +1,5 @@
 import fs from 'node:fs'
-import { beforeAll, describe, expect, test, vi } from 'vitest'
+import { afterEach, beforeAll, beforeEach, describe, expect, test, vi } from 'vitest'
 import { fireEvent, render } from '@testing-library/react'
 import TownCard from '../town/TownCard.jsx'
 import { COPY, householdsPerHouse } from '../catalog.js'
@@ -166,6 +166,122 @@ describe('place cards', () => {
     fireEvent.click(container.querySelector('svg.lt-scene'))
     fireEvent.mouseLeave(canvas(container))
     expect(useSceneMotion.mock.calls.length).toBe(renders)
+  })
+})
+
+// jsdom has no layout: these tests give the drawing (.lt-canvas) and the card
+// (.lt-place) sizes through the HTMLElement getters, and the drawing a box
+// for the pointer, and put the getters back afterwards.
+describe('placing the card in a drawing that has a size', () => {
+  const NAMES = ['offsetParent', 'offsetWidth', 'offsetHeight']
+  const saved = {}
+  let room
+  let measure
+  beforeEach(() => {
+    room = { width: 600, height: 360 }
+    measure = { width: () => 200, height: () => 120, parent: vi.fn() }
+    for (const name of NAMES) saved[name] = Object.getOwnPropertyDescriptor(HTMLElement.prototype, name)
+    for (const name of ['clientWidth', 'clientHeight']) saved[name] = Object.getOwnPropertyDescriptor(Element.prototype, name)
+    saved.box = Element.prototype.getBoundingClientRect
+    const isCard = el => el.classList?.contains('lt-place')
+    const isRoom = el => el.classList?.contains('lt-canvas')
+    Object.defineProperty(HTMLElement.prototype, 'offsetParent', {
+      configurable: true,
+      get() { measure.parent(); return isCard(this) ? this.parentElement : saved.offsetParent.get.call(this) },
+    })
+    Object.defineProperty(HTMLElement.prototype, 'offsetWidth', { configurable: true, get() { return isCard(this) ? measure.width(this) : 0 } })
+    Object.defineProperty(HTMLElement.prototype, 'offsetHeight', { configurable: true, get() { return isCard(this) ? measure.height(this) : 0 } })
+    Object.defineProperty(Element.prototype, 'clientWidth', { configurable: true, get() { return isRoom(this) ? room.width : 0 } })
+    Object.defineProperty(Element.prototype, 'clientHeight', { configurable: true, get() { return isRoom(this) ? room.height : 0 } })
+    Element.prototype.getBoundingClientRect = function box() {
+      return isRoom(this) ? { left: 0, top: 0, right: room.width, bottom: room.height, width: room.width, height: room.height, x: 0, y: 0 } : saved.box.call(this)
+    }
+  })
+  afterEach(() => {
+    for (const name of NAMES) Object.defineProperty(HTMLElement.prototype, name, saved[name])
+    for (const name of ['clientWidth', 'clientHeight']) Object.defineProperty(Element.prototype, name, saved[name])
+    Element.prototype.getBoundingClientRect = saved.box
+  })
+
+  test('a week change with no card shown reads no layout (the card is checked first)', () => {
+    const { container, rerender } = render(<TownCard arm={A} tick={69} towns={2} />)
+    measure.parent.mockClear()
+    rerender(<TownCard arm={A} tick={70} towns={2} />)
+    rerender(<TownCard arm={A} tick={71} towns={2} />)
+    expect(measure.parent).not.toHaveBeenCalled()
+    fireEvent.mouseMove(container.querySelector('[data-kind="hall"]'), { clientX: 100, clientY: 100 })
+    expect(measure.parent).toHaveBeenCalled()
+  })
+
+  test('a kept card is placed again when the drawing changes size (a window resized or a phone turned)', () => {
+    const observers = []
+    const RealObserver = globalThis.ResizeObserver
+    globalThis.ResizeObserver = class {
+      constructor(callback) { this.callback = callback; this.targets = []; observers.push(this) }
+      observe(target) { this.targets.push(target) }
+      unobserve() {}
+      disconnect() { this.targets = [] }
+    }
+    try {
+      const { container } = render(<TownCard arm={A} tick={70} towns={2} />)
+      fireEvent.click(container.querySelector('[data-kind="hall"]'), { clientX: 500, clientY: 100 })
+      expect(card(container).style.left).toBe('286px')
+      // The drawing halves in width with no new render: the card moves in.
+      room = { width: 300, height: 180 }
+      const watching = observers.filter(observer => observer.targets.includes(canvas(container)))
+      expect(watching.length).toBeGreaterThan(0)
+      watching.forEach(observer => observer.callback([]))
+      expect(card(container).style.left).toBe('36px')
+      // Closing the card stops watching the drawing.
+      fireEvent.click(container.querySelector('svg.lt-scene'))
+      expect(observers.filter(observer => observer.targets.includes(canvas(container)))).toHaveLength(0)
+    } finally {
+      globalThis.ResizeObserver = RealObserver
+    }
+  })
+
+  test('the card is measured where it starts, not where the last card stood (a card by the right edge wraps narrower)', () => {
+    // Placed far to the right, a card has less room and wraps taller.
+    measure.height = el => (parseFloat(el.style.left) > 100 ? 300 : 120)
+    const { container } = render(<TownCard arm={A} tick={70} towns={2} />)
+    fireEvent.mouseMove(container.querySelector('[data-kind="hall"]'), { clientX: 500, clientY: 100 })
+    expect(card(container).style.left).toBe('286px')
+    fireEvent.mouseMove(container.querySelector('[data-kind="bank"]'), { clientX: 100, clientY: 200 })
+    expect(card(container).style.left).toBe('114px')
+    expect(card(container).style.top).toBe('214px')
+  })
+})
+
+describe('place card details', () => {
+  test('a card only pointed at goes when Enlarge hides its town, so it does not come back stale; a kept card stays', () => {
+    const { container, rerender } = render(<TownCard arm={A} tick={70} towns={2} />)
+    fireEvent.mouseMove(container.querySelector('[data-kind="hall"]'))
+    expect(card(container)).toHaveClass('is-on')
+    rerender(<TownCard arm={A} tick={70} towns={2} hidden />)
+    rerender(<TownCard arm={A} tick={80} towns={2} />)
+    expect(card(container)).not.toHaveClass('is-on')
+    fireEvent.click(container.querySelector('[data-kind="bank"]'))
+    rerender(<TownCard arm={A} tick={80} towns={2} hidden />)
+    rerender(<TownCard arm={A} tick={80} towns={2} />)
+    expect(card(container)).toHaveClass('is-on', 'is-pinned')
+  })
+
+  test('a pin has a wide, invisible circle to tap, well beyond the drawn pin', () => {
+    const { container } = render(<TownCard arm={A} tick={70} towns={2} />)
+    const pin = container.querySelector('[data-kind="person"]')
+    const hit = pin.querySelector('.lt-pin-hit')
+    expect(Number(hit.getAttribute('r'))).toBeGreaterThanOrEqual(2 * Number(pin.querySelector('.lt-pin').getAttribute('r')))
+    expect(hit.getAttribute('cx')).toBe(pin.querySelector('.lt-pin').getAttribute('cx'))
+    fireEvent.mouseMove(hit)
+    expect(card(container)).toHaveTextContent(T.person)
+  })
+
+  test('only places inside the drawing count: a marked box around the town card is not one', () => {
+    const { container } = render(<div data-kind="house" data-index="0"><TownCard arm={A} tick={70} towns={2} /></div>)
+    fireEvent.mouseMove(container.querySelector('svg.lt-scene'))
+    expect(card(container)).not.toHaveClass('is-on')
+    fireEvent.click(container.querySelector('svg.lt-scene'))
+    expect(card(container)).not.toHaveClass('is-on')
   })
 })
 
