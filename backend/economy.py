@@ -1060,6 +1060,12 @@ class Economy:
         accessible_liquidity = np.maximum(cash_balances, 0.0) + deposit_liquidity
         if self.payment_sequence != "legacy":
             accessible_liquidity = np.asarray(payment_liquidity, dtype=np.float64)
+        elif settled_income:
+            # This week's rent and loan installments are debited after the
+            # shopping decision; the budget may only use what is left after them.
+            accessible_liquidity = np.maximum(
+                accessible_liquidity - self._legacy_obligations_due(), 0.0
+            )
 
         # Savings drawdown: personality-derived fraction of accessible liquidity (slow trickle)
         drawdown = drawdown_rates * accessible_liquidity
@@ -1076,6 +1082,42 @@ class Economy:
         drawdown = np.where(in_desperation, np.maximum(drawdown, desperation_drawdown), drawdown)
 
         return np.minimum(base_budget + drawdown, accessible_liquidity)
+
+    def _legacy_obligations_due(self) -> np.ndarray:
+        """Known household payments that fall due later in this legacy tick.
+
+        Per household, in self.households order: the rent the housing phase
+        will collect (only when the lease's provider exists and the tenant
+        passes the same affordability test ``_clear_housing_rental_market``
+        applies, so a tenant it will evict keeps its budget), the scheduled
+        installment of every registered household bank loan, and the legacy
+        unregistered medical-loan payment. Unknown or optional outflows (a new
+        lease, healthcare, education) are not included.
+        """
+        bank = self.bank
+        benefit = self.government.get_unemployment_benefit_level()
+        firm_lookup = self.firm_lookup
+        due = np.zeros(len(self.households), dtype=np.float64)
+        for idx, household in enumerate(self.households):
+            amount = household.legacy_medical_installment_due()
+            provider = firm_lookup.get(household.renting_from_firm_id)
+            if provider is not None and provider.good_category == "Housing":
+                income = household.wage if household.employer_id is not None else benefit
+                liquidity = household.cash_balance + 0.90 * max(0.0, household.bank_deposit)
+                rent = household.monthly_rent
+                if not (rent > self._max_affordable_rent(income, liquidity) or liquidity < rent):
+                    amount += rent
+            if bank is not None:
+                for loan in bank.loans_for("household", household.household_id):
+                    if loan["remaining"] > 1e-6:
+                        amount += min(loan["payment_per_tick"], loan["remaining"])
+            due[idx] = amount
+        return due
+
+    @staticmethod
+    def _max_affordable_rent(income: float, accessible_liquidity: float) -> float:
+        """Rent ceiling of the tenancy test: income share plus 25% of liquidity."""
+        return income * CONFIG.labor_market.rent_affordability_share + accessible_liquidity * 0.25
 
     # SOLID: SRP Violation - This method handles BOTH vectorized computation
     # AND legacy fallback logic. Should be split into:
@@ -7335,10 +7377,8 @@ class Economy:
                 # liquidity (cash + 90% of bank deposits). Households with savings
                 # are not evicted just because their cash buffer dipped low.
                 income = household.wage if household.employer_id is not None else self.government.get_unemployment_benefit_level()
-                income_ceiling = income * rent_share
                 accessible_liquidity = household.cash_balance + 0.90 * max(0.0, household.bank_deposit)
-                cash_ceiling = accessible_liquidity * 0.25
-                max_affordable_rent = income_ceiling + cash_ceiling
+                max_affordable_rent = self._max_affordable_rent(income, accessible_liquidity)
 
                 if household.monthly_rent > max_affordable_rent or accessible_liquidity < household.monthly_rent:
                     # EVICTION: Can't afford rent (income gate or insufficient liquidity)

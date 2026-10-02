@@ -1663,6 +1663,13 @@ class HouseholdAgent(AgentMixin):
         self.cash_balance += loan_amount
         self.add_ledger_flow("bank", loan_amount)
 
+    def legacy_medical_installment_due(self) -> float:
+        """This tick's scheduled payment on the legacy unregistered medical loan (0 if none)."""
+        if self.medical_loan_remaining <= 0 or self.medical_loan_bank_serviced:
+            return 0.0
+        min_wage = CONFIG.government.default_unemployment_benefit * CONFIG.government.wage_floor_multiplier
+        return min(0.10 * min_wage, self.medical_loan_remaining)
+
     def make_medical_loan_payment(self) -> float:
         """
         Service only the legacy unregistered medical loan, using the wage floor.
@@ -1678,9 +1685,7 @@ class HouseholdAgent(AgentMixin):
         if self.medical_loan_remaining <= 0 or self.medical_loan_bank_serviced:
             return 0.0
 
-        min_wage = CONFIG.government.default_unemployment_benefit * CONFIG.government.wage_floor_multiplier
-        base_payment = 0.10 * min_wage
-        payment_amount = min(base_payment, self.medical_loan_remaining, self.cash_balance)
+        payment_amount = min(self.legacy_medical_installment_due(), self.cash_balance)
 
         if payment_amount <= 0:
             return 0.0
