@@ -3,11 +3,9 @@
 // staff (model.floorsOf), a lower shell once a closed shop is up for lease,
 // its two walls and its scaffold poles.
 import { iso as P, pts } from './geometry.js'
-import { WEEKS } from './model.js'
+import { leased } from './model.js'
 
 export const SHOP_BOX = { inset: 0.1, w: 0.8, d: 0.8 }
-
-export const leased = shop => shop.state === 'closed' && shop.closedFor >= WEEKS.lease
 
 // The height a shop's staff calls for, and the height it is drawn at.
 export const shopHeight = shop => shop.floors * 8 + 12

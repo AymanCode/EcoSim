@@ -11,7 +11,7 @@ import { syncHeights, stepHeights } from '../town/heights.js'
 import { ISLAND } from '../town/islandPlaces.js'
 import { Shop } from '../town/shops.jsx'
 import useSceneMotion from '../town/useSceneMotion.js'
-import { demoArms, fixtureArm } from './fixture.js'
+import { WHOLE_SCREEN_MS, demoArms, fixtureArm } from './fixture.js'
 
 let A, B
 beforeAll(() => { [A, B] = demoArms() })
@@ -97,7 +97,9 @@ describe('TownCard keeps what the old town drawing showed', () => {
     closed.forEach(shop => expect(shop.querySelectorAll('.lt-board')).toHaveLength(2))
   })
 
-  test('a shop being built is scaffolded; a new one has balloons and a NEW sign; a growing one a crane and HIRING', () => {
+  // Renders the demo town at several weeks (about 2.7 s at full parallelism;
+  // it timed out at 5 s once under load): it gets the whole-screen timeout.
+  test('a shop being built is scaffolded; a new one has balloons and a NEW sign; a growing one a crane and HIRING', { timeout: WHOLE_SCREEN_MS }, () => {
     const seen = { fresh: 0, isNew: 0, growing: 0 }
     for (const tick of [11, 14, 30]) {
       const { container, unmount } = render(<TownCard arm={A} tick={tick} towns={2} />)
@@ -285,7 +287,7 @@ describe('TownCard keeps what the old town drawing showed', () => {
   })
 })
 
-describe('Run screen towns', () => {
+describe('Run screen towns', { timeout: WHOLE_SCREEN_MS }, () => {
   const props = { tick: 70, maxTick: 104, playing: false, onToggle() {}, onScrub() {}, speed: 1, onSpeed() {} }
 
   test('one card per town, side by side, with the shared legend', () => {
@@ -605,7 +607,9 @@ describe('TownCard motion between weeks', () => {
     expect(walls(container)).toBe(to)
   })
 
-  test('a scrub, a paused step or Enlarge in the middle of an ease leaves walls, roof and sign at the week drawn', () => {
+  // Renders three demo weeks and a hidden card (about 3.5 to 4 s alone): it
+  // gets the whole-screen timeout.
+  test('a scrub, a paused step or Enlarge in the middle of an ease leaves walls, roof and sign at the week drawn', { timeout: WHOLE_SCREEN_MS }, () => {
     // Firm 9 in Town A is 44, 36 and 28 high in weeks 29, 30 and 31, then 28 in 32.
     const ID = 9
     const heights = [29, 30, 31].map(tick => townAt(A, tick).shops.find(shop => shop.id === ID).floors)
@@ -903,7 +907,7 @@ describe('a scene with its own places', () => {
 
 // The Run screen tells the drawings when to move: not on a live run held on a
 // past week, and never take a week reached on the timeline for a step.
-describe('Run screen towns in motion', () => {
+describe('Run screen towns in motion', { timeout: WHOLE_SCREEN_MS }, () => {
   const props = { maxTick: 104, onToggle() {}, onSpeed() {}, speed: 1 }
   const signs = container => container.querySelectorAll('.lt-card [data-layer="moments"] > *').length
 

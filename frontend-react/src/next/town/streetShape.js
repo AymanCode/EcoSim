@@ -4,7 +4,7 @@
 // the week's model as the street's loop sees it. Ported from mockup 08's
 // StreetScene (drawShop and apply). Pure.
 import { STREET, STREET_CAPACITY } from './geometry.js'
-import { leased } from './shopShape.js'
+import { leased } from './model.js'
 
 const clamp = (value, lo, hi) => Math.min(hi, Math.max(lo, value))
 const r1 = value => Math.round(value * 10) / 10

@@ -3,7 +3,7 @@ import { render, screen, within } from '@testing-library/react'
 import Moments from '../components/Moments.jsx'
 import RunScreen from '../RunScreen.jsx'
 import { moments } from '../narration.js'
-import { fixtureArm, TOWN_A, TOWN_B } from './fixture.js'
+import { fixtureArm, TOWN_A, TOWN_B, WHOLE_SCREEN_MS } from './fixture.js'
 
 const noop = () => {}
 const rgb = hex => `rgb(${[1, 3, 5].map(i => parseInt(hex.slice(i, i + 2), 16)).join(', ')})`
@@ -53,7 +53,7 @@ describe('Moments', () => {
     expect(region).toHaveAttribute('aria-relevant', 'additions')
   })
 
-  test('sits under the lead on the Run screen, recorded and live', () => {
+  test('sits under the lead on the Run screen, recorded and live', { timeout: WHOLE_SCREEN_MS }, () => {
     const arms = [fixtureArm(TOWN_A), fixtureArm(TOWN_B)]
     const props = { arms, tick: WEEK, maxTick: 24, playing: false, onToggle: noop, onScrub: noop, speed: 1, onSpeed: noop }
     const live = {

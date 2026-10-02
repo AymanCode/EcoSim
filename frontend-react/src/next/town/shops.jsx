@@ -10,7 +10,8 @@ import { memo } from 'react'
 import { COPY } from '../catalog.js'
 import { iso as P, onFace, pts, r1 } from './geometry.js'
 import { PILL_TONES, pillBox, shopColours } from './nodes.js'
-import { POLES, SHOP_BOX, drawnHeight, leased, polePoint, shopWalls } from './shopShape.js'
+import { leased } from './model.js'
+import { POLES, SHOP_BOX, drawnHeight, polePoint, shopWalls } from './shopShape.js'
 import { Line } from './draw.jsx'
 
 const SIGNS = COPY.diorama.signs
