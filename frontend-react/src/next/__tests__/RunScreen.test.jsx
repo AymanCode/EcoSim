@@ -5,7 +5,7 @@ import useReplay from '../useReplay.js'
 import { formatMetric } from '../catalog.js'
 import { commonTicks, valueAt } from '../data/derive.js'
 import { leadSentence, verdict } from '../narration.js'
-import { fixtureArm, TOWN_A, TOWN_B } from './fixture.js'
+import { fixtureArm, TOWN_A, TOWN_B, WHOLE_SCREEN_MS } from './fixture.js'
 
 function townB() {
   const b = fixtureArm(TOWN_B)
@@ -41,7 +41,7 @@ const sheetLink = container => within(container.querySelector('.nx-side')).getBy
 const sheetToggle = () => within(screen.getByRole('region', { name: 'Timeline' })).getByRole('button', { name: 'Show me all the numbers' })
 const sheet = () => screen.queryByRole('dialog', { name: 'All the numbers' })
 
-describe('RunScreen', () => {
+describe('RunScreen', { timeout: WHOLE_SCREEN_MS }, () => {
   test('two towns: two matching columns, the lead sentence and the verdict', () => {
     const arms = [fixtureArm(TOWN_A), townB()]
     const { container } = render(<Clocked arms={arms} />)

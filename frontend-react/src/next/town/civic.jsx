@@ -6,8 +6,8 @@
 import { memo } from 'react'
 import { COPY, formatMoneyShort } from '../catalog.js'
 import { BANK, HALL, iso as P, onFace, pts, r1 } from './geometry.js'
-import { FIGURE, SHIRTS } from './nodes.js'
-import { Line } from './draw.jsx'
+import { SHIRTS } from './nodes.js'
+import { Figure, Line } from './draw.jsx'
 
 const clamp = (value, lo, hi) => Math.min(hi, Math.max(lo, value))
 const SIGNS = COPY.diorama.signs
@@ -99,19 +99,6 @@ export const TreasuryAmount = memo(function TreasuryAmount({ cash }) {
     </text>
   )
 })
-
-// A person standing at (x, y), as the motion loop's figureNode draws one.
-export function Figure({ x, y, shirt, carry = false, scale = 1 }) {
-  const { body, head, box } = FIGURE
-  return (
-    <g className="lt-walker" transform={`translate(${r1(x)} ${r1(y)})${scale === 1 ? '' : ` scale(${scale})`}`}>
-      <path d={FIGURE.legs} strokeWidth={0.9} fill="none" />
-      <line x1={body.x1} y1={body.y1} x2={body.x2} y2={body.y2} stroke={shirt} strokeWidth={body.width} />
-      <circle cx={head.cx} cy={head.cy} r={head.r} fill={head.fill} stroke="none" />
-      {carry && <rect x={box.x} y={box.y} width={box.width} height={box.height} fill={box.fill} stroke={box.stroke} strokeWidth={box.strokeWidth} />}
-    </g>
-  )
-}
 
 // Families queuing for help outside the town hall (the model's 0 to 9).
 export const Queue = memo(function Queue({ size }) {

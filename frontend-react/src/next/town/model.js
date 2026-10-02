@@ -11,6 +11,9 @@ const clamp = (value, lo, hi) => Math.min(hi, Math.max(lo, value))
 const STATES = new Set(['steady', 'growing', 'struggling'])
 export const floorsOf = staff => clamp(Math.ceil(Math.max(1, staff ?? 1) / 9), 1, 6)
 export const WEEKS = { fresh: 3, isNew: 9, lease: 8, longOut: 12, pulse: 4 }
+// A closed shop is up for lease once it has stood closed WEEKS.lease weeks:
+// it shows FOR LEASE and a lower shell in both drawings.
+export const leased = shop => shop.state === 'closed' && shop.closedFor >= WEEKS.lease
 
 // First week each firm appears, cached on the arm's shared `ticks` array. Like
 // lots.js, the cache keeps the week and snapshot it read for every week, checks

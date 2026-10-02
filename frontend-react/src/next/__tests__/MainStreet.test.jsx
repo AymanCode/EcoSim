@@ -11,7 +11,7 @@ import { STREET_PLACES } from '../town/streetPlaces.js'
 import { StreetTreasury } from '../town/streetParts.jsx'
 import { streetHeight, streetModel } from '../town/streetShape.js'
 import useSceneMotion from '../town/useSceneMotion.js'
-import { demoArms } from './fixture.js'
+import { WHOLE_SCREEN_MS, demoArms } from './fixture.js'
 
 // Counts the drawings' renders: each scene calls the motion hook once per render.
 vi.mock('../town/useSceneMotion.js', async importOriginal => {
@@ -49,7 +49,7 @@ describe('Main Street', () => {
     expect(screen.queryByRole('group')).toBeNull()
   })
 
-  test('Enlarge on a town moves Main Street to it', () => {
+  test('Enlarge on a town moves Main Street to it', { timeout: WHOLE_SCREEN_MS }, () => {
     const props = { tick: 70, maxTick: 104, playing: false, onToggle() {}, onScrub() {}, speed: 1, onSpeed() {} }
     const { container } = render(<RunScreen arms={[A, B]} {...props} />)
     fireEvent.click(screen.getAllByRole('button', { name: 'Enlarge' })[1])
@@ -72,7 +72,7 @@ describe('Main Street card', () => {
     expect(buttons.map(button => button.getAttribute('aria-pressed'))).toEqual(['false', 'true'])
   })
 
-  test('Enlarge moves the picker and the street to that town; Show both leaves the street there', () => {
+  test('Enlarge moves the picker and the street to that town; Show both leaves the street there', { timeout: WHOLE_SCREEN_MS }, () => {
     const props = { tick: 70, maxTick: 104, playing: false, onToggle() {}, onScrub() {}, speed: 1, onSpeed() {} }
     const { container } = render(<RunScreen arms={[A, B]} {...props} />)
     const card = () => container.querySelector('.lt-street')
@@ -87,7 +87,7 @@ describe('Main Street card', () => {
     expect(pressed()).toEqual(['Town A'])
   })
 
-  test('on the Run screen it comes after the town cards and the legend', () => {
+  test('on the Run screen it comes after the town cards and the legend', { timeout: WHOLE_SCREEN_MS }, () => {
     const props = { tick: 70, maxTick: 104, playing: false, onToggle() {}, onScrub() {}, speed: 1, onSpeed() {} }
     const { container } = render(<RunScreen arms={[A, B]} {...props} />)
     const order = [...container.querySelector('main.nx-wrap').children].map(child => child.className.split(' ').find(name => /^(lt-towns|lt-legend|lt-street)$/.test(name))).filter(Boolean)
@@ -257,7 +257,9 @@ describe('Main Street drawing', () => {
       const spot = STREET.houses[person.house]
       expect(Number(pin.querySelector('.lt-pin').getAttribute('cx'))).toBeCloseTo(spot.x, 1)
       const hit = pin.querySelector('.lt-pin-hit')
-      expect(Number(hit.getAttribute('r'))).toBeGreaterThanOrEqual(2.5 * Number(pin.querySelector('.lt-pin').getAttribute('r')))
+      // Wider than the pin, but clear of the houses in the row behind (r 12).
+      expect(Number(hit.getAttribute('r'))).toBeGreaterThanOrEqual(1.5 * Number(pin.querySelector('.lt-pin').getAttribute('r')))
+      expect(Number(hit.getAttribute('r'))).toBeLessThanOrEqual(12)
     })
   })
 

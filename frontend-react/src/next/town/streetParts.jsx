@@ -11,10 +11,10 @@
 import { memo } from 'react'
 import { COPY, formatMoneyShort } from '../catalog.js'
 import { STREET, pts, r1 } from './geometry.js'
+import { leased } from './model.js'
 import { PILL_TONES, SHIRTS, shopColours } from './nodes.js'
-import { leased } from './shopShape.js'
 import { BASE, streetHeight, streetWalls } from './streetShape.js'
-import { Figure } from './civic.jsx'
+import { Figure } from './draw.jsx'
 
 const SIGNS = COPY.diorama.signs
 const clamp = (value, lo, hi) => Math.min(hi, Math.max(lo, value))
@@ -224,10 +224,10 @@ export const StreetBank = memo(function StreetBank() {
 })
 
 // A pin over the house of someone you follow (the same house as on the
-// island), coloured by how they are doing, with their initial. An unseen
-// circle two and a half times the pin's size takes the pointer, so a finger
-// finds the person on a small screen.
-const PIN_HIT = 18
+// island), coloured by how they are doing, with their initial. An unseen,
+// wider circle takes the pointer, so a finger finds the person on a small
+// screen; at r 12 it stays clear of the houses in the row behind.
+const PIN_HIT = 12
 export const StreetPin = memo(function StreetPin({ index, house, tone, initial }) {
   const spot = STREET.houses[house]
   const y = r1(spot.y - 40 * spot.s)
