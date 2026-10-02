@@ -691,6 +691,52 @@ export const COPY = {
     altHouses: (work, look, home) => `Out of every 100 households: ${work} working, ${look} looking for work, ${home} lost their home.`,
     altFirms: (open, struggling, closed) => `${counted(open, 'firm')} open: ${struggling} struggling. ${closed} closed in the last year.`,
   },
+  // The living-town drawings (town/), their cards, legend and summary.
+  diorama: {
+    moods: { thriving: 'Thriving', okay: 'Getting by', struggling: 'Struggling', hard: 'Hard times' },
+    enlarge: 'Enlarge',
+    showAll: n => (n === 2 ? 'Show both' : 'Show all'),
+    mainStreet: 'Main Street, up close',
+    mainStreetFor: (label, rules) => `${label} · ${rules}`,
+    moreLots: n => `+${n} more`,
+    signs: { hiring: 'HIRING', sale: 'SALE', closed: 'CLOSED', lease: 'FOR LEASE', fresh: 'NEW', forSale: 'FOR SALE', owes: 'owes', hall: 'TOWN HALL', bank: 'BANK' },
+    moments: { closed: 'Closed', opened: 'Opened!', lost: n => `−${n} jobs`, gained: n => `+${n} jobs`, badLoans: amount => `Bad loans ${amount}` },
+    banner: {
+      minimum_wage_policy: 'NEW MIN. WAGE', benefit_level: 'NEW BENEFITS', wage_tax_rate: 'NEW WAGE TAX', profit_tax_rate: 'NEW PROFIT TAX',
+      investment_tax_rate: 'NEW INVEST. TAX', public_works: 'PUBLIC WORKS', sector_subsidy_target: 'SUBSIDIES', sector_subsidy_level: 'SUBSIDIES',
+      price_stabilization_target: 'PRICE CONTROLS', price_stabilization_level: 'PRICE CONTROLS', rent_stabilization_level: 'RENT CONTROLS',
+      infrastructure_spending: 'NEW SPENDING', technology_spending: 'NEW SPENDING', social_spending: 'NEW SPENDING',
+      bailout_policy: 'BAILOUTS', bailout_target: 'BAILOUTS', bailout_budget: 'BAILOUTS', many: 'NEW RULES',
+    },
+    legend: {
+      working: 'lights on: working', looking: 'dark: looking for work', lost: 'lost their home',
+      spend: 'spending at shops', pay: 'pay to workers', tax: 'taxes to the town hall', help: 'help from the town hall',
+      pins: 'pins: people you follow', perHouse: total => COPY.town.houseScale(total),
+    },
+    summary: {
+      mood: band => ({ thriving: 'The town is thriving.', okay: 'The town is getting by.', struggling: 'The town is struggling.', hard: 'The town is going through hard times.' })[band],
+      weather: (season, mood) => `It is ${season}; ${mood === 'hard' ? 'it is raining' : mood === 'struggling' ? 'it is cloudy' : 'the sun is out'}.`,
+      overflow: n => `${n} more businesses than lots; they are not drawn.`,
+    },
+    card: {
+      house: { work: 'A working home', look: 'Looking for work', home: 'Lost their home', sub: per => `stands for ${per}` },
+      houseWork: weeks => `Lights on: the people here have jobs. Working for ${weeks} week${weeks === 1 ? '' : 's'} in a row.`,
+      houseLook: weeks => (weeks >= 12 ? `Lights off: someone here lost their job ${weeks} weeks ago, so the garden has gone to weeds.` : `Lights off: someone here lost their job ${weeks} week${weeks === 1 ? '' : 's'} ago.`),
+      houseHome: 'These families could not keep up with rent and had to leave.',
+      staff: 'Staff', cash: 'Cash in the bank', coop: 'town co-op', closedOn: 'Closed', closedStaff: 'Staff when it closed',
+      closedNote: lease => (lease ? 'Empty and up for lease.' : 'Boarded up. It ran out of cash.'),
+      thisWeek: (hired, laid) => `This week: ${[hired ? `hired ${hired}` : '', laid ? `let ${laid} go` : ''].filter(Boolean).join(', ')}.`,
+      richest: 'The richest shop in town, not counting the co-ops.',
+      states: { building: 'Being built', fresh: 'Just opened', growing: 'Growing, hiring', struggling: 'Struggling to pay its bills', steady: 'Steady', closed: 'Closed' },
+      hall: 'Town hall', taxes: 'Taxes in this week', help: 'Help paid to families', saved: 'Saved', owes: 'Owes', queue: n => `${n} people queuing for help.`,
+      inDebt: 'In debt', inBlack: 'In the black',
+      bank: 'The bank', bankSub: 'lends to shops and families', loans: 'Loans out', bad: 'Gone bad this week', badTag: 'Loans going bad', lending: 'Lending',
+      person: 'someone you follow', worksAt: firm => `Works at ${firm}`, outFor: weeks => `Out of work for ${weeks} week${weeks === 1 ? '' : 's'}`,
+      savings: 'Savings', health: 'Health', happiness: 'Happiness', rentOwed: 'Rent owed',
+      word: value => (value == null ? '–' : value >= 0.66 ? 'good' : value >= 0.33 ? 'so-so' : 'low'),
+      working: 'Working', looking: 'Looking for work',
+    },
+  },
   // Short lines under the lead when something notable just happened
   // (narration.js `moments`, components/Moments.jsx).
   moments: {
