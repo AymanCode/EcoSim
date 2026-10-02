@@ -10,7 +10,7 @@ import { memo } from 'react'
 import { COPY } from '../catalog.js'
 import { iso as P, onFace, pts, r1 } from './geometry.js'
 import { PILL_TONES, pillBox, shopColours } from './nodes.js'
-import { SHOP_BOX, drawnHeight, leased, shopWalls } from './shopShape.js'
+import { POLES, SHOP_BOX, drawnHeight, leased, polePoint, shopWalls } from './shopShape.js'
 import { Line } from './draw.jsx'
 
 const SIGNS = COPY.diorama.signs
@@ -56,7 +56,7 @@ function ShopDrawing({ shop, lot }) {
         {levels.map(z => (
           <polyline key={z} data-z={z} points={pts([P(x0 - 0.05, y0 + d + 0.05, z), P(x0 + w + 0.05, y0 + d + 0.05, z), P(x0 + w + 0.05, y0 - 0.05, z)])} fill="none" stroke="#9C8F7C" strokeWidth={0.7} />
         ))}
-        {[0, 0.5, 1].map(u => <Line key={u} className="lt-pole" a={P(x0 + w * u, y0 + d + 0.05, 0)} b={P(x0 + w * u, y0 + d + 0.05, h)} stroke="#9C8F7C" strokeWidth={0.7} />)}
+        {POLES.map(u => <Line key={u} className="lt-pole" a={polePoint(lot, u, 0)} b={polePoint(lot, u, h)} stroke="#9C8F7C" strokeWidth={0.7} />)}
         <g className="lt-shop-top">{roofTop}</g>
       </>
     )

@@ -8,6 +8,7 @@ import { townAt } from '../town/model.js'
 import { scenePalette } from '../town/mood.js'
 import { LAYOUT } from '../town/geometry.js'
 import { syncHeights, stepHeights } from '../town/heights.js'
+import { ISLAND } from '../town/islandPlaces.js'
 import { Shop } from '../town/shops.jsx'
 import useSceneMotion from '../town/useSceneMotion.js'
 import { demoArms, fixtureArm } from './fixture.js'
@@ -475,6 +476,33 @@ describe('TownCard motion between weeks', () => {
     expect(pose(reduced.container)).toEqual(drawn)
   })
 
+  test('switching reduced motion on mid-play puts smoke, flags and lights back in their drawn pose', () => {
+    const listeners = new Set()
+    const query = { matches: false, addEventListener: (type, fn) => listeners.add(fn), removeEventListener: (type, fn) => listeners.delete(fn) }
+    window.matchMedia = () => query
+    const pose = container => [
+      container.querySelector('.lt-house.is-work.is-smoky .lt-smoke circle').getAttribute('transform'),
+      container.querySelector('.lt-shop.is-struggling .lt-flag-wave').getAttribute('transform'),
+      container.querySelector('.lt-shop.is-struggling .lt-wins').getAttribute('opacity'),
+    ]
+    const still = render(card(70, { playing: false }))
+    const drawn = pose(still.container)
+    still.unmount()
+    const { container } = render(card(70, { playing: true }))
+    let dim = false
+    for (let i = 0; i < 40 && !dim; i += 1) {
+      frames(50)
+      dim = Number(pose(container)[2]) < 1
+    }
+    expect(dim).toBe(true)
+    expect(pose(container)).not.toEqual(drawn)
+    query.matches = true
+    for (const fn of listeners) fn({ matches: true })
+    expect(pose(container)).toEqual(drawn)
+    frames(1000)
+    expect(pose(container)).toEqual(drawn)
+  })
+
   test('a shop that recovers keeps its lights on', () => {
     // Week 28 to 29: firm 7 stops struggling in Town A.
     const before = townAt(A, 28).shops.filter(shop => shop.state === 'struggling').map(shop => shop.id)
@@ -577,6 +605,54 @@ describe('TownCard motion between weeks', () => {
     expect(walls(container)).toBe(to)
   })
 
+  test('a scrub, a paused step or Enlarge in the middle of an ease leaves walls, roof and sign at the week drawn', () => {
+    // Firm 9 in Town A is 44, 36 and 28 high in weeks 29, 30 and 31, then 28 in 32.
+    const ID = 9
+    const heights = [29, 30, 31].map(tick => townAt(A, tick).shops.find(shop => shop.id === ID).floors)
+    expect(new Set(heights).size).toBe(3)
+    const shopOf = container => container.querySelector(`[data-kind="shop"][data-id="${ID}"]`)
+    const drawn = tick => {
+      const { container, unmount } = render(card(tick))
+      const points = shopOf(container).querySelector('.lt-shop-l').getAttribute('points')
+      unmount()
+      return points
+    }
+    const agrees = (container, tick) => {
+      const shop = shopOf(container)
+      expect(shop.querySelector('.lt-shop-l').getAttribute('points'), `walls at week ${tick}`).toBe(drawn(tick))
+      expect(shop.querySelector('.lt-shop-top'), `roof at week ${tick}`).not.toHaveAttribute('transform')
+      const sign = container.querySelector(`[data-sign="${ID}"]`)
+      if (sign) expect(sign, `sign at week ${tick}`).not.toHaveAttribute('transform')
+      expect([...shop.querySelectorAll('[data-z]')].filter(node => node.style.display === 'none'), `windows at week ${tick}`).toHaveLength(0)
+    }
+    const midEase = () => {
+      const view = render(card(29, { playing: true, scrubs: 0 }))
+      view.rerender(card(30, { playing: true, scrubs: 0 }))
+      frames(100)
+      expect(shopOf(view.container).querySelector('.lt-shop-l').getAttribute('points')).not.toBe(drawn(30))
+      return view
+    }
+    // Scrubbed one week on while playing: a jump, not a step.
+    let view = midEase()
+    view.rerender(card(31, { playing: true, scrubs: 1 }))
+    agrees(view.container, 31)
+    frames(1000)
+    agrees(view.container, 31)
+    view.unmount()
+    // Paused mid-ease, then one week on while paused.
+    view = midEase()
+    view.rerender(card(30, { playing: false, scrubs: 0 }))
+    view.rerender(card(31, { playing: false, scrubs: 0 }))
+    agrees(view.container, 31)
+    view.unmount()
+    // Hidden by Enlarge on the next week, then shown again later.
+    view = midEase()
+    view.rerender(card(31, { playing: true, scrubs: 0, hidden: true }))
+    agrees(view.container, 31)
+    view.rerender(card(32, { playing: true, scrubs: 0 }))
+    agrees(view.container, 32)
+  })
+
   test('with reduced motion: the weather changes at once, nothing travels, no floating signs', () => {
     reduceMotion()
     const { container, rerender } = render(card(69, { playing: true }))
@@ -670,7 +746,7 @@ describe('shop heights', () => {
   test('a scaffolded shop\'s poles and rings follow its height as it eases', () => {
     const [low, high] = [drawn(1), drawn(4)]
     const { container, rerender } = render(<svg data-layer="world"><Shop shop={shop(1)} lot={lot} /></svg>)
-    const s = { world: container.querySelector('svg'), heights: new Map(), easing: new Set(), now: 0 }
+    const s = { world: container.querySelector('svg'), places: ISLAND, heights: new Map(), easing: new Set(), now: 0 }
     syncHeights(s, [shop(1)], false)
     rerender(<svg data-layer="world"><Shop shop={shop(4)} lot={lot} /></svg>)
     syncHeights(s, [shop(4)], true)
@@ -698,25 +774,36 @@ describe('a scene with its own places', () => {
   beforeEach(() => { vi.useFakeTimers({ toFake: ['requestAnimationFrame', 'cancelAnimationFrame', 'performance'] }) })
   afterEach(() => { vi.useRealTimers() })
 
+  // A made-up street: a lane for people, one shop (firm 9, which loses a
+  // floor from week 29 to 30) and one cloud, drawn in its own units.
   function Strip({ model, places, playing }) {
     const ref = useRef(null)
     useSceneMotion(ref, { model, places, playing, speed: 1, towns: 1 })
     return (
       <div ref={ref}>
-        <svg data-layer="world"><g data-lane="" /></svg>
+        <svg data-layer="back"><g data-layer="clouds"><g data-cloud="0" transform="translate(10 4)"><ellipse rx="3" ry="2" /></g></g></svg>
+        <svg data-layer="world">
+          <g data-lane="" />
+          <g data-kind="shop" data-id="9">
+            <polygon className="lt-shop-l" points="street" />
+            <polygon className="lt-shop-r" points="street" />
+            <g className="lt-shop-top" />
+            <line className="lt-pole" y1="0" y2="-80" />
+          </g>
+          <g data-sign="9" />
+        </svg>
         <svg data-layer="motion"><g data-layer="pings" /><g data-layer="coins" /><g data-layer="moments" /></svg>
       </div>
     )
   }
 
-  test('traffic, walkers, coins and signs go where the places say', () => {
-    const calls = { put: 0 }
-    const walker = s => {
+  const streetPlaces = calls => {
+    const person = s => {
       const node = document.createElementNS('http://www.w3.org/2000/svg', 'circle')
       s.where.lane.appendChild(node)
       return { node, x: 0 }
     }
-    const places = {
+    return {
       attach: root => ({ lane: root.querySelector('[data-lane]') }),
       house: index => [index, 100],
       shop: () => [300, 50],
@@ -724,31 +811,93 @@ describe('a scene with its own places', () => {
       hall: [200, 50],
       bankTop: [250, 20],
       traffic: () => ({ cars: 0, walkers: 3 }),
-      newCar: walker,
-      newWalker: walker,
+      newCar: person,
+      newWalker: person,
       moveCar() {},
       moveWalker(s, thing, dt) {
         thing.x += dt * 10
         thing.node.setAttribute('cx', thing.x.toFixed(2))
       },
       route: () => ({ door: [300], home: [0] }),
+      mover: node => ({ node, onStreet: true }),
       put(s, thing, [x]) {
         calls.put += 1
+        if ('slot' in thing || 'scale' in thing) calls.island += 1
         if (thing.node.parentNode !== s.where.lane) s.where.lane.appendChild(thing.node)
         thing.node.setAttribute('cx', x.toFixed(2))
       },
     }
+  }
+
+  test('traffic, walkers, coins and signs go where the places say', () => {
+    const calls = { put: 0, island: 0 }
+    const places = streetPlaces(calls)
     const { container, rerender } = render(<Strip model={townAt(A, 10)} places={places} playing />)
     const lane = container.querySelector('[data-lane]')
     expect(lane.childNodes).toHaveLength(3)
+    vi.advanceTimersByTime(100)
+    const walker = lane.firstChild
+    const before = walker.getAttribute('cx')
+    vi.advanceTimersByTime(400)
+    expect(Number(walker.getAttribute('cx'))).toBeGreaterThan(Number(before))
     rerender(<Strip model={townAt(A, 11)} places={places} playing />)
-    // Week 11: people laid off walk home, drawn where the places put them.
+    // Week 11: people laid off walk home, drawn where the places put them,
+    // with no island placement (tile slots, the island's figure scale).
     expect(lane.querySelectorAll('.lt-walker.is-moving').length).toBeGreaterThan(0)
     expect(calls.put).toBeGreaterThan(0)
+    expect(calls.island).toBe(0)
     expect(container.querySelector('[data-layer="moments"]').childNodes.length).toBeGreaterThan(0)
     vi.advanceTimersByTime(500)
-    expect(lane.firstChild.getAttribute('cx')).not.toBeNull()
     expect(container.querySelectorAll('[data-layer="coins"] circle').length).toBeGreaterThan(0)
+  })
+
+  test('its shops and clouds follow its own geometry, never the island\'s', () => {
+    const calls = { put: 0, island: 0 }
+    const heights = {
+      target: shop => shop.floors * 10,
+      walls: (shop, h) => ({ left: `street ${h.toFixed(1)}`, right: `street ${h.toFixed(1)}` }),
+      lift: (target, h) => (target - h) * 2,
+      pole: (shop, i, h) => (-2 * h).toFixed(1),
+    }
+    const places = { ...streetPlaces(calls), heights, clouds: { start: () => ({ x: 10, y: 4 }), to: 40, from: 0 } }
+    const { container, rerender } = render(<Strip model={townAt(A, 29)} places={places} playing />)
+    const shop = container.querySelector('[data-kind="shop"]')
+    const wall = () => shop.querySelector('.lt-shop-l').getAttribute('points')
+    rerender(<Strip model={townAt(A, 30)} places={places} playing />)
+    // Four floors (40 in the street's units) easing down to three (30).
+    expect(wall()).toBe('street 40.0')
+    vi.advanceTimersByTime(100)
+    const shown = Number(wall().split(' ')[1])
+    expect(shown).toBeGreaterThan(30)
+    expect(shown).toBeLessThan(40)
+    expect(shop.querySelector('.lt-shop-top').getAttribute('transform')).toBe(`translate(0 ${Math.round((30 - shown) * 20) / 10})`)
+    expect(shop.querySelector('.lt-pole').getAttribute('y2')).toBe((-2 * shown).toFixed(1))
+    vi.advanceTimersByTime(500)
+    expect(wall()).toBe('street 30.0')
+    expect(shop.querySelector('.lt-shop-top')).not.toHaveAttribute('transform')
+    // The cloud starts where the street says and comes back round inside its sky.
+    const cloud = container.querySelector('[data-cloud]')
+    const xs = []
+    for (let i = 0; i < 80; i += 1) {
+      vi.advanceTimersByTime(100)
+      const [, x, y] = cloud.getAttribute('transform').match(/translate\((\S+) (\S+)\)/)
+      xs.push(Number(x))
+      expect(y).toBe('4')
+    }
+    expect(Math.min(...xs)).toBeGreaterThanOrEqual(0)
+    expect(Math.max(...xs)).toBeLessThanOrEqual(41)
+    expect(xs.some((x, i) => i > 0 && x < xs[i - 1])).toBe(true)
+  })
+
+  test('a scene whose places have no heights or clouds keeps its shops and clouds as drawn', () => {
+    const calls = { put: 0, island: 0 }
+    const places = streetPlaces(calls)
+    const { container, rerender } = render(<Strip model={townAt(A, 29)} places={places} playing />)
+    rerender(<Strip model={townAt(A, 30)} places={places} playing />)
+    vi.advanceTimersByTime(1000)
+    expect(container.querySelector('.lt-shop-l')).toHaveAttribute('points', 'street')
+    expect(container.querySelector('.lt-pole')).toHaveAttribute('y2', '-80')
+    expect(container.querySelector('[data-cloud]')).toHaveAttribute('transform', 'translate(10 4)')
   })
 })
 

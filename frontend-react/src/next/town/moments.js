@@ -67,7 +67,7 @@ function walkTo(s, shop, kind, j) {
   const { door, home } = s.places.route(shop, pick(homes), j)
   const { g, legs } = figureNode(s.doc, WALKER_SHIRTS[kind], kind === 'lay')
   g.classList.add('is-moving')
-  const mover = { node: g, legs, from: kind === 'lay' ? door : home, to: kind === 'lay' ? home : door, t0: s.now + j * 260, dur: 2600 + Math.random() * 600, slot: null, scale: ' scale(.9)' }
+  const mover = Object.assign(s.places.mover(g), { legs, from: kind === 'lay' ? door : home, to: kind === 'lay' ? home : door, t0: s.now + j * 260, dur: 2600 + Math.random() * 600 })
   g.style.opacity = j > 0 ? '0' : '1'
   s.places.put(s, mover, mover.from)
   s.movers.push(mover)

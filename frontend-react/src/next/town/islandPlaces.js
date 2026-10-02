@@ -15,14 +15,21 @@
 //                           moves one on for dt seconds, and draws it
 //   route(shop, home, j)    a person walking between a shop's door and home
 //                           number `home`, in the places' own coordinates
+//   mover(node)             a walking person's placement state, around its node
 //   put(s, thing, at)       draws a moving thing (thing.node) at `at`
+//   clouds                  (optional) where each cloud starts ({ start(k) })
+//                           and the x it drifts out at and back in from
+//                           ({ to, from }); without it the clouds stand still
+//   heights                 (optional) how the scene's shops ease to a new
+//                           height (see heights.js); without it they do not
 //
 // On the island, positions are tile coordinates [gx, gy]; cars and people
 // walk the two roads; anything moving is drawn inside the slot of the tile
 // under it, an empty group just after the tile's buildings in painter's
 // order, so buildings nearer the viewer hide it.
-import { GRID, LAYOUT, ROAD, iso } from './geometry.js'
+import { CLOUDS, GRID, LAYOUT, ROAD, iso } from './geometry.js'
 import { CAR_COLOURS, SHIRTS, carNode, figureNode, swingLegs } from './nodes.js'
+import { POLES, drawnHeight, polePoint, shopWalls } from './shopShape.js'
 
 const clamp = (value, lo, hi) => Math.min(hi, Math.max(lo, value))
 const pick = list => list[Math.floor(Math.random() * list.length)]
@@ -99,5 +106,18 @@ export const ISLAND = {
     const house = LAYOUT.houses[home]
     return { door: [lot.gx + 0.5 + (j - 0.5) * 0.2, lot.gy + 0.5], home: [house.gx + 0.5, house.gy + 0.9] }
   },
+  mover: node => ({ node, slot: null, scale: ' scale(.9)' }),
   put,
+
+  // The six clouds drift right across the island's sky and come back round.
+  clouds: { start: k => CLOUDS[k] ?? { x: 0, y: 0 }, to: 330, from: -340 },
+
+  // Shops on their lots, one floor per 9 staff; a height is a lift in z, which
+  // on screen is the same distance up.
+  heights: {
+    target: drawnHeight,
+    walls: (shop, h) => shopWalls(LAYOUT.lots[shop.lot], h),
+    lift: (target, h) => target - h,
+    pole: (shop, i, h) => polePoint(LAYOUT.lots[shop.lot], POLES[i] ?? 0, h)[1],
+  },
 }
