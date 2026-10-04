@@ -10,6 +10,7 @@ export const TILE_H = 18
 export const GRID = 16
 export const ROAD = 7
 export const HOUSES = 100
+export const PERSON_HOUSE_CAPACITY = 40
 export const LOT_CAPACITY = 50
 export const STREET_CAPACITY = 26
 export const VIEWBOX = '-302 -50 604 364'
@@ -103,27 +104,32 @@ function textSeed(text) {
   return hash | 0
 }
 
-// Each followed household lives in one of the 40 houses nearest the middle,
-// picked from a hash of its id; two households never share a house while there
-// is room. If every one of the 40 is already taken, the extra household simply
-// shares the house its id points to rather than waiting for a free one.
+export function personHouseStart(id) {
+  const number = typeof id === 'number' || (typeof id === 'string' && id.trim() !== '') ? Number(id) : Number.NaN
+  const seed = Number.isFinite(number) ? Math.trunc(number) : textSeed(String(id))
+  return Math.floor(mulberry32(seed)() * PERSON_HOUSE_CAPACITY)
+}
+
+// Numeric IDs sort numerically; other IDs have a deterministic text order.
+export function comparePersonIds(a, b) {
+  const an = Number(a), bn = Number(b)
+  if (Number.isFinite(an) !== Number.isFinite(bn)) return Number.isFinite(an) ? -1 : 1
+  if (Number.isFinite(an) && an !== bn) return an - bn
+  return String(a) < String(b) ? -1 : String(a) > String(b) ? 1 : 0
+}
+
+// Pure placement for an isolated sample, starting at each ID's hash. With all
+// 40 middle houses taken, extras share their start house (a bounded fallback).
+// The town model uses people.js to retain homes across sample changes.
 export function personHouses(ids) {
   const used = new Set()
   const assigned = []
   // Resolve collisions in identity order, then return in the caller's order.
-  // Numeric IDs sort numerically; other IDs have a deterministic text order.
-  const ordered = ids.map((id, i) => ({ id, i })).sort((a, b) => {
-    const an = Number(a.id), bn = Number(b.id)
-    if (Number.isFinite(an) !== Number.isFinite(bn)) return Number.isFinite(an) ? -1 : 1
-    if (Number.isFinite(an) && an !== bn) return an - bn
-    return String(a.id) < String(b.id) ? -1 : String(a.id) > String(b.id) ? 1 : a.i - b.i
-  })
+  const ordered = ids.map((id, i) => ({ id, i })).sort((a, b) => comparePersonIds(a.id, b.id) || a.i - b.i)
   for (const { id, i } of ordered) {
-    const number = typeof id === 'number' || (typeof id === 'string' && id.trim() !== '') ? Number(id) : Number.NaN
-    const seed = Number.isFinite(number) ? Math.trunc(number) : textSeed(String(id))
-    const start = Math.floor(mulberry32(seed)() * 40)
+    const start = personHouseStart(id)
     let index = start
-    for (let step = 0; step < 40 && used.has(index); step += 1) index = (start + step + 1) % 40
+    for (let step = 0; step < PERSON_HOUSE_CAPACITY && used.has(index); step += 1) index = (start + step + 1) % PERSON_HOUSE_CAPACITY
     if (used.has(index)) index = start
     used.add(index)
     assigned[i] = index

@@ -118,6 +118,53 @@ describe('townAt', () => {
 // Each shop's id and how new it is, for comparing one arm's answer with another's.
 const ages = (arm, tick) => townAt(arm, tick).shops.map(({ id, age, fresh, isNew }) => ({ id, age, fresh, isNew }))
 
+const homes = (arm, tick) => new Map(townAt(arm, tick).people.map(({ id, house }) => [id, house]))
+
+describe('townAt household homes across sample changes', () => {
+  const doctoredDemo = samples => {
+    const arm = demoArms()[0]
+    arm.ticks = arm.ticks.slice(0, samples.length)
+    samples.forEach((ids, i) => {
+      const tick = arm.ticks[i]
+      arm.snapshots[tick] = { ...arm.snapshots[tick], subjects: ids.map(id => subject(id)) }
+    })
+    return arm
+  }
+
+  test('the reported sample replacement leaves household 16 at house 26', () => {
+    const arm = doctoredDemo([[1, 16, 2, 3], [16, 2, 3, 4]])
+    expect(homes(arm, 1).get(16)).toBe(26)
+    expect(homes(arm, 2).get(16)).toBe(26)
+    for (const id of [2, 3, 16]) expect(homes(arm, 2).get(id)).toBe(homes(arm, 1).get(id))
+  })
+
+  test('joins, departures and reorders keep every continuing household in its home', () => {
+    const arm = doctoredDemo([[16, 2, 3], [1, 16, 2, 3], [3, 1, 16, 2], [16, 3, 4, 2]])
+    expect(homes(arm, 1).get(16)).toBe(25)
+    for (let i = 1; i < arm.ticks.length; i += 1) {
+      const before = homes(arm, arm.ticks[i - 1]), after = homes(arm, arm.ticks[i])
+      for (const [id, house] of after) if (before.has(id)) expect(house).toBe(before.get(id))
+      expect(new Set(after.values()).size).toBe(after.size)
+    }
+  })
+
+  test('scrubbing repeats the same homes before and after later weeks arrive', () => {
+    const arm = liveArm([[20, { subjects: [1, 16, 2, 3].map(id => subject(id)) }]])
+    const first = homes(arm, 20)
+    expect(homes(arm, 20)).toEqual(first)
+    for (const [tick, ids] of [[21, [16, 2, 3, 4]], [22, [1, 4, 16, 3]], [23, [16, 3, 4, 5]]]) {
+      ingest(arm, frame(tick, { subjects: ids.map(id => subject(id)) }))
+      expect(homes(arm, tick).get(16)).toBe(26)
+      expect(homes({ ...arm }, 20)).toEqual(first)
+    }
+    const recorded = arm.ticks.map(tick => homes(arm, tick))
+    for (const tick of [...arm.ticks].reverse()) {
+      expect(homes(arm, tick)).toEqual(recorded[arm.ticks.indexOf(tick)])
+      expect(homes(arm, tick)).toEqual(homes(freshCopy(arm), tick))
+    }
+  })
+})
+
 describe('townAt when weeks land late or are rewritten', () => {
   // Firm 1 is there from the start; firm 2 first opens in week 72, which arrives after weeks 73 and 74.
   const grown = () => liveArm([
