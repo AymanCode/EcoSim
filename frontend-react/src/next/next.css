@@ -282,7 +282,7 @@
 /* Stat cards */
 .nx .nx-stat { background: var(--nx-panel); border: 1px solid var(--nx-line); border-radius: 14px; padding: 12px 14px; min-width: 0 }
 .nx .nx-stat h4 { font-size: 14px }
-/* The values keep room for --nx-pv-lines lines (two when towns are compared,
+/* The values keep room for --nx-pv-lines lines (one per town,
    set by StatCard), so a week whose values wrap onto a second line never
    resizes the card. A value is 40 px tall: a 21 px figure, 2 px, a 17 px name. */
 .nx .nx-stat .pair {
@@ -545,6 +545,24 @@
 .nx .nx-moments > *, .nx .nx-moments-room > ul { grid-area: 1 / 1; align-self: start }
 .nx .nx-moments-room { display: grid; visibility: hidden }
 .nx .nx-moments ul { display: flex; flex-wrap: wrap; gap: 8px; min-height: 33px; margin: 0; padding: 0; list-style: none }
+/* A live strip reserves the full three-chip capacity from its first frame.
+   Fixed slots stack in narrow containers and sit side by side above 700 px.
+   Long wording scrolls within its chip and is also available in its title. */
+.nx .nx-moments.is-live { container: nx-moments / inline-size }
+.nx .nx-moments.is-live > ul {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: repeat(3, 70px);
+  height: 226px;
+}
+.nx .nx-moments.is-live .nx-moment { min-width: 0; min-height: 0; overflow: auto }
+@container nx-moments (min-width: 700px) {
+  .nx .nx-moments.is-live > ul {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-rows: 70px;
+    height: 70px;
+  }
+}
 .nx .nx-moment {
   display: inline-flex;
   align-items: center;
@@ -966,8 +984,16 @@
 .nx .nx-abtn:disabled { cursor: not-allowed; opacity: .55 }
 .nx .nx-follow { flex: none }
 .nx .nx-hall-toggle, .nx .nx-numbers-toggle { flex: none }
-.nx .nx-notice { margin: -2px 0 8px 22px; font-size: 12.5px; line-height: 1.4; color: var(--nx-ink3-text) }
-.nx .nx-notice:empty { margin: 0 }
+.nx .nx-notice {
+  margin: -2px 0 8px 22px;
+  height: 1.4em;
+  font-size: 12.5px;
+  line-height: 1.4;
+  color: var(--nx-ink3-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 .nx .nx-hh .nx-more + .nx-more { margin-left: 18px }
 .nx .nx-more:disabled { cursor: not-allowed; opacity: .55; text-decoration: none }
 .nx .nx-endp, .nx .nx-lostp {

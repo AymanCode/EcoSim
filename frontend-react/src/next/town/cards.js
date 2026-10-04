@@ -57,7 +57,7 @@ export function placeCard(model, target, total) {
     }
   }
   if (target.kind === 'person') {
-    const person = model.people[target.index]
+    const person = model.people.find(person => person.id === target.id)
     if (!person) return null
     const rows = [[T.savings, formatMoneyShort(person.cash)], [T.health, T.word(person.health)], [T.happiness, T.word(person.happiness)]]
     if (person.rentOwed > 0) rows.push([T.rentOwed, formatMoneyShort(person.rentOwed)])

@@ -4,7 +4,7 @@ import '../next.css'
 
 function Chips({ list }) {
   return list.map(moment => (
-    <li key={moment.id} className="nx-moment">
+    <li key={moment.id} className="nx-moment" title={moment.text}>
       <i style={{ background: moment.color }} aria-hidden="true" />
       {moment.text}
     </li>
@@ -18,12 +18,13 @@ function Chips({ list }) {
 // towns can show (`rows`, every week's chips), so the page below does not jump
 // as moments come and go: hidden copies of those rows share the strip's one
 // grid cell with this week's chips (spec section 6). With no rows it is one
-// chip row tall.
-export default function Moments({ arms, tick, rows = [] }) {
+// chip row tall. Live runs instead hold three fixed slots before any events
+// arrive. Their room is bounded, independent of the history received.
+export default function Moments({ arms, tick, rows = [], live = false }) {
   const list = moments(arms, tick)
   return (
     <div
-      className="nx-moments"
+      className={`nx-moments${live ? ' is-live' : ''}`}
       role="log"
       aria-live="polite"
       aria-atomic="false"
@@ -32,9 +33,9 @@ export default function Moments({ arms, tick, rows = [] }) {
       data-stable="moments"
     >
       <ul><Chips list={list} /></ul>
-      <div className="nx-moments-room" aria-hidden="true">
+      {!live && <div className="nx-moments-room" aria-hidden="true">
         {rows.map(row => <ul key={row.map(moment => moment.text).join('\n')}><Chips list={row} /></ul>)}
-      </div>
+      </div>}
     </div>
   )
 }

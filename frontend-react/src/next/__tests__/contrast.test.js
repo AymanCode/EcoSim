@@ -48,6 +48,13 @@ function resolve(value) {
 const TEXT_TOKENS = Object.keys(TOKENS).filter(name => name.endsWith('-text'))
 
 describe('text contrast in next.css', () => {
+  test('every household pin initial reads at 4.5:1 or better', () => {
+    const townCss = fs.readFileSync(new URL('../town/town.css', here), 'utf8')
+    const initial = townCss.match(/\.nx \.lt-person text\s*\{[^}]*fill:\s*(#[\w]+)/)[1]
+    const fills = [...townCss.matchAll(/\.nx \.lt-pin\.is-(\w+)\s*\{\s*fill:\s*(#[\w]+)/g)]
+    expect(fills.map(([, tone]) => tone).sort()).toEqual(['idle', 'look', 'low', 'work'])
+    for (const [, tone, fill] of fills) expect(contrast(resolve(initial), resolve(fill)), tone).toBeGreaterThanOrEqual(4.5)
+  })
   test('every text token reads at 4.5:1 or better on the page, the panels and panel2', () => {
     expect(TEXT_TOKENS.length).toBeGreaterThanOrEqual(9)
     for (const name of TEXT_TOKENS) {

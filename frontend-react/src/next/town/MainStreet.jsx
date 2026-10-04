@@ -113,7 +113,7 @@ function MainStreet({ model, color, sceneRef, playing = false, speed = 1, towns 
 
   const glow = `url(#${id}-sglow)`
   const byLot = new Array(STREET.lots.length).fill(null)
-  for (const shop of scene.shops) byLot[shop.lot] = shop
+  for (const shop of scene.shops) if (!byLot[shop.lot] || shop.state !== 'closed') byLot[shop.lot] = shop
 
   return (
     <div ref={rootRef} className="lt-stage" aria-hidden="true">
@@ -153,7 +153,7 @@ function MainStreet({ model, color, sceneRef, playing = false, speed = 1, towns 
         <rect className="lt-shade" x={0} y={0} width={W} height={H} fill="#151E32" data-weather="shade" />
         <g className="lt-pins">
           {model.people.map((person, i) => (
-            <StreetPin key={person.id ?? i} index={i} house={person.house} tone={person.tone} initial={person.name.charAt(0)} />
+            <StreetPin key={person.id ?? i} index={i} id={person.id} house={person.house} tone={person.tone} initial={person.name.charAt(0)} />
           ))}
         </g>
       </svg>

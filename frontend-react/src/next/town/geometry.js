@@ -109,7 +109,16 @@ function textSeed(text) {
 // shares the house its id points to rather than waiting for a free one.
 export function personHouses(ids) {
   const used = new Set()
-  return ids.map(id => {
+  const assigned = []
+  // Resolve collisions in identity order, then return in the caller's order.
+  // Numeric IDs sort numerically; other IDs have a deterministic text order.
+  const ordered = ids.map((id, i) => ({ id, i })).sort((a, b) => {
+    const an = Number(a.id), bn = Number(b.id)
+    if (Number.isFinite(an) !== Number.isFinite(bn)) return Number.isFinite(an) ? -1 : 1
+    if (Number.isFinite(an) && an !== bn) return an - bn
+    return String(a.id) < String(b.id) ? -1 : String(a.id) > String(b.id) ? 1 : a.i - b.i
+  })
+  for (const { id, i } of ordered) {
     const number = typeof id === 'number' || (typeof id === 'string' && id.trim() !== '') ? Number(id) : Number.NaN
     const seed = Number.isFinite(number) ? Math.trunc(number) : textSeed(String(id))
     const start = Math.floor(mulberry32(seed)() * 40)
@@ -117,8 +126,9 @@ export function personHouses(ids) {
     for (let step = 0; step < 40 && used.has(index); step += 1) index = (start + step + 1) % 40
     if (used.has(index)) index = start
     used.add(index)
-    return index
-  })
+    assigned[i] = index
+  }
+  return assigned
 }
 
 // Main Street: shops on 26 lots either side of the town hall and bank (lot 0

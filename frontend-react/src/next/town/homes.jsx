@@ -134,12 +134,12 @@ export const Tree = memo(function Tree({ tree }) {
 // circle twice the pin's size takes the pointer, so a finger on a phone (where
 // the pin is about 8 px across) finds the person.
 const PIN_HIT = 14
-export const Pin = memo(function Pin({ index, house, tone, initial }) {
+export const Pin = memo(function Pin({ index, id, house, tone, initial }) {
   const tile = LAYOUT.houses[house]
   const c = P(tile.gx + 0.5, tile.gy + 0.5, 32)
   const base = P(tile.gx + 0.5, tile.gy + 0.5, 18)
   return (
-    <g className="lt-person" data-kind="person" data-index={index}>
+    <g className="lt-person" data-kind="person" data-index={index} data-id={id}>
       <Line a={c} b={base} stroke="#fff" strokeWidth={1.2} />
       <circle className="lt-pin-hit" cx={r1(c[0])} cy={r1(c[1])} r={PIN_HIT} fill="transparent" />
       <circle className={`lt-pin is-${tone}`} cx={r1(c[0])} cy={r1(c[1])} r={6.8} />

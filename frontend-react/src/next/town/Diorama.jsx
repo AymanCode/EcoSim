@@ -150,7 +150,7 @@ function Diorama({ model, color, sceneRef, playing = false, speed = 1, towns = 1
   useSceneMotion(rootRef, { model, places: ISLAND, playing, speed, towns, scrubs, hidden, ended })
 
   const byLot = new Array(LAYOUT.lots.length).fill(null)
-  for (const shop of model.shops) byLot[shop.lot] = shop
+  for (const shop of model.shops) if (!byLot[shop.lot] || shop.state !== 'closed') byLot[shop.lot] = shop
   const world = PAINT_ORDER.map((item, i) => {
     if (STILL[i]) return STILL[i]
     if (item.kind === 'house') {
@@ -197,7 +197,7 @@ function Diorama({ model, color, sceneRef, playing = false, speed = 1, towns = 1
         </g>
         <g className="lt-pins">
           {model.people.map((person, i) => (
-            <Pin key={person.id ?? i} index={i} house={person.house} tone={person.tone} initial={person.name.charAt(0)} />
+            <Pin key={person.id ?? i} index={i} id={person.id} house={person.house} tone={person.tone} initial={person.name.charAt(0)} />
           ))}
         </g>
       </svg>

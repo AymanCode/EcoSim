@@ -228,11 +228,11 @@ export const StreetBank = memo(function StreetBank() {
 // wider circle takes the pointer, so a finger finds the person on a small
 // screen; at r 12 it stays clear of the houses in the row behind.
 const PIN_HIT = 12
-export const StreetPin = memo(function StreetPin({ index, house, tone, initial }) {
+export const StreetPin = memo(function StreetPin({ index, id, house, tone, initial }) {
   const spot = STREET.houses[house]
   const y = r1(spot.y - 40 * spot.s)
   return (
-    <g className="lt-person lt-street-pin" data-kind="person" data-index={index}>
+    <g className="lt-person lt-street-pin" data-kind="person" data-index={index} data-id={id}>
       <line x1={spot.x} y1={y} x2={spot.x} y2={r1(spot.y - 27 * spot.s)} stroke="#fff" strokeWidth={1.2} />
       <circle className="lt-pin-hit" cx={spot.x} cy={y} r={PIN_HIT} fill="transparent" />
       <circle className={`lt-pin is-${tone}`} cx={spot.x} cy={y} r={7} />
