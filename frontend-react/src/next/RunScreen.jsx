@@ -78,7 +78,8 @@ function TownColumn({ arm, tick, single, live, notice, onTrack, canReshuffle }) 
         <span title={rules}>{rules}</span>
       </div>
       {live && (
-        <p className="nx-notice" role="status">
+        <p className="nx-notice" role="status" data-stable={`notice:${arm.label}`}
+          title={notice ? `${COPY.live.notice} ${COPY.app.detail(notice)}` : undefined}>
           {notice ? `${COPY.live.notice} ${COPY.app.detail(notice)}` : null}
         </p>
       )}
@@ -96,7 +97,7 @@ const changedRules = arms => arms.some(arm => (arm.receipts ?? []).some(receipt 
 const END_PHASES = new Set(['horizon', 'finished', 'lost'])
 
 // A live run's end or lost panel, or nothing while it runs.
-function LivePanel({ live, arms, maxTick, horizon }) {
+function LivePanel({ live, arms, maxTick, horizon, onFollow }) {
   if (live.phase === 'lost') {
     const lostLabel = live.error?.town ?? live.towns?.find(town => town.status === 'lost')?.label
     const lost = live.towns?.find(town => town.label === lostLabel)
@@ -121,7 +122,7 @@ function LivePanel({ live, arms, maxTick, horizon }) {
         arms={arms}
         tick={maxTick}
         following={live.following !== false}
-        onFollow={live.onFollow}
+        onFollow={onFollow}
         onExtend={live.onExtend}
         onNewExperiment={live.onNewExperiment}
       />
@@ -185,7 +186,11 @@ export default function RunScreen({
     setScrubs(count => count + 1)
     onScrub(week)
   }
-  const panel = live ? <LivePanel live={live} arms={arms} maxTick={maxTick} horizon={horizon} /> : null
+  const follow = () => {
+    setScrubs(count => count + 1)
+    live.onFollow()
+  }
+  const panel = live ? <LivePanel live={live} arms={arms} maxTick={maxTick} horizon={horizon} onFollow={follow} /> : null
   // New families appear in the live week only, so meeting them waits for a
   // running town and the viewer on the newest week.
   const canReshuffle = live?.phase === 'running' && live.following !== false
@@ -194,11 +199,13 @@ export default function RunScreen({
   // keep one height as the week changes (spec section 6). A live run's arms
   // can grow in place, so the weeks also follow each town's week count.
   const ticksKey = arms.map(arm => arm.ticks.length).join(',')
+  const isLive = Boolean(live)
   const weeks = useMemo(() => commonTicks(arms), [arms, ticksKey]) // eslint-disable-line react-hooks/exhaustive-deps
   const leadTexts = useMemo(() => [...new Set(weeks.map(week => leadSentence(arms, week)))], [arms, weeks])
   const leadHtml = useCallback(text => leadMarkup(text, arms), [arms])
   const verdictTexts = useMemo(() => [...new Set(weeks.map(week => verdict(arms, week)))], [arms, weeks])
   const momentRows = useMemo(() => {
+    if (isLive) return []
     const rows = new Map()
     for (const week of weeks) {
       const row = moments(arms, week)
@@ -206,7 +213,7 @@ export default function RunScreen({
       if (row.length && !rows.has(key)) rows.set(key, row)
     }
     return [...rows.values()]
-  }, [arms, weeks])
+  }, [arms, weeks, isLive])
 
   // The numbers sheet: whether it is open, what opened it (focus goes back
   // there when the viewer closes it, else to the timeline's button), and the
@@ -277,7 +284,7 @@ export default function RunScreen({
         onSpeed={onSpeed}
         live={live}
         following={live?.following}
-        onFollow={live?.onFollow}
+        onFollow={live ? follow : undefined}
         hallToggleRef={hallToggleRef}
         hallId={hallId}
         onHallToggle={live ? toggleHall : undefined}
@@ -325,7 +332,7 @@ export default function RunScreen({
               <StableText className="nx-lead" texts={leadTexts} stable="lead" markup={leadHtml}>
                 <Lead text={leadSentence(arms, tick)} arms={arms} />
               </StableText>
-              <Moments arms={arms} tick={tick} rows={momentRows} />
+              <Moments arms={arms} tick={tick} rows={momentRows} live={isLive} />
               {panel}
 
               <section className={`lt-towns is-${arms.length}${focus ? ' is-focus' : ''}`} data-stable="towns">

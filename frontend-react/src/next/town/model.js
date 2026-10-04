@@ -4,7 +4,7 @@ import { eventsAt, householdState, rulesAt, rulesDiff, snapshotAt, valueAt } fro
 import { firmDisplayName, householdName } from '../names.js'
 import { personHouses } from './geometry.js'
 import { houseRank, houseStates, houseWeeks } from './houses.js'
-import { lotAssignment } from './lots.js'
+import { firmLifetimesAt } from './lots.js'
 import { moodBand, moodOf, seasonOf } from './mood.js'
 
 const clamp = (value, lo, hi) => Math.min(hi, Math.max(lo, value))
@@ -14,27 +14,6 @@ export const WEEKS = { fresh: 3, isNew: 9, lease: 8, longOut: 12, pulse: 4 }
 // A closed shop is up for lease once it has stood closed WEEKS.lease weeks:
 // it shows FOR LEASE and a lower shell in both drawings.
 export const leased = shop => shop.state === 'closed' && shop.closedFor >= WEEKS.lease
-
-// First week each firm appears, cached on the arm's shared `ticks` array. Like
-// lots.js, the cache keeps the week and snapshot it read for every week, checks
-// them against the arm on each call (a cheap pass, no replay) and starts over
-// when one differs: a week that lands late in the middle, or a repeated week
-// overwritten in place, moves a firm's first week.
-const firstSeenCache = new WeakMap()
-function firstSeen(arm) {
-  const ticks = arm?.ticks ?? []
-  let state = firstSeenCache.get(ticks)
-  const holds = state && state.weeks.length <= ticks.length
-    && state.weeks.every((week, i) => week.tick === ticks[i] && week.snapshot === arm.snapshots?.[ticks[i]])
-  if (!holds) state = { weeks: [], seen: new Map() }
-  for (let i = state.weeks.length; i < ticks.length; i += 1) {
-    const snapshot = arm.snapshots?.[ticks[i]]
-    for (const firm of snapshot?.firms ?? []) if (!state.seen.has(firm.id)) state.seen.set(firm.id, ticks[i])
-    state.weeks.push({ tick: ticks[i], snapshot })
-  }
-  if (ticks.length) firstSeenCache.set(ticks, state)
-  return state.seen
-}
 
 function bannerFor(diff) {
   const labels = new Set(Object.keys(diff).map(lever => COPY.diorama.banner[lever] ?? COPY.diorama.banner.many))
@@ -68,8 +47,7 @@ export function townAt(arm, tick) {
   const snapshot = snapshotAt(arm, tick)
   const byId = arm?.firmDirectory?.byId ?? {}
   const byName = arm?.firmDirectory?.byName ?? {}
-  const lotOf = lotAssignment(arm)
-  const seen = firstSeen(arm)
+  const lifetimes = firmLifetimesAt(arm, tick)
   const events = eventsAt(arm, tick)
   const hires = countBy(events, 'hired')
   const layoffs = countBy(events, 'laid_off')
@@ -86,22 +64,25 @@ export function townAt(arm, tick) {
     if (!isCoop(firm) && firm.cash != null && (crowned == null || firm.cash > crowned.cash)) crowned = firm
   }
   for (const firm of openFirms) {
-    const lot = lotOf.get(firm.id) ?? null
+    const life = lifetimes.get(firm.id)
+    const lot = life?.lot ?? null
     if (lot == null) { overflow += 1; continue }
-    const first = seen.get(firm.id) ?? tick
+    const first = life.first
     const age = first <= firstTick ? Infinity : tick - first
     shops.push({
-      id: firm.id, name: firmDisplayName(byId[firm.id] ?? firm), sector: firm.sector ?? byId[firm.id]?.sector ?? null,
+      id: firm.id, name: firmDisplayName({ ...byId[firm.id], ...firm }), sector: firm.sector ?? byId[firm.id]?.sector ?? null,
       staff: firm.staff ?? 0, cash: firm.cash ?? null, state: STATES.has(firm.state) ? firm.state : 'steady', lot, floors: floorsOf(firm.staff),
       age, fresh: age < WEEKS.fresh, isNew: age >= WEEKS.fresh && age < WEEKS.isNew, coop: isCoop(firm),
       richest: firm === crowned, hired: hires.get(firm.id) ?? 0, laidOff: layoffs.get(firm.id) ?? 0, closedTick: null, closedFor: null,
     })
   }
   for (const firm of snapshot?.firmsClosed ?? []) {
-    const lot = lotOf.get(firm.id) ?? null
+    const life = lifetimes.get(firm.id)
+    if (!life || life.open || life.closedTick !== firm.closedTick) continue
+    const lot = life.lot
     if (lot == null) { overflow += 1; continue }
     shops.push({
-      id: firm.id, name: firmDisplayName(byId[firm.id] ?? firm), sector: firm.sector ?? null, staff: firm.lastStaff ?? 0, cash: null,
+      id: firm.id, name: firmDisplayName({ ...byId[firm.id], ...firm }), sector: firm.sector ?? null, staff: firm.lastStaff ?? 0, cash: null,
       state: 'closed', lot, floors: floorsOf(firm.lastStaff), age: Infinity, fresh: false, isNew: false, coop: Boolean(byId[firm.id]?.isBaseline),
       richest: false, hired: 0, laidOff: 0, closedTick: firm.closedTick, closedFor: tick - firm.closedTick,
     })

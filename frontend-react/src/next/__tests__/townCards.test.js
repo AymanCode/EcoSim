@@ -35,7 +35,7 @@ describe('placeCard', () => {
   test('the town hall, the bank and a person', () => {
     expect(placeCard(model, { kind: 'hall' }).tag.text).toBe('In debt')
     expect(placeCard(model, { kind: 'bank' }).tag.text).toBe('Loans going bad')
-    const person = placeCard(model, { kind: 'person', index: 0 })
+    const person = placeCard(model, { kind: 'person', id: model.people[0].id })
     expect(person.sub).toBe('someone you follow')
     expect(person.rows.map(([label]) => label)).toEqual(expect.arrayContaining(['Savings', 'Health', 'Happiness']))
   })
@@ -109,7 +109,7 @@ describe('placeCard at its edges', () => {
   test('no model or no target gives no card', () => {
     expect(placeCard(null, { kind: 'hall' })).toBeNull()
     expect(placeCard(sample, null)).toBeNull()
-    expect(placeCard(sample, { kind: 'person', index: 9 })).toBeNull()
+    expect(placeCard(sample, { kind: 'person', id: 'absent' })).toBeNull()
   })
 })
 
@@ -149,7 +149,7 @@ describe('placeCard for figures the town did not report', () => {
 describe('placeCard for a person says what the Households panel says', () => {
   const card = (extra, firms = [firm(1)]) => {
     const arm = liveArm([[20, { firms, subjects: [subject(7, extra)] }]])
-    return placeCard(townAt(arm, 20), { kind: 'person', index: 0 })
+    return placeCard(townAt(arm, 20), { kind: 'person', id: 7 })
   }
 
   test('someone who just lost their job and someone out for weeks', () => {

@@ -9,7 +9,7 @@
 // The caller spreads `handlers` on the box that holds the drawing and renders
 // `overlay` inside it (TownCard's .lt-canvas; Main Street's too). The drawing
 // marks what can be pointed at with data-kind, plus data-index (a house or a
-// person) or data-id (a shop); its back and motion layers let the pointer
+// house) or data-id (a shop or person); its back and motion layers let the pointer
 // through, so the element under the pointer is in the world layer. Only
 // marks inside that box count. The state lives in the component that calls
 // this hook, never in the memoised drawing, so pointing renders the card
@@ -32,8 +32,8 @@ const TOUCH_COPIES_MS = 800
 // The place an element of the drawing stands for, from its data attributes.
 function targetOf(element) {
   const { kind, index, id } = element.dataset
-  if (kind === 'shop') return { kind, id: /^-?\d+$/.test(id) ? Number(id) : id }
-  if (kind === 'house' || kind === 'person') return { kind, index: Number(index) }
+  if (kind === 'shop' || kind === 'person') return { kind, id: /^-?\d+$/.test(id) ? Number(id) : id }
+  if (kind === 'house') return { kind, index: Number(index) }
   return { kind }
 }
 
@@ -60,6 +60,9 @@ export default function usePlaceCard(model, total, hidden = false) {
   if (hidden && shown && !shown.pinned) setShown(null)
   const touched = useRef(-Infinity)
   const card = shown ? placeCard(model, shown.target, total) : null
+  // Drop the retained identity when it leaves the sample; returning later
+  // must not resurrect a card the viewer can no longer point at.
+  if (shown && !card) setShown(null)
   const kept = Boolean(shown?.pinned && card)
 
   const noteTouch = () => { touched.current = now() }

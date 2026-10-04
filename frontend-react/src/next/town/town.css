@@ -371,10 +371,10 @@
 /* Pins over the homes of people you follow. Each has an unseen, wider circle
    that takes the pointer (lt-pin-hit). */
 .nx .lt-pin { stroke: #fff; stroke-width: 1.5 }
-.nx .lt-pin.is-work { fill: #3B9B68 }
-.nx .lt-pin.is-look { fill: #C98A1B }
-.nx .lt-pin.is-low { fill: #C8483B }
-.nx .lt-pin.is-idle { fill: #8F877A }
+.nx .lt-pin.is-work { fill: #267548 }
+.nx .lt-pin.is-look { fill: #946312 }
+.nx .lt-pin.is-low { fill: #B13F35 }
+.nx .lt-pin.is-idle { fill: #6F695F }
 .nx .lt-person text { font-size: 7px; font-weight: 700; fill: #fff; text-anchor: middle; dominant-baseline: central; pointer-events: none }
 .nx .lt-street-pin text { font-size: 8px }
 

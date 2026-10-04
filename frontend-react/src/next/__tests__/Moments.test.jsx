@@ -14,6 +14,15 @@ const rgb = hex => `rgb(${[1, 3, 5].map(i => parseInt(hex.slice(i, i + 2), 16)).
 const WEEK = 15
 
 describe('Moments', () => {
+  test('live room exists before moments arrive and keeps no growing historical measuring rows', () => {
+    const arms = [fixtureArm(TOWN_A), fixtureArm(TOWN_B)]
+    const { container, rerender } = render(<Moments arms={arms} tick={1} live />)
+    expect(container.querySelector('.nx-moments')).toHaveClass('is-live')
+    expect(container.querySelector('.nx-moments > ul')).toBeEmptyDOMElement()
+    rerender(<Moments arms={arms} tick={WEEK} rows={[moments(arms, WEEK)]} live />)
+    expect(container.querySelector('.nx-moments-room')).toBeNull()
+    expect(container.querySelectorAll('.nx-moment')).toHaveLength(3)
+  })
   test('renders the chips with each town\'s colour', () => {
     const arms = [fixtureArm(TOWN_A), fixtureArm(TOWN_B)]
     const expected = moments(arms, WEEK)
