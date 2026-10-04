@@ -2,10 +2,10 @@
 import { COPY, WARMUP_TICKS } from '../catalog.js'
 import { eventsAt, householdState, rulesAt, rulesDiff, snapshotAt, valueAt } from '../data/derive.js'
 import { firmDisplayName, householdName } from '../names.js'
-import { personHouses } from './geometry.js'
 import { houseRank, houseStates, houseWeeks } from './houses.js'
 import { firmLifetimesAt } from './lots.js'
 import { moodBand, moodOf, seasonOf } from './mood.js'
+import { householdHousesAt } from './people.js'
 
 const clamp = (value, lo, hi) => Math.min(hi, Math.max(lo, value))
 const STATES = new Set(['steady', 'growing', 'struggling'])
@@ -96,7 +96,7 @@ export function townAt(arm, tick) {
   const staffTotal = openFirms.reduce((sum, firm) => sum + (firm.staff ?? 0), 0)
 
   const subjects = (snapshot?.subjects ?? []).slice(0, 4)
-  const houses = personHouses(subjects.map(subject => subject.id))
+  const houses = householdHousesAt(arm, tick)
   // A pin is green when working, amber when looking for work, red when they
   // lost their home or are out of work and unhappy (happiness below 0.2), and
   // grey when they are not able to work and doing fine.
@@ -111,7 +111,7 @@ export function townAt(arm, tick) {
       tone: state === 'work' ? 'work' : state === 'home' || unhappy ? 'low' : state === 'look' ? 'look' : 'idle',
       subject,
     }
-  })
+  }).filter(person => person.house != null)
 
   return {
     tick, warmUp, mood, band: moodBand(mood), season: seasonOf(tick),

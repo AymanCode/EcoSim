@@ -115,6 +115,29 @@ describe('final review identities', () => {
     const houses = personHouses(ids)
     expect(personHouses([...ids].reverse())).toEqual([...houses].reverse())
   })
+
+  test.each(drawings)('%s keeps a followed household pin and card in place through sample changes and scrubs', (name, draw) => {
+    const arm = liveArm([[20, { subjects: [1, 16, 2, 3].map(id => subject(id)) }]])
+    const { container, rerender } = render(draw(arm, 20))
+    const pin = () => container.querySelector('[data-kind="person"][data-id="16"]')
+    const position = () => [...pin().querySelectorAll('circle')].map(circle => [circle.getAttribute('cx'), circle.getAttribute('cy')])
+    fireEvent.click(pin())
+    const title = container.querySelector('.lt-place-title').textContent
+    const originalPosition = position()
+    expect(townAt(arm, 20).people.find(person => person.id === 16).house).toBe(26)
+    for (const [tick, ids] of [[21, [16, 2, 3, 4]], [22, [4, 3, 16, 2]], [23, [1, 16, 3, 4]]]) {
+      ingest(arm, frame(tick, { subjects: ids.map(id => subject(id, { cash: 900 })) }))
+      rerender(draw(arm, tick))
+      expect(position()).toEqual(originalPosition)
+      expect(container.querySelector('.lt-place-title')).toHaveTextContent(title)
+      expect(container.querySelector('.lt-place')).toHaveTextContent('$900')
+    }
+    for (const tick of [20, 22, 21, 23, 20]) {
+      rerender(draw(arm, tick))
+      expect(position()).toEqual(originalPosition)
+      expect(container.querySelector('.lt-place-title')).toHaveTextContent(title)
+    }
+  })
 })
 
 function LiveClocked({ arm, phase, liveTick = 22 }) {
