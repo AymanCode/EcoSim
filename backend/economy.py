@@ -6369,6 +6369,12 @@ class Economy:
         Eligibility (services):
           - sustained stockout streak OR sustained high sell-through
           - marginal worker has positive MRPL
+          - legacy slot-bound + excess-demand trigger: every worker slot is
+            filled and unmet demand over the existing five-tick window
+            (``service_unmet_demand_window``) is at least
+            ``services_expansion_min_excess_demand_ratio`` of the firm's output
+            over that window. Housing and the payment arms keep the economy-wide
+            unemployment trigger instead.
 
         Eligibility (housing):
           - max_rental_units < total_households (real shortage)
