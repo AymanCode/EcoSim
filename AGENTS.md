@@ -1,5 +1,9 @@
 # EcoSim agent instructions
 
+## Ayman's product intent
+
+Read [product intent](docs/product-intent.md) when making product, design, or performance tradeoffs. Explain policy effects at both macro and household/business levels; evaluate GDP alongside wellbeing. Reducing agent logic, decision/update frequency, or modeled behavior for speed requires prior discussion and agreement, including in a labeled quick mode. Discuss/show new UI/UX changes before implementing unless Ayman already explicitly directed them; routine backend improvements preserving agreed behavior are usually fine.
+
 ## Source of truth
 
 The current GitHub `main` branch (`origin/main`) is the authoritative EcoSim repository. Do not assume an older local checkout is current. Before repository analysis or change work, verify the checked-out commit and its relationship to `origin/main`; if the checkout is behind, stop and reconcile it with GitHub before relying on local source or generated documentation.

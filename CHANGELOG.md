@@ -4,6 +4,10 @@ Notable changes and decisions for EcoSim, newest first. The project does not use
 
 ## Unreleased
 
+### 2026-10-14: Preserve Ayman's product intent and simulation decision boundary
+
+Ayman asked to carry his chat-audit clarifications into the projects used on his desktop. Added `docs/product-intent.md` with his source excerpts and separate guidance on policy understanding, macro/micro effects, GDP and wellbeing, and prior agreement before reducing agent logic or update frequency for speed; linked it from `AGENTS.md` and `CLAUDE.md` and added a shared instruction mirror for cross-device use. This records product intent and collaboration rules without changing simulation code or approving a redesign.
+
 ### 2026-10-02: Overdraw fix, services expansion loans, two phase 6 flags on
 
 - **Item 6: seller-concentration measurement for `fix_seller_choice_noise` (read-only; flag not flipped).** Before: no measurement of whether the B32 seller-choice fix concentrates sales. Now: `docs/evals/2026-10-02-seller-concentration/README.md`, flag off vs on at `31394ca`, seeds 42/7/11, legacy, 1,500 households, 300 ticks. Food and Services Herfindahl index of unit sales and top-seller share move by at most 0.004 in any window (e.g. Services HHI 101-200 0.063 → 0.061, seed ranges 0.061-0.064 off and 0.057-0.063 on), firms with zero sales are unchanged, firm exits are 0-0.7 lower per window, all within seed noise. The owner decides whether to turn it on. No engine change.
