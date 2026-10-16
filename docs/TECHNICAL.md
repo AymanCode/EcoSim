@@ -38,7 +38,7 @@ When the LLM government is enabled, the server snapshots the economy at configur
 
 ## WebSocket Protocol
 
-Endpoint: `ws://localhost:8002/ws`
+Endpoint: same-origin `/ws`. In Docker, Nginx on port 5173 proxies it to the backend on 8002; from source, the Vite dev server does the same. Connecting straight to the backend uses `ws://localhost:8002/ws`. Set `VITE_WS_URL` to override the dashboard's endpoint.
 
 Accepted commands:
 
@@ -140,6 +140,20 @@ OLLAMA_BASE_URL=http://localhost:11434
 ```
 
 The harness validates JSON, rejects malformed or out-of-range actions, limits substantive changes, tracks accepted/rejected changes, and persists full decision records when the warehouse is enabled.
+
+## Docker Storage Cleanup
+
+Container logs rotate at 10 MB per file with three files per service. Saved SQLite experiments stay in the `ecosim_runtime` volume until you remove them, and SQLite history has no automatic retention limit.
+
+| Intent | Command | Effect |
+|---|---|---|
+| Inspect Docker disk usage | `docker system df` | Shows images, containers, volumes, and build cache |
+| Stop EcoSim, keep saved experiments | `docker compose down` | Removes this stack's containers and network |
+| Clear unused build cache | `docker builder prune` | Frees cache across Docker projects; later builds may take longer |
+| Remove EcoSim images, keep experiments | `docker compose down --rmi local` | Removes this stack's locally built images as well as containers |
+| Completely reset EcoSim and delete its saved experiments | `docker compose down --volumes --rmi local` | Removes this stack's containers, images, and SQLite volume; the next startup creates an empty database |
+
+Run the Compose commands from the same checkout and with the same project name (`-p`, if used) as startup. Other projects' databases are separate volumes.
 
 ## Dependency Reproducibility
 
