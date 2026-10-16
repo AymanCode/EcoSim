@@ -12,8 +12,17 @@ permissions:
 jobs:
   update:
     runs-on: ubuntu-latest
+    env:
+      HAS_OPENROUTER_KEY: ${{ secrets.OPENROUTER_API_KEY != '' }}
     steps:
+      # Without the provider key OpenWiki exits 1 in non-interactive mode, which
+      # failed every scheduled run. Skip with a notice until the secret is added.
+      - name: Skip when the OpenRouter key is not configured
+        if: env.HAS_OPENROUTER_KEY != 'true'
+        run: echo "::notice::OPENROUTER_API_KEY is not set; skipping the OpenWiki refresh. Add the repository secret to enable it."
+
       - name: Check out repository
+        if: env.HAS_OPENROUTER_KEY == 'true'
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4
         with:
           # Full history so `openwiki code --update` can diff HEAD against the
@@ -22,15 +31,18 @@ jobs:
           fetch-depth: 0
 
       - name: Set up Node.js
+        if: env.HAS_OPENROUTER_KEY == 'true'
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: "22"
 
       - name: Install OpenWiki
+        if: env.HAS_OPENROUTER_KEY == 'true'
         # mermaid + jsdom are optional; they add high-fidelity validation of Mermaid diagrams. Remove if your wiki has none.
         run: npm install --global openwiki@0.3.0 mermaid@11.16.0 jsdom@29.1.1
 
       - name: Run OpenWiki
+        if: env.HAS_OPENROUTER_KEY == 'true'
         run: openwiki code --update --print
         env:
           OPENWIKI_PROVIDER: openrouter
@@ -46,6 +58,7 @@ jobs:
           LANGCHAIN_TRACING_V2: "true"
 
       - name: Create OpenWiki update pull request
+        if: env.HAS_OPENROUTER_KEY == 'true'
         uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1 # v8.1.1
         with:
           add-paths: |
