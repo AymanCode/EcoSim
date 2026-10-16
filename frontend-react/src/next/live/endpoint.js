@@ -1,17 +1,6 @@
 // Where the live towns connect, and the ids that tie their sessions together.
 
-// Mirrors the classic dashboard (resolveWebSocketEndpoint in src/App.jsx):
-// VITE_WS_URL when set, else /ws on the page's own host (the Vite dev proxy or
-// nginx forwards it), else the backend's default port.
-export function resolveSocketUrl(env = import.meta.env, location = typeof window === 'undefined' ? undefined : window.location) {
-  const configured = String(env?.VITE_WS_URL ?? '').trim()
-  if (configured) return configured
-  if (location?.host) {
-    const protocol = location.protocol === 'https:' ? 'wss' : 'ws'
-    return `${protocol}://${location.host}/ws`
-  }
-  return 'ws://localhost:8002/ws'
-}
+export { resolveSocketUrl } from '../../socketUrl.js'
 
 // The server groups an experiment's sessions by this id (at most 64 characters).
 export function newExperimentId(now = Date.now(), random = Math.random) {

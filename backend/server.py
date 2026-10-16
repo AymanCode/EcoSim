@@ -25,6 +25,7 @@ import time
 import uuid
 from collections import deque
 from contextlib import contextmanager
+from contextvars import ContextVar
 from types import SimpleNamespace
 
 # Add current directory to path so we can import backend modules
@@ -106,17 +107,35 @@ except Exception as exc:  # pragma: no cover - optional dependency path
 log_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "logs")
 os.makedirs(log_dir, exist_ok=True)
 
+# The session whose task is logging. websocket_endpoint sets it for its connection,
+# and the tick loop and LLM tasks it starts inherit it, so lines from concurrent
+# runs can be told apart. Records from outside a session show "-".
+_log_session_id: ContextVar[str] = ContextVar("ecosim_log_session_id", default="-")
+
+
+class SessionLogFilter(logging.Filter):
+    """Stamp ``record.session`` with the current session id for the log format."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        record.session = _log_session_id.get()
+        return True
+
+
+_log_handlers = [
+    logging.handlers.RotatingFileHandler(
+        os.path.join(log_dir, "ecosim.log"),
+        maxBytes=10_485_760,  # 10 MB
+        backupCount=5,
+    ),
+    logging.StreamHandler(),
+]
+for _handler in _log_handlers:
+    _handler.addFilter(SessionLogFilter())
+
 logging.basicConfig(
     level=os.getenv("LOG_LEVEL", "INFO"),
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    handlers=[
-        logging.handlers.RotatingFileHandler(
-            os.path.join(log_dir, "ecosim.log"),
-            maxBytes=10_485_760,  # 10 MB
-            backupCount=5,
-        ),
-        logging.StreamHandler(),
-    ],
+    format="%(asctime)s - %(name)s - %(levelname)s - session=%(session)s - %(message)s",
+    handlers=_log_handlers,
 )
 logger = logging.getLogger(__name__)
 
@@ -140,6 +159,25 @@ app.add_middleware(
 # CONFIG and STABILIZERS change nothing while a run is finished: after FINISH, until SETUP, RESET, EXTEND, or a
 # START before the horizon (START at the horizon only repeats HORIZON_REACHED).
 FINISHED_RUN_MESSAGE = "the run is finished; send EXTEND to continue, or START if it finished before its horizon"
+
+# Commands the WebSocket endpoint accepts; anything else gets an "Unknown command" reply.
+VALID_COMMANDS = frozenset({"SETUP", "START", "STOP", "RESET", "CONFIG", "STABILIZERS", "FINISH", "EXTEND", "TRACK"})
+
+# Unexpected exceptions are logged with their traceback; the client gets this text and
+# ``code: "internal_error"`` instead of the exception message.
+INTERNAL_ERROR_TEXT = "internal server error; details are in the server log"
+
+
+def client_error(prefix: str, exc: Exception) -> Dict[str, str]:
+    """Build the error reply for a failed command.
+
+    Validation failures (``ValueError`` and its subclasses, including Pydantic's
+    ``ValidationError``) carry a message written for the user, so it is sent as is.
+    Any other exception is an internal fault: its text stays in the server log.
+    """
+    if isinstance(exc, ValueError):
+        return {"error": f"{prefix}: {exc}"}
+    return {"error": f"{prefix}: {INTERNAL_ERROR_TEXT}", "code": "internal_error"}
 
 
 # --- Input validation models ---
@@ -629,7 +667,7 @@ class SimulationManager:
                 self.warehouse_manager = create_warehouse_manager()
                 logger.info("Warehouse backend initialized (%s).", self.warehouse_backend)
             except Exception as exc:
-                logger.error("Warehouse initialization failed: %s", exc)
+                logger.exception("Warehouse initialization failed session=%s: %s", self.session_id, exc)
                 self.enable_warehouse = False
                 return
 
@@ -705,7 +743,7 @@ class SimulationManager:
             self.warehouse_manager.insert_policy_config(policy)
             logger.info("Opened warehouse run %s", self.warehouse_run_id)
         except Exception as exc:
-            logger.error("Failed to create warehouse run metadata: %s", exc)
+            logger.exception("Failed to create warehouse run metadata session=%s: %s", self.session_id, exc)
             if self.warehouse_run_id and self.warehouse_manager is not None:
                 try:
                     self.warehouse_manager.update_run_status(
@@ -814,7 +852,7 @@ class SimulationManager:
             self.last_fully_persisted_tick = max(self.last_fully_persisted_tick, persisted_tick)
             return True
         except Exception as exc:
-            logger.error("Warehouse batch flush failed: %s", exc)
+            logger.exception("Warehouse batch flush failed session=%s tick=%s: %s", self.session_id, self.tick, exc)
             return False
 
     def _build_exact_warehouse_aggregates(
@@ -1559,7 +1597,7 @@ class SimulationManager:
             logger.info("Initialized LLM government (%s).", self.llm_provider_name)
             return True
         except Exception as exc:
-            logger.error("Failed to initialize LLM government: %s", exc)
+            logger.exception("Failed to initialize LLM government session=%s: %s", self.session_id, exc)
             self.llm_provider = None
             self.llm_government = None
             self.llm_status = "provider_unavailable"
@@ -1629,6 +1667,7 @@ class SimulationManager:
         except asyncio.CancelledError:
             self.llm_status = "disabled" if not self.config.llm.enable_llm_government else "ready"
         except Exception as exc:
+            logger.exception("LLM government task failed session=%s tick=%s", self.session_id, self.tick)
             self.llm_status = "error"
             self.llm_last_error = str(exc)
             self.pending_llm_decision = {
@@ -1933,7 +1972,7 @@ class SimulationManager:
             )
             logger.info("Closed warehouse run %s (%s)", self.warehouse_run_id, effective_status)
         except Exception as exc:
-            logger.error("Failed to close warehouse run %s: %s", self.warehouse_run_id, exc)
+            logger.exception("Failed to close warehouse run %s: %s", self.warehouse_run_id, exc)
         finally:
             self.warehouse_run_id = None
             self.tick_metrics_batch = []
@@ -1968,7 +2007,7 @@ class SimulationManager:
                 termination_reason="completed" if flush_ok else "warehouse_flush_failed",
             )
         except Exception as exc:
-            logger.error("Failed to finalize warehouse run %s: %s", self.warehouse_run_id, exc)
+            logger.exception("Failed to finalize warehouse run %s: %s", self.warehouse_run_id, exc)
             return False
         self.run_finalized = bool(flush_ok)
         return bool(flush_ok)
@@ -1987,7 +2026,7 @@ class SimulationManager:
         try:
             reopen_run(self.warehouse_run_id)
         except Exception as exc:
-            logger.error("Failed to reopen warehouse run %s: %s", self.warehouse_run_id, exc)
+            logger.exception("Failed to reopen warehouse run %s: %s", self.warehouse_run_id, exc)
             return False
         self.run_finalized = False
         return True
@@ -3097,12 +3136,14 @@ class SimulationManager:
                 elapsed = asyncio.get_event_loop().time() - start_time
                 await asyncio.sleep(max(0.05, 0.1 - elapsed)) # Slightly faster updates
                 
-        except Exception as e:
-            logger.error(f"Simulation loop error: {e}")
+        except Exception:
+            logger.exception("Simulation loop error session=%s tick=%s", self.session_id, self.tick)
             self.is_running = False
             self._close_warehouse_run("failed")
             if self.active_websocket:
-                await self.active_websocket.send_json({"error": str(e)})
+                await self.active_websocket.send_json(
+                    {"error": f"Simulation stopped: {INTERNAL_ERROR_TEXT}", "code": "internal_error"}
+                )
         finally:
             if self.run_task is asyncio.current_task():
                 self.run_task = None
@@ -3706,10 +3747,9 @@ async def websocket_endpoint(websocket: WebSocket):
         return
 
     session_manager.active_websocket = websocket
+    _log_session_id.set(session_id)
     logger.info("WebSocket connected session=%s", session_id)
     await websocket.send_json({"type": "SESSION", "sessionId": session_id})
-    
-    VALID_COMMANDS = {"SETUP", "START", "STOP", "RESET", "CONFIG", "STABILIZERS", "FINISH", "EXTEND", "TRACK"}
 
     try:
         while True:
@@ -3726,7 +3766,11 @@ async def websocket_endpoint(websocket: WebSocket):
 
             command = data.get("command")
             if command not in VALID_COMMANDS:
-                await websocket.send_json({"error": f"Unknown command: {command}. Valid: {VALID_COMMANDS}"})
+                valid = sorted(VALID_COMMANDS)
+                await websocket.send_json({
+                    "error": f"Unknown command: {command}. Valid: {', '.join(valid)}",
+                    "validCommands": valid,
+                })
                 continue
 
             if command == "SETUP":
@@ -3742,16 +3786,16 @@ async def websocket_endpoint(websocket: WebSocket):
                         "trackedProfiles": session_manager._tracked_profiles(session_manager.tracked_household_ids),
                     })
                 except Exception as e:
-                    logger.exception("SETUP failed")
-                    await websocket.send_json({"error": f"SETUP failed: {e}"})
+                    logger.exception("SETUP failed session=%s", session_id)
+                    await websocket.send_json(client_error("SETUP failed", e))
             elif command == "START":
                 if not session_manager.economy:
                      # Auto-initialize if not done yet (fallback)
                      try:
                          session_manager.initialize()
                      except Exception as e:
-                         logger.exception("Auto-initialize on START failed")
-                         await websocket.send_json({"error": f"START failed: {e}"})
+                         logger.exception("Auto-initialize on START failed session=%s", session_id)
+                         await websocket.send_json(client_error("START failed", e))
                          continue
 
                 at_horizon = session_manager.horizon_tick is not None and session_manager.tick >= session_manager.horizon_tick
@@ -3840,12 +3884,12 @@ async def websocket_endpoint(websocket: WebSocket):
         session_manager._close_warehouse_run("stopped")
         session_registry.close_session(session_id)
         logger.info("Client disconnected session=%s", session_id)
-    except Exception as e:
+    except Exception:
         session_manager.stop_background_loop(cancel=True)
         session_manager._close_warehouse_run("failed")
         session_registry.close_session(session_id)
         logger.exception("WebSocket loop crashed session=%s", session_id)
         try:
-            await websocket.send_json({"error": f"WebSocket error: {e}"})
+            await websocket.send_json({"error": f"WebSocket error: {INTERNAL_ERROR_TEXT}", "code": "internal_error"})
         except Exception as send_error:
             logger.debug(f"Failed to send error message to client: {send_error}")

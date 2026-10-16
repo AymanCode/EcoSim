@@ -65,12 +65,24 @@ try:  # pragma: no cover - optional dependency
     from langgraph.graph import END, StateGraph
 
     HAS_LANGGRAPH = True
-except Exception:  # pragma: no cover - exercised through fallback path
+    _LANGGRAPH_IMPORT_ERROR: Optional[BaseException] = None
+except Exception as exc:  # pragma: no cover - exercised through fallback path
     END = None
     StateGraph = None
     HAS_LANGGRAPH = False
+    _LANGGRAPH_IMPORT_ERROR = exc
 
 logger = logging.getLogger(__name__)
+
+if not HAS_LANGGRAPH:
+    # langgraph is a declared dependency, so this means a broken install. The
+    # advisor still works: decide() runs the same nodes in sequence without a graph.
+    logger.warning(
+        "LangGraph could not be imported (%s: %s); the LLM government will run its "
+        "decision nodes in sequence instead of as a LangGraph state machine.",
+        type(_LANGGRAPH_IMPORT_ERROR).__name__,
+        _LANGGRAPH_IMPORT_ERROR,
+    )
 
 LLM_HIDDEN_POLICY_LEVERS = set()
 

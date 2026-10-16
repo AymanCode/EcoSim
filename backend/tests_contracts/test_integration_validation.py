@@ -216,3 +216,19 @@ class TestDeterministicReplay:
             assert v1 == v2, (
                 f"Deterministic replay failed: {k} = {v1} vs {v2}"
             )
+
+    def test_every_tick_replays_and_another_seed_diverges(self) -> None:
+        """All economic metrics match on every tick for one seed, and a second seed gives a different path."""
+
+        def trajectory(seed: int) -> list:
+            eco = _build_economy(seed)
+            rows = []
+            for _ in range(20):
+                eco.step()
+                rows.append(json.dumps(eco.get_economic_metrics(), sort_keys=True, default=str))
+            return rows
+
+        first, replay, other = trajectory(42), trajectory(42), trajectory(7)
+        for tick, (a, b) in enumerate(zip(first, replay), start=1):
+            assert a == b, f"Deterministic replay failed at tick {tick}"
+        assert first != other, "Seeds 42 and 7 produced identical 20-tick trajectories"

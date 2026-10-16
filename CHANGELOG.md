@@ -4,6 +4,21 @@ Notable changes and decisions for EcoSim, newest first. The project does not use
 
 ## Unreleased
 
+### 2026-10-16: Server error replies, logging context, and two review checks
+
+From the outside portfolio review (items #8, #9, #14, #15, #21, #25, #28). No simulation behavior changed: the engine, tick order, and every success reply are unchanged.
+
+- **Error replies (#14).** Before: SETUP, auto-initializing START, the WebSocket handler, and a crashed tick loop sent the raw exception text (`f"SETUP failed: {e}"`, `{"error": str(e)}`), which can expose file paths and internals. Now `client_error()` sends validation failures (`ValueError` and subclasses, including Pydantic's `ValidationError`, `ExperimentError`, `PolicyVectorError`) unchanged, because those messages are written for the user and the dashboards show them. Any other exception becomes `<prefix>: internal server error; details are in the server log` with `code: "internal_error"`, and the traceback is logged. A crashed tick loop now sends `Simulation stopped: ...` instead of the bare exception text. The `next` client's error classification (prefix matching in `experiment.js`) is unaffected.
+- **Unknown command (#15).** `VALID_COMMANDS` is a module-level `frozenset`. The reply lists the commands sorted (`Valid: CONFIG, EXTEND, ...`) instead of printing a Python set in random order, and adds `validCommands` as a JSON list.
+- **Tracebacks (#9).** The tick-loop crash handler and the warehouse/LLM failure handlers used `logger.error(f"...{exc}")` without a traceback; they now use `logger.exception` with the session id. A failed LLM government task is now logged at all (before, only its status changed). Exception types were not narrowed: the warehouse handlers catch errors from SQLite, PostgreSQL drivers, and the filesystem, and narrowing could turn a logged failure into a crashed run.
+- **Session id on every log line (#25).** A `ContextVar` set in `websocket_endpoint` and a handler filter add `session=<id>` to the log format; the tick loop and LLM tasks inherit it. JSON log output was not added.
+- **LangGraph (#8).** A failed `langgraph` import still falls back to running the nodes in sequence, but now logs a warning naming the import error. New `test_llm_government_graph.py`: the graph builds with all six nodes (so CI fails if the advisor silently falls back), and a copy of the module loaded with `langgraph` hidden logs the warning and builds no graph.
+- **One WebSocket URL resolver (#21).** `src/socketUrl.js` holds `resolveSocketUrl`; `App.jsx` imports it instead of its own copy, and `next/live/endpoint.js` re-exports it. The only difference: a page without a host (for example `file://`) now falls back to `ws://localhost:8002/ws` like the `next` view, instead of `ws:///ws`.
+- **Determinism (#28).** The review said no determinism test existed; `TestDeterministicReplay::test_two_runs_identical` already compared six metrics after 30 ticks. Added a test that compares every economic metric on each of 20 ticks for a repeated seed, and checks that seed 7 differs from seed 42.
+- **Checked, not changed (#29).** The server's housing-supply and net-worth loops take a median 0.9 ms (max 1.6 ms) at 10,000 households and run once every 5 ticks, against about 675 ms per early tick, so moving them into the economy step would not measurably help.
+
+Evidence: `test_error_replies.py` (6; RED before: 5 failed: missing `client_error`/`VALID_COMMANDS`, raw `SETUP failed: cannot open /srv/private/ecosim.db`, session `-` instead of the id; the validation-message test passes before and after as a guard). Backend suite 821 passed; frontend lint, 583 tests, and build pass.
+
 ### 2026-10-14: Preserve Ayman's product intent and simulation decision boundary
 
 Ayman asked to carry his chat-audit clarifications into the projects used on his desktop. Added `docs/product-intent.md` with his source excerpts and separate guidance on policy understanding, macro/micro effects, GDP and wellbeing, and prior agreement before reducing agent logic or update frequency for speed; linked it from `AGENTS.md` and `CLAUDE.md` and added a shared instruction mirror for cross-device use. This records product intent and collaboration rules without changing simulation code or approving a redesign.

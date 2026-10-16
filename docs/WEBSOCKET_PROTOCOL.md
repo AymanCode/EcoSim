@@ -2,7 +2,11 @@
 
 One connection is one simulation session. The first server message is
 `{"type": "SESSION", "sessionId": "..."}`. Every command is a JSON object with a
-`command` key. Errors are `{"error": "<text>"}`. A full server rejects the
+`command` key. Errors are `{"error": "<text>"}`. Validation failures carry a
+message written for the user. An unexpected server fault replies with a fixed
+text (`<prefix>: internal server error; details are in the server log`) and
+`"code": "internal_error"`; the traceback goes to the server log only. An
+unknown command also gets `validCommands`, a sorted list. A full server rejects the
 connection at open with an error and close code 1013, before SESSION.
 
 ## Commands
