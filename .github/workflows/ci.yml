@@ -42,6 +42,11 @@ jobs:
       - name: Backend tests (contracts, server, warehouse, mocked LLM)
         run: python -m pytest --durations=10
 
+      - name: AWS runner checks (no AWS calls)
+        run: |
+          python -m unittest discover -s ops/aws-runner -p 'test_*.py'
+          bash -n ops/aws-runner/worker.sh
+
   forecasting:
     name: Forecasting checks
     runs-on: ubuntu-latest
