@@ -15,6 +15,9 @@ An outside review (Grok, collected in Ayman's portfolio-fixes list) flagged item
 - **Dev extra.** Dropped black, isort, flake8, and mypy (and their config) from the `dev` extra; CI only runs `ruff check`.
 
 No simulation, server, or dashboard code changed.
+### 2026-10-16: Commit the AWS batch lab runner
+
+The EC2 + S3 benchmark runner used on 2026-10-03 lived only on Ayman's machine. Added `ops/aws-runner/` (provisioning and cleanup script, EC2 user-data worker, results verifier and its unit tests, README) after a secret scan found no access keys, account IDs, or bucket names in it; every resource name is generated per run. The README now records the verified run and drops machine-specific browser instructions. CI runs the verifier's unit tests and a `bash -n` check of the worker; neither calls AWS. No simulation code changed.
 
 ### 2026-10-14: Preserve Ayman's product intent and simulation decision boundary
 
