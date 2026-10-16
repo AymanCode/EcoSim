@@ -4,6 +4,10 @@ Notable changes and decisions for EcoSim, newest first. The project does not use
 
 ## Unreleased
 
+### 2026-10-16: Commit the AWS batch lab runner
+
+The EC2 + S3 benchmark runner used on 2026-10-03 lived only on Ayman's machine. Added `ops/aws-runner/` (provisioning and cleanup script, EC2 user-data worker, results verifier and its unit tests, README) after a secret scan found no access keys, account IDs, or bucket names in it; every resource name is generated per run. The README now records the verified run and drops machine-specific browser instructions. CI runs the verifier's unit tests and a `bash -n` check of the worker; neither calls AWS. No simulation code changed.
+
 ### 2026-10-14: Preserve Ayman's product intent and simulation decision boundary
 
 Ayman asked to carry his chat-audit clarifications into the projects used on his desktop. Added `docs/product-intent.md` with his source excerpts and separate guidance on policy understanding, macro/micro effects, GDP and wellbeing, and prior agreement before reducing agent logic or update frequency for speed; linked it from `AGENTS.md` and `CLAUDE.md` and added a shared instruction mirror for cross-device use. This records product intent and collaboration rules without changing simulation code or approving a redesign.
