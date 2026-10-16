@@ -1597,7 +1597,8 @@ class SimulationManager:
             logger.info("Initialized LLM government (%s).", self.llm_provider_name)
             return True
         except Exception as exc:
-            logger.exception("Failed to initialize LLM government session=%s: %s", self.session_id, exc)
+            # Usually an unreachable provider, which is expected; one line, no traceback.
+            logger.error("Failed to initialize LLM government session=%s: %s", self.session_id, exc)
             self.llm_provider = None
             self.llm_government = None
             self.llm_status = "provider_unavailable"
