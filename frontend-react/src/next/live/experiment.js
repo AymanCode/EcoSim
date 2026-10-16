@@ -36,7 +36,7 @@ const CLOSE_NORMAL = 1000
 
 // The server's replies to a command it could not do, which leave the run
 // going (backend/server.py websocket_endpoint). Any other error after START
-// means the server stopped that town: its loop crashed ({"error": str(e)}),
+// means the server stopped that town: its loop crashed ("Simulation stopped: ..."),
 // or START, FINISH or EXTEND failed.
 const COMMAND_REPLIES = [/^(STOP|CONFIG|STABILIZERS|TRACK) failed: /, /^Invalid JSON$/, /^Unknown command: /, /^Payload too large/]
 const isCommandReply = text => COMMAND_REPLIES.some(pattern => pattern.test(text))

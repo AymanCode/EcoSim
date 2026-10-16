@@ -10,26 +10,11 @@ import Finance from './screens/Finance.jsx';
 import Logs from './screens/Logs.jsx';
 import Config from './screens/Config.jsx';
 import { useTickHistory, stress } from './telemetry.js';
-
-const resolveWebSocketEndpoint = () => {
-  const configuredEndpoint = (import.meta.env.VITE_WS_URL || '').trim();
-  if (configuredEndpoint) {
-    return configuredEndpoint;
-  }
-
-  if (typeof window !== 'undefined') {
-    const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
-    return `${protocol}://${window.location.host}/ws`;
-  }
-
-  return 'ws://localhost:8002/ws';
-};
-
-
+import { resolveSocketUrl } from './socketUrl.js';
 
 // --- REUSABLE CHART COMPONENT ---
 export default function EcoSimUI() {
-  const wsEndpoint = resolveWebSocketEndpoint();
+  const wsEndpoint = resolveSocketUrl();
   const [activeView, setActiveView] = useState('CONFIG'); // Start at CONFIG
   const [isInitialized, setIsInitialized] = useState(false);
   const [isRunning, setIsRunning] = useState(false);

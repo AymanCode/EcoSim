@@ -30,6 +30,8 @@ This guide describes the active EcoSim implementation. Source code and runtime c
 
 The browser connects to the backend over `/ws`. Each connection receives a session ID and its own `SimulationManager`, configuration snapshot, random-number state, economy, and lifecycle. A run starts with `SETUP`, then `START` launches that session's tick loop. The manager applies pending runtime config updates at safe tick boundaries, calls `Economy.step()`, builds a compact dashboard payload, and streams it back to that client. The session registry enforces a bounded connection count and removes state when a socket closes.
 
+Server log lines (stderr and `backend/logs/ecosim.log`) carry `session=<id>` for the connection whose handler or tick loop wrote them, so concurrent runs can be told apart; lines from outside a session show `session=-`. Unexpected errors are logged with their traceback, and the client receives a fixed `internal server error` text instead of the exception message.
+
 When the warehouse is enabled, the server buffers aggregate metrics, sector metrics, snapshots, events, diagnostics, policy actions, and LLM decision rows. Flushes are batched rather than committed per row.
 
 When the LLM government is enabled, the server snapshots the economy at configured decision ticks, runs the provider call in a background task, keeps the simulation ticking, and applies accepted policy changes before the next economy step.
