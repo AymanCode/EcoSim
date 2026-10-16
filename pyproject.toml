@@ -32,16 +32,14 @@ test = [
     "ruff>=0.12.0,<1",
     "requests>=2.32.0,<3",
 ]
+# CI lints with ruff only; black, isort, flake8 and mypy were listed here but
+# never enforced, so they were dropped.
 dev = [
     "pytest>=7.4.0",
     "pytest-cov>=4.1.0",
     "pytest-asyncio>=0.23.0",
-    "black>=24.0.0",
-    "isort>=5.13.0",
-    "flake8>=6.1.0",
-    "mypy>=1.7.0",
     "ruff>=0.12.0,<1",
-    "types-requests>=2.31.0",
+    "requests>=2.32.0,<3",
 ]
 ml = [
     "pandas>=2.1.0,<4",
@@ -67,20 +65,6 @@ namespaces = true
 [tool.setuptools.package-data]
 "backend.data" = ["*.sql"]
 
-[tool.black]
-line-length = 120
-target-version = ["py311"]
-
-[tool.isort]
-profile = "black"
-line_length = 120
-
-[tool.mypy]
-python_version = "3.11"
-warn_return_any = true
-warn_unused_configs = true
-ignore_missing_imports = true
-
 [tool.ruff]
 line-length = 120
 target-version = "py311"
@@ -103,8 +87,3 @@ markers = [
     "llm: provider-free LLM contracts using mocked responses (included in the default suite)",
     "research: marks exploratory simulation policy checks that are useful but not CI-stable",
 ]
-
-[tool.flake8]
-max-line-length = 120
-exclude = [".venv", "node_modules", "__pycache__", ".git"]
-ignore = ["E501", "W503", "E203"]

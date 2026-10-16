@@ -180,11 +180,7 @@ Features:
 
 ## WebSocket Contract
 
-Endpoint:
-
-```text
-ws://localhost:8002/ws
-```
+Endpoint: same-origin `/ws`. In Docker, Nginx on port 5173 proxies it to the backend on 8002; from source, the Vite dev server does the same. Set `VITE_WS_URL` to override it. Without a page host (for example in a non-browser test), it falls back to `ws://localhost:8002/ws`.
 
 Each connection receives its own bounded server session. The session ID is retained for display and for session-specific REST reads such as the live decision context.
 

@@ -4,6 +4,18 @@ Notable changes and decisions for EcoSim, newest first. The project does not use
 
 ## Unreleased
 
+### 2026-10-16: README rewrite and repository cleanup for outside readers
+
+An outside review (Grok, collected in Ayman's portfolio-fixes list) flagged items that make the repo harder for a hiring manager to read. This change applies the ones that do not touch runtime behavior:
+
+- **README.** Rebuilt from the reviewed draft: what EcoSim is and what its agents do, the club-project origin line, a tech stack table, a shorter quickstart, a "Using the dashboard" section that now documents the `?view=next` preview, and a Results section with evidence links. The tick-performance paragraph now states both after-measurements: the 6,156 ms baseline is one run, the five same-seed runs have a 4,000 ms median (about 35% lower), and the later three-seed set has a 4,625 ms median (about 25%). The review assumed 4,000 ms was a best case; the ledger shows it is a median. The regression-snapshot claim now links `backend/tools/benchmarks/regression_snapshot.py`. Configuration no longer says every setting is an environment variable. The Docker storage-cleanup table moved to `docs/TECHNICAL.md`.
+- **Docs.** `docs/TECHNICAL.md` and `docs/FRONTEND.md` describe the endpoint as same-origin `/ws` (proxied to 8002, overridable with `VITE_WS_URL`) instead of `ws://localhost:8002/ws`. `docs/README.md` lists reference docs first, adds `WEBSOCKET_PROTOCOL.md`, and groups the economic-model process documents under an internal heading. No document moved: the active agent rules link to the process documents, and evidence manifests record their paths.
+- **Scratch files.** Deleted eight one-off JSX patch scripts from `frontend-react/`, `backend/diag_integration.py`, `backend/diag_integration2.py`, and `backend/audit_full_dump_digest.json`. Nothing referenced them except hash manifests in `docs/reviews/`.
+- **OpenWiki workflow.** The scheduled run failed daily because `OPENROUTER_API_KEY` is not a repository secret. It now skips with a notice until the secret exists.
+- **Dev extra.** Dropped black, isort, flake8, and mypy (and their config) from the `dev` extra; CI only runs `ruff check`.
+
+No simulation, server, or dashboard code changed.
+
 ### 2026-10-14: Preserve Ayman's product intent and simulation decision boundary
 
 Ayman asked to carry his chat-audit clarifications into the projects used on his desktop. Added `docs/product-intent.md` with his source excerpts and separate guidance on policy understanding, macro/micro effects, GDP and wellbeing, and prior agreement before reducing agent logic or update frequency for speed; linked it from `AGENTS.md` and `CLAUDE.md` and added a shared instruction mirror for cross-device use. This records product intent and collaboration rules without changing simulation code or approving a redesign.
