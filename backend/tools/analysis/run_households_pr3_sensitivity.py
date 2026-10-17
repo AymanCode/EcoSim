@@ -22,7 +22,7 @@ from run_households_pr3_compare import CONFIG, run_arm  # noqa: E402
 
 PARAMS = [
     "buffer_target_weeks_range", "buffer_adjust_speed_range", "risk_aversion_range",
-    "buffer_unemployment_slope", "buffer_income_floor",
+    "buffer_unemployment_slope", "buffer_unemployment_cap", "buffer_saving_taper_scale",
 ]
 
 

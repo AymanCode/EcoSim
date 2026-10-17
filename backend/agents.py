@@ -142,6 +142,7 @@ class HouseholdAgent(AgentMixin):
     last_other_income: float = 0.0
     last_consumption_spending: float = 0.0
     last_tick_cash_start: float = 0.0  # Cash at start of tick for change calculation
+    last_tick_deposit_start: float = 0.0  # Bank deposit at the same moment, so wellbeing measures liquid wealth
     last_tick_ledger: Dict[str, float] = field(default_factory=dict)
     ledger_cash_start: float = 0.0
     last_dividend_firm_ids: List[int] = field(default_factory=list)
@@ -664,15 +665,16 @@ class HouseholdAgent(AgentMixin):
         config = CONFIG.households
         rng = random.Random(CONFIG.random_seed * 7919 + self.household_id * 104729 + 3)
         lo, hi = config.buffer_target_weeks_range
-        target = lo + (hi - lo) * float(self.saving_tendency) + rng.uniform(-1.0, 1.0)
+        target = lo + (hi - lo) * float(self.saving_tendency)
         if self.buffer_target_weeks is None:
-            self.buffer_target_weeks = max(0.5, min(hi + 1.0, target))
+            self.buffer_target_weeks = max(1e-3, target)
         lo, hi = config.buffer_adjust_speed_range
-        k = lo + (hi - lo) * spender_score * rng.uniform(0.8, 1.2)
+        k = lo + (hi - lo) * float(spender_score)
         if self.buffer_adjust_speed is None:
             self.buffer_adjust_speed = max(1e-4, min(1.0, k))
         # Half saving_tendency, half noise: savers lean risk averse, but the
-        # traits are not the same number.
+        # traits are not the same number. The 50/50 weight is a judgment (no
+        # estimate of the correlation was found).
         lo, hi = config.risk_aversion_range
         position = 0.5 * float(self.saving_tendency) + 0.5 * rng.random()
         if self.risk_aversion is None:
@@ -1919,17 +1921,19 @@ class HouseholdAgent(AgentMixin):
             (1.0 - res_rate) * self.reservation_wage
         )
 
-    def buffer_target(self, weekly_income: float, unemployment_rate: float) -> float:
+    def buffer_target(self, weekly_income: float, unemployment_rate: float, benefit: float) -> float:
         """Cash + deposits this household aims to hold, in currency.
 
         ``buffer_target_weeks * risk_aversion * (1 + buffer_unemployment_slope
-        * unemployment_rate) * max(weekly_income, buffer_income_floor)``.
-        The target rises with the live unemployment rate (precautionary
-        saving in bad times) and with the household's risk aversion.
+        * min(u, buffer_unemployment_cap)) * max(weekly_income, benefit)``.
+        The target rises with the live unemployment rate up to the sourced
+        range (precautionary saving in bad times) and with the household's
+        risk aversion. ``benefit`` is the live unemployment benefit level.
         """
         cfg = CONFIG.households
-        income = max(float(weekly_income), cfg.buffer_income_floor)
-        precaution = 1.0 + cfg.buffer_unemployment_slope * max(0.0, float(unemployment_rate))
+        income = max(float(weekly_income), float(benefit), 1e-6)
+        u = min(max(0.0, float(unemployment_rate)), cfg.buffer_unemployment_cap)
+        precaution = 1.0 + cfg.buffer_unemployment_slope * u
         return float(self.buffer_target_weeks) * float(self.risk_aversion) * precaution * income
 
     def maybe_active_education(self) -> float:
@@ -2497,6 +2501,61 @@ class FirmAgent(AgentMixin):
     def _minimum_wage(self) -> float:
         """Wage floor: the config floor or this tick's policy minimum, whichever is higher."""
         return max(float(self._firm_config().minimum_wage_floor), float(self.policy_minimum_wage))
+
+    def get_wage_offer_floor(self, unemployment_benefit: float) -> float:
+        """Floor term this firm's wage-offer rule applies this tick ($/tick).
+
+        Read-only: recomputes the floor that ``plan_wage``, or for firms under
+        annual pay review ``WageReview.plan`` (called by ``Economy``), puts
+        under the offer. Mutates nothing. Call it during or after the tick's
+        firm planning: it reads ``policy_minimum_wage`` and
+        ``annual_wage_control``, which ``Economy`` sets for the tick before
+        wages are planned.
+
+        By rule:
+
+        - Annual pay review (``annual_wage_control``), and private Food and
+          other non-Services, non-healthcare firms on ``plan_wage``:
+          ``max(minimum wage, multiplier x unemployment_benefit)``. The
+          multiplier is 1.5, or ``CONFIG.payment_benefit_wage_floor_multiplier``
+          for Food and Services under a non-legacy payment sequence.
+        - Minimum wage only: government baseline firms, private healthcare,
+          firms with stabilization disabled, and generic Services firms on
+          ``plan_wage`` (not under annual review). Their branches never apply
+          the benefit floor; the economy-wide minimum-wage enforcement after
+          planning lifts them to the minimum wage.
+
+        Where the benefit floor applies, a few later steps inside
+        ``plan_wage`` can still post below it: the warm-up/revenue-share path
+        caps offers after flooring (labor-share cap, no-revenue hold, and a
+        $40 cap for firms with no employees), and the hire-failure 5% bump
+        returns without re-flooring. Posted offers are therefore at least the
+        minimum wage always, and at least this value except on those steps.
+
+        Args:
+            unemployment_benefit: current benefit per unemployed household per
+                tick (``GovernmentAgent.get_unemployment_benefit_level()``).
+
+        Returns:
+            The floor in currency per tick.
+        """
+        minimum_wage = self._minimum_wage()
+        if self.annual_wage_control:
+            return max(minimum_wage, float(unemployment_benefit) * 1.5)
+        if (
+            self.is_baseline
+            or self.stabilization_disabled
+            or self.good_category.lower() == "healthcare"
+            or self._is_generic_services_firm()
+        ):
+            return minimum_wage
+        return max(minimum_wage, float(unemployment_benefit) * self._benefit_wage_floor_multiplier())
+
+    def _benefit_wage_floor_multiplier(self) -> float:
+        """Multiple of the unemployment benefit a private offer must clear."""
+        if CONFIG.payment_sequence != "legacy" and self.good_category.lower() in {"food", "services"}:
+            return CONFIG.payment_benefit_wage_floor_multiplier
+        return 1.5
 
     def _is_generic_services_firm(self) -> bool:
         """Generic services are per-tick flow capacity, not storable production."""
@@ -4521,9 +4580,7 @@ class FirmAgent(AgentMixin):
             else float(firm_config.minimum_wage_floor)
         )
         policy_minimum_wage = max(policy_minimum_wage, float(firm_config.minimum_wage_floor))
-        benefit_multiplier = (CONFIG.payment_benefit_wage_floor_multiplier
-                              if CONFIG.payment_sequence != "legacy" and self.good_category.lower() in {"food", "services"}
-                              else 1.5)
+        benefit_multiplier = self._benefit_wage_floor_multiplier()
         floor_wage = max(policy_minimum_wage, unemployment_benefit * benefit_multiplier)
 
         hire_failed = (
@@ -4943,6 +5000,10 @@ class FirmAgent(AgentMixin):
                 - ``units_sold``: Number of units sold this tick
                 - ``revenue``: Total revenue from sales
                 - ``profit_taxes_paid``: Taxes paid on profits (deducted from revenue)
+                - ``revenue_already_in_cash`` (optional, default 0): the part of
+                  ``revenue`` that reached ``cash_balance`` earlier in the tick
+                  (legacy Housing rent). It counts toward revenue and profit
+                  but is not credited to cash again.
 
         Side Effects:
             - Deducts sold units from self.inventory_units (sets to 0 for services)
@@ -4964,7 +5025,7 @@ class FirmAgent(AgentMixin):
 
         # Update cash
         if not result.get("committed_sale_book", False):
-            self.cash_balance += revenue
+            self.cash_balance += revenue - result.get("revenue_already_in_cash", 0.0)
         self.cash_balance -= profit_taxes_paid
 
         self.last_units_sold = units_sold

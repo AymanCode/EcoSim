@@ -206,6 +206,10 @@ class Economy:
         # annual pay-review clock per reviewed firm. Observing prices moves no money.
         self.consumer_prices = ConsumerPriceIndex(CONFIG.inflation.basket_weights, CONFIG.time.ticks_per_year)
         self.wage_reviews: Dict[int, WageReview] = {}
+        # Wage offers posted in the latest firm-planning phase, after the
+        # minimum-wage enforcement: {firm_id: (offer, is_baseline)}. Written
+        # once per tick, read only through get_posted_wage_offers().
+        self._posted_wage_offers: Dict[int, Tuple[float, bool]] = {}
         if self.payment_sequence not in {"legacy", "income_first", "income_late"}:
             raise ValueError("unsupported payment sequence")
         self.payment_care_mode = str(getattr(CONFIG, "payment_care_mode", "patient_pay"))
@@ -353,6 +357,9 @@ class Economy:
         self.last_health_diagnostics: Dict[str, float] = {}
         self.last_firm_distress_diagnostics: Dict[str, float] = {}
         self.last_housing_diagnostics: Dict[str, float] = {}
+        # Legacy path: rent each Housing firm collected in this tick's housing
+        # phase, by firm id (see labor_market.rent_booked_as_revenue).
+        self.legacy_rent_receipts: Dict[int, float] = {}
         self.last_sector_shortage_diagnostics: List[Dict[str, object]] = []
         self.last_labor_events: List[Dict[str, object]] = []
         self.last_healthcare_events: List[Dict[str, object]] = []
@@ -1094,19 +1101,29 @@ class Economy:
             )
 
         if buffer_stock:
-            # Carroll (1997) buffer stock: spend income at its MPC, plus k times
-            # the gap between liquidity and the target (negative gap = save).
-            # A household below target still buys the subsistence minimum
-            # when it can afford it.
+            # Buffer stock with a concave consumption function (Carroll 1997;
+            # Carroll & Kimball 1996): the share of each income source saved,
+            # 1 - MPC_s, is scaled by taper = 2T / (T + L). That is 2x with an
+            # empty buffer, 1x at the target, and falls smoothly beyond it
+            # without ever reaching zero. Liquidity above the target is also
+            # spent at the household's weekly rate k. A household below target
+            # still buys the subsistence minimum when it can afford it.
             weekly_income = wage_income + benefit_income + dividend_incomes
             # Same formula as HouseholdAgent.buffer_target, vectorized.
-            precaution = 1.0 + cfg.buffer_unemployment_slope * max(0.0, float(unemployment_rate))
+            u_capped = min(max(0.0, float(unemployment_rate)), cfg.buffer_unemployment_cap)
+            precaution = 1.0 + cfg.buffer_unemployment_slope * u_capped
             targets = (
                 static_traits["buffer_weeks"] * static_traits["risk_aversion"] * precaution
-                * np.maximum(weekly_income, cfg.buffer_income_floor)
+                * np.maximum(np.maximum(weekly_income, float(unemployment_benefit)), 1e-6)
             )
-            adjustment = static_traits["buffer_speeds"] * (accessible_liquidity - targets)
-            budget = np.maximum(base_budget + adjustment, 0.0)
+            taper = cfg.buffer_saving_taper_scale * targets / (targets + accessible_liquidity)
+            spend_income = (
+                wage_income * np.clip(1.0 - (1.0 - mpc_wage) * taper, 0.0, 1.0)
+                + benefit_income * np.clip(1.0 - (1.0 - mpc_benefit) * taper, 0.0, 1.0)
+                + dividend_incomes * np.clip(1.0 - (1.0 - mpc_dividend) * taper, 0.0, 1.0)
+            ) * trait_multiplier
+            excess_spend = static_traits["buffer_speeds"] * np.maximum(accessible_liquidity - targets, 0.0)
+            budget = spend_income + excess_spend
             budget = np.maximum(budget, np.minimum(cfg.subsistence_min_cash, accessible_liquidity))
             return np.minimum(budget, accessible_liquidity)
 
@@ -1147,7 +1164,7 @@ class Economy:
             if provider is not None and provider.good_category == "Housing":
                 income = household.wage if household.employer_id is not None else benefit
                 liquidity = household.cash_balance + 0.90 * max(0.0, household.bank_deposit)
-                rent = household.monthly_rent
+                rent = self._lease_rent_due(household, provider)
                 if not (rent > self._max_affordable_rent(income, liquidity) or liquidity < rent):
                     amount += rent
             if bank is not None:
@@ -1489,8 +1506,9 @@ class Economy:
         was already debited from employers at production; CEO pay (3x the
         median of the firm's current contracts) is debited from the firm here.
         The matching treasury totals (wage tax in, transfers out) are settled by
-        the caller. Sets ``last_tick_cash_start`` just before the credit, so the
-        wellbeing cash-loss term measures from this point.
+        the caller. Sets ``last_tick_cash_start`` and ``last_tick_deposit_start``
+        just before the credit, so the wellbeing wealth-loss term measures
+        liquid wealth (cash + deposits) from this point.
         """
         ceo_pay: Dict[int, float] = {}
         household_lookup = self.household_lookup
@@ -1504,6 +1522,7 @@ class Economy:
         for household in self.households:
             hid = household.household_id
             household.last_tick_cash_start = household.cash_balance
+            household.last_tick_deposit_start = household.bank_deposit
             if frozen_wages is not None:
                 wage_income = frozen_wages.get(hid, 0.0)
             else:
@@ -2023,6 +2042,7 @@ class Economy:
         self.last_health_diagnostics = {}
         self.last_firm_distress_diagnostics = {}
         self.last_housing_diagnostics = {}
+        self.legacy_rent_receipts = {}
         self.last_sector_shortage_diagnostics = []
         self.last_tick_gov_bond_purchases = 0.0
         self.last_tick_gov_subsidies = 0.0
@@ -2337,6 +2357,11 @@ class Economy:
         for wage_plan in tick.firm_wage_plans.values():
             if wage_plan["wage_offer_next"] < minimum_wage:
                 wage_plan["wage_offer_next"] = minimum_wage
+        baseline_ids = {firm.firm_id for firm in self.firms if firm.is_baseline}
+        self._posted_wage_offers = {
+            firm_id: (float(plan["wage_offer_next"]), firm_id in baseline_ids)
+            for firm_id, plan in tick.firm_wage_plans.items()
+        }
 
     def _phase_household_planning(self, tick: _TickScratch) -> None:
         """Households plan: offer signals, education, cooldowns, labor supply, consumption, loans."""
@@ -2814,10 +2839,12 @@ class Economy:
             if property_tax > 0:
                 firm.cash_balance -= property_tax
 
+            legacy_rent = 0.0 if payment_arm else self._legacy_rent_revenue(firm.firm_id)
             firm.apply_sales_and_profit({
                 "units_sold": sales_data["units_sold"],
-                "revenue": sales_data["revenue"] + (self.payment_book.rent_receipts.get(firm.firm_id, 0.0)
+                "revenue": sales_data["revenue"] + legacy_rent + (self.payment_book.rent_receipts.get(firm.firm_id, 0.0)
                                                    + assessed_project_receipts.get(firm.firm_id, 0.0) if payment_arm else 0.0),
+                "revenue_already_in_cash": legacy_rent,
                 "profit_taxes_paid": profit_tax + price_ceiling_tax,
                 "committed_sale_book": payment_arm,
             })
@@ -5293,7 +5320,21 @@ class Economy:
     # Section: Wellbeing, tax snapshots, production, and firm lifecycle
     # -------------------------------------------------------------------------
     def _batch_update_wellbeing(self, happiness_multiplier: float) -> None:
-        """Vectorized wellbeing update; the only wellbeing implementation (per-agent update_wellbeing was removed)."""
+        """Vectorized wellbeing update; the only wellbeing implementation (per-agent update_wellbeing was removed).
+
+        The poverty penalties and the wealth-loss term read liquid wealth:
+        ``cash_balance + max(0, bank_deposit)`` now, against
+        ``last_tick_cash_start + max(0, last_tick_deposit_start)``. Both
+        snapshots are taken at income settlement in phase 8
+        (``_apply_household_income``, just before the credit), not at the
+        start of the tick; the deposit sweep runs after that point, so it
+        nets to zero. Moving money between cash and deposits is neither a
+        loss nor poverty. Deposits count at 100%, not with
+        ``accessible_liquidity``'s 0.90 haircut, so a sweep is exactly
+        neutral. On non-legacy payment sequences the snapshots are never set
+        (``payments.settle_income`` bypasses ``_apply_household_income``), so
+        the wealth-loss term is inert there, as on main.
+        """
         if not self.households:
             return
 
@@ -5313,8 +5354,17 @@ class Economy:
         morale_decay = np.fromiter((h.morale_decay_rate for h in households), dtype=np.float64, count=n)
         health_decay = np.fromiter((h.health_decay_rate for h in households), dtype=np.float64, count=n)
 
-        cash_balances = np.fromiter((h.cash_balance for h in households), dtype=np.float64, count=n)
-        cash_prev = np.fromiter((h.last_tick_cash_start for h in households), dtype=np.float64, count=n)
+        # Poverty and wealth loss read liquid wealth (cash + bank deposits).
+        # The deposit sweep and bank withdrawals move money between the two
+        # within the tick, so reading cash alone scored saving as a loss and
+        # parked savers below the poverty line (PR7 investigation, item 3).
+        liquid_wealth = np.fromiter(
+            (h.cash_balance + max(0.0, h.bank_deposit) for h in households), dtype=np.float64, count=n
+        )
+        liquid_prev = np.fromiter(
+            (h.last_tick_cash_start + max(0.0, h.last_tick_deposit_start) for h in households),
+            dtype=np.float64, count=n,
+        )
         housing_met = np.fromiter((h.met_housing_need for h in households), dtype=np.bool_, count=n)
         food_consumed = np.fromiter((h.food_consumed_this_tick for h in households), dtype=np.float64, count=n)
         min_food = np.fromiter((h.min_food_per_tick for h in households), dtype=np.float64, count=n)
@@ -5348,10 +5398,10 @@ class Economy:
         happiness_change = np.zeros(n, dtype=np.float64)
 
         # Poverty penalties (from config)
-        happiness_change -= np.where(cash_balances < hc.extreme_poverty_threshold,
+        happiness_change -= np.where(liquid_wealth < hc.extreme_poverty_threshold,
                                      hc.extreme_poverty_penalty, 0.0)
         happiness_change -= np.where(
-            (cash_balances >= hc.extreme_poverty_threshold) & (cash_balances < hc.poverty_threshold),
+            (liquid_wealth >= hc.extreme_poverty_threshold) & (liquid_wealth < hc.poverty_threshold),
             hc.poverty_penalty, 0.0)
 
         # Government social programs boost
@@ -5371,11 +5421,11 @@ class Economy:
         # (a) Unemployment: being jobless hurts happiness independently of poverty
         happiness_change -= np.where(~employed, hc.unemployed_happiness_penalty, 0.0)
 
-        # (b) Relative wealth-loss: losing cash hurts proportionally, not just at thresholds
-        has_prior_cash = cash_prev > 1.0
+        # (b) Relative wealth-loss: losing liquid wealth hurts proportionally, not just at thresholds
+        has_prior_cash = liquid_prev > 1.0
         cash_loss_pct = np.where(
             has_prior_cash,
-            np.maximum(0.0, (cash_prev - cash_balances) / np.maximum(cash_prev, 1.0)),
+            np.maximum(0.0, (liquid_prev - liquid_wealth) / np.maximum(liquid_prev, 1.0)),
             0.0
         )
         happiness_change -= cash_loss_pct * hc.wealth_loss_happiness_scaling
@@ -5583,6 +5633,8 @@ class Economy:
             if self.payment_sequence != "legacy" and self.payment_book is not None:
                 revenue += self.payment_book.rent_receipts.get(firm.firm_id, 0.0)
                 revenue += self.payment_state.get("services_pending_receipts", {}).get(firm.firm_id, 0.0)
+            else:
+                revenue += self._legacy_rent_revenue(firm.firm_id)
             units_sold = sales_data["units_sold"]
 
             # Calculate price ceiling tax
@@ -7493,6 +7545,41 @@ class Economy:
         self._withdraw_deposits_to_cash(household, withdraw)
         return household.cash_balance + 1e-9 >= amount
 
+    def _legacy_rent_revenue(self, firm_id: int) -> float:
+        """Rent a Housing firm collected in this tick's legacy housing phase.
+
+        Returns 0 when ``CONFIG.labor_market.rent_booked_as_revenue`` is off.
+        The cash already moved in ``_clear_housing_rental_market``; callers
+        add this to revenue and profit only, never to cash.
+        """
+        if not CONFIG.labor_market.rent_booked_as_revenue:
+            return 0.0
+        return self.legacy_rent_receipts.get(firm_id, 0.0)
+
+    @staticmethod
+    def _lease_rent_due(household: HouseholdAgent, provider: FirmAgent) -> float:
+        """Rent an existing tenant owes this tick on the legacy payment path.
+
+        Args:
+            household: A tenant of ``provider``.
+            provider: The Housing firm the household rents from.
+
+        Returns:
+            Rent in currency units per tick (1 tick = 1 week). With
+            ``CONFIG.labor_market.rent_tracks_posted_price`` (the default) it
+            is the landlord's current posted rent ``provider.price``, floored
+            at 0; otherwise it is the rent signed at, ``monthly_rent``.
+
+        ``provider.price`` does not change between household planning, which
+        reserves this amount through ``_legacy_obligations_due``, and the
+        housing phase, which collects it (prices move later, in the housing
+        firm adjustment and in firm settlement), so both callers see the same
+        number.
+        """
+        if CONFIG.labor_market.rent_tracks_posted_price:
+            return max(0.0, float(provider.price))
+        return household.monthly_rent
+
     def _clear_housing_rental_market(self) -> None:
         """
         Match households with housing firms for rental agreements.
@@ -7541,6 +7628,8 @@ class Economy:
             return  # No housing available
 
         rent_share = CONFIG.labor_market.rent_affordability_share
+        receipts: Dict[int, float] = {}
+        self.legacy_rent_receipts = receipts
         eviction_count = 0
         housing_failure_count = 0
         housing_unaffordable_count = 0
@@ -7567,6 +7656,8 @@ class Economy:
                         severity=1.0,
                     )
                     continue
+
+                household.monthly_rent = self._lease_rent_due(household, housing_firm)
 
                 # Affordability: income stream (wage or benefit) + 25% of accessible
                 # liquidity (cash + 90% of bank deposits). Households with savings
@@ -7615,6 +7706,7 @@ class Economy:
                     household.cash_balance -= household.monthly_rent
                     household.add_ledger_flow("rent", -household.monthly_rent)
                     housing_firm.cash_balance += household.monthly_rent
+                    receipts[housing_firm.firm_id] = receipts.get(housing_firm.firm_id, 0.0) + household.monthly_rent
                     household.owns_housing = True
 
         # Phase 2: Match homeless households with available units
@@ -7661,6 +7753,7 @@ class Economy:
                 household.cash_balance -= rent
                 household.add_ledger_flow("rent", -rent)
                 chosen_firm.cash_balance += rent
+                receipts[chosen_firm.firm_id] = receipts.get(chosen_firm.firm_id, 0.0) + rent
             else:
                 housing_failure_count += 1
                 any_supply = any(len(f.current_tenants) < f.max_rental_units for f in housing_firms)
@@ -8626,6 +8719,39 @@ class Economy:
 
         # Clamp to valid range [0, 1]
         return max(0.0, min(1.0, gini))
+
+    def get_posted_wage_offers(self, include_baseline: bool = False) -> Dict[int, float]:
+        """Wage offers firms posted to job seekers this tick, {firm_id: $/tick}.
+
+        Read-only snapshot taken at the end of the firm-planning phase, after
+        the economy-wide minimum-wage enforcement: these are the offers
+        household planning and labor matching read in the same tick. Valid
+        from that point until the next tick's firm planning replaces it, so
+        after ``step()`` returns it holds the offers of the tick just run.
+        Empty before the first ``step()``.
+
+        It can differ from ``FirmAgent.wage_offer``. Settlement later stores
+        the plan on the firm, but a distressed firm keeps
+        ``min(plan, distress cut)`` (which may sit below the benefit floor
+        until its next plan) and healthcare firms are reset to the minimum
+        wage. Firms that exit in the same tick stay in the snapshot.
+
+        Government baseline firms are excluded by default: they pay the
+        minimum wage by rule (public fallback jobs) and skip the 1.5x-benefit
+        floor, so mixing them in reads as private offers below that floor.
+        Pass ``include_baseline=True`` to get them too.
+
+        Args:
+            include_baseline: also return baseline (government) firms' offers.
+
+        Returns:
+            A new dict; changing it does not affect the economy.
+        """
+        return {
+            firm_id: offer
+            for firm_id, (offer, is_baseline) in self._posted_wage_offers.items()
+            if include_baseline or not is_baseline
+        }
 
     def get_economic_metrics(self) -> Dict[str, float]:
         """
