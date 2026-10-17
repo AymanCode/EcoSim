@@ -2007,11 +2007,6 @@ class FirmAgent(AgentMixin):
     risk_tolerance: float = 0.5  # 0-1 scale, affects pricing and hiring decisions
     is_baseline: bool = False
     baseline_production_quota: float = 500.0
-    # Public-capital productivity factor (dimensionless, >= 1.0). Economy sets
-    # it each tick to the government's infrastructure_productivity_multiplier
-    # when infrastructure_raises_firm_capacity_enabled; 1.0 otherwise. Scales
-    # _capacity_for_workers, so planning, pricing and realized output agree.
-    public_capital_tfp: float = 1.0
     actual_wages: Dict[int, float] = field(default_factory=dict)
     # (employees list, its length, actual_wages dict, its length, wage_offer, bill);
     # see _current_wage_bill. Cleared by _invalidate_wage_bill_cache.
@@ -2060,6 +2055,11 @@ class FirmAgent(AgentMixin):
     # Temporary productivity multiplier from a random supply shock; decays back
     # to 1.0 (CONFIG.firms.supply_shock_decay_per_tick) (audit B26).
     supply_shock_multiplier: float = 1.0
+    # Public-capital productivity factor (dimensionless, >= 1.0). Economy sets
+    # it each tick to the government's infrastructure_productivity_multiplier
+    # when infrastructure_raises_firm_capacity_enabled; 1.0 otherwise. Scales
+    # _capacity_for_workers, so planning, pricing and realized output agree.
+    public_capital_tfp: float = 1.0
     last_revenue: float = 0.0
     last_profit: float = 0.0
     revenue_ema: float = 0.0
