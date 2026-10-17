@@ -7092,6 +7092,7 @@ class Economy:
             if (firm.good_category or "") == "PublicWorks"
         ]
         for firm in public_firms:
+            firm.public_works_target_jobs = 0
             firm.baseline_production_quota = 0.0
             firm.expected_sales_units = 0.0
             firm.planned_hires_count = 0
@@ -7103,20 +7104,74 @@ class Economy:
                 firm.planned_layoffs_ids = []
             firm.decision_diagnostics["public_works_authorized"] = False
 
+    def _public_works_target_jobs(self, public_firms: List[FirmAgent]) -> int:
+        """Public works headcount the government authorizes this tick (workers).
+
+        ``target = round(public_works_jobless_share * jobless_pool)``, capped at
+        ``public_works_job_fraction * labor_force``. The jobless pool is the
+        unemployed labor force plus the people already on public works, so the
+        target tracks how many would be jobless without the program and does
+        not shrink just because the program hired them. It does fall when
+        private employers hire, and rises in a downturn.
+
+        Args:
+            public_firms: The existing PublicWorks firms (may be empty).
+
+        Returns:
+            Authorized jobs, >= 0. Zero when nobody in the labor force is
+            jobless.
+        """
+        config = CONFIG.government
+        labor_force = 0
+        unemployed = 0
+        for household in self.households:
+            if household.can_work:
+                labor_force += 1
+                if not household.is_employed:
+                    unemployed += 1
+        on_public_works = sum(len(firm.employees) for firm in public_firms)
+        jobless_pool = unemployed + on_public_works
+        target = int(round(float(config.public_works_jobless_share) * jobless_pool))
+        ceiling = int(float(config.public_works_job_fraction) * labor_force)
+        return max(0, min(target, ceiling))
+
     def _ensure_public_works_capacity(self, unemployment_rate: float) -> float:
         """Stand up or scale public works firms to absorb excess labor.
 
         Gated by the ``public_works`` lever — only runs when the lever
         is set to ``"on"``.  The old unemployment-threshold trigger has
         been removed; the future LLM decides when to toggle this.
+
+        With ``public_works_headcount_planning_enabled`` (default), the
+        authorized headcount comes from ``_public_works_target_jobs`` and is
+        written to ``FirmAgent.public_works_target_jobs``, which the firm hires
+        toward. With the flag off, the pre-fix path writes a fixed
+        ``public_works_job_fraction * households`` into
+        ``baseline_production_quota``, which the baseline planner reads as
+        output units.
+
+        Args:
+            unemployment_rate: Unused; kept for the existing call signature.
+
+        Returns:
+            Startup capitalization paid by the treasury this call ($), 0.0
+            once a firm exists.
         """
         if self.government.public_works_toggle != "on":
             return 0.0
         config = CONFIG.government
         capitalization_outflow = 0.0
 
-        target_jobs = max(1, int(len(self.households) * config.public_works_job_fraction))
         public_firms = [f for f in self.firms if f.good_category == "PublicWorks"]
+        headcount_planning = bool(config.public_works_headcount_planning_enabled)
+        if headcount_planning:
+            target_jobs = self._public_works_target_jobs(public_firms)
+            if target_jobs <= 0 and not public_firms:
+                # Nobody to employ: don't pay the startup capitalization yet.
+                self.last_tick_gov_public_works_jobs_authorized = 0
+                return 0.0
+        else:
+            target_jobs = max(1, int(len(self.households) * config.public_works_job_fraction))
 
         if not public_firms:
             recent_gdp = trailing_gdp(self)
@@ -7160,6 +7215,19 @@ class Economy:
             self.last_tick_unmet_demand_by_firm[new_firm_id] = 0.0
             self.last_tick_prices[public_firm.good_name] = public_firm.price
             public_firms = [public_firm]
+
+        if headcount_planning:
+            # Split the headcount across firms (one in practice). The target
+            # is set, not ratcheted, so it falls when private hiring recovers.
+            per_firm_jobs, remainder = divmod(target_jobs, len(public_firms))
+            for index, firm in enumerate(public_firms):
+                firm.public_works_target_jobs = per_firm_jobs + (1 if index < remainder else 0)
+                firm.price = config.public_works_price
+                firm.wage_offer = config.public_works_wage
+                firm.decision_diagnostics["public_works_authorized"] = True
+            self.last_tick_gov_public_works_jobs_authorized = target_jobs
+            self.last_tick_gov_public_works_capitalization += capitalization_outflow
+            return capitalization_outflow
 
         per_firm_quota = max(
             config.emergency_loan_min_headcount,

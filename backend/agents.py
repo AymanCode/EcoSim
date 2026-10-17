@@ -2007,6 +2007,10 @@ class FirmAgent(AgentMixin):
     risk_tolerance: float = 0.5  # 0-1 scale, affects pricing and hiring decisions
     is_baseline: bool = False
     baseline_production_quota: float = 500.0
+    # Headcount the government authorized for a PublicWorks firm (workers, not
+    # output units). Set each tick by Economy._ensure_public_works_capacity and
+    # read by _plan_public_works_labor; 0 for every other firm.
+    public_works_target_jobs: int = 0
     actual_wages: Dict[int, float] = field(default_factory=dict)
     # (employees list, its length, actual_wages dict, its length, wage_offer, bill);
     # see _current_wage_bill. Cleared by _invalidate_wage_bill_cache.
@@ -2388,6 +2392,54 @@ class FirmAgent(AgentMixin):
     def _is_generic_services_firm(self) -> bool:
         """Generic services are per-tick flow capacity, not storable production."""
         return self.good_category.lower() == "services"
+
+    def _is_public_works_firm(self) -> bool:
+        """Government-run public works employer (created by the public_works lever)."""
+        return (self.good_category or "") == "PublicWorks"
+
+    def public_works_step_limit(self) -> int:
+        """Most workers a public works firm hires or releases in one tick.
+
+        ``ceil(max(target, staff) / public_works_ramp_weeks)``, at least 1, so
+        any target is reached in about ``public_works_ramp_weeks`` ticks.
+        """
+        ramp_weeks = max(1, int(CONFIG.government.public_works_ramp_weeks))
+        size = max(int(self.public_works_target_jobs), len(self.employees))
+        return max(1, math.ceil(size / ramp_weeks))
+
+    def _plan_public_works_labor(self) -> Dict[str, object]:
+        """Hire or release workers toward the authorized public works headcount.
+
+        A public works program is a jobs program, not a goods producer: the
+        government authorizes a number of jobs (``public_works_target_jobs``,
+        workers), and the firm moves its staff toward that number. Before the
+        headcount fix the target was stored in ``baseline_production_quota``
+        and read by the baseline planner as output units, which turned 200
+        authorized jobs into about 8 actual jobs.
+
+        The step size is ``ceil(max(target, staff) / public_works_ramp_weeks)``
+        workers per tick in either direction, so a program reaches a new target
+        in about ``public_works_ramp_weeks`` ticks whatever its size, and winds
+        down at the same pace when the target falls or the lever is switched off.
+
+        Production is zero: nobody buys PublicWorks output, and the inventory
+        governor already planned zero for this firm before the fix.
+
+        Returns:
+            The labor plan dict from ``_stamp_labor_plan``.
+        """
+        target = max(0, int(self.public_works_target_jobs))
+        current = len(self.employees)
+        step = self.public_works_step_limit()
+        planned_hires = 0
+        planned_layoffs: List[int] = []
+        if target > current:
+            planned_hires = min(target - current, step)
+        elif target < current:
+            planned_layoffs = list(self.employees[: min(current - target, step)])
+        self.decision_diagnostics["public_works_target_jobs"] = target
+        self.decision_diagnostics["public_works_step_limit"] = step
+        return self._stamp_labor_plan(0.0, planned_hires, planned_layoffs)
 
     def _service_units_per_worker(self) -> float:
         """Clamp service throughput to the intended 1-7 units-per-worker range."""
@@ -3322,6 +3374,9 @@ class FirmAgent(AgentMixin):
                 total_households=total_households,
                 minimum_wage_floor=minimum_wage_floor,
             )
+
+        if self._is_public_works_firm() and CONFIG.government.public_works_headcount_planning_enabled:
+            return self._plan_public_works_labor()
 
         if self.stabilization_disabled:
             return self._destabilized_production_plan()

@@ -729,9 +729,34 @@ class GovernmentPolicyConfig:
     emergency_loan_enforcement_ticks: int = 26
     emergency_loan_penalty_reclaim_fraction: float = 1.0
     public_works_unemployment_threshold: float = 0.25
+    # Upper bound on public works jobs. With public_works_headcount_planning_enabled
+    # it is a share of the labor force (households that can work) and acts only
+    # as a ceiling on the adaptive target below; with the flag off it is the
+    # pre-fix fixed target, a share of all households. Also sizes the one-time
+    # startup capitalization (fiscal_guards.public_works_full_startup_cost).
+    # Range 0-1. Unchanged value; reinterpreted by the public works headcount fix.
     public_works_job_fraction: float = 0.2
     public_works_wage: float = 45.0
     public_works_price: float = 1.0
+    # Public works headcount fix (bug 8, 2026-10-16). When True, the public works
+    # firm is told a headcount (FirmAgent.public_works_target_jobs) and hires
+    # toward it directly. When False, the target is written into
+    # baseline_production_quota, which the baseline planner reads as output
+    # units, so roughly 8-11 of 200 authorized jobs get filled (pre-fix behavior).
+    public_works_headcount_planning_enabled: bool = True
+    # Share of the jobless pool (unemployed labor force + current public works
+    # staff) that public works employs. Dimensionless, range 0-1, default 1/3.
+    # Source: US emergency work relief 1934-1938 (WPA, CWA, CCC) employed
+    # 26-41% (mean ~33%) of the jobless, from the gap between Lebergott's
+    # unemployment rate and Darby's (1976) rate that counts relief workers as
+    # employed. Only read when public_works_headcount_planning_enabled.
+    public_works_jobless_share: float = 1.0 / 3.0
+    # Weeks to reach a new headcount target: the firm hires (or releases) at
+    # most ceil(max(target, current staff) / ramp_weeks) workers per tick.
+    # Units: ticks (weeks), range >= 1, default 8. Source: the 1933-34 Civil
+    # Works Administration put about 4 million people to work within roughly
+    # two months. Only read when public_works_headcount_planning_enabled.
+    public_works_ramp_weeks: int = 8
 
     # Investment Effects
     infrastructure_gain_divisor: float = 1000.0  # $1000 → 0.5% productivity
