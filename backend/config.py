@@ -757,6 +757,13 @@ class GovernmentPolicyConfig:
     # Works Administration put about 4 million people to work within roughly
     # two months. Only read when public_works_headcount_planning_enabled.
     public_works_ramp_weeks: int = 8
+    # When True, the treasury covers each tick the part of the public works
+    # payroll the firm's cash can't (Economy._fund_public_works_payroll),
+    # booked as government spending. Without it the one-time startup
+    # capitalization runs out (about 45 weeks at 1,000 households) and the
+    # firm goes bankrupt, firing all its staff in one tick. Added by the
+    # public works headcount fix (bug 8); only read with headcount planning on.
+    public_works_payroll_funding_enabled: bool = True
 
     # Investment Effects
     infrastructure_gain_divisor: float = 1000.0  # $1000 → 0.5% productivity

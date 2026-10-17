@@ -11,6 +11,8 @@ pool, and staff changes are paced by ``public_works_ramp_weeks``.
 import contextlib
 import io
 
+import pytest
+
 from agents import FirmAgent
 from config import CONFIG
 from tests_contracts.factories import seed_everything
@@ -153,3 +155,88 @@ def test_flag_off_keeps_pre_fix_output_unit_planning(monkeypatch):
     # The baseline planner reads the 200 as output units and asks for a
     # handful of workers, far below 200.
     assert 0 < plan["planned_hires_count"] < 20
+
+
+def _funded_firm_with_staff(economy, staff: int):
+    _set_jobless(economy, jobless=24)
+    economy.government.set_lever("public_works", "on")
+    economy._ensure_public_works_capacity(unemployment_rate=0.0)
+    firm = next(f for f in economy.firms if f.good_category == "PublicWorks")
+    jobless = [h for h in economy.households if h.can_work and not h.is_employed][:staff]
+    for household in jobless:
+        household.employer_id = firm.firm_id
+    firm.employees = [h.household_id for h in jobless]
+    firm.actual_wages = {h.household_id: 50.0 for h in jobless}
+    firm._invalidate_wage_bill_cache()
+    return firm
+
+
+def test_treasury_covers_payroll_once_startup_capital_is_spent(tiny_economy_factory):
+    economy = tiny_economy_factory(num_households=60, government_cash=300_000.0)
+    firm = _funded_firm_with_staff(economy, staff=8)
+    firm.public_works_target_jobs = 8  # no hires due: payroll is the current bill
+    firm.cash_balance = 0.0
+    economy.last_tick_gov_public_works_payroll_funding = 0.0
+    gov_before = economy.government.cash_balance
+
+    paid = economy._fund_public_works_payroll([firm])
+
+    bill = 8 * 50.0
+    # Firm holds this week's payroll plus one week ahead.
+    assert firm.cash_balance == pytest.approx(2 * bill)
+    # Every dollar the firm gained left the treasury and is on the books.
+    assert paid == pytest.approx(2 * bill)
+    assert gov_before - economy.government.cash_balance == pytest.approx(paid)
+    assert economy.last_tick_gov_public_works_payroll_funding == pytest.approx(paid)
+
+
+def test_payroll_funding_tops_up_without_accumulating(tiny_economy_factory):
+    economy = tiny_economy_factory(num_households=60, government_cash=300_000.0)
+    firm = _funded_firm_with_staff(economy, staff=8)
+    firm.public_works_target_jobs = 8
+    firm.cash_balance = 0.0
+    economy._fund_public_works_payroll([firm])
+
+    # Wages paid: the firm is back to one week ahead; the next transfer tops
+    # up to the same level, not beyond it.
+    firm.cash_balance -= 8 * 50.0
+    paid = economy._fund_public_works_payroll([firm])
+
+    assert paid == pytest.approx(8 * 50.0)
+    assert firm.cash_balance == pytest.approx(2 * 8 * 50.0)
+    # A firm that still has its startup capital gets nothing.
+    firm.cash_balance = 150_000.0
+    assert economy._fund_public_works_payroll([firm]) == 0.0
+
+
+def test_payroll_funding_counts_as_government_spending_in_a_step():
+    seed_everything(42)
+    with contextlib.redirect_stdout(io.StringIO()):
+        economy = create_large_economy(num_households=300, num_firms_per_category=3)
+    economy.government.cash_balance = max(economy.government.cash_balance, 400_000.0)
+    economy.government.set_lever("public_works", "on")
+    for _ in range(CONFIG.time.warmup_ticks + 2):
+        economy.step()
+    firm = next(f for f in economy.firms if f.good_category == "PublicWorks")
+    firm.cash_balance = 0.0  # startup capital spent
+
+    economy.step()
+    metrics = economy.get_economic_metrics()
+
+    funded = metrics["gov_public_works_payroll_funding_this_tick"]
+    assert funded > 0.0
+    assert metrics["gov_spending_this_tick"] >= funded
+    assert firm.cash_balance > 0.0  # no bankruptcy, no unfunded wages
+
+
+def test_payroll_funding_flag_off_leaves_firm_on_startup_capital(tiny_economy_factory, monkeypatch):
+    monkeypatch.setattr(CONFIG.government, "public_works_payroll_funding_enabled", False)
+    economy = tiny_economy_factory(num_households=60, government_cash=300_000.0)
+    firm = _funded_firm_with_staff(economy, staff=8)
+    firm.cash_balance = 0.0
+    gov_before = economy.government.cash_balance
+
+    economy._ensure_public_works_capacity(unemployment_rate=0.0)
+
+    assert economy.government.cash_balance == gov_before
+    assert firm.cash_balance == 0.0

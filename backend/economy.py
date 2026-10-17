@@ -279,6 +279,7 @@ class Economy:
         self.last_tick_gov_public_works_denied_by_budget: float = 0.0
         self.last_tick_gov_public_works_affordable_budget: float = 0.0
         self.last_tick_gov_public_works_jobs_authorized: int = 0
+        self.last_tick_gov_public_works_payroll_funding: float = 0.0
         self.last_tick_gov_post_warmup_stimulus: float = 0.0
         self.sector_subsidy_cap_this_tick: float = 0.0
         self.sector_subsidy_remaining_this_tick: float = 0.0
@@ -1992,6 +1993,7 @@ class Economy:
         self.last_tick_gov_public_works_denied_by_budget = 0.0
         self.last_tick_gov_public_works_affordable_budget = 0.0
         self.last_tick_gov_public_works_jobs_authorized = 0
+        self.last_tick_gov_public_works_payroll_funding = 0.0
         self.last_tick_gov_post_warmup_stimulus = 0.0
         self.last_tick_gov_subsidy_requested = 0.0
         self.last_tick_gov_subsidy_denied_by_cap = 0.0
@@ -2943,6 +2945,7 @@ class Economy:
             + self.last_tick_gov_subsidies
             + self.last_tick_gov_bailouts
             + self.last_tick_gov_public_works_capitalization
+            + self.last_tick_gov_public_works_payroll_funding
             + self.last_tick_gov_post_warmup_stimulus
         )
         self._update_budget_pressure(tick_revenue, tick_spending)
@@ -7135,6 +7138,57 @@ class Economy:
         ceiling = int(float(config.public_works_job_fraction) * labor_force)
         return max(0, min(target, ceiling))
 
+    def _fund_public_works_payroll(self, public_firms: List[FirmAgent]) -> float:
+        """Treasury pays the part of this week's public works payroll the firm can't.
+
+        Public works has no buyers, so after the one-time startup
+        capitalization runs out the firm would fall below the bankruptcy
+        threshold and lay off every worker at once. A real program is paid
+        from a budget appropriation each period; this transfers
+        ``max(0, 2 * payroll_due - firm cash)`` from the treasury, where
+        ``payroll_due`` is the current wage bill plus this tick's planned
+        hires (at most ``public_works_step_limit()``) at the posted wage. The
+        firm so holds about one week of payroll after paying wages; it never
+        holds more than that from this transfer, because the next transfer
+        only tops up to the same level.
+        It is counted in ``last_tick_gov_public_works_payroll_funding``, which
+        feeds ``gov_spending_this_tick`` and the fiscal-pressure deficit, so the
+        program's running cost is visible on the government's books instead of
+        being created inside the firm.
+
+        On the payment arm the transfer is capped at the treasury's free
+        (unrestricted) cash, like the startup capitalization. Legacy pays in
+        full, as it does for benefits.
+
+        Args:
+            public_firms: The PublicWorks firms authorized this tick.
+
+        Returns:
+            Total paid this call ($).
+        """
+        paid_total = 0.0
+        for firm in public_firms:
+            current = len(firm.employees)
+            hires_due = min(max(0, int(firm.public_works_target_jobs) - current), firm.public_works_step_limit())
+            payroll_due = firm._current_wage_bill() + hires_due * float(firm.wage_offer)
+            # Hold one week of payroll beyond this week's: wages are paid after
+            # this transfer, and a firm that ends a tick at <= 0 cash for 12
+            # ticks in a row exits (CONFIG.market.zero_cash_max_streak). With
+            # funding to exactly this week's payroll the firm ended steady
+            # weeks at 0.00 cash, and hires paid above the offer (skill and
+            # experience premiums) pushed it negative.
+            funded_level = 2.0 * payroll_due
+            shortfall = max(0.0, funded_level - float(firm.cash_balance))
+            if self.payment_sequence != "legacy":
+                shortfall = min(shortfall, self._payment_free_treasury_cash())
+            if shortfall <= 0.0:
+                continue
+            self.government.cash_balance -= shortfall
+            firm.cash_balance += shortfall
+            paid_total += shortfall
+        self.last_tick_gov_public_works_payroll_funding += paid_total
+        return paid_total
+
     def _ensure_public_works_capacity(self, unemployment_rate: float) -> float:
         """Stand up or scale public works firms to absorb excess labor.
 
@@ -7227,6 +7281,8 @@ class Economy:
                 firm.decision_diagnostics["public_works_authorized"] = True
             self.last_tick_gov_public_works_jobs_authorized = target_jobs
             self.last_tick_gov_public_works_capitalization += capitalization_outflow
+            if config.public_works_payroll_funding_enabled:
+                self._fund_public_works_payroll(public_firms)
             return capitalization_outflow
 
         per_firm_quota = max(
@@ -8833,6 +8889,7 @@ class Economy:
         metrics["gov_public_works_denied_by_budget_this_tick"] = self.last_tick_gov_public_works_denied_by_budget
         metrics["gov_public_works_affordable_budget_this_tick"] = self.last_tick_gov_public_works_affordable_budget
         metrics["gov_public_works_jobs_authorized"] = float(self.last_tick_gov_public_works_jobs_authorized)
+        metrics["gov_public_works_payroll_funding_this_tick"] = self.last_tick_gov_public_works_payroll_funding
         metrics["gov_post_warmup_stimulus_this_tick"] = self.last_tick_gov_post_warmup_stimulus
         metrics["gov_subsidy_spend_this_tick"] = self.last_tick_gov_subsidies
         metrics["gov_subsidy_cap_this_tick"] = self.sector_subsidy_cap_this_tick
