@@ -4,6 +4,21 @@ Notable changes and decisions for EcoSim, newest first. The project does not use
 
 ## Unreleased
 
+### 2026-10-16: Government round 1 (PR5): public debt, flat profit tax, decaying public capital, happiness hooks
+
+Implements first-pass items G1-G3, the price-cap hold rule, and the government hooks happiness v2 (PR6) reads. All new behavior is behind `CONFIG.government` flags (on by default) so a run can switch back to the old rules.
+
+- **Public debt (G1).** Before: the treasury went negative for free and `public_debt` did not exist, so debt/GDP was always 0. Now `GovernmentAgent.settle_public_debt(bank)` borrows the shortfall from bank reserves, charges weekly interest at `bank.base_interest_rate` (capitalized if unpaid), and repays principal with half of the surplus use; the misc bond buy keeps the other half and all of it when there is no debt. The literal reserve ($50k) and 12% surplus rate moved to config. The server's `govDebt` now reports `public_debt`.
+- **Flat profit tax (G2).** Before: firms were taxed by cash rank (base rate plus seeded extras, up to 60%). Now `profit_tax_rate` on positive profit, no loss carryforward.
+- **Decaying public capital (G3).** The technology multiplier now decays like infrastructure (5%/tick of the excess over 1.0); the 1.15 caps moved to `public_capital_max_multiplier` and `social_max_multiplier`. Infrastructure/technology purchases go to PublicWorks firms when one exists.
+- **Price-cap hold.** A binding price cap holds until the firm's next review. No effect until PR4 adds review intervals.
+- **Hooks.** `get_benefit_replacement_rate()` and `get_health_coverage()`, plus metrics `benefit_replacement_rate`, `health_coverage`, `gov_debt_*_this_tick`, `gov_public_capital_to_public_works_this_tick`.
+- **Approval observation** for the LLM government, off by default (`CONFIG.llm.government_approval_observation_enabled`).
+
+New config keys (all PR5): `public_debt_enabled`, `surplus_reserve`, `surplus_use_rate`, `surplus_debt_paydown_share`, `public_debt_fallback_annual_rate`, `flat_profit_tax_enabled`, `public_capital_decay_enabled`, `public_capital_decay_per_tick`, `public_capital_max_multiplier`, `social_max_multiplier`, `public_works_purchases_enabled`, `price_cap_hold_enabled`, `llm.government_approval_observation_enabled`. No lever was added or removed.
+
+Evidence: `tests_contracts/test_government_round1.py` (23 tests); backend suite 816 passed, 1 xfailed. Before/after: `python tools/benchmarks/run_pr5_government_compare.py --households 400 --firms-per-category 6 --seed 42 --ticks 104` (from `backend/`).
+
 ### 2026-10-16: Server error replies, logging context, and two review checks
 
 From the outside portfolio review (items #8, #9, #14, #15, #21, #25, #28). No simulation behavior changed: the engine, tick order, and every success reply are unchanged.
