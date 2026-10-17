@@ -149,3 +149,49 @@ def test_legacy_brackets_still_available_behind_flag(monkeypatch):
     gov = GovernmentAgent(cash_balance=0.0, profit_tax_rate=0.20)
     taxes = gov.plan_taxes([], _firm_snapshots())["profit_taxes"]
     assert taxes[4] > taxes[0]  # cash-rich firm pays more on the same profit
+
+
+# ── G3 decaying public capital ───────────────────────────────────────
+
+def test_technology_gain_fades_when_funding_stops():
+    gov = GovernmentAgent(cash_balance=1_000_000.0)
+    gov.technology_quality_multiplier = 1.10
+    gov.technology_investment_budget = 0.0
+    for _ in range(52):
+        gov.invest_in_technology()
+    rate = CONFIG.government.public_capital_decay_per_tick
+    assert gov.technology_quality_multiplier == pytest.approx(1.0 + 0.10 * (1 - rate) ** 52)
+    assert gov.technology_quality_multiplier < 1.01
+
+
+def test_technology_never_decayed_before_pr5(monkeypatch):
+    monkeypatch.setattr(CONFIG.government, "public_capital_decay_enabled", False)
+    gov = GovernmentAgent(cash_balance=0.0)
+    gov.technology_quality_multiplier = 1.10
+    gov.invest_in_technology()
+    assert gov.technology_quality_multiplier == pytest.approx(1.10)
+
+
+def test_steady_funding_reaches_a_stock_below_the_cap():
+    gov = GovernmentAgent(cash_balance=10_000_000.0)
+    gov.infrastructure_investment_budget = 500.0  # +0.25%/tick at full efficiency
+    for _ in range(300):
+        gov.invest_in_infrastructure()
+    # Steady state of decay-then-add: e = e*(1-d) + g, so e = g/d (0.0025/0.05 = 5%).
+    d = CONFIG.government.public_capital_decay_per_tick
+    g = 0.0025 * gov.spending_efficiency
+    assert gov.infrastructure_productivity_multiplier == pytest.approx(1.0 + g / d, rel=0.05)
+
+
+def test_public_capital_purchase_is_paid_to_public_works_firm():
+    from agents import FirmAgent
+
+    pw = FirmAgent(firm_id=7, good_name="PublicWorks7", cash_balance=0.0, inventory_units=0.0,
+                   good_category="PublicWorks", quality_level=1.0, wage_offer=45.0, price=1.0,
+                   expected_sales_units=0.0, production_capacity_units=0.0, productivity_per_worker=1.0)
+    gov = GovernmentAgent(cash_balance=0.0)
+    economy = Economy(households=[_household(1)], firms=[pw], government=gov)
+    misc_before = economy.misc_firm_revenue
+    economy._book_public_capital_purchase(1_000.0)
+    assert pw.cash_balance == pytest.approx(1_000.0)
+    assert economy.misc_firm_revenue == misc_before

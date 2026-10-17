@@ -6669,23 +6669,40 @@ class GovernmentAgent(AgentMixin):
         else:
             self.transfer_budget = max(0.0, self.transfer_budget)
 
-    def invest_in_infrastructure(self) -> float:
-        """Spend the infrastructure budget to boost economy-wide productivity.
+    def _decay_public_capital(self, multiplier: float, legacy_rate: Optional[float]) -> float:
+        """Shrink a public capital multiplier's excess over 1.0 by one tick of decay.
 
-        The actual productivity gain is scaled by ``spending_efficiency``
-        so that sustained deficits reduce the effectiveness of spending
-        (crowding-out / bureaucratic drag).
-
-        Only spends if the lever is not ``"none"`` (budget > 0) and the
-        treasury can cover the outlay. Like the technology multiplier the gain
-        is capped at 1.15; each tick the excess over 1.0 first decays by the
-        social-programs rate (5%), so the benefit fades when funding stops.
+        Args:
+            multiplier: current multiplier (>= 1.0).
+            legacy_rate: per-tick decay used when ``public_capital_decay_enabled``
+                is off (infrastructure: 0.05; technology: None = no decay).
 
         Returns:
-            Amount actually invested (0.0 if skipped).
+            The decayed multiplier, never below 1.0.
         """
-        self.infrastructure_productivity_multiplier = max(
-            1.0, 1.0 + (self.infrastructure_productivity_multiplier - 1.0) * 0.95
+        cfg = CONFIG.government
+        rate = cfg.public_capital_decay_per_tick if cfg.public_capital_decay_enabled else legacy_rate
+        if not rate:
+            return multiplier
+        rate = max(0.0, min(1.0, float(rate)))
+        return max(1.0, 1.0 + (multiplier - 1.0) * (1.0 - rate))
+
+    def invest_in_infrastructure(self) -> float:
+        """Spend the infrastructure budget on public capital that raises productivity.
+
+        The multiplier is a public capital stock (G3): each tick its excess
+        over 1.0 first decays by ``public_capital_decay_per_tick``, then new
+        spending adds ``$1000 -> +0.5%`` scaled by ``spending_efficiency``
+        (sustained deficits make spending less effective). Capped at
+        ``public_capital_max_multiplier``. Spends only when the lever budget
+        is > 0 and free treasury cash covers it.
+
+        Returns:
+            Amount actually invested in $ (0.0 if skipped). Economy routes it
+            to the PublicWorks firm or the Misc pool.
+        """
+        self.infrastructure_productivity_multiplier = self._decay_public_capital(
+            self.infrastructure_productivity_multiplier, legacy_rate=0.05
         )
         if self.infrastructure_investment_budget <= 0.0:
             return 0.0
@@ -6698,22 +6715,28 @@ class GovernmentAgent(AgentMixin):
             base_gain = (investment / 1000.0) * 0.005
             effective_gain = base_gain * self.spending_efficiency
             self.infrastructure_productivity_multiplier = min(
-                1.15, self.infrastructure_productivity_multiplier + effective_gain
+                float(CONFIG.government.public_capital_max_multiplier),
+                self.infrastructure_productivity_multiplier + effective_gain,
             )
 
             return investment
         return 0.0
 
     def invest_in_technology(self) -> float:
-        """Spend the technology budget to boost economy-wide product quality.
+        """Spend the technology budget on public capital that raises product quality.
 
-        Gain is scaled by ``spending_efficiency``.  Capped at 1.15
-        (15 % max quality improvement) so the lever has meaningful
-        differentiation between ``low`` and ``medium`` over longer runs.
+        Same stock rule as infrastructure (G3): the excess over 1.0 decays
+        by ``public_capital_decay_per_tick`` each tick, so the benefit fades
+        when funding stops (before PR5 it never faded). New spending adds
+        ``$500 -> +0.5%`` scaled by ``spending_efficiency``, capped at
+        ``public_capital_max_multiplier``.
 
         Returns:
-            Amount actually invested (0.0 if skipped).
+            Amount actually invested in $ (0.0 if skipped).
         """
+        self.technology_quality_multiplier = self._decay_public_capital(
+            self.technology_quality_multiplier, legacy_rate=None
+        )
         if self.technology_investment_budget <= 0.0:
             return 0.0
 
@@ -6726,8 +6749,8 @@ class GovernmentAgent(AgentMixin):
             effective_gain = base_gain * self.spending_efficiency
 
             self.technology_quality_multiplier = min(
-                1.15,
-                self.technology_quality_multiplier + effective_gain
+                float(CONFIG.government.public_capital_max_multiplier),
+                self.technology_quality_multiplier + effective_gain,
             )
 
             return investment
@@ -6742,7 +6765,7 @@ class GovernmentAgent(AgentMixin):
 
         The multiplier accumulates over time and decays slowly when underfunded
         (half-life ~14 ticks at 5%/tick decay rate), rather than resetting to
-        1.0 the moment spending stops. Capped at 1.15.
+        1.0 the moment spending stops. Capped at ``social_max_multiplier`` (1.15).
 
         Mutates state.
 
@@ -6767,7 +6790,7 @@ class GovernmentAgent(AgentMixin):
         divisor = max(CONFIG.government.social_gain_divisor, 1.0)
         gain = investment / divisor
         self.social_happiness_multiplier = min(
-            1.15, self.social_happiness_multiplier + gain
+            float(CONFIG.government.social_max_multiplier), self.social_happiness_multiplier + gain
         )
         return investment
 

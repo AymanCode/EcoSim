@@ -269,6 +269,7 @@ class Economy:
         self.last_tick_gov_transfers: float = 0.0
         self.last_tick_gov_investments: float = 0.0
         self.last_tick_gov_infrastructure_spending: float = 0.0
+        self.last_tick_gov_public_capital_to_public_works: float = 0.0
         self.last_tick_gov_technology_spending: float = 0.0
         self.last_tick_gov_social_spending: float = 0.0
         self.last_tick_gov_bond_purchases: float = 0.0
@@ -2882,15 +2883,16 @@ class Economy:
         # Phase 11.5: Government discretionary spending (infrastructure, technology, social, bonds)
         # These investments are "abstract" quality improvements that don't directly go to agents,
         # so we redirect them into the misc firm pool to keep money circulating in the economy.
+        self.last_tick_gov_public_capital_to_public_works = 0.0
         infra_spent = self.government.invest_in_infrastructure()
         self.last_tick_gov_infrastructure_spending = infra_spent
         if infra_spent > 0:
-            self._collect_misc_revenue(infra_spent)
+            self._book_public_capital_purchase(infra_spent)
 
         tech_spent = self.government.invest_in_technology()
         self.last_tick_gov_technology_spending = tech_spent
         if tech_spent > 0:
-            self._collect_misc_revenue(tech_spent)
+            self._book_public_capital_purchase(tech_spent)
 
         social_spent = self.government.invest_in_social_programs()
         self.last_tick_gov_social_spending = social_spent
@@ -7653,6 +7655,31 @@ class Economy:
         # Reset revenue to 0 after payout
         self.misc_firm_revenue = 0.0
 
+    def _book_public_capital_purchase(self, amount: float) -> None:
+        """Pay infrastructure/technology spending to the public works sector (G3).
+
+        With ``public_works_purchases_enabled`` and at least one active
+        PublicWorks firm, the amount is split evenly across those firms as
+        sales: added to cash and to ``last_revenue`` so the firm's next-tick
+        planning sees it. Otherwise it goes to the Misc pool as before.
+        Money is conserved either way.
+
+        Args:
+            amount: $ spent this tick by ``invest_in_infrastructure`` or
+                ``invest_in_technology``.
+        """
+        if amount <= 0:
+            return
+        public_firms = [f for f in self.firms if (f.good_category or "") == "PublicWorks"]
+        if not (CONFIG.government.public_works_purchases_enabled and public_firms):
+            self._collect_misc_revenue(amount)
+            return
+        share = amount / len(public_firms)
+        for firm in public_firms:
+            firm.cash_balance += share
+            firm.last_revenue = float(firm.last_revenue or 0.0) + share
+        self.last_tick_gov_public_capital_to_public_works += amount
+
     def _collect_misc_revenue(self, amount: float) -> None:
         """
         Route spending into the misc pool with a variable tax skim.
@@ -8824,6 +8851,7 @@ class Economy:
         metrics["recent_gdp"] = recent_gdp
         metrics["public_debt"] = float(getattr(gov, "public_debt", 0.0))
         metrics["annualized_debt_to_gdp"] = annualized_debt_to_gdp(gov, recent_gdp)
+        metrics["gov_public_capital_to_public_works_this_tick"] = float(self.last_tick_gov_public_capital_to_public_works)
         metrics["gov_debt_interest_this_tick"] = float(gov.last_tick_debt_interest)
         metrics["gov_debt_borrowed_this_tick"] = float(gov.last_tick_debt_borrowed)
         metrics["gov_debt_repaid_this_tick"] = float(gov.last_tick_debt_repaid)
