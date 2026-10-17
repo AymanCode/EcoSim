@@ -347,6 +347,9 @@ class Economy:
         self.last_health_diagnostics: Dict[str, float] = {}
         self.last_firm_distress_diagnostics: Dict[str, float] = {}
         self.last_housing_diagnostics: Dict[str, float] = {}
+        # Legacy path: rent each Housing firm collected in this tick's housing
+        # phase, by firm id (see labor_market.rent_booked_as_revenue).
+        self.legacy_rent_receipts: Dict[int, float] = {}
         self.last_sector_shortage_diagnostics: List[Dict[str, object]] = []
         self.last_labor_events: List[Dict[str, object]] = []
         self.last_healthcare_events: List[Dict[str, object]] = []
@@ -1104,7 +1107,7 @@ class Economy:
             if provider is not None and provider.good_category == "Housing":
                 income = household.wage if household.employer_id is not None else benefit
                 liquidity = household.cash_balance + 0.90 * max(0.0, household.bank_deposit)
-                rent = household.monthly_rent
+                rent = self._lease_rent_due(household, provider)
                 if not (rent > self._max_affordable_rent(income, liquidity) or liquidity < rent):
                     amount += rent
             if bank is not None:
@@ -1980,6 +1983,7 @@ class Economy:
         self.last_health_diagnostics = {}
         self.last_firm_distress_diagnostics = {}
         self.last_housing_diagnostics = {}
+        self.legacy_rent_receipts = {}
         self.last_sector_shortage_diagnostics = []
         self.last_tick_gov_bond_purchases = 0.0
         self.last_tick_gov_subsidies = 0.0
@@ -2765,10 +2769,12 @@ class Economy:
             if property_tax > 0:
                 firm.cash_balance -= property_tax
 
+            legacy_rent = 0.0 if payment_arm else self._legacy_rent_revenue(firm.firm_id)
             firm.apply_sales_and_profit({
                 "units_sold": sales_data["units_sold"],
-                "revenue": sales_data["revenue"] + (self.payment_book.rent_receipts.get(firm.firm_id, 0.0)
+                "revenue": sales_data["revenue"] + legacy_rent + (self.payment_book.rent_receipts.get(firm.firm_id, 0.0)
                                                    + assessed_project_receipts.get(firm.firm_id, 0.0) if payment_arm else 0.0),
+                "revenue_already_in_cash": legacy_rent,
                 "profit_taxes_paid": profit_tax + price_ceiling_tax,
                 "committed_sale_book": payment_arm,
             })
@@ -5534,6 +5540,8 @@ class Economy:
             if self.payment_sequence != "legacy" and self.payment_book is not None:
                 revenue += self.payment_book.rent_receipts.get(firm.firm_id, 0.0)
                 revenue += self.payment_state.get("services_pending_receipts", {}).get(firm.firm_id, 0.0)
+            else:
+                revenue += self._legacy_rent_revenue(firm.firm_id)
             units_sold = sales_data["units_sold"]
 
             # Calculate price ceiling tax
@@ -7343,6 +7351,41 @@ class Economy:
         self._withdraw_deposits_to_cash(household, withdraw)
         return household.cash_balance + 1e-9 >= amount
 
+    def _legacy_rent_revenue(self, firm_id: int) -> float:
+        """Rent a Housing firm collected in this tick's legacy housing phase.
+
+        Returns 0 when ``CONFIG.labor_market.rent_booked_as_revenue`` is off.
+        The cash already moved in ``_clear_housing_rental_market``; callers
+        add this to revenue and profit only, never to cash.
+        """
+        if not CONFIG.labor_market.rent_booked_as_revenue:
+            return 0.0
+        return self.legacy_rent_receipts.get(firm_id, 0.0)
+
+    @staticmethod
+    def _lease_rent_due(household: HouseholdAgent, provider: FirmAgent) -> float:
+        """Rent an existing tenant owes this tick on the legacy payment path.
+
+        Args:
+            household: A tenant of ``provider``.
+            provider: The Housing firm the household rents from.
+
+        Returns:
+            Rent in currency units per tick (1 tick = 1 week). With
+            ``CONFIG.labor_market.rent_tracks_posted_price`` (the default) it
+            is the landlord's current posted rent ``provider.price``, floored
+            at 0; otherwise it is the rent signed at, ``monthly_rent``.
+
+        ``provider.price`` does not change between household planning, which
+        reserves this amount through ``_legacy_obligations_due``, and the
+        housing phase, which collects it (prices move later, in the housing
+        firm adjustment and in firm settlement), so both callers see the same
+        number.
+        """
+        if CONFIG.labor_market.rent_tracks_posted_price:
+            return max(0.0, float(provider.price))
+        return household.monthly_rent
+
     def _clear_housing_rental_market(self) -> None:
         """
         Match households with housing firms for rental agreements.
@@ -7391,6 +7434,8 @@ class Economy:
             return  # No housing available
 
         rent_share = CONFIG.labor_market.rent_affordability_share
+        receipts: Dict[int, float] = {}
+        self.legacy_rent_receipts = receipts
         eviction_count = 0
         housing_failure_count = 0
         housing_unaffordable_count = 0
@@ -7417,6 +7462,8 @@ class Economy:
                         severity=1.0,
                     )
                     continue
+
+                household.monthly_rent = self._lease_rent_due(household, housing_firm)
 
                 # Affordability: income stream (wage or benefit) + 25% of accessible
                 # liquidity (cash + 90% of bank deposits). Households with savings
@@ -7465,6 +7512,7 @@ class Economy:
                     household.cash_balance -= household.monthly_rent
                     household.add_ledger_flow("rent", -household.monthly_rent)
                     housing_firm.cash_balance += household.monthly_rent
+                    receipts[housing_firm.firm_id] = receipts.get(housing_firm.firm_id, 0.0) + household.monthly_rent
                     household.owns_housing = True
 
         # Phase 2: Match homeless households with available units
@@ -7511,6 +7559,7 @@ class Economy:
                 household.cash_balance -= rent
                 household.add_ledger_flow("rent", -rent)
                 chosen_firm.cash_balance += rent
+                receipts[chosen_firm.firm_id] = receipts.get(chosen_firm.firm_id, 0.0) + rent
             else:
                 housing_failure_count += 1
                 any_supply = any(len(f.current_tenants) < f.max_rental_units for f in housing_firms)
