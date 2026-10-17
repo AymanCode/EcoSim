@@ -889,7 +889,7 @@ class Economy:
         """Arrays of household traits that are written only at construction.
 
         spending_tendency, frugality, savings_drawdown_rate,
-        buffer_target_weeks, buffer_adjust_speed, the three
+        buffer_target_weeks, buffer_adjust_speed, risk_aversion, the three
         *_preference values and category_weights are set in
         HouseholdAgent.__post_init__ and never reassigned by the engine, so
         _batch_plan_consumption gathers them once instead of every tick. The
@@ -920,6 +920,7 @@ class Economy:
         drawdown_rates = np.array([h.savings_drawdown_rate for h in households], dtype=np.float64)
         buffer_weeks = np.array([h.buffer_target_weeks for h in households], dtype=np.float64)
         buffer_speeds = np.array([h.buffer_adjust_speed for h in households], dtype=np.float64)
+        risk_aversion = np.array([h.risk_aversion for h in households], dtype=np.float64)
 
         standard_categories = ["food", "housing", "services"]
         category_weights_matrix = np.array([
@@ -955,6 +956,7 @@ class Economy:
             "drawdown_rates": drawdown_rates,
             "buffer_weeks": buffer_weeks,
             "buffer_speeds": buffer_speeds,
+            "risk_aversion": risk_aversion,
             "precomputed_fractions": precomputed_fractions,
         }
         self._household_static_traits_cache = (households, len(households), preference_once, traits)
@@ -978,9 +980,10 @@ class Economy:
         arms use: the contract wage when employed and the benefit level when not.
 
         With ``CONFIG.households.buffer_stock_consumption`` (PR3) the budget is
-        ``income * MPC * trait + k * (liquidity - target)``, where ``target =
-        buffer_target_weeks * max(weekly income, buffer_income_floor)`` and k is
-        ``buffer_adjust_speed``, both per household. It is floored at
+        ``income * MPC * trait + k * (liquidity - target)``, where ``target`` is
+        ``HouseholdAgent.buffer_target`` (per-household weeks x risk aversion x
+        (1 + slope x unemployment rate) x weekly income) and k is
+        ``buffer_adjust_speed``. It is floored at
         ``min(subsistence_min_cash, liquidity)`` and capped at liquidity. The
         drawdown trickle and the personality wage-MPC cut are not used then.
         Off, the legacy formula below runs unchanged.
@@ -1090,7 +1093,12 @@ class Economy:
             # A household below target still buys the subsistence minimum
             # when it can afford it.
             weekly_income = wage_income + benefit_income + dividend_incomes
-            targets = static_traits["buffer_weeks"] * np.maximum(weekly_income, cfg.buffer_income_floor)
+            # Same formula as HouseholdAgent.buffer_target, vectorized.
+            precaution = 1.0 + cfg.buffer_unemployment_slope * max(0.0, float(unemployment_rate))
+            targets = (
+                static_traits["buffer_weeks"] * static_traits["risk_aversion"] * precaution
+                * np.maximum(weekly_income, cfg.buffer_income_floor)
+            )
             adjustment = static_traits["buffer_speeds"] * (accessible_liquidity - targets)
             budget = np.maximum(base_budget + adjustment, 0.0)
             budget = np.maximum(budget, np.minimum(cfg.subsistence_min_cash, accessible_liquidity))
@@ -2529,7 +2537,8 @@ class Economy:
             household.apply_labor_outcome(
                 hh_outcome,
                 market_wage_anchor=anchor,
-                current_tick=self.current_tick
+                current_tick=self.current_tick,
+                unemployment_rate=tick.unemployment_rate,
             )
 
         # Keep firm-side employee rosters aligned with household employment outcomes.

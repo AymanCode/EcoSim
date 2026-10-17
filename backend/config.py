@@ -211,9 +211,26 @@ class HouseholdBehaviorConfig:
     #   Valid: 0 < lo <= hi <= 1. Placed by spender score. Default (0.02, 0.10)
     #   closes half a gap in roughly 7 to 35 weeks.
     buffer_adjust_speed_range: Tuple[float, float] = (0.02, 0.10)
+    # risk_aversion_range: per-household precautionary multiplier on the
+    #   buffer target, mean 1. Units: multiplier. Valid: 0 < lo <= hi.
+    #   Correlated with saving_tendency (savers more risk averse). Spread
+    #   (0.6, 1.4) is chosen so the top and bottom of the range differ by
+    #   about 2x in target, the gap in liquid-wealth-to-income ratios between
+    #   high and low self-reported risk tolerance in the SCF (Kimball,
+    #   Sahm & Shapiro 2008 use the same survey trait).
+    risk_aversion_range: Tuple[float, float] = (0.6, 1.4)
+    # buffer_unemployment_slope: precautionary response of the target to the
+    #   live unemployment rate u: target x (1 + slope * u). Units: per unit of
+    #   u. Valid: >= 0. Default 2.0: going from 5% to 10% unemployment raises
+    #   the target about 9%, in line with the 1-2 pp rise in the household
+    #   saving rate per 5 pp of unemployment (Mody, Ohnsorge & Sandri 2012,
+    #   IMF WP/12/2; Carroll, Slacalek & Sommer 2019).
+    buffer_unemployment_slope: float = 2.0
     # buffer_income_floor: weekly income used for the target when a household
     #   has no income this week, so the target never collapses to zero.
-    #   Units: currency per week. Valid: >= 0.
+    #   Units: currency per week. Valid: >= 0. Default 20, about two-thirds
+    #   of the default 30/week benefit, so a household with no income aims to
+    #   hold a few weeks of a minimal income.
     buffer_income_floor: float = 20.0
 
     # slow_reservation_decay: bool, default False. When True, an unemployed
@@ -229,15 +246,27 @@ class HouseholdBehaviorConfig:
     #   wages per week of unemployment estimated by Krueger & Mueller (2016,
     #   AEJ: Policy) and in the range of Le Barbanchon et al. (2019).
     reservation_decay_rate_range: Tuple[float, float] = (0.0007, 0.0021)
-    # reservation_savings_slowdown: share of the decay removed when liquidity
-    #   reaches the household's buffer target (linear below it). Valid: [0, 1].
+    # reservation_savings_slowdown: s in rate x (1 + s * (1 - 2 * cushion)),
+    #   cushion = min(1, liquidity / buffer target). An empty cushion decays
+    #   (1 + s)x faster, a full one (1 - s)x. Valid: [0, 1]. Default 0.5 gives
+    #   the 3:1 spread between broke and well-cushioned job seekers in the
+    #   reservation-wage decline estimates of Krueger & Mueller (2016), who
+    #   find the fall concentrated among those with low savings.
     reservation_savings_slowdown: float = 0.5
+    # reservation_spell_acceleration: extra decay per year of unemployment,
+    #   rate x (1 + a * min(1, duration / 52)). Valid: >= 0. Default 1.0
+    #   doubles the decay after a year, matching the steeper decline for
+    #   long-term unemployed in Le Barbanchon, Rathelot & Roulet (2019, QJE).
+    reservation_spell_acceleration: float = 1.0
     # reservation_floor_benefit_cap: cap on the floor as a multiple of the
-    #   live unemployment benefit. Valid: >= 1. Default 1.5 (spec).
+    #   live unemployment benefit. Valid: >= 1. Default 1.5 (spec; ties to
+    #   the business agent's firm offer floor). It binds above the minimum
+    #   wage when the benefit is generous, see the PR3 description.
     reservation_floor_benefit_cap: float = 1.5
     # living_cost_housing_share: share of one housing unit price counted as
     #   weekly living cost (was the inline 0.3 in plan_labor_supply).
-    #   Valid: [0, 1]. Unchanged default, so no behavior change.
+    #   Valid: [0, 1]. Unchanged default (one unit of housing is rented
+    #   roughly monthly against weekly ticks), so no behavior change.
     living_cost_housing_share: float = 0.3
 
     # Skill Development

@@ -40,7 +40,7 @@ def _budgets(households, unemployment_rate=0.05, benefit=30.0):
 def test_traits_differ_across_households_and_repeat_for_same_id():
     first = [make_household(i) for i in range(1, 201)]
     again = [make_household(i) for i in range(1, 201)]
-    for name in ("buffer_target_weeks", "buffer_adjust_speed", "reservation_decay_rate"):
+    for name in ("buffer_target_weeks", "buffer_adjust_speed", "reservation_decay_rate", "risk_aversion"):
         values = [getattr(h, name) for h in first]
         assert len(set(values)) == len(values), name
         assert values == [getattr(h, name) for h in again], name
@@ -53,20 +53,21 @@ def test_savers_hold_bigger_buffers_and_adjust_slower():
     saving = np.array([h.saving_tendency for h in households])
     assert np.corrcoef(saving, [h.buffer_target_weeks for h in households])[0, 1] > 0.8
     assert np.corrcoef(saving, [h.buffer_adjust_speed for h in households])[0, 1] < 0
+    assert np.corrcoef(saving, [h.risk_aversion for h in households])[0, 1] > 0.3
 
 
 def test_constructor_values_win():
     household = make_household(1, buffer_target_weeks=3.0, buffer_adjust_speed=0.5,
-                               reservation_decay_rate=0.01)
+                               reservation_decay_rate=0.01, risk_aversion=0.9)
     assert (household.buffer_target_weeks, household.buffer_adjust_speed,
-            household.reservation_decay_rate) == (3.0, 0.5, 0.01)
+            household.reservation_decay_rate, household.risk_aversion) == (3.0, 0.5, 0.01, 0.9)
 
 
 # --- A: buffer-stock consumption -------------------------------------------
 
 def test_cash_above_target_is_spent_down_and_below_target_is_rebuilt(buffer_on):
-    traits = dict(buffer_target_weeks=4.0, buffer_adjust_speed=0.1)
-    rich = _employed(1, cash=2_000.0, **traits)   # target 400, gap +1600
+    traits = dict(buffer_target_weeks=4.0, buffer_adjust_speed=0.1, risk_aversion=1.0)
+    rich = _employed(1, cash=2_000.0, **traits)   # target ~440, gap ~+1560
     poor = _employed(2, cash=150.0, **traits)     # gap -250
     budgets = _budgets([rich, poor])
     assert budgets[0] > 100.0      # spends more than its whole wage
@@ -75,8 +76,8 @@ def test_cash_above_target_is_spent_down_and_below_target_is_rebuilt(buffer_on):
 
 
 def test_spender_draws_down_faster_than_saver_with_same_money(buffer_on):
-    saver = _employed(1, cash=2_000.0, buffer_target_weeks=8.0, buffer_adjust_speed=0.02)
-    spender = _employed(2, cash=2_000.0, buffer_target_weeks=2.0, buffer_adjust_speed=0.10)
+    saver = _employed(1, cash=2_000.0, buffer_target_weeks=8.0, buffer_adjust_speed=0.02, risk_aversion=1.0)
+    spender = _employed(2, cash=2_000.0, buffer_target_weeks=2.0, buffer_adjust_speed=0.10, risk_aversion=1.0)
     budgets = _budgets([saver, spender])
     assert budgets[1] > budgets[0]
 
@@ -103,11 +104,26 @@ def _unemployed_weeks(household, weeks):
         household.apply_labor_outcome({"employer_id": None, "wage": 0.0}, current_tick=tick)
 
 
-def test_reservation_falls_about_point_14_percent_a_week(reservation_on):
+def test_reservation_falls_slowly_and_speeds_up_with_spell_length(reservation_on):
     household = _unemployed(cash_balance=0.0, reservation_decay_rate=0.0014)
     household.reservation_wage = 50.0
     _unemployed_weeks(household, 10)
-    assert household.reservation_wage == pytest.approx(50.0 * (1 - 0.0014) ** 10)
+    # Broke: 1.5x the base rate, plus at most +19% for a 10-week spell.
+    assert 50.0 * (1 - 0.0014 * 1.5 * 1.2) ** 10 < household.reservation_wage < 50.0 * (1 - 0.0014) ** 10
+    before = household.reservation_wage
+    _unemployed_weeks(household, 1)
+    early_drop = before - household.reservation_wage
+    household.unemployment_duration = 60
+    before = household.reservation_wage
+    _unemployed_weeks(household, 1)
+    assert before - household.reservation_wage > 1.5 * early_drop
+
+
+def test_buffer_target_rises_with_unemployment_and_risk_aversion():
+    cautious = make_household(1, buffer_target_weeks=4.0, risk_aversion=1.4)
+    relaxed = make_household(2, buffer_target_weeks=4.0, risk_aversion=0.6)
+    assert cautious.buffer_target(100.0, 0.05) > relaxed.buffer_target(100.0, 0.05)
+    assert cautious.buffer_target(100.0, 0.20) > cautious.buffer_target(100.0, 0.05)
 
 
 def test_savings_slow_the_decay(reservation_on):
