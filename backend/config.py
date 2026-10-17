@@ -259,53 +259,40 @@ class HouseholdBehaviorConfig:
     # weeks of the income the safety net provides, and that floor moves with
     # the benefit policy (no fixed nominal floor).
 
-    # Skills and training (households h1+h2). Flag default off. Time unit:
-    # 1 tick = 1 week; skills_level is in [0, 1] and is the strict hiring
-    # queue's sort key (unchanged).
-    # h1, each week: employed s += g * (1 - s); unemployed s -= d * s, with
+    # Skill dynamics (households h1). Flag default off. Time unit: 1 tick =
+    # 1 week. skills_level is in [0, 1]; it is the strict hiring queue's sort
+    # key and earns the live hiring premium wage_offer * (1 + 0.25 * s)
+    # (economy.py, hiring), on top of a separate category experience premium
+    # (3%/yr, capped at 30%), both unchanged.
+    # Each week: employed s += g * (1 - s); unemployed s -= d * s, with
     #   g = learning_rate_annual / 52 and d = skill_depreciation_annual / 52,
     #   both per-household traits. Replaces, on this path only, the yearly
-    #   passive grant (skill_growth_rate ticks worked * (1 - s), about
+    #   passive grant (skill_growth_rate * ticks worked * (1 - s), about
     #   2.6-10% of the gap per year). Applied in one numpy pass
     #   (Economy._batch_update_skills).
-    # h2, each week an unemployed household below the hiring line s* (median
-    #   skill of employed workers) trains with probability
-    #   training_willingness * (s* - s) / s*. A week of training costs
-    #   training_cost_wage_share * the median posted private wage offer and adds
-    #   min(1 - s, training_gain_per_week). It pays from liquidity above its
-    #   own buffer target; the shortfall is borrowed through the existing
-    #   consumption-loan path (same credit score, leverage and lending
-    #   checks, 26-week term). If the loan is refused, it does not train.
-    #   Replaces maybe_active_education on this path. No government lever.
     skills_dynamics: bool = False
-    # learning_rate_annual_range: uniform draw, share of the skill gap (1 - s)
-    #   closed per year employed. 1-2%/yr is the approved plan's range; it is
-    #   slower than the legacy grant so on-the-job learning alone moves a
-    #   worker about 0.1 skill in a decade from s = 0.4.
-    learning_rate_annual_range: Tuple[float, float] = (0.01, 0.02)
-    # skill_depreciation_annual_range: uniform draw, share of s lost per year
-    #   unemployed (approved plan, 1-2%/yr). Edin & Gustavsson (2008) find
-    #   measurable skill loss during non-employment; the plan's range is the
-    #   conservative end, so a long spell costs skill without trapping
-    #   workers on its own.
-    skill_depreciation_annual_range: Tuple[float, float] = (0.01, 0.02)
-    # training_willingness_range: (lo, mode, hi) triangular draw in [0, 1],
-    #   the household's weekly propensity to train when fully behind the
-    #   hiring line. PLACEHOLDER: mode 0.3 so a typical eligible household
-    #   trains in roughly 10-15% of its unemployed weeks, in the range of
-    #   training participation among the unemployed in ALMP studies
-    #   (Card, Kluve & Weber 2018); no direct weekly estimate exists.
-    training_willingness_range: Tuple[float, float, float] = (0.0, 0.3, 1.0)
-    # training_gain_per_week: skill added by one week of training. Card
-    #   (1999): about 10% higher wages per year of schooling; the sim's full
-    #   skill range carries a 50% premium (labor_market.max_skill_premium),
-    #   so 10% ~ 0.2 skill per 52 weeks ~ 0.004/week.
-    training_gain_per_week: float = 0.004
-    # training_cost_wage_share: weekly cost as a share of the mean posted
-    #   wage, so tuition moves with wages. 0.10 sits between US public
-    #   two-year (~7% of median earnings) and four-year in-state (~19%)
-    #   tuition (College Board, Trends in College Pricing 2023).
-    training_cost_wage_share: float = 0.10
+    # learning_rate_annual_range: uniform draw, share of the gap (1 - s)
+    #   closed per year employed. Derived from the shape of Mincer's (1974,
+    #   Table 5.1 P(1)) profile ln Y = ... + 0.081x - 0.0012x^2: the marginal
+    #   return to experience, 0.081 - 0.0024x, halves at x = 16.9 years.
+    #   Gap closing makes the marginal gain proportional to (1 - s), which
+    #   halves after ln 2 / g years, so g = ln 2 / 16.9 = 0.041/yr (range
+    #   centre rounded to 0.04). Only the shape is matched: with the live
+    #   0.25 premium the wage gain is 0.25 * g * (1 - s), e.g. 0.6%/yr at
+    #   s = 0.4. Together with the 3%/yr experience premium it stays below
+    #   Mincer's 8.1%/yr at entry, so the two channels do not over-count.
+    #   The +/-0.01 spread around 0.04 is a judgment for heterogeneity, not
+    #   sourced.
+    learning_rate_annual_range: Tuple[float, float] = (0.03, 0.05)
+    # skill_depreciation_annual_range: uniform draw, share of s lost per
+    #   year unemployed. Edin & Gustavsson (2008, ILR Review 61(2)): a year
+    #   of non-employment moves a worker from the 50th to the 44.5th skill
+    #   percentile and from the 25th to the 20.5th. Matching is a strict
+    #   skill queue, so rank is what matters; mapped onto the sim's skill
+    #   distribution (seed 42, 1,000 households, at tick 0 and tick 104),
+    #   d = 1 - s(44.5)/s(50) = 0.060-0.072 and d = 1 - s(20.5)/s(25) =
+    #   0.087-0.100. The range spans those derivations.
+    skill_depreciation_annual_range: Tuple[float, float] = (0.06, 0.10)
 
     # Skill Development
     skill_growth_rate: float = 0.001  # Passive improvement per tick

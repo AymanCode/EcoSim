@@ -1,6 +1,6 @@
-"""Seeded before/after run for skills and training (households h1+h2).
+"""Seeded before/after run for weekly skill dynamics (households h1).
 
-Arms: ``before`` (household flags off, as on main), ``H``
+Arms (default ``before,H``): ``before`` (household flags off, as on main), ``H``
 (``skills_dynamics`` on) and ``AH`` (H plus PR3's
 ``buffer_stock_consumption``). Prints post-warmup metrics. ``--scale
 name=factor`` multiplies one ``CONFIG.households`` value (tuples scale every
@@ -30,7 +30,7 @@ from run_large_simulation import create_large_economy  # noqa: E402
 
 ARMS = {"before": (False, False), "H": (True, False), "AH": (True, True)}
 KEYS = ["arm", "unemp_mean", "spell_median", "consumption_mean", "skill_mean_end", "skill_unemp_end",
-        "low_skill_ever_hired", "never_hired", "training_weeks", "training_loans", "runtime_s"]
+        "low_skill_ever_hired", "never_hired", "runtime_s"]
 
 
 def loop_update(economy) -> None:
@@ -86,8 +86,6 @@ def run_arm(name: str, households: int, ticks: int, bench: bool) -> dict:
         "skill_unemp_end": statistics.mean(unemployed) if unemployed else 0.0,
         "low_skill_ever_hired": len(low_skill & ever) / len(low_skill) if low_skill else 0.0,
         "never_hired": 1.0 - len(ever) / len(economy.households),
-        "training_weeks": economy.training_weeks_total,
-        "training_loans": economy.training_loans_total,
         "runtime_s": runtime,
     }
     if bench and skills_flag:
@@ -124,7 +122,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--households", type=int, default=1000)
     parser.add_argument("--ticks", type=int, default=260)
-    parser.add_argument("--arms", default="before,H,AH")
+    parser.add_argument("--arms", default="before,H")
     parser.add_argument("--scale", default=None)
     parser.add_argument("--bench", action="store_true")
     args = parser.parse_args()

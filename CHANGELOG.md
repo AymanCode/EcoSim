@@ -4,17 +4,18 @@ Notable changes and decisions for EcoSim, newest first. The project does not use
 
 ## Unreleased
 
-### 2026-10-16: Skills learning, depreciation and training (households h1+h2, flag off)
+### 2026-10-17: Weekly skill learning and depreciation (households h1, flag off)
 
 The flag `CONFIG.households.skills_dynamics` defaults off.
 
-- **h1, before:** employed workers got one passive grant per year, `skill_growth_rate` (0.0005-0.002 per tick) x ticks worked x (1 - s), about 2.6-10% of the gap per year. Unemployed skills never fell (the `skill_decay_*` config keys have no reader).
-- **h1, after:** each week, employed `s += g * (1 - s)` and unemployed `s -= d * s`. `g` and `d` are per-household traits, each 1-2% per year (the approved plan). It runs as one numpy pass in `Economy._batch_update_skills`.
-- **h2, before:** `maybe_active_education` paid $100 for +0.005 skill when unemployed, with skill < 0.5 and cash > 300.
-- **h2, after:** an unemployed household below the hiring line `s*` (median employed skill) trains with probability `training_willingness * (s* - s) / s*`. Willingness is a per-household trait. A week costs 10% of the median posted private offer and adds 0.004 skill. The household pays from liquidity above its own buffer target (from #29) and borrows any shortfall through the existing consumption-loan path (extracted into `Economy._originate_household_consumption_loan`, with no behavior change). Without credit, it does not train.
-- **Unchanged:** there is no government lever, and matching is still a strict skill queue.
+- **Before:** employed workers got one passive grant per year, `skill_growth_rate` (0.0005-0.002 per tick) x ticks worked x (1 - s), about 2.6-10% of the gap per year. Unemployed skills never fell (the `skill_decay_*` config keys have no reader).
+- **After:** each week, employed `s += g * (1 - s)` and unemployed `s -= d * s`, with per-household traits. It runs as one numpy pass in `Economy._batch_update_skills`.
+  - `g` is 3-5% per year. It comes from the shape of Mincer's (1974) experience profile: the marginal return halves after 16.9 years, so `g = ln 2 / 16.9`.
+  - `d` is 6-10% per year. It comes from Edin and Gustavsson's (2008) measured rank loss after a year out of work, mapped onto the sim's skill distribution.
+- **Unchanged:** legacy `maybe_active_education`, the 0.25 hiring skill premium, the category experience premium, and the strict skill queue.
+- **Removed from this PR:** h2 (paid training). It needs a real training provider and is logged in the households notes.
 
-Evidence: `backend/tests_contracts/test_households_skills_training.py` (10 tests). Repro, from `backend/`: `PYTHONHASHSEED=0 python tools/analysis/run_households_skills_compare.py`.
+Evidence: `backend/tests_contracts/test_households_skills_h1.py` (8 tests). Repro, from `backend/`: `PYTHONHASHSEED=0 python tools/analysis/run_households_skills_compare.py`.
 
 ### 2026-10-16: Household buffer-stock consumption (round 1 PR3, flag off)
 
