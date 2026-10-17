@@ -2115,6 +2115,16 @@ class Economy:
         housing_private_inventory = tick.housing_private_inventory
         gov_benefit = tick.gov_benefit
         payment_arm = tick.payment_arm
+        # Infrastructure raises every firm's production frontier, so labor
+        # planning, unit-cost pricing and realized output all see it.
+        public_capital_tfp = (
+            float(self.government.infrastructure_productivity_multiplier)
+            if CONFIG.government.infrastructure_raises_firm_capacity_enabled
+            else 1.0
+        )
+        for firm in self.firms:
+            firm.public_capital_tfp = public_capital_tfp
+
         # Phase 1: Firms plan
         tick.firm_production_plans = {}
         tick.firm_price_plans = {}
@@ -5624,7 +5634,7 @@ class Economy:
 
             return min(
                 max(0.0, float(planned_production_units)),
-                service_capacity * firm.supply_shock_multiplier,
+                service_capacity * firm.public_capital_tfp * firm.supply_shock_multiplier,
             )
 
         # Calculate average productivity multiplier for the workforce
@@ -5661,9 +5671,13 @@ class Economy:
         # Calculate average productivity multiplier
         avg_productivity_multiplier = total_productivity_multiplier / len(workers)
 
-        # Apply government infrastructure multiplier
-        # Government infrastructure investment boosts all productivity economy-wide
-        avg_productivity_multiplier *= self.government.infrastructure_productivity_multiplier
+        # Government infrastructure. With infrastructure_raises_firm_capacity_enabled
+        # it is already in worker_capacity below (FirmAgent.public_capital_tfp),
+        # so applying it here too would count it twice. The pre-fix path applied
+        # it only here, and the worker_capacity clamp then discarded it whenever
+        # the plan sat at the frontier.
+        if not CONFIG.government.infrastructure_raises_firm_capacity_enabled:
+            avg_productivity_multiplier *= self.government.infrastructure_productivity_multiplier
         # A random supply shock's temporary productivity change (B26).
         avg_productivity_multiplier *= firm.supply_shock_multiplier
 

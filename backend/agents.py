@@ -2007,6 +2007,11 @@ class FirmAgent(AgentMixin):
     risk_tolerance: float = 0.5  # 0-1 scale, affects pricing and hiring decisions
     is_baseline: bool = False
     baseline_production_quota: float = 500.0
+    # Public-capital productivity factor (dimensionless, >= 1.0). Economy sets
+    # it each tick to the government's infrastructure_productivity_multiplier
+    # when infrastructure_raises_firm_capacity_enabled; 1.0 otherwise. Scales
+    # _capacity_for_workers, so planning, pricing and realized output agree.
+    public_capital_tfp: float = 1.0
     actual_wages: Dict[int, float] = field(default_factory=dict)
     # (employees list, its length, actual_wages dict, its length, wage_offer, bill);
     # see _current_wage_bill. Cleared by _invalidate_wage_bill_cache.
@@ -2424,15 +2429,19 @@ class FirmAgent(AgentMixin):
         return utilization
 
     def _capacity_for_workers(self, worker_count: float) -> float:
-        """Two-factor Cobb-Douglas capacity: TFP * K^alpha_k * N^alpha_n."""
+        """Two-factor Cobb-Douglas capacity: A * TFP * K^alpha_k * N^alpha_n.
+
+        ``A`` is ``public_capital_tfp`` (government infrastructure, 1.0 when
+        none). Services capacity is ``A * units_per_worker * N``.
+        """
         config = self._firm_config()
         if worker_count <= 0:
             return 0.0
         if self._is_generic_services_firm():
-            return self._service_units_per_worker() * worker_count
+            return self.public_capital_tfp * self._service_units_per_worker() * worker_count
         units = max(self.units_per_worker, config.min_base_productivity)
         K = max(self.capital_stock, 0.01)
-        return units * (K ** config.alpha_k) * (worker_count ** config.alpha_n)
+        return self.public_capital_tfp * units * (K ** config.alpha_k) * (worker_count ** config.alpha_n)
 
     def _productivity_per_worker(self, worker_count: float) -> float:
         """Average worker productivity implied by the frontier."""
@@ -2446,11 +2455,11 @@ class FirmAgent(AgentMixin):
         if target_output <= 0:
             return config.min_target_workers
         if self._is_generic_services_firm():
-            units = max(self._service_units_per_worker(), 1e-6)
+            units = max(self.public_capital_tfp * self._service_units_per_worker(), 1e-6)
             return max(config.min_target_workers, math.ceil(target_output / units))
         units = max(self.units_per_worker, config.min_base_productivity)
         K = max(self.capital_stock, 0.01)
-        effective_tfp = units * (K ** config.alpha_k)
+        effective_tfp = self.public_capital_tfp * units * (K ** config.alpha_k)
         required = (target_output / max(effective_tfp, 1e-6)) ** (1.0 / config.alpha_n)
         return max(config.min_target_workers, math.ceil(required))
 

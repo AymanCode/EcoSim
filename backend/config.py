@@ -733,6 +733,16 @@ class GovernmentPolicyConfig:
     public_works_wage: float = 45.0
     public_works_price: float = 1.0
 
+    # Infrastructure productivity fix (2026-10-16). When True, the government's
+    # infrastructure_productivity_multiplier scales every firm's production
+    # frontier (FirmAgent.public_capital_tfp in _capacity_for_workers), so firms
+    # plan, price and produce with it, and Services get it too. When False, it
+    # multiplies only realized goods output, where the clamp to
+    # _capacity_for_workers discarded it (pre-fix: +0.2% output for private
+    # Food, 0% for Services at a 1.05-1.15 multiplier). No effect while the
+    # infrastructure_spending lever is "none" (multiplier 1.0).
+    infrastructure_raises_firm_capacity_enabled: bool = True
+
     # Investment Effects
     infrastructure_gain_divisor: float = 1000.0  # $1000 → 0.5% productivity
     infrastructure_gain_rate: float = 0.005
