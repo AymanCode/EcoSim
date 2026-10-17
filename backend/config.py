@@ -800,8 +800,10 @@ class GovernmentPolicyConfig:
 
     # G1. Public debt held by the bank. When on, a treasury shortfall at the
     # end of a tick is borrowed from the bank (debt rises, cash returns to 0),
-    # interest is paid weekly at the bank's base_interest_rate, and part of any
-    # surplus pays the debt down. Off: the treasury goes negative for free.
+    # interest is paid weekly at the bank's current rate
+    # (BankAgent.current_annual_rate, read each tick) plus
+    # public_debt_risk_premium x debt/GDP, and part of any surplus pays the
+    # debt down. Off: the treasury goes negative for free.
     public_debt_enabled: bool = True
     # Treasury working balance kept before any surplus is used, in weeks of
     # trailing GDP. 1.5 weeks reproduces the pre-PR5 literal $50k at the

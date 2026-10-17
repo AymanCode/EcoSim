@@ -102,6 +102,26 @@ def test_debt_rate_follows_bank_policy_rate_and_debt_burden():
     assert gov.public_debt_annual_rate(bank, 0.0) == pytest.approx(0.05)
 
 
+def test_settlement_interest_tracks_the_bank_rate_each_tick():
+    """Interest is charged at the bank's rate on the tick it is charged, not a fixed 3%."""
+    weeks = CONFIG.time.ticks_per_year
+    # Cash covers the interest but stays under the surplus reserve, so no
+    # borrowing or paydown changes the debt between the two ticks.
+    gov = GovernmentAgent(cash_balance=20_000.0)
+    gov.public_debt = 100_000.0
+    bank = BankAgent(cash_reserves=0.0, base_interest_rate=0.02)
+    gdp = 1_000_000.0 / weeks  # annual GDP 1M, so debt/GDP = 0.1
+    first = gov.settle_public_debt(bank, recent_gdp=gdp)["interest"]
+    rate_first = gov.last_tick_debt_rate
+    bank.base_interest_rate = 0.06  # e.g. a later policy-rate move
+    second = gov.settle_public_debt(bank, recent_gdp=gdp)["interest"]
+    premium = CONFIG.government.public_debt_risk_premium * 0.1
+    assert rate_first == pytest.approx(0.02 + premium)
+    assert gov.last_tick_debt_rate == pytest.approx(0.06 + premium)
+    assert first == pytest.approx(100_000.0 * (0.02 + premium) / weeks)
+    assert second == pytest.approx(100_000.0 * (0.06 + premium) / weeks)
+
+
 def test_surplus_reserve_scales_with_gdp():
     gov = GovernmentAgent(cash_balance=0.0)
     gov.settle_public_debt(BankAgent(cash_reserves=0.0), recent_gdp=100_000.0)
