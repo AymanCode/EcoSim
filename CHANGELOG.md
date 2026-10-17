@@ -4,6 +4,21 @@ Notable changes and decisions for EcoSim, newest first. The project does not use
 
 ## Unreleased
 
+### 2026-10-17: Worker output = units per worker x skill factor x effort x hours present (round 1 PR2)
+
+Round 1 first-pass item 2, owned by the business bot, trimmed after Ayman's 2026-10-17 re-review to concrete mechanisms. Before: goods firms scored a worker with `HouseholdAgent.get_performance_multiplier` (morale 0.5, health 0.3, happiness 0.2 mapped onto 0.75-1.5x) times `1 + 0.25*skill + experience`; Services firms used an inline `0.30*skill + 0.25*health + 0.25*morale + 0.20*happiness` score mapped straight onto 1-7 units, ignoring the firm's own `units_per_worker`. Now both call `worker_effectiveness()` in `backend/worker_effectiveness.py`, a product of three factors:
+
+- Skill factor `1 + 0.25*skill` (+ the goods experience bonus): kept from main's goods path. It equals the hire-time skill pay premium (Hellerstein, Neumark & Troske 1999: productivity and pay differentials line up); the 0.25 has no external source of its own.
+- Effort `1 + 0.12*(morale + happiness - 1)`: efficiency-wage effort (Akerlof & Yellen 1990) read from the mean of morale and happiness, which share drivers; 0.88-1.12x (Oswald, Proto & Sgroi 2015: ~12%; Bellet, De Neve & Ward 2024: ~13%).
+- Hours present `1 - absence(health)`: sickness absence, 1.1% of hours at the average employed worker's health (BLS CPS Table 47, own illness/injury/medical lost-worktime rate, 2023-2025), linear in health and 2.2x higher at health 0 than at 1 (Halford et al. 2012). About 98.1-99.1%. It multiplies, so skill cannot make up for absence.
+- Services: each worker supplies `units_per_worker x multiplier`, clipped to `services_units_per_worker_range` (1-7).
+- Config: added `firms.worker_effort_range` (0.12), `firms.worker_absence_reference_rate` (0.011), `firms.worker_absence_reference_health` (0.77), `firms.worker_absence_sick_ratio` (2.2), validated in `SimulationConfig.__post_init__`. Removed `households.performance_{morale,health,happiness}_weight` and `households.performance_{min,max}_multiplier`, which only the replaced formula read. The earlier draft's weights, slope and 0.8-1.25 soft band are gone.
+- `get_performance_multiplier()` now returns effort x hours present.
+- Removed the unread `FirmAgent.happiness_boost_per_unit` field.
+- Added `backend/tools/benchmarks/business_ab_metrics.py` (seeded before/after metrics) and `backend/tools/benchmarks/worker_effectiveness_study.py` (labor demand, factor shares, and a week-52 cash-shock scenario for the bottom happiness quintile).
+
+Seeded run, 1,000 households, 5 firms per category, 156 weeks, metrics over weeks 27-156, mean of seeds 42/43/44 (main f86f140 -> this change): unemployment 33.4% -> 32.4% (seed spread about 4 points), mean wage 58.35 -> 58.92, GDP per tick 87,772 -> 88,230, firm exits 6.7 -> 6.7. Employed workers: skill factor mean 1.21, effort 1.10, hours present 0.989, product 1.31 (p10 1.22, p90 1.44); 30% of Services workers sit on the 7-unit clip. Commands: `python backend/tools/benchmarks/business_ab_metrics.py --seed 42` and `python backend/tools/benchmarks/worker_effectiveness_study.py --seed 42`, each also with `--backend <main worktree>/backend`.
+
 ### 2026-10-16: Poverty and wealth-loss terms read liquid wealth
 
 Bug fix from the PR7 investigation (item 3). `Economy._batch_update_wellbeing` read `cash_balance` alone for the poverty penalties and the wealth-loss term. The weekly deposit sweep runs after `last_tick_cash_start` is set and before wellbeing, so saving money in the bank counted as a wealth loss. The legacy withdrawal refills cash only to about 160, below the 200 poverty line, so households with savings were also scored as poor.

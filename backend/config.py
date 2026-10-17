@@ -324,13 +324,6 @@ class HouseholdBehaviorConfig:
     # Feature 3: Mercy Floor
     mercy_floor_threshold: float = 0.25     # Below this, natural decay pauses
 
-    # Performance Multiplier (Feature 4: raised floor from 0.5 to 0.75)
-    performance_morale_weight: float = 0.5
-    performance_health_weight: float = 0.3
-    performance_happiness_weight: float = 0.2
-    performance_min_multiplier: float = 0.75  # Was 0.5; prevents doom loop
-    performance_max_multiplier: float = 1.5
-
     # Goods Consumption
     consumption_rate: float = 0.1  # 10% per tick
     housing_maintenance_rate: float = 0.01  # 1% per tick (10x faster - fixes housing glut)
@@ -396,6 +389,25 @@ class FirmBehaviorConfig:
     default_productivity_per_worker: float = 10.0
     default_units_per_worker: float = 20.0
     services_units_per_worker_range: Tuple[float, float] = (1.0, 7.0)
+
+    # Worker effectiveness (round 1 PR2; derivations and sources in
+    # backend/worker_effectiveness.py). Output per worker = units per worker
+    # x skill factor x effort x hours present.
+    # Effort = 1 + range*(morale + happiness - 1): the mean of morale and
+    # happiness moving 0 -> 1 moves effort 1-range -> 1+range. 0.12 from
+    # Oswald, Proto & Sgroi (2015) ~12% and Bellet, De Neve & Ward (2024)
+    # ~13%. Dimensionless, valid [0, 1).
+    worker_effort_range: float = 0.12
+    # Sickness absence, linear in health. Share of usual hours lost at the
+    # reference health: BLS CPS Table 47 (2023-2025), own illness/injury/
+    # medical lost-worktime rate 1.1%. Valid [0, 1).
+    worker_absence_reference_rate: float = 0.011
+    # Health of EcoSim's average employed worker on main (0.77, seeds 42-44,
+    # weeks 27-156), mapped to the US average worker. Valid [0, 1].
+    worker_absence_reference_health: float = 0.77
+    # Absence at health 0 relative to health 1: Halford et al. (2012), lowest
+    # vs highest self-rated-health group, 2.3x women / 2.0x men. Valid >= 1.
+    worker_absence_sick_ratio: float = 2.2
 
     # Diminishing Returns / Productivity
     production_scaling_exponent: float = 0.9  # Legacy exponent (deprecated)
@@ -1062,6 +1074,15 @@ class SimulationConfig:
             raise ValueError("tie_break_scale must be finite and non-negative")
         if self.labor_market.switcher_vacancy_cap_per_firm < 0:
             raise ValueError("switcher_vacancy_cap_per_firm must be non-negative")
+        firms = self.firms
+        if not 0.0 <= firms.worker_effort_range < 1.0:
+            raise ValueError("worker_effort_range must be in [0, 1)")
+        if not 0.0 <= firms.worker_absence_reference_rate < 1.0:
+            raise ValueError("worker_absence_reference_rate must be in [0, 1)")
+        if not 0.0 <= firms.worker_absence_reference_health <= 1.0:
+            raise ValueError("worker_absence_reference_health must be in [0, 1]")
+        if not firms.worker_absence_sick_ratio >= 1.0:
+            raise ValueError("worker_absence_sick_ratio must be >= 1")
         ratio = self.firms.services_expansion_min_excess_demand_ratio
         if not (math.isfinite(ratio) and ratio >= 0.0):
             raise ValueError("services_expansion_min_excess_demand_ratio must be finite and non-negative")

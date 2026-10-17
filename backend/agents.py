@@ -40,6 +40,7 @@ from policy_schema import ORDERED_LEVERS as POLICY_ORDERED_LEVERS, SIMPLE_ENUM_L
 
 
 from utils.category_utils import get_good_category
+from worker_effectiveness import effort, hours_present
 
 if TYPE_CHECKING:
     from economy import Economy
@@ -1847,30 +1848,13 @@ class HouseholdAgent(AgentMixin):
         return 0.0
 
     def get_performance_multiplier(self) -> float:
+        """Return this worker's wellbeing multiplier: effort x hours present.
+
+        The skill-free part of ``worker_effectiveness`` (about 0.86-1.12x):
+        effort from morale and happiness, hours present from health. Kept so
+        diagnostics and runners report the same factors production uses.
         """
-        Calculate overall performance multiplier based on wellbeing.
-
-        Feature 4: Floor raised from 0.5x to 0.75x to prevent doom loop.
-        A depressed worker is slower, but not catastrophically unproductive.
-
-        Returns:
-            Multiplier in range [0.75, 1.5]
-            - Lowest wellbeing  = 0.75x performance
-            - Perfect wellbeing = 1.50x performance
-        """
-        hc = CONFIG.households
-
-        wellbeing_score = (
-            self.morale * hc.performance_morale_weight +
-            self.health * hc.performance_health_weight +
-            self.happiness * hc.performance_happiness_weight
-        )
-
-        # Map [0, 1] wellbeing → [min_mult, max_mult]
-        perf_range = hc.performance_max_multiplier - hc.performance_min_multiplier
-        performance_multiplier = hc.performance_min_multiplier + (wellbeing_score * perf_range)
-
-        return performance_multiplier
+        return effort(self.morale, self.happiness) * hours_present(self.health)
 
 
 # -----------------------------------------------------------------------------
@@ -1973,9 +1957,6 @@ class FirmAgent(AgentMixin):
     quality_improvement_per_rd_dollar: float = 0.0002  # quality points per $ of R&D (slowed 50x)
     quality_decay_rate: float = 0.0  # quality decay removed
     accumulated_rd_investment: float = 0.0  # total R&D spending lifetime
-
-    # Hidden happiness boost (Services category only) - households don't know this value
-    happiness_boost_per_unit: float = 0.0  # 0.0 to 0.05 happiness gain per unit consumed
 
     # Healthcare service mode (non-storable): queue + visit capacity
     healthcare_queue: List[int] = field(default_factory=list)

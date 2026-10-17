@@ -10,7 +10,7 @@ def test_contract_factory_can_handcraft_entities(factory):
     ]
     firms = [
         factory.firm(firm_id=1, category="Food", price=8.0),
-        factory.firm(firm_id=2, category="Services", price=12.0, happiness_boost_per_unit=0.02),
+        factory.firm(firm_id=2, category="Services", price=12.0),
     ]
 
     economy = factory.economy(

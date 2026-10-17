@@ -175,6 +175,58 @@ letting different firms react at different speeds.
 
 ---
 
+## Worker Effectiveness
+
+Since round 1 PR2, every producing firm (goods and Services) turns a worker
+into output with one rule, `worker_effectiveness(skill, health, morale,
+happiness)` in `backend/worker_effectiveness.py`:
+
+```
+output per worker = units per worker               (the firm)
+                  x (1 + 0.25*skill [+ experience]) (skill factor)
+                  x (1 + 0.12*(morale + happiness - 1))  (effort)
+                  x (1 - absence(health))           (hours present)
+absence(h) = 1.1% * (1 + 1.2*(1 - h)) / (1 + 1.2*(1 - 0.77))
+```
+
+The three worker factors multiply, so none can make up for another.
+
+- Skill factor: kept from main's goods path (+25% at skill 1.0). It equals
+  the skill pay premium firms pay at hire, so productivity and pay rise
+  together (Hellerstein, Neumark & Troske 1999). The 0.25 has no external
+  source of its own. Goods firms add the category-experience bonus (5% a
+  year, capped at 50%), as before.
+- Effort: efficiency-wage effort (Akerlof & Yellen 1990). Morale is the
+  fair-treatment state, happiness the broader mood; they share drivers, so
+  effort reads their mean. 0.88x at a mean of 0, 1.0x at 0.5, 1.12x at 1
+  (Oswald, Proto & Sgroi 2015: ~12%; Bellet, De Neve & Ward 2024: ~13%).
+- Hours present: sickness absence. 1.1% of hours at EcoSim's average
+  employed health (BLS CPS Table 47, own illness/injury/medical lost-worktime
+  rate), linear in health, 2.2x higher at health 0 than at health 1
+  (Halford et al. 2012). Range about 98.1-99.1%. Workers under health 0.10
+  are already out of the labor market (`can_work`).
+- Goods: the firm's average multiplier scales its planned output, then the
+  infrastructure and supply-shock multipliers apply, and output stays capped
+  by capacity.
+- Services: each worker supplies `units_per_worker x multiplier`, clipped to
+  `services_units_per_worker_range` (1-7).
+
+`HouseholdAgent.get_performance_multiplier()` returns effort x hours present
+(the skill-free part) for diagnostics.
+
+Labor demand does not read the multiplier. `_workers_for_sales`,
+`_capacity_for_workers` and `_profit_optimal_workers` plan headcount from the
+firm's frontier (`units_per_worker`, capital); the multiplier only scales the
+realized output afterwards. Wage offers do not read it either, and layoffs
+take the roster front (`employees[:n]`), not the least effective worker.
+
+Config (all in `CONFIG.firms`): `worker_effort_range` (0.12),
+`worker_absence_reference_rate` (0.011), `worker_absence_reference_health`
+(0.77), `worker_absence_sick_ratio` (2.2). See `config.py` for units and
+valid ranges and `backend/worker_effectiveness.py` for the derivations.
+
+---
+
 ## Labor-Market Signals
 
 The household "newspaper" mechanic is now more local.

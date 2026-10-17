@@ -6,6 +6,7 @@ import pytest
 from agents import BankAgent, FirmAgent, FirmHealthSnapshot, GovernmentAgent, HouseholdAgent
 from config import CONFIG
 from economy import Economy
+from worker_effectiveness import worker_effectiveness
 from tools.runners.run_large_simulation import create_large_economy
 
 
@@ -596,6 +597,7 @@ def test_contract_economy_services_realized_production_keeps_worker_cap():
 
 
 def test_contract_economy_services_realized_production_keeps_worker_floor():
+    """Worst-state workers deliver the firm's throughput times their (lowest) multiplier."""
     households = [
         HouseholdAgent(household_id=i, skills_level=0.0, age=30, cash_balance=1_000.0)
         for i in range(1, 7)
@@ -610,6 +612,32 @@ def test_contract_economy_services_realized_production_keeps_worker_floor():
         household.morale = 0.0
         household.health = 0.0
         household.category_experience[firm.good_category] = 0
+    government = GovernmentAgent(cash_balance=10_000.0, transfer_budget=0.0, unemployment_benefit_level=0.0)
+    economy = Economy(households=households, firms=[firm], government=government)
+
+    realized = economy._calculate_experience_adjusted_production(firm, planned_production_units=199.0)
+
+    # 5 slots x 7 units x the worst-state multiplier (skill factor 1.0,
+    # effort 0.88, hours present ~0.98): less than the firm's throughput.
+    assert realized == pytest.approx(5 * 7.0 * worker_effectiveness(0.0, 0.0, 0.0, 0.0))
+    assert realized < 5 * 7.0
+
+
+def test_contract_economy_services_low_throughput_firm_keeps_one_unit_floor():
+    """A 1-unit-per-worker firm with worst-state staff still gets 1 unit per worker."""
+    households = [
+        HouseholdAgent(household_id=i, skills_level=0.0, age=30, cash_balance=1_000.0)
+        for i in range(1, 7)
+    ]
+    firm = _make_service_flow_firm()
+    firm.units_per_worker = 1.0
+    firm.employees = [household.household_id for household in households]
+    firm.actual_wages = {employee_id: firm.wage_offer for employee_id in firm.employees}
+    for household in households:
+        household.employer_id = firm.firm_id
+        household.happiness = 0.0
+        household.morale = 0.0
+        household.health = 0.0
     government = GovernmentAgent(cash_balance=10_000.0, transfer_budget=0.0, unemployment_benefit_level=0.0)
     economy = Economy(households=households, firms=[firm], government=government)
 

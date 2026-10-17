@@ -70,7 +70,7 @@ Skills are operational, not decorative:
 
 ### Wellbeing and health
 
-`HouseholdAgent.update_wellbeing` bounds happiness, morale and health to `[0,1]`. Poverty, unemployment, relative cash loss, food shortfall and lack of shelter lower wellbeing; adequate food, services, housing, acceptable wages and public social multipliers provide offsets. Food and an idiosyncratic annualized `health_decay_rate` drive natural health change; completed healthcare visits apply separate recovery through the queue system. `get_performance_multiplier` maps weighted morale, health and happiness to `[0.75,1.5]`, feeding production and preventing a zero-productivity doom loop.
+`HouseholdAgent.update_wellbeing` bounds happiness, morale and health to `[0,1]`. Poverty, unemployment, relative cash loss, food shortfall and lack of shelter lower wellbeing; adequate food, services, housing, acceptable wages and public social multipliers provide offsets. Food and an idiosyncratic annualized `health_decay_rate` drive natural health change; completed healthcare visits apply separate recovery through the queue system. Worker output is units per worker x skill factor x effort x hours present (`backend/worker_effectiveness.py`): effort comes from the mean of morale and happiness (0.88-1.12x), hours present from health as sickness absence (about 98-99%); `get_performance_multiplier` returns effort x hours present.
 
 ## Firms
 
