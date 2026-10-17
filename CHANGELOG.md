@@ -4,6 +4,19 @@ Notable changes and decisions for EcoSim, newest first. The project does not use
 
 ## Unreleased
 
+### 2026-10-17: Sticky prices: hold the posted price, review to the per-tick rule's price (round 1 PR4a)
+
+Private Food, Services and Healthcare firms, after warm-up, now change their posted price only at a price review. The existing per-tick rule (`plan_pricing`, unchanged) keeps running every tick from a background shadow price, so at a review the posted price jumps to the price the firm would have reached repricing weekly. The review hazard is `(1/interval) * (1 + gap/0.10) * (1 + 1.38*max(0, inflation - 0.125))`, accumulated until it reaches 1, so a bigger posted-vs-shadow gap brings the review sooner. Flag: `firms.sticky_prices_enabled` (default on); off reproduces main exactly (per-tick state hash identical over 156 ticks, seeds 42 and 43).
+
+- Calm intervals are drawn per firm from sourced median price durations: Food 15-39 weeks (Nakamura & Steinsson 2008), Services 19-34 and Healthcare 34-65 (Bils & Klenow 2004). The draw hashes `firm_id`, so no random number is consumed.
+- Gap scale 0.10 is the typical size of a regular price change (Golosov & Lucas 2007, 9.5%; Midrigan 2011, 11%). Knee 12.5% and slope 1.38 are derived from Gagnon (2009).
+- `last_price_review_tick` and `next_price_review_tick` are set every tick, the contract #27's `_price_review_due` expected (#27 is closed; nothing on main reads them yet).
+- Not sticky: baseline firms, warm-up, Housing (settlement resets rent from occupancy every tick). Services clearing can still raise a Services price on scarcity between reviews, as on main.
+- No share-based markup (part B is parked).
+- Seeded run (1,000 households, 5 firms per category, 156 weeks, burn-in 26, seeds 42-44), main to flag on: private Food changes price in 7.8% of firm-weeks (65.9% on main), about every 12.4 weeks; Services in 4.9% (98.1%), about every 20.2 weeks. CPI inflation mean 11.7% to 3.9%. Real units sold: Food -7%, Services +22%, Healthcare +6%. Unemployment (outcome, not a target) 33.4% to 27.0%. Nominal GDP 87.8k to 55.0k per week, mostly because the Services price stops climbing (end 45.2 to 18.4). Mean happiness 0.778 to 0.691.
+
+Evidence: `backend/tests_contracts/test_sticky_prices.py` (19 tests); `backend/tools/benchmarks/sticky_price_study.py`.
+
 ### 2026-10-16: Poverty and wealth-loss terms read liquid wealth
 
 Bug fix from the PR7 investigation (item 3). `Economy._batch_update_wellbeing` read `cash_balance` alone for the poverty penalties and the wealth-loss term. The weekly deposit sweep runs after `last_tick_cash_start` is set and before wellbeing, so saving money in the bank counted as a wealth loss. The legacy withdrawal refills cash only to about 160, below the 200 poverty line, so households with savings were also scored as poor.
