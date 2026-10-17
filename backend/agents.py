@@ -40,6 +40,7 @@ from policy_schema import ORDERED_LEVERS as POLICY_ORDERED_LEVERS, SIMPLE_ENUM_L
 
 
 from utils.category_utils import get_good_category
+from worker_effectiveness import household_effectiveness
 
 if TYPE_CHECKING:
     from economy import Economy
@@ -1847,30 +1848,13 @@ class HouseholdAgent(AgentMixin):
         return 0.0
 
     def get_performance_multiplier(self) -> float:
+        """Return this worker's output multiplier (0.8-1.25x by default).
+
+        Thin wrapper over ``worker_effectiveness.household_effectiveness`` so
+        diagnostics and runners report the same number production uses. Skill,
+        health, morale and happiness all count; see that module for the rule.
         """
-        Calculate overall performance multiplier based on wellbeing.
-
-        Feature 4: Floor raised from 0.5x to 0.75x to prevent doom loop.
-        A depressed worker is slower, but not catastrophically unproductive.
-
-        Returns:
-            Multiplier in range [0.75, 1.5]
-            - Lowest wellbeing  = 0.75x performance
-            - Perfect wellbeing = 1.50x performance
-        """
-        hc = CONFIG.households
-
-        wellbeing_score = (
-            self.morale * hc.performance_morale_weight +
-            self.health * hc.performance_health_weight +
-            self.happiness * hc.performance_happiness_weight
-        )
-
-        # Map [0, 1] wellbeing → [min_mult, max_mult]
-        perf_range = hc.performance_max_multiplier - hc.performance_min_multiplier
-        performance_multiplier = hc.performance_min_multiplier + (wellbeing_score * perf_range)
-
-        return performance_multiplier
+        return household_effectiveness(self)
 
 
 # -----------------------------------------------------------------------------

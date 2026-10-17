@@ -60,6 +60,7 @@ from agents import (
 )
 from utils.category_utils import build_good_category_lookup
 from inflation import ConsumerPriceIndex, WageReview
+from worker_effectiveness import household_effectiveness
 from payments import PaymentBook, MONEY_EPS, proportional
 
 if TYPE_CHECKING:  # typing only; the payment arm imports it lazily at run time
@@ -5620,9 +5621,12 @@ class Economy:
         """
         Calculate actual production based on workforce experience, skills, and wellbeing.
 
-        Workers with more experience in the firm's category produce more.
-        Workers with higher happiness/morale/health perform better.
-        Government infrastructure investment boosts all productivity.
+        Every worker's skill, health, morale and happiness enter through the
+        shared ``worker_effectiveness`` rule (0.8-1.25x by default), for goods
+        and Services alike. Goods firms also reward category experience and
+        government infrastructure; Services firms convert each worker into
+        ``firm._service_units_per_worker() * effectiveness`` units of
+        capacity, clipped to ``services_units_per_worker_range``.
 
         Args:
             firm: The firm to calculate production for
@@ -5646,23 +5650,18 @@ class Economy:
             low_units = max(1.0, float(config_low))
             high_units = min(7.0, max(low_units, float(config_high)))
 
+            # Each worker supplies the firm's own units-per-worker scaled by
+            # their effectiveness, so firms differ by their sampled
+            # throughput and workers by their state. A missing household
+            # record counts as an average (1.0x) worker.
+            firm_units = firm._service_units_per_worker()
             service_capacity = 0.0
             service_worker_slots = max(0, int(firm.production_capacity_units))
             active_service_workers = list(workers[:service_worker_slots])
             for employee_id in active_service_workers:
                 household = self.household_lookup.get(employee_id)
-                if household is None:
-                    worker_effectiveness = 0.5
-                else:
-                    skill = max(0.0, min(1.0, float(household.skills_level)))
-                    health = max(0.0, min(1.0, float(household.health)))
-                    morale = max(0.0, min(1.0, float(household.morale)))
-                    happiness = max(0.0, min(1.0, float(household.happiness)))
-                    worker_effectiveness = max(
-                        0.0,
-                        min(1.0, 0.30 * skill + 0.25 * health + 0.25 * morale + 0.20 * happiness),
-                    )
-                service_capacity += low_units + (high_units - low_units) * worker_effectiveness
+                effectiveness = 1.0 if household is None else household_effectiveness(household)
+                service_capacity += min(high_units, max(low_units, firm_units * effectiveness))
 
             return min(
                 max(0.0, float(planned_production_units)),
@@ -5679,24 +5678,14 @@ class Economy:
                 total_productivity_multiplier += 1.0
                 continue
 
-            # Base multiplier is 1.0
-            productivity_multiplier = 1.0
-
-            # Add skill bonus (max 25% for skills_level = 1.0)
-            skill_bonus = household.skills_level * 0.25
-
-            # Add experience bonus (5% per year, capped at 50%)
+            # Experience bonus (5% per year in this category, capped at 50%)
+            # is firm-specific know-how, so it stays outside the shared rule.
             experience_ticks = household.category_experience.get(firm.good_category, 0)
             experience_years = experience_ticks / 52.0
             experience_bonus = min(experience_years * 0.05, 0.5)
 
-            # Add wellbeing performance bonus (happiness/morale/health)
-            # Performance multiplier ranges from 0.5x (low wellbeing) to 1.5x (high wellbeing)
-            wellbeing_multiplier = household.get_performance_multiplier()
-
-            # Combine all factors
-            productivity_multiplier += skill_bonus + experience_bonus
-            productivity_multiplier *= wellbeing_multiplier
+            # Skill, health, morale and happiness: the shared 0.8-1.25x rule.
+            productivity_multiplier = (1.0 + experience_bonus) * household_effectiveness(household)
 
             total_productivity_multiplier += productivity_multiplier
 
