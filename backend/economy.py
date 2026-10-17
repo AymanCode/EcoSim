@@ -270,6 +270,7 @@ class Economy:
         self.last_tick_gov_investments: float = 0.0
         self.last_tick_gov_infrastructure_spending: float = 0.0
         self.last_tick_gov_public_capital_to_public_works: float = 0.0
+        self._pending_public_works_sales: Dict[int, Dict[str, float]] = {}
         self.last_tick_gov_technology_spending: float = 0.0
         self.last_tick_gov_social_spending: float = 0.0
         self.last_tick_gov_bond_purchases: float = 0.0
@@ -2974,6 +2975,7 @@ class Economy:
 
         # Government collects investment taxes
         self.government.cash_balance += total_investment_taxes
+        self._flush_public_works_sales(per_firm_sales)
 
         # Phase 11.7: Update budget pressure now that all revenue and spending are known
         # (soft deficit constraint; it runs here rather than at Phase 11.1 so that
@@ -7694,14 +7696,27 @@ class Economy:
         # Reset revenue to 0 after payout
         self.misc_firm_revenue = 0.0
 
-    def _book_public_capital_purchase(self, amount: float) -> None:
-        """Pay infrastructure/technology spending to the public works sector (G3).
+    def _public_works_purchase_price(self, firm: FirmAgent) -> float:
+        """Unit price ($/unit) the government pays a PublicWorks firm: cost + 5% (G3).
 
-        With ``public_works_purchases_enabled`` and at least one active
-        PublicWorks firm, the amount is split evenly across those firms as
-        sales: added to cash and to ``last_revenue`` so the firm's next-tick
-        planning sees it. Otherwise it goes to the Misc pool as before.
-        Money is conserved either way.
+        Unit cost is the labor cost of one unit, ``wage_offer /
+        productivity_per_worker``. Never below the firm's posted price.
+        """
+        unit_cost = float(firm.wage_offer) / max(float(firm.productivity_per_worker), 1e-6)
+        return max(float(firm.price), unit_cost * 1.05, 1e-6)
+
+    def _book_public_capital_purchase(self, amount: float) -> None:
+        """Pay infrastructure/technology spending to the public works sector as sales (G3).
+
+        With ``public_works_purchases_enabled`` and at least one PublicWorks
+        firm, the amount is split evenly across those firms and bought at
+        cost + 5% (``_public_works_purchase_price``). Each firm books it with
+        ``FirmAgent.record_public_purchase`` (cash, last-tick sales and
+        profit), and the units/revenue are queued in
+        ``_pending_public_works_sales``; ``_flush_public_works_sales`` adds
+        them to the tick's ``per_firm_sales`` so GDP and next tick's demand
+        forecast (and therefore hiring) see them. Otherwise the amount goes
+        to the Misc pool as before. Money is conserved either way.
 
         Args:
             amount: $ spent this tick by ``invest_in_infrastructure`` or
@@ -7715,9 +7730,29 @@ class Economy:
             return
         share = amount / len(public_firms)
         for firm in public_firms:
-            firm.cash_balance += share
-            firm.last_revenue = float(firm.last_revenue or 0.0) + share
+            units = share / self._public_works_purchase_price(firm)
+            firm.record_public_purchase(units, share)
+            pending = self._pending_public_works_sales.setdefault(
+                firm.firm_id, {"units_sold": 0.0, "revenue": 0.0}
+            )
+            pending["units_sold"] += units
+            pending["revenue"] += share
         self.last_tick_gov_public_capital_to_public_works += amount
+
+    def _flush_public_works_sales(self, per_firm_sales: Dict[int, Dict[str, float]]) -> None:
+        """Add this tick's queued public works purchases to ``per_firm_sales``.
+
+        Called once, after firm settlement and R&D, so the purchases are not
+        taxed or turned into R&D spending a second time, and before
+        ``_update_statistics`` reads ``per_firm_sales`` into
+        ``last_tick_revenue`` (GDP) and ``last_tick_sales_units`` (the next
+        tick's planning input).
+        """
+        for firm_id, sale in self._pending_public_works_sales.items():
+            row = per_firm_sales.setdefault(firm_id, {"units_sold": 0.0, "revenue": 0.0})
+            row["units_sold"] += sale["units_sold"]
+            row["revenue"] += sale["revenue"]
+        self._pending_public_works_sales = {}
 
     def _collect_misc_revenue(self, amount: float) -> None:
         """

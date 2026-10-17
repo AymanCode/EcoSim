@@ -183,18 +183,76 @@ def test_steady_funding_reaches_a_stock_below_the_cap():
     assert gov.infrastructure_productivity_multiplier == pytest.approx(1.0 + g / d, rel=0.05)
 
 
-def test_public_capital_purchase_is_paid_to_public_works_firm():
+def _public_works_firm():
     from agents import FirmAgent
 
-    pw = FirmAgent(firm_id=7, good_name="PublicWorks7", cash_balance=0.0, inventory_units=0.0,
-                   good_category="PublicWorks", quality_level=1.0, wage_offer=45.0, price=1.0,
-                   expected_sales_units=0.0, production_capacity_units=0.0, productivity_per_worker=1.0)
+    return FirmAgent(firm_id=7, good_name="PublicWorks7", cash_balance=0.0, inventory_units=0.0,
+                     good_category="PublicWorks", quality_level=1.0, wage_offer=45.0, price=1.0,
+                     expected_sales_units=0.0, production_capacity_units=0.0, productivity_per_worker=15.0)
+
+
+def test_public_capital_purchase_is_booked_once_as_public_works_sales():
+    pw = _public_works_firm()
     gov = GovernmentAgent(cash_balance=0.0)
     economy = Economy(households=[_household(1)], firms=[pw], government=gov)
     misc_before = economy.misc_firm_revenue
     economy._book_public_capital_purchase(1_000.0)
-    assert pw.cash_balance == pytest.approx(1_000.0)
-    assert economy.misc_firm_revenue == misc_before
+    per_firm_sales = {}
+    economy._flush_public_works_sales(per_firm_sales)
+    economy._flush_public_works_sales(per_firm_sales)  # second flush adds nothing
+    economy._update_statistics(per_firm_sales)
+
+    unit_price = 45.0 / 15.0 * 1.05  # labor cost per unit + 5%
+    assert pw.cash_balance == pytest.approx(1_000.0)          # paid once
+    assert pw.last_revenue == pytest.approx(1_000.0)
+    assert per_firm_sales[7]["revenue"] == pytest.approx(1_000.0)
+    assert economy.last_tick_revenue[7] == pytest.approx(1_000.0)  # GDP sees it once
+    assert economy.last_tick_sales_units[7] == pytest.approx(1_000.0 / unit_price)
+    assert economy.misc_firm_revenue == misc_before           # not also sent to Misc
+
+
+def test_purchase_goes_to_misc_without_a_public_works_firm():
+    gov = GovernmentAgent(cash_balance=0.0)
+    economy = Economy(households=[_household(1)], firms=[], government=gov)
+    before = economy.misc_firm_revenue + gov.cash_balance
+    economy._book_public_capital_purchase(1_000.0)
+    # Misc keeps 80-100% and the treasury the 0-20% skim: total preserved.
+    assert economy.misc_firm_revenue + gov.cash_balance == pytest.approx(before + 1_000.0)
+
+
+def _run_public_works(purchases_on: bool, ticks: int = 30) -> tuple:
+    import contextlib
+    import io
+    import random
+
+    import numpy as np
+
+    from config import clone_config, use_config
+    from tools.runners.run_large_simulation import create_large_economy
+
+    with use_config(clone_config()):
+        random.seed(1)
+        np.random.seed(1)
+        CONFIG.random_seed = 1
+        CONFIG.government.public_works_purchases_enabled = purchases_on
+        with contextlib.redirect_stdout(io.StringIO()):
+            economy = create_large_economy(200, 4)
+        gov = economy.government
+        gov.set_lever("public_works", "on")
+        gov.set_lever("infrastructure_spending", "high")
+        gov.cash_balance += 2_000_000.0  # keep the spending funded for the whole run
+        for _ in range(ticks):
+            with contextlib.redirect_stdout(io.StringIO()):
+                economy.step()
+        pw = next(f for f in economy.firms if f.good_category == "PublicWorks")
+        return len(pw.employees), pw.expected_sales_units
+
+
+def test_public_works_hiring_responds_to_government_purchases():
+    workers_off, expected_off = _run_public_works(False)
+    workers_on, expected_on = _run_public_works(True)
+    assert expected_on > expected_off
+    assert workers_on > workers_off
 
 
 # ── Price-cap hold ───────────────────────────────────────────────────

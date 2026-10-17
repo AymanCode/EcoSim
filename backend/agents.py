@@ -4872,6 +4872,32 @@ class FirmAgent(AgentMixin):
         # Adjust wages if they exceed 80% of revenue
         self.adjust_wages_to_revenue_ratio(revenue)
 
+    def record_public_purchase(self, units: float, revenue: float) -> None:
+        """Book a government purchase as sales on top of this tick's market sales.
+
+        Used for infrastructure/technology spending paid to PublicWorks
+        firms (round 1, PR5, G3). Runs after ``apply_sales_and_profit`` in the
+        same tick, so it adds to, rather than replaces, that tick's totals.
+        Economy also adds the same units/revenue to the tick's
+        ``per_firm_sales``, which feeds GDP and next tick's demand forecast.
+
+        Args:
+            units: units delivered (public works output, treated like a
+                service: delivered from inventory where available, never
+                below zero inventory).
+            revenue: $ paid by the government, added to cash.
+        """
+        units = max(0.0, float(units))
+        revenue = max(0.0, float(revenue))
+        self.inventory_units = max(0.0, self.inventory_units - units)
+        self.cash_balance += revenue
+        self.last_units_sold += units
+        self.last_revenue += revenue
+        self.last_profit += revenue
+        self.net_profit += revenue
+        if self.cash_balance > 0.0:
+            self.zero_cash_streak = 0
+
     def adjust_wages_to_revenue_ratio(self, revenue: float) -> None:
         """
         Adjust wages if wage bill exceeds threshold of revenue.
