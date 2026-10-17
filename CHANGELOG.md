@@ -19,9 +19,14 @@ Steering B (households). Stacked on #45, whose getter it reads. The behavior sit
   - No household was dropped for lack of funds and no medical loan was issued in either arm, so the reserve has nothing to prevent there.
   - Consumption and liquid wealth move within path noise; seed 7 flips the sign of the liquid-wealth change.
   - Happiness is unchanged.
-- **`income_first`:** with the healthcare subsidy lever at 50%, drops fall from 5.4% to 2.2% of visit attempts. The reserve there is half the price, because the getter reads the `G` budget, while `settle_payment_care` charges `patient_pay` households the full price. That getter fix belongs to government (#45); it is logged in the PR.
+- **The reserve matches the real charge on every sequence.** On legacy it uses the subsidy rule and the live cap. On `income_first` and `income_late` it follows `settle_payment_care` (#45 at 2038720): the full price under `patient_pay`, 0 under `covered`.
+- **`income_first`, `hc_subsidy`, seed 42:**
+  - Drops for lack of funds fall from 5.4% to 4.1% of visit attempts.
+  - Completed visits rise from 7,334 to 7,365.
+  - Median happiness goes from 0.397 to 0.401.
+  - Consumption and liquid wealth are flat.
 
-Evidence: `backend/tests_contracts/test_households_healthcare_reserve.py` (9 tests). Repro, from `backend/`: `PYTHONHASHSEED=0 python tools/analysis/run_households_healthcare_reserve_compare.py`.
+Evidence: `backend/tests_contracts/test_households_healthcare_reserve.py` (11 tests, including reserve vs charge on `income_first` for `patient_pay` and `covered`). Repro, from `backend/`: `PYTHONHASHSEED=0 python tools/analysis/run_households_healthcare_reserve_compare.py`.
 
 ### 2026-10-17: Read-only estimate of the household's share of a healthcare visit
 

@@ -178,7 +178,7 @@ Healthcare:
 - Households enqueue healthcare requests based on health status and planned visit schedules.
 - Healthcare firms process visits up to labor-based capacity, with resident/doctor capacity differences.
 - Payment can use cash, accessible deposits, government subsidy, or medical loans.
-- With `CONFIG.households.healthcare_cash_reservation` on (default off), a queued household's weekly consumption budget holds back the visit's expected out-of-pocket cost: the provider's price times `Economy.expected_healthcare_household_share(price)`, which applies the charge's own subsidy rule and the live subsidy cap. Nothing is charged early. The real charge still happens at service, and the reserve lapses when the queue id clears (served, dropped for lack of funds, provider exit). It applies on every payment sequence. On `income_first` the subsidy budget (`G`) pays $0 today, so the reserve there is the full price.
+- With `CONFIG.households.healthcare_cash_reservation` on (default off), a queued household's weekly consumption budget holds back the visit's expected out-of-pocket cost: the provider's price times `Economy.expected_healthcare_household_share(price)`, which applies the charge's own subsidy rule and the live subsidy cap. Nothing is charged early. The real charge still happens at service, and the reserve lapses when the queue id clears (served, dropped for lack of funds, provider exit). It applies on every payment sequence and follows that sequence's charge. On `income_first` and `income_late`, `settle_payment_care` ignores the subsidy lever, so the reserve is the full price under `patient_pay` and 0 under `covered`.
 - Denied visits and completed visits are emitted as healthcare events.
 
 ## Government

@@ -1107,17 +1107,20 @@ class Economy:
         ``queued_healthcare_firm_id`` names an existing provider, where
         ``price = max(0, firm.price)`` and ``share`` is
         ``Economy.expected_healthcare_household_share(price)`` (government's
-        getter: the visit charge's own subsidy rule with this tick's live
-        subsidy budget). 0 for households not queued, or whose provider has
-        gone. Read-only: nothing is charged or moved, and a reserve that is no
+        getter, which mirrors the active sequence's charge: the subsidy rule
+        with this tick's live budget on legacy; settle_payment_care's split
+        on income_first / income_late, 1.0 under patient_pay and 0.0 under
+        covered). 0 for households not queued, or whose provider has gone.
+        Read-only: nothing is charged or moved, and a reserve that is no
         longer needed simply disappears next call because the queue id is
-        cleared on service, on an affordability drop and on provider exit.
+        cleared on service and on an affordability drop, and the provider
+        leaves firm_lookup on exit.
 
-        It is an estimate. The charge at service re-reads the price and the
-        budget, and each queued household here sees the whole budget left,
-        while at service earlier visits use it up first. So when the subsidy
-        cap binds the reserve can fall short of the charge, and when a
-        provider reprices the two differ by the price change.
+        It is an estimate. The charge at service re-reads the price (and, on
+        legacy, the subsidy budget; each queued household here sees the whole
+        budget left, while at service earlier visits use it up first). So on
+        legacy a binding cap can leave the reserve short of the charge, and a
+        reprice between budget and service shifts both by the price change.
         """
         firm_lookup = self.firm_lookup
         reserves = np.zeros(len(self.households), dtype=np.float64)

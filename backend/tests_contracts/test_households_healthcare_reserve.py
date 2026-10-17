@@ -133,3 +133,78 @@ def test_no_subsidy_reserves_the_full_price(reserve_on):
     economy, clinic = _economy([queued], subsidy_level=0)
     _queue(queued, clinic)
     assert economy._healthcare_reservations()[0] == pytest.approx(PRICE)
+
+
+# --- Payment sequences: the reserve against settle_payment_care -------------
+
+def _income_first_run(care_mode, ticks=52, households=200, firms=3):
+    """Seeded income_first run with the reserve on and the subsidy lever at
+    50% (which settle_payment_care ignores). Returns, per care sale, the
+    household's reserve and the price it used at this tick's budget, and the
+    price and out-of-pocket share the sale charged."""
+    import contextlib
+    import io
+    import random
+
+    import numpy as np
+
+    from config import clone_config, use_config
+    from payments import PaymentBook
+    from tools.runners.run_large_simulation import create_large_economy
+
+    seen = []
+    with use_config(clone_config()):
+        random.seed(42)
+        np.random.seed(42)
+        CONFIG.random_seed = 42
+        CONFIG.payment_sequence = "income_first"
+        CONFIG.payment_care_mode = care_mode
+        CONFIG.households.healthcare_cash_reservation = True
+        if care_mode == "covered":
+            CONFIG.payment_assistance = "care"  # funds the covered-care budget
+        with contextlib.redirect_stdout(io.StringIO()):
+            economy = create_large_economy(households, firms)
+        economy.government.set_lever("sector_subsidy_target", "healthcare")
+        economy.government.set_lever("sector_subsidy_level", 50)
+
+        at_budget = {}
+        budgets_fn = economy._household_consumption_budgets
+
+        def recording_budgets(*args, **kwargs):
+            reserves = economy._healthcare_reservations()
+            for household, reserve in zip(economy.households, reserves):
+                firm = economy.firm_lookup.get(household.queued_healthcare_firm_id)
+                if firm is not None:
+                    at_budget[household.household_id] = (economy.current_tick, float(reserve), float(firm.price))
+            return budgets_fn(*args, **kwargs)
+
+        economy._household_consumption_budgets = recording_budgets
+        original = PaymentBook.commit_sale
+
+        def recording_sale(self, household, firm, qty, price, *, public_amount=0.0, bank_amount=0.0, kind="goods"):
+            ok = original(self, household, firm, qty, price, public_amount=public_amount,
+                          bank_amount=bank_amount, kind=kind)
+            budget = at_budget.get(household.household_id)
+            if kind == "care" and ok and price > 0.0 and budget is not None and budget[0] == economy.current_tick:
+                seen.append((budget[1], budget[2], float(price), (price - public_amount) / price))
+            return ok
+
+        PaymentBook.commit_sale = recording_sale
+        try:
+            with contextlib.redirect_stdout(io.StringIO()):
+                for _ in range(ticks):
+                    economy.step()
+        finally:
+            PaymentBook.commit_sale = original
+    return seen
+
+
+@pytest.mark.parametrize("care_mode,share", [("patient_pay", 1.0), ("covered", 0.0)])
+def test_income_first_reserve_matches_settle_payment_care(care_mode, share):
+    seen = _income_first_run(care_mode)
+    assert seen, "no care visit was charged after a budget in the same tick"
+    for reserve, budget_price, price, charged_share in seen:
+        assert charged_share == pytest.approx(share)  # patient_pay: full price; covered: 0
+        assert reserve == pytest.approx(budget_price * share)  # full price or 0, never the lever's 50%
+        if budget_price == price:
+            assert reserve == pytest.approx(price * charged_share)  # equals the charge when nothing moved

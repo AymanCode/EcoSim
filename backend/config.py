@@ -108,10 +108,10 @@ class HouseholdBehaviorConfig:
     # care settlement), and the reserve lapses on its own when the queue id
     # clears (served, dropped for affordability) or the provider leaves
     # firm_lookup (exit). Adds no numeric parameter: the price is the
-    # provider's, the share is government's getter (PR #45), the same rule
-    # the legacy charge uses. On payment arms the getter reads the G budget
-    # while settle_payment_care charges patient_pay households the full
-    # price, so there the reserve can be below the charge (see PR #47).
+    # provider's, the share is government's getter (PR #45), which mirrors
+    # the charge of the active sequence: the subsidy rule and live cap on
+    # legacy; settle_payment_care's split on income_first / income_late
+    # (1.0 under patient_pay, 0.0 under covered).
     healthcare_cash_reservation: bool = False
 
     # Job acceptance (H1 - no job worse than benefits)
