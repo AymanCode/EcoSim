@@ -4,6 +4,16 @@ Notable changes and decisions for EcoSim, newest first. The project does not use
 
 ## Unreleased
 
+### 2026-10-17: Flat profit tax on positive profit (round 1 G2)
+
+Before: `GovernmentAgent.plan_taxes` set each firm's profit-tax rate from where its cash balance ranked among all firms (a discount below the median, seeded extras of up to +35 points for the top 25%/10%/1%, capped at 60%). Two firms with the same profit could pay 19% and 60%. On the default legacy payment path the firm tax snapshots carry no cash, so every firm landed in the bottom band and paid `profit_tax_rate` minus the seeded discount (19.15% at the 20% default). On the `income_first`/`income_late` paths the cash ranking was live.
+
+Now every firm pays `profit_tax_rate` on positive profit before tax. A loss pays 0 and nothing carries forward. The brackets stay behind `CONFIG.government.flat_profit_tax_enabled = False`. Property tax is unchanged.
+
+Seeded run, 400 households, 104 weeks, seeds 42 and 1-4 (`python tools/benchmarks/run_flat_profit_tax_compare.py --seeds 42 1 2 3 4`, from `backend/`):
+- Legacy path (default): profit-tax revenue +$173/week (+3.4%); 99.3% of taxpaying firm-weeks pay more (19.15% to 20%), none pay less. Unemployment, happiness and GDP move less than one seed's spread.
+- `income_first` (`--payment-sequence income_first`): on the same profits the flat tax raises 54.7% of what the brackets raised (the brackets averaged 36.6% on taxed profit). 33% of taxpaying firm-weeks pay more, 36% pay less. Profit-tax revenue -$2,665/week (-46%), GDP -$842/week (-4%), unemployment unchanged on average (sd 1.7 pp).
+
 ### 2026-10-16: Poverty and wealth-loss terms read liquid wealth
 
 Bug fix from the PR7 investigation (item 3). `Economy._batch_update_wellbeing` read `cash_balance` alone for the poverty penalties and the wealth-loss term. The weekly deposit sweep runs after `last_tick_cash_start` is set and before wellbeing, so saving money in the bank counted as a wealth loss. The legacy withdrawal refills cash only to about 160, below the 200 poverty line, so households with savings were also scored as poor.
