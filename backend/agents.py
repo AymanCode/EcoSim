@@ -142,6 +142,7 @@ class HouseholdAgent(AgentMixin):
     last_other_income: float = 0.0
     last_consumption_spending: float = 0.0
     last_tick_cash_start: float = 0.0  # Cash at start of tick for change calculation
+    last_tick_deposit_start: float = 0.0  # Bank deposit at the same moment, so wellbeing measures liquid wealth
     last_tick_ledger: Dict[str, float] = field(default_factory=dict)
     ledger_cash_start: float = 0.0
     last_dividend_firm_ids: List[int] = field(default_factory=list)
