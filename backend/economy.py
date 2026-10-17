@@ -2156,9 +2156,17 @@ class Economy:
         planning_minimum_wage = self.government.get_minimum_wage()
         inflation_enabled = bool(CONFIG.inflation.enabled)
 
+        offer_cut_cap = 1.0
+        if CONFIG.firms.wage_rigidity_enabled:
+            offer_cut_cap = CONFIG.firms.offer_cut_cap_max * math.tanh(
+                max(0.0, float(self.unemployment_short_ma)) / CONFIG.firms.offer_cut_slack_scale
+            )
         for firm in self.firms:
             firm.clear_planner_diagnostics()
             firm.policy_minimum_wage = planning_minimum_wage
+            firm.offer_cut_cap = offer_cut_cap
+            if CONFIG.firms.wage_rigidity_enabled:
+                firm.offer_cut_reference = float(firm.wage_offer)
             health_snapshot = firm.refresh_health_snapshot(
                 sell_through_rate=self.last_tick_sell_through_rate.get(firm.firm_id, 0.5),
                 category_wage_anchor_p75=tick.category_wage_anchor_p75.get(
@@ -2294,6 +2302,15 @@ class Economy:
         for wage_plan in tick.firm_wage_plans.values():
             if wage_plan["wage_offer_next"] < minimum_wage:
                 wage_plan["wage_offer_next"] = minimum_wage
+        if CONFIG.firms.wage_rigidity_enabled:
+            # Wage rigidity (PR4b): a posted offer falls at most offer_cut_cap
+            # below last tick's offer unless the firm is in survival mode.
+            for firm in self.firms:
+                wage_plan = tick.firm_wage_plans.get(firm.firm_id)
+                if wage_plan is not None:
+                    wage_plan["wage_offer_next"] = firm.capped_offer(
+                        float(wage_plan["wage_offer_next"]), float(firm.wage_offer)
+                    )
 
     def _phase_household_planning(self, tick: _TickScratch) -> None:
         """Households plan: offer signals, education, cooldowns, labor supply, consumption, loans."""
@@ -2776,6 +2793,9 @@ class Economy:
             # Apply price and wage updates
             wage_plan = firm_wage_plans[firm.firm_id]
             contract_factor = wage_plan.get("contract_factor", 1.0)
+            if contract_factor < 1.0 and not firm.wage_cuts_allowed():
+                # Wage rigidity (PR4b): no contract cut outside survival mode.
+                contract_factor = 1.0
             if contract_factor != 1.0:
                 # Annual review: future contracts only; this week's earned payroll
                 # and its tax are already frozen.

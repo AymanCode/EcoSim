@@ -48,6 +48,8 @@ def test_b12_flag_default_is_on():
 
 
 def test_b12_flag_off_distress_cut_is_undone_next_tick(factory, monkeypatch):
+    # Exercises the pre-PR4b cut rule, which stays behind the wage-rigidity flag.
+    monkeypatch.setattr(CONFIG.firms, "wage_rigidity_enabled", False)
     monkeypatch.setattr(CONFIG.firms, "fix_distress_wage_cut_persists", False)
     firm = _distressed_baseline_firm(factory)
     offer, wages = _run_cut_then_next_tick(firm)
@@ -56,6 +58,8 @@ def test_b12_flag_off_distress_cut_is_undone_next_tick(factory, monkeypatch):
 
 
 def test_b12_flag_on_distress_cut_survives_update_and_ratchet(factory, monkeypatch):
+    # Exercises the pre-PR4b cut rule, which stays behind the wage-rigidity flag.
+    monkeypatch.setattr(CONFIG.firms, "wage_rigidity_enabled", False)
     monkeypatch.setattr(CONFIG.firms, "fix_distress_wage_cut_persists", True)
     firm = _distressed_baseline_firm(factory)
     cut = CONFIG.firms.max_wage_decrease_per_tick

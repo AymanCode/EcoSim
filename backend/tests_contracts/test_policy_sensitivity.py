@@ -69,8 +69,13 @@ class TestLeverSensitivity:
         )
 
     @pytest.mark.parametrize("seed", [42])
-    def test_benefit_level_morale(self, seed: int) -> None:
+    def test_benefit_level_morale(self, seed: int, monkeypatch) -> None:
         """Higher benefits → higher average morale."""
+        from config import CONFIG
+        # Tests the lever under flexible wages. With PR4b wage rigidity on,
+        # one of the 10 households ends up unemployed at the high benefit,
+        # which moves mean morale by 0.1 in this tiny economy.
+        monkeypatch.setattr(CONFIG.firms, "wage_rigidity_enabled", False)
         options = ["low", "neutral", "high"]
         morales: List[float] = []
         for level in options:
@@ -86,6 +91,25 @@ class TestLeverSensitivity:
             f"high should be near or above low"
         )
 
+    @pytest.mark.parametrize("seed", [42])
+    def test_minimum_wage_binds_above_market_pay(self, seed: int, monkeypatch) -> None:
+        """With wage rigidity on, a minimum wage above market pay still binds."""
+        from agents import GovernmentAgent
+        from config import CONFIG
+        monkeypatch.setattr(CONFIG.firms, "wage_rigidity_enabled", True)
+        monkeypatch.setattr(
+            GovernmentAgent, "_apply_minimum_wage_policy",
+            lambda self: setattr(self, "_minimum_wage_floor", 90.0),
+        )
+        eco = _build_default_economy(seed)
+        eco.government.apply_policy_levers()
+        _warmup(eco, 15)
+        _run_ticks(eco, 52)
+        employed = [h for h in eco.households if h.employer_id is not None]
+        assert employed, "need employed households to check the floor"
+        for household in employed:
+            assert household.wage >= 90.0 - 1e-9, (household.household_id, household.wage)
+
     # Switch on: this failed at the port (2026-09-29) because the empty entrant
     # Food firms were under the annual review and could not raise offers to hire.
     # Owner decision 2026-10-01: empty firms use weekly plan_wage until first hire.
@@ -95,6 +119,12 @@ class TestLeverSensitivity:
         """Higher minimum wage → higher average wage."""
         from config import CONFIG
         monkeypatch.setattr(CONFIG.inflation, "enabled", inflation_enabled)
+        # Tests the lever under flexible wages. With PR4b wage rigidity on, a
+        # minimum wage below market pay does not bite in this 10-household
+        # economy (offers start near 73 and workers are scarce, so offers never
+        # fall to the floor). test_minimum_wage_binds_above_market_pay covers
+        # the flag-on case.
+        monkeypatch.setattr(CONFIG.firms, "wage_rigidity_enabled", False)
         options = ["low", "neutral", "high"]
         wages: List[float] = []
         for level in options:

@@ -2,6 +2,7 @@
 
 import pytest
 
+from config import CONFIG
 from tests_contracts.factories import patch_agent_method
 
 
@@ -9,6 +10,8 @@ from tests_contracts.factories import patch_agent_method
 def test_step_uses_employer_floor_for_payroll_tax_and_receipt_then_keeps_late_cut(
     factory, monkeypatch, performance_mode
 ):
+    # Exercises the pre-PR4b cut rule, which stays behind the wage-rigidity flag.
+    monkeypatch.setattr(CONFIG.firms, "wage_rigidity_enabled", False)
     household = factory.household(household_id=1, employer_id=1, wage=70.0, cash_balance=10_000.0)
     firm = factory.firm(
         firm_id=1, category="Food", is_baseline=True, wage_offer=100.0,
@@ -172,6 +175,8 @@ def test_warmup_living_cost_floor_updates_actual_employer(factory):
 def test_healthcare_resets_keep_this_payday_and_mirror_future_contract(
     factory, monkeypatch, reset_path
 ):
+    # Exercises the pre-PR4b cut rule, which stays behind the wage-rigidity flag.
+    monkeypatch.setattr(CONFIG.firms, "wage_rigidity_enabled", False)
     doctor = factory.household(
         household_id=1, employer_id=1, wage=80.0,
         medical_training_status="doctor", cash_balance=10_000.0,

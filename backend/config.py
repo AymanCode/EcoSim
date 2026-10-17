@@ -684,6 +684,28 @@ class FirmBehaviorConfig:
     nairu_threshold: float = 0.05       # Unemployment rate below which labor is scarce
     unemployment_ma_window: int = 4     # Ticks in short-term unemployment moving average
 
+    # Wage rigidity (round 1 PR4b). On: (1) no firm cuts a current worker's
+    # contract wage unless it is in survival mode, cash runway (cash / wage
+    # bill, in weeks) below survival_mode_runway_weeks; this covers the
+    # distress cut, the baseline labor-share cut, the healthcare reset to the
+    # minimum wage and the annual review's distress cut. (2) Outside survival
+    # mode a posted new-hire offer falls by at most
+    #   offer_cut_cap = offer_cut_cap_max * tanh(u / offer_cut_slack_scale)
+    # per tick, u = 4-week moving average of the unemployment rate, so cuts
+    # are near zero when workers are scarce and approach the maximum when
+    # they are plentiful. Raises are untouched. False restores the old rules
+    # exactly.
+    wage_rigidity_enabled: bool = True
+    # Ceiling on the weekly offer cut, 2%. Spec range 1-2%/tick. Hazell and
+    # Taska (2020, "Downward Rigidity in the Wage for New Hires") find
+    # new-hire wages barely fall when unemployment rises, so cuts stay small.
+    # Valid 0-1.
+    offer_cut_cap_max: float = 0.02
+    # Unemployment at which the cap reaches tanh(1) = 76% of the maximum
+    # (1.5%, the spec's default) is 10%; at 5% it is 0.9%, at 2% 0.4%.
+    # Valid > 0.
+    offer_cut_slack_scale: float = 0.10
+
 
 @dataclass
 class GovernmentPolicyConfig:
@@ -1004,6 +1026,10 @@ class SimulationConfig:
             raise ValueError("Services project needs positive cost and next-tick-or-later delivery")
         if not 0.0 < self.payment_debt_service_share <= 1.0:
             raise ValueError("payment debt service share must be in (0,1]")
+        if not 0.0 <= self.firms.offer_cut_cap_max <= 1.0:
+            raise ValueError("offer_cut_cap_max must be in [0, 1]")
+        if not self.firms.offer_cut_slack_scale > 0.0:
+            raise ValueError("offer_cut_slack_scale must be positive")
         # Validate time parameters
         if self.time.ticks_per_year <= 0:
             raise ValueError("ticks_per_year must be positive")

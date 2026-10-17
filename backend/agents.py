@@ -2083,6 +2083,14 @@ class FirmAgent(AgentMixin):
     worker_turnover_this_tick: int = 0  # Workers lost to competitors this tick (on-the-job switching)
     stabilization_disabled: bool = False  # Experiment flag
     survival_mode: bool = False  # Feature 1: Emergency restructuring flag
+    # Largest fraction a posted offer may fall this tick (PR4b wage rigidity).
+    # 1.0 = uncapped; Economy sets it each tick from labor-market slack when
+    # CONFIG.firms.wage_rigidity_enabled is on.
+    offer_cut_cap: float = 1.0
+    # Posted offer at the start of this tick's planning; every offer cut in
+    # the tick is measured from it, so the total cut per tick stays within
+    # offer_cut_cap. 0.0 = not set (capped_offer then uses its argument).
+    offer_cut_reference: float = 0.0
     pricing_rejection_streak: int = 0  # Consecutive ticks market rejected current price
 
     # Bank credit tracking (optional — unused when no bank exists)
@@ -4869,6 +4877,35 @@ class FirmAgent(AgentMixin):
         # Adjust wages if they exceed 80% of revenue
         self.adjust_wages_to_revenue_ratio(revenue)
 
+    def wage_cuts_allowed(self) -> bool:
+        """Whether this firm may cut current workers' pay and offers freely.
+
+        True when ``CONFIG.firms.wage_rigidity_enabled`` is off (the old
+        rules) or the firm is in survival mode for wages: cash runway
+        (``cash_runway_ticks``, cash / wage bill in weeks) below
+        ``survival_mode_runway_weeks``. Read-only.
+        """
+        firms = CONFIG.firms
+        return (not firms.wage_rigidity_enabled) or (
+            float(self.cash_runway_ticks) < float(self._firm_config().survival_mode_runway_weeks)
+        )
+
+    def capped_offer(self, proposed: float, previous: float) -> float:
+        """``proposed`` offer, lifted so it is at most ``offer_cut_cap`` below the reference.
+
+        The reference is ``offer_cut_reference`` (the offer posted at the
+        start of this tick, set by ``Economy``) when set, else ``previous``.
+        Several cut paths run in one tick (plan, distress cut, healthcare
+        reset); measuring all of them from the same reference keeps the
+        tick's total cut within the cap. Returns ``proposed`` unchanged when
+        wage cuts are allowed (``wage_cuts_allowed``) or it is not a cut.
+        Pure.
+        """
+        reference = self.offer_cut_reference if self.offer_cut_reference > 0.0 else previous
+        if self.wage_cuts_allowed() or proposed >= reference:
+            return proposed
+        return max(proposed, reference * (1.0 - self.offer_cut_cap))
+
     def adjust_wages_to_revenue_ratio(self, revenue: float) -> None:
         """
         Adjust wages if wage bill exceeds threshold of revenue.
@@ -4914,10 +4951,15 @@ class FirmAgent(AgentMixin):
             bonus_pool = max(0.0, self.net_profit - target_retained_profit)
             bonus_pool = min(bonus_pool, max(0.0, self.cash_balance))
             minimum_wage = self._minimum_wage()
+            cuts_allowed = self.wage_cuts_allowed()
 
-            self.wage_offer = minimum_wage
+            self.wage_offer = self.capped_offer(minimum_wage, self.wage_offer)
             for employee_id in self.employees:
-                self.actual_wages[employee_id] = minimum_wage
+                if cuts_allowed:
+                    self.actual_wages[employee_id] = minimum_wage
+                else:
+                    current_wage = self.actual_wages.get(employee_id, minimum_wage)
+                    self.actual_wages[employee_id] = max(current_wage, minimum_wage)
             self._invalidate_wage_bill_cache()
             self.pending_healthcare_worker_bonus = bonus_pool
             self.decision_diagnostics["healthcare_current_profit_margin"] = current_margin
@@ -4939,12 +4981,13 @@ class FirmAgent(AgentMixin):
 
             minimum_wage = self._minimum_wage()
             wage_cut = 0.98
-            for employee_id in self.employees:
-                current_wage = self.actual_wages.get(employee_id, self.wage_offer)
-                self.actual_wages[employee_id] = max(current_wage * wage_cut, minimum_wage)
-            self._invalidate_wage_bill_cache()
+            if self.wage_cuts_allowed():
+                for employee_id in self.employees:
+                    current_wage = self.actual_wages.get(employee_id, self.wage_offer)
+                    self.actual_wages[employee_id] = max(current_wage * wage_cut, minimum_wage)
+                self._invalidate_wage_bill_cache()
 
-            self.wage_offer = max(self.wage_offer * wage_cut, minimum_wage)
+            self.wage_offer = self.capped_offer(max(self.wage_offer * wage_cut, minimum_wage), self.wage_offer)
             if firm_config.fix_distress_wage_cut_persists:
                 self.distress_wage_cut_state = 1
             return
@@ -4953,15 +4996,16 @@ class FirmAgent(AgentMixin):
             # Reduce all wages by 10%, floored at minimum wage
             minimum_wage = self._minimum_wage()
             wage_cut = firm_config.max_wage_decrease_per_tick
-            for employee_id in self.employees:
-                current_wage = self.actual_wages.get(employee_id, self.wage_offer)
-                reduced_wage = current_wage * wage_cut
-                new_wage = max(reduced_wage, minimum_wage)
-                self.actual_wages[employee_id] = new_wage
-            self._invalidate_wage_bill_cache()
+            if self.wage_cuts_allowed():
+                for employee_id in self.employees:
+                    current_wage = self.actual_wages.get(employee_id, self.wage_offer)
+                    reduced_wage = current_wage * wage_cut
+                    new_wage = max(reduced_wage, minimum_wage)
+                    self.actual_wages[employee_id] = new_wage
+                self._invalidate_wage_bill_cache()
 
             # Also reduce wage_offer for new hires
-            self.wage_offer = max(self.wage_offer * wage_cut, minimum_wage)
+            self.wage_offer = self.capped_offer(max(self.wage_offer * wage_cut, minimum_wage), self.wage_offer)
             if firm_config.fix_distress_wage_cut_persists:
                 self.distress_wage_cut_state = 1
 
@@ -4997,6 +5041,7 @@ class FirmAgent(AgentMixin):
         self.markup = max(0.0, price_plan["markup_next"])
 
         # Update wage offer
+        previous_offer = self.wage_offer
         if self.distress_wage_cut_state == 1:
             # fix_distress_wage_cut_persists: the plan predates this tick's
             # distress cut, so it may not raise the offer above the cut level.
@@ -5007,9 +5052,14 @@ class FirmAgent(AgentMixin):
             self.distress_wage_cut_state = 0
         if self.good_category.lower() == "healthcare":
             minimum_wage = self._minimum_wage()
-            self.wage_offer = minimum_wage
+            cuts_allowed = self.wage_cuts_allowed()
+            self.wage_offer = self.capped_offer(minimum_wage, previous_offer)
             for worker_id in self.employees:
-                self.actual_wages[worker_id] = minimum_wage
+                if cuts_allowed:
+                    self.actual_wages[worker_id] = minimum_wage
+                else:
+                    current_wage = self.actual_wages.get(worker_id, minimum_wage)
+                    self.actual_wages[worker_id] = max(current_wage, minimum_wage)
             self._invalidate_wage_bill_cache()
 
     def apply_updated_expectations(self, updated_expected_sales: float) -> None:

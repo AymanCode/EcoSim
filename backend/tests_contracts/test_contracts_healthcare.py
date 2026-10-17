@@ -276,13 +276,15 @@ def test_contract_doctors_stay_healthy_each_tick(tiny_economy_factory):
     assert doctor.health == pytest.approx(CONFIG.households.doctor_health_lock_value, abs=1e-8)
 
 
-def test_contract_healthcare_wages_are_pinned_to_the_policy_minimum_wage(tiny_economy_factory):
+def test_contract_healthcare_wages_are_pinned_to_the_policy_minimum_wage(tiny_economy_factory, monkeypatch):
     """B19: firms floor and pin wages at the binding policy minimum, not the config floor.
 
     Before the fix `apply_price_and_wage_updates` pinned healthcare wage offers and
     wages to `CONFIG.firms.minimum_wage_floor` (20) while the government's minimum
     wage (`get_minimum_wage()`, 36 at the default policy) was higher.
     """
+    # Exercises the pre-PR4b cut rule, which stays behind the wage-rigidity flag.
+    monkeypatch.setattr(CONFIG.firms, "wage_rigidity_enabled", False)
     economy = tiny_economy_factory(
         num_households=8,
         include_housing=False,
