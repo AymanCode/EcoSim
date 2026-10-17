@@ -4,6 +4,16 @@ Notable changes and decisions for EcoSim, newest first. The project does not use
 
 ## Unreleased
 
+### 2026-10-16: Unfilled Food and Services orders fall back to the baseline firm
+
+Bug fix. Households order from specific firms (`planned_purchases` keyed by firm id). When that firm sold out, `_clear_goods_market` dropped the rest of the order as unmet demand; nothing re-offered it, even when the sector's baseline firm had stock. The good-name path could not help either: every firm sells a uniquely named good (`BaselineFood`, `FoodCo3`, `FoodProduct41`), so a good-name order only ever reaches one firm.
+
+- **Now:** the unfilled part of a firm-id Food or Services order is queued at that sector's baseline firm and filled in the same pass, for the same household. The household asks for the same units but never spends more than the unfilled order was worth: if the baseline is dearer, units shrink by `price / baseline_price`. Orders already placed at the baseline are not re-offered. Housing is unchanged (tenancy comes from the rental market) and so is the `income_first`/`income_late` payment arm.
+- **Accounting:** the first firm still records its full lost sale (`current_tick_unmet_demand_by_firm`, and `services_unmet_demand_by_firm` for Services), so firm demand signals are unchanged. `food_unmet_demand` and `services_unmet_demand` now count only what the baseline also could not fill.
+- **Effect (seed 42 / seed 7, 104 weeks, 1,000 households, means over weeks 11-104):** baseline Food unit share 2.7% -> 9.7% / 2.7% -> 9.3%; Food unmet demand 428 -> 113 / 412 -> 97 units a week (about 0 after week 20); Services unmet 1,814 -> 1,690 / 1,565 -> 1,485; mean unemployment 39.4% -> 38.5% / 38.0% -> 37.8%; runtime per tick unchanged (0.151 -> 0.158 s / 0.159 -> 0.159 s).
+
+Evidence: `test_contracts_goods_spillover.py` (5; RED on main: 4 failed, the baseline sold 0 units; the guard that a baseline order is not re-offered passes before and after). Backend suite 826 passed.
+
 ### 2026-10-16: Poverty and wealth-loss terms read liquid wealth
 
 Bug fix from the PR7 investigation (item 3). `Economy._batch_update_wellbeing` read `cash_balance` alone for the poverty penalties and the wealth-loss term. The weekly deposit sweep runs after `last_tick_cash_start` is set and before wellbeing, so saving money in the bank counted as a wealth loss. The legacy withdrawal refills cash only to about 160, below the 200 poverty line, so households with savings were also scored as poor.
