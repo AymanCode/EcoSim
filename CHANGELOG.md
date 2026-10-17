@@ -4,6 +4,27 @@ Notable changes and decisions for EcoSim, newest first. The project does not use
 
 ## Unreleased
 
+### 2026-10-17: Adaptive reservation wage (households B re-cut, flag off)
+
+Replaces closed PR #37. The behavior sits behind `CONFIG.households.adaptive_reservation_wage`, default off, so default runs are unchanged.
+
+- **Before:** an unemployed household's reservation wage blends 15-30% per tick toward a decaying expected wage, with no reference to how fast people find jobs.
+- **After:** while unemployed, `r <- max(F, r * (1 - d_i))`. The labor plan starts from `max(F, r)` before the desperation discount, the 8-week market clamp, and the $1 floor.
+  - `F = min(P, max(B, B + (M - B) * f / f_normal))`.
+  - `M` and `P` are the median and best posted offers of firms hiring this tick.
+  - `B` is the live benefit.
+  - `f` is the 4-week job-finding rate.
+  - `f_normal` = 0.064/week comes from BLS CPS flows: about 0.25 of the unemployed find a job each month.
+  - `d_i` is drawn uniformly on Krueger and Mueller's 0.05-0.14% per week.
+- **Measured effect (seed 42, 1,000 households, 260 weeks).**
+  - Mean unemployment goes from 27.5% to 34.8% (a replicate of B gave 31.2%).
+  - The median completed spell goes from 6 to 8 weeks.
+  - The share of spells over 26 weeks goes from 11.8% to 17.9%.
+  - The floor is low. Its median is 35.4 against the $36 minimum wage, and it rules out on average 7.1% of posted offers (5.9% in weeks with unemployment of 30% or more).
+  - Longer spells come from the slow measured decay keeping `r` near the last wage, not from the floor.
+
+Evidence: `backend/tests_contracts/test_households_b_reservation.py` (11 tests). Repro, from `backend/`: `PYTHONHASHSEED=0 python tools/analysis/run_households_b_compare.py`.
+
 ### 2026-10-16: Poverty and wealth-loss terms read liquid wealth
 
 Bug fix from the PR7 investigation (item 3). `Economy._batch_update_wellbeing` read `cash_balance` alone for the poverty penalties and the wealth-loss term. The weekly deposit sweep runs after `last_tick_cash_start` is set and before wellbeing, so saving money in the bank counted as a wealth loss. The legacy withdrawal refills cash only to about 160, below the 200 poverty line, so households with savings were also scored as poor.

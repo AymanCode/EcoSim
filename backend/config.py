@@ -188,6 +188,43 @@ class HouseholdBehaviorConfig:
     unemployed_market_anchor_percentile: float = 50.0
     reservation_adjustment_rate: float = 0.1
 
+    # Adaptive reservation wage (round 1, households B, re-cut). Flag default
+    # off. While unemployed: r <- max(F, r * (1 - d_i)), and the labor plan
+    # starts from max(F, r) BEFORE the desperation discount and the market
+    # clamp, so desperate, sick or long-unemployed workers can still go below
+    # F. The floor is
+    #   F = min(P, max(B, B + (M - B) * f / f_normal)),
+    # where M and P are the median and best offers posted by firms hiring
+    # this tick (baseline firms included; healthcare and housing excluded),
+    # B is the live benefit, f is the economy's job-finding rate over the
+    # last job_finding_window_weeks, and f_normal is the absolute reference
+    # below. Derivation: in the McCall/Mortensen search model the reservation
+    # wage solves w* = b + (lambda / (r + delta)) * E[max(w - w*, 0)], so for
+    # a low offer-arrival rate w* - b grows roughly in proportion to lambda
+    # (here f). The ratio is normalized so that w* = the median offer in a
+    # normal market, consistent with Krueger & Mueller (2016), who find
+    # reservation wages near prior wages early in a spell. In a slack market
+    # (f << f_normal) the floor falls toward the benefit, and P caps it so it
+    # never rules out every hiring job. On job loss r restarts at the last
+    # wage; a household that never worked starts at M. Benefit duration is not
+    # tracked on main (benefits are indefinite), so B does not shrink over a
+    # spell. Replaces, on this path only, the 15-30%/tick blend toward the
+    # decaying expected wage.
+    adaptive_reservation_wage: bool = False
+    # reservation_decay_range: per-household weekly decay d_i, uniform on the
+    #   range of Krueger & Mueller's (2016, AEJ: Policy) point estimates of the
+    #   decline per week of unemployment, 0.05%-0.14%.
+    reservation_decay_range: Tuple[float, float] = (0.0005, 0.0014)
+    # normal_monthly_job_finding_rate: monthly unemployed-to-employed
+    #   transition rate in a normal US labor market. Derived from BLS CPS
+    #   labor force status flows: recent months show about 1.7-2.1M UE flows
+    #   per month against 6.9-7.6M unemployed in the prior month, ~0.25.
+    #   Converted to weekly as 1 - (1 - m)^(12/52) = 0.064.
+    normal_monthly_job_finding_rate: float = 0.25
+    # job_finding_window_weeks: weeks of hires / unemployed averaged into f.
+    #   4 weeks is about one month, the period of the CPS flows above.
+    job_finding_window_weeks: int = 4
+
     # Skill Development
     skill_growth_rate: float = 0.001  # Passive improvement per tick
     education_cost_per_skill_point: float = 1000.0
