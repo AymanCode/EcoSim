@@ -7765,6 +7765,42 @@ class Economy:
         """Last tick's public share of healthcare spending, see ``GovernmentAgent.get_health_coverage``."""
         return self.government.get_health_coverage()
 
+    def approval_observation(self, lookback_ticks: int = 13) -> Dict[str, float]:
+        """Approval summary for the LLM government (observation only, no elections).
+
+        Returns:
+            ``approval_mean_happiness``: mean household happiness now (0-1).
+            ``approval_happiness_change``: change versus the snapshot
+            ``lookback_ticks`` ago in ``metrics_history`` (0.0 if none yet).
+            ``approval_financial_stress_share``: share of households whose
+            cash plus deposits is below ``government.min_cash_threshold``.
+            PR3's buffer-stock target will replace this threshold.
+        """
+        households = self.households or []
+        if not households:
+            return {
+                "approval_mean_happiness": 0.0,
+                "approval_happiness_change": 0.0,
+                "approval_financial_stress_share": 0.0,
+            }
+        mean_h = sum(h.happiness for h in households) / len(households)
+        past_h = None
+        target_tick = int(self.current_tick) - int(lookback_ticks)
+        for row in reversed(self.metrics_history):
+            if int(row.get("tick", -1)) <= target_tick:
+                past_h = row.get("metrics", {}).get("mean_happiness")
+                break
+        threshold = float(self.government.min_cash_threshold)
+        stressed = sum(
+            1 for h in households
+            if float(h.cash_balance) + float(getattr(h, "bank_deposit", 0.0) or 0.0) < threshold
+        )
+        return {
+            "approval_mean_happiness": float(mean_h),
+            "approval_happiness_change": float(mean_h - float(past_h)) if past_h is not None else 0.0,
+            "approval_financial_stress_share": stressed / len(households),
+        }
+
     def _reset_healthcare_tick_state(self) -> None:
         """Reset per-tick healthcare counters.
 
@@ -8908,6 +8944,8 @@ class Economy:
         metrics["technology_quality"] = gov.technology_quality_multiplier
         metrics["social_happiness"] = gov.social_happiness_multiplier
         metrics["benefit_replacement_rate"] = self.get_benefit_replacement_rate()
+        if getattr(CONFIG.llm, "government_approval_observation_enabled", False):
+            metrics.update(self.approval_observation())
         metrics["health_coverage"] = self.get_health_coverage()
         metrics["social_investment_budget"] = gov.social_investment_budget
         metrics["warmup_active"] = 1.0 if self.in_warmup else 0.0

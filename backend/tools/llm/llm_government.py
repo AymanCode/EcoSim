@@ -1213,6 +1213,24 @@ def _build_affordability_diagnostics(
     )
     return "\n".join(lines)
 
+def _format_approval(raw_metrics: Dict[str, Any]) -> str:
+    """Approval line for the prompt (PR5), or "" unless the flag is on.
+
+    Gated by ``CONFIG.llm.government_approval_observation_enabled`` and the
+    metrics Economy adds under the same flag. Observation only.
+    """
+    if not getattr(CONFIG.llm, "government_approval_observation_enabled", False):
+        return ""
+    if "approval_mean_happiness" not in raw_metrics:
+        return ""
+    return (
+        "\n- Approval: mean happiness "
+        f"{_safe_float(raw_metrics.get('approval_mean_happiness')):.3f}, "
+        f"13-tick change {_safe_float(raw_metrics.get('approval_happiness_change')):+.3f}, "
+        f"financial-stress share {_safe_float(raw_metrics.get('approval_financial_stress_share')) * 100:.1f}%"
+    )
+
+
 def _build_user_prompt(
     raw_metrics: Dict[str, Any],
     sector_diagnostics: Dict[str, Dict[str, Any]],
@@ -1283,7 +1301,7 @@ MACRO INDICATORS:
 - Public Works Budget Denied: {_format_money(raw_metrics.get('gov_public_works_denied_by_budget_this_tick', 0.0))}
 - Post-Warmup Stimulus: {_format_money(raw_metrics.get('gov_post_warmup_stimulus_this_tick', 0.0))}
 - Mean Health: {mean_health:.3f}
-- Mean Happiness: {mean_happiness:.3f}
+- Mean Happiness: {mean_happiness:.3f}{_format_approval(raw_metrics)}
 - Gini Coefficient: {gini:.3f}
 - fiscal_pressure_ratio: {float(budget_state.get('fiscal_pressure', 0.0) or 0.0):.4f}
 - instant_deficit_to_gdp_ratio: {float(budget_state.get('fiscal_pressure_instant_ratio', 0.0) or 0.0):.4f}

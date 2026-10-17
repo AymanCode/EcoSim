@@ -234,3 +234,29 @@ def test_next_review_reprices_from_held_price_without_catch_up():
     economy._apply_price_stabilization_to_plan(firm, plan)
     assert plan["price_next"] == 10.5  # firm's own plan, nothing added for blocked raises
     assert not firm.price_cap_held
+
+
+# ── Approval observation (off by default) ────────────────────────────
+
+def test_approval_line_is_off_by_default():
+    from tools.llm.llm_government import _format_approval
+
+    assert CONFIG.llm.government_approval_observation_enabled is False
+    assert _format_approval({"approval_mean_happiness": 0.6}) == ""
+
+
+def test_approval_observation_reports_change_and_stress(monkeypatch):
+    from tools.llm.llm_government import _format_approval
+
+    monkeypatch.setattr(CONFIG.llm, "government_approval_observation_enabled", True)
+    poor, rich = _household(1), _household(2)
+    poor.cash_balance, rich.cash_balance = 0.0, 10_000.0
+    poor.happiness = rich.happiness = 0.6
+    gov = GovernmentAgent(cash_balance=0.0)
+    economy = Economy(households=[poor, rich], firms=[], government=gov)
+    economy.current_tick = 20
+    economy.append_metrics_snapshot({"mean_happiness": 0.5}, tick=5)
+    obs = economy.approval_observation()
+    assert obs["approval_happiness_change"] == pytest.approx(0.1)
+    assert obs["approval_financial_stress_share"] == pytest.approx(0.5)
+    assert "Approval" in _format_approval(obs)
