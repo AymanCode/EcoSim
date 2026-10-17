@@ -978,6 +978,10 @@ class Economy:
         wage and CEO pay after wage tax) and ``last_transfer_income``. Without it
         they are the forecast inputs every direct caller and the named payment
         arms use: the contract wage when employed and the benefit level when not.
+        With ``CONFIG.households.healthcare_cash_reservation`` on, the expected
+        out-of-pocket cost of a queued healthcare visit
+        (``_healthcare_reservations``) is taken off the accessible liquidity on
+        every payment sequence.
         """
         # Extract household attributes as NumPy arrays
         # SOLID: DIP Violation - Directly accesses household internals
@@ -1073,6 +1077,12 @@ class Economy:
             accessible_liquidity = np.maximum(
                 accessible_liquidity - self._legacy_obligations_due(), 0.0
             )
+        if cfg.healthcare_cash_reservation:
+            # A queued visit's expected out-of-pocket cost is held back from
+            # spending and saving; it is charged only at service.
+            accessible_liquidity = np.maximum(
+                accessible_liquidity - self._healthcare_reservations(), 0.0
+            )
 
         # Savings drawdown: personality-derived fraction of accessible liquidity (slow trickle)
         drawdown = drawdown_rates * accessible_liquidity
@@ -1089,6 +1099,42 @@ class Economy:
         drawdown = np.where(in_desperation, np.maximum(drawdown, desperation_drawdown), drawdown)
 
         return np.minimum(base_budget + drawdown, accessible_liquidity)
+
+    def _healthcare_reservations(self) -> np.ndarray:
+        """Cash each household holds back for its queued healthcare visit.
+
+        Per household, in self.households order: ``price * share`` when
+        ``queued_healthcare_firm_id`` names an existing provider, where
+        ``price = max(0, firm.price)`` and ``share`` is
+        ``Economy.expected_healthcare_household_share(price)`` (government's
+        getter, which mirrors the active sequence's charge: the subsidy rule
+        with this tick's live budget on legacy; settle_payment_care's split
+        on income_first / income_late, 1.0 under patient_pay and 0.0 under
+        covered). 0 for households not queued, or whose provider has gone.
+        Read-only: nothing is charged or moved, and a reserve that is no
+        longer needed simply disappears next call because the queue id is
+        cleared on service and on an affordability drop, and the provider
+        leaves firm_lookup on exit.
+
+        It is an estimate. The charge at service re-reads the price (and, on
+        legacy, the subsidy budget; each queued household here sees the whole
+        budget left, while at service earlier visits use it up first). So on
+        legacy a binding cap can leave the reserve short of the charge, and a
+        reprice between budget and service shifts both by the price change.
+        """
+        firm_lookup = self.firm_lookup
+        reserves = np.zeros(len(self.households), dtype=np.float64)
+        for idx, household in enumerate(self.households):
+            firm_id = household.queued_healthcare_firm_id
+            if firm_id is None:
+                continue
+            firm = firm_lookup.get(firm_id)
+            if firm is None:
+                continue
+            price = max(0.0, float(firm.price))
+            if price > 0.0:
+                reserves[idx] = price * self.expected_healthcare_household_share(price)
+        return reserves
 
     def _legacy_obligations_due(self) -> np.ndarray:
         """Known household payments that fall due later in this legacy tick.

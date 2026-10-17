@@ -4,6 +4,30 @@ Notable changes and decisions for EcoSim, newest first. The project does not use
 
 ## Unreleased
 
+### 2026-10-17: Households hold back cash for a queued healthcare visit (flag off)
+
+Steering B (households). Stacked on #45, whose getter it reads. The behavior sits behind `CONFIG.households.healthcare_cash_reservation`, default off.
+
+- **Before:** a queued household spent and saved as if the visit were free. The visit then hit its cash at service, after the shopping decision, so it relied on the deposit withdrawal, a medical loan, or being dropped from the queue.
+- **After:** while `queued_healthcare_firm_id` is set, the weekly budget takes `firm.price * Economy.expected_healthcare_household_share(firm.price)` off the accessible liquidity it spends and saves from. That liquidity is also the input #29's buffer rule reads.
+  - It is a reservation, not a charge: no money moves.
+  - The charge still happens at service, in the unchanged `_process_healthcare_services`.
+  - The reserve lapses when the queue id clears (served, dropped, provider exit).
+  - It applies on every payment sequence.
+- **No new numbers:** the price is the provider's, and the share comes from government's getter.
+- **Measured (legacy path, seed 42, 1,000 households, 260 weeks).**
+  - No household was dropped for lack of funds and no medical loan was issued in either arm, so the reserve has nothing to prevent there.
+  - Consumption and liquid wealth move within path noise; seed 7 flips the sign of the liquid-wealth change.
+  - Happiness is unchanged.
+- **The reserve matches the real charge on every sequence.** On legacy it uses the subsidy rule and the live cap. On `income_first` and `income_late` it follows `settle_payment_care` (#45 at 2038720): the full price under `patient_pay`, 0 under `covered`.
+- **`income_first`, `hc_subsidy`, seed 42:**
+  - Drops for lack of funds fall from 5.4% to 4.1% of visit attempts.
+  - Completed visits rise from 7,334 to 7,365.
+  - Median happiness goes from 0.397 to 0.401.
+  - Consumption and liquid wealth are flat.
+
+Evidence: `backend/tests_contracts/test_households_healthcare_reserve.py` (11 tests, including reserve vs charge on `income_first` for `patient_pay` and `covered`). Repro, from `backend/`: `PYTHONHASHSEED=0 python tools/analysis/run_households_healthcare_reserve_compare.py`.
+
 ### 2026-10-17: Read-only estimate of the household's share of a healthcare visit
 
 Households had no way to know what a visit would cost them before the charge, so they could not set money aside for a queued visit. New read-only getters give that number. No behavior change: per-tick metrics JSON is byte-identical to `main` in 24 seeded runs (details below).
