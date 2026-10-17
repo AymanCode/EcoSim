@@ -2537,8 +2537,7 @@ class Economy:
             household.apply_labor_outcome(
                 hh_outcome,
                 market_wage_anchor=anchor,
-                current_tick=self.current_tick,
-                unemployment_rate=tick.unemployment_rate,
+                current_tick=self.current_tick
             )
 
         # Keep firm-side employee rosters aligned with household employment outcomes.

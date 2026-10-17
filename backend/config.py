@@ -188,11 +188,10 @@ class HouseholdBehaviorConfig:
     unemployed_market_anchor_percentile: float = 50.0
     reservation_adjustment_rate: float = 0.1
 
-    # Buffer-stock consumption and slow reservation-wage decay (round 1 PR3,
-    # first-pass spec section 3 A/B). Both flags default off so the joint
-    # before/after run (PR7) can toggle them; every range is sampled once per
-    # household from a private RNG seeded by household_id, so turning a flag
-    # on does not shift any other household draw.
+    # Buffer-stock consumption (round 1 PR3, first-pass spec section 3A).
+    # The flag defaults off so the joint before/after run (PR7) can toggle
+    # it; every range is sampled once per household from a private RNG seeded
+    # by household_id, so these traits do not shift any other household draw.
     #
     # buffer_stock_consumption: bool, default False. When True, weekly
     #   budget = income * MPC + k * (liquidity - buffer_target), replacing the
@@ -232,42 +231,6 @@ class HouseholdBehaviorConfig:
     #   of the default 30/week benefit, so a household with no income aims to
     #   hold a few weeks of a minimal income.
     buffer_income_floor: float = 20.0
-
-    # slow_reservation_decay: bool, default False. When True, an unemployed
-    #   household's reservation wage falls by its own weekly rate (slower with
-    #   savings) instead of blending 15-30%/tick toward an expected wage that
-    #   itself decays 3%/tick, and the $1 absolute floor becomes a live floor
-    #   min(benefit + living cost, 1.5 x benefit). The 3x speed-up after 5
-    #   unemployed ticks is removed on this path.
-    slow_reservation_decay: bool = False
-    # reservation_decay_rate_range: weekly proportional decay while
-    #   unemployed. Units: fraction/week. Valid: 0 <= lo <= hi < 1. Default
-    #   (0.0007, 0.0021) centres on 0.14%/week, the decline in reservation
-    #   wages per week of unemployment estimated by Krueger & Mueller (2016,
-    #   AEJ: Policy) and in the range of Le Barbanchon et al. (2019).
-    reservation_decay_rate_range: Tuple[float, float] = (0.0007, 0.0021)
-    # reservation_savings_slowdown: s in rate x (1 + s * (1 - 2 * cushion)),
-    #   cushion = min(1, liquidity / buffer target). An empty cushion decays
-    #   (1 + s)x faster, a full one (1 - s)x. Valid: [0, 1]. Default 0.5 gives
-    #   the 3:1 spread between broke and well-cushioned job seekers in the
-    #   reservation-wage decline estimates of Krueger & Mueller (2016), who
-    #   find the fall concentrated among those with low savings.
-    reservation_savings_slowdown: float = 0.5
-    # reservation_spell_acceleration: extra decay per year of unemployment,
-    #   rate x (1 + a * min(1, duration / 52)). Valid: >= 0. Default 1.0
-    #   doubles the decay after a year, matching the steeper decline for
-    #   long-term unemployed in Le Barbanchon, Rathelot & Roulet (2019, QJE).
-    reservation_spell_acceleration: float = 1.0
-    # reservation_floor_benefit_cap: cap on the floor as a multiple of the
-    #   live unemployment benefit. Valid: >= 1. Default 1.5 (spec; ties to
-    #   the business agent's firm offer floor). It binds above the minimum
-    #   wage when the benefit is generous, see the PR3 description.
-    reservation_floor_benefit_cap: float = 1.5
-    # living_cost_housing_share: share of one housing unit price counted as
-    #   weekly living cost (was the inline 0.3 in plan_labor_supply).
-    #   Valid: [0, 1]. Unchanged default (one unit of housing is rented
-    #   roughly monthly against weekly ticks), so no behavior change.
-    living_cost_housing_share: float = 0.3
 
     # Skill Development
     skill_growth_rate: float = 0.001  # Passive improvement per tick

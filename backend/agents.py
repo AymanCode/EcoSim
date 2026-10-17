@@ -217,11 +217,10 @@ class HouseholdAgent(AgentMixin):
     deposit_buffer_weeks: Optional[float] = None  # Weeks of expenses to keep liquid before depositing
     deposit_fraction: Optional[float] = None  # Fraction of excess cash deposited per tick
     savings_drawdown_rate: Optional[float] = None  # Fraction of cash savings spent per tick (personality-derived)
-    # PR3 buffer-stock and reservation traits, drawn once per household from a
-    # private RNG (see _initialize_pr3_traits); constructor values win.
+    # PR3 buffer-stock traits, drawn once per household from a private RNG
+    # (see _initialize_pr3_traits); constructor values win.
     buffer_target_weeks: Optional[float] = None  # Weeks of weekly income held as cash + deposits
     buffer_adjust_speed: Optional[float] = None  # k: share of the buffer gap spent or saved per week
-    reservation_decay_rate: Optional[float] = None  # Weekly reservation-wage decay while unemployed
     risk_aversion: Optional[float] = None  # Precautionary multiplier on the buffer target, mean 1
 
     # Fix 25: Consumption credit (small loans to bridge income shocks)
@@ -644,7 +643,7 @@ class HouseholdAgent(AgentMixin):
         self._initialize_pr3_traits(spender_score)
 
     def _initialize_pr3_traits(self, spender_score: float) -> None:
-        """Draw the buffer-stock and reservation-decay traits for this household.
+        """Draw the buffer-stock traits for this household.
 
         Uses its own RNG, seeded by ``CONFIG.random_seed`` and ``household_id``,
         so the existing personality draws above keep their values and order.
@@ -654,10 +653,9 @@ class HouseholdAgent(AgentMixin):
                 spending_tendency, low saving_tendency).
 
         Invariants: ``buffer_target_weeks`` > 0, ``buffer_adjust_speed`` in
-        (0, 1], ``reservation_decay_rate`` in [0, 1), ``risk_aversion`` in
-        ``risk_aversion_range``. Savers get a larger
-        target and a smaller k; spenders the reverse. That is the corrected
-        direction of the saving personality.
+        (0, 1], ``risk_aversion`` in ``risk_aversion_range``. Savers get a
+        larger target and a smaller k; spenders the reverse. That is the
+        corrected direction of the saving personality.
         """
         config = CONFIG.households
         rng = random.Random(CONFIG.random_seed * 7919 + self.household_id * 104729 + 3)
@@ -669,57 +667,12 @@ class HouseholdAgent(AgentMixin):
         k = lo + (hi - lo) * spender_score * rng.uniform(0.8, 1.2)
         if self.buffer_adjust_speed is None:
             self.buffer_adjust_speed = max(1e-4, min(1.0, k))
-        lo, hi = config.reservation_decay_rate_range
-        decay = rng.uniform(lo, hi)
-        if self.reservation_decay_rate is None:
-            self.reservation_decay_rate = max(0.0, min(0.99, decay))
         # Half saving_tendency, half noise: savers lean risk averse, but the
         # traits are not the same number.
         lo, hi = config.risk_aversion_range
         position = 0.5 * float(self.saving_tendency) + 0.5 * rng.random()
         if self.risk_aversion is None:
             self.risk_aversion = lo + (hi - lo) * position
-
-    def living_cost_per_tick(
-        self,
-        category_expected_prices: Optional[Dict[str, float]] = None,
-    ) -> float:
-        """Weekly living cost: a share of one housing unit plus minimum food.
-
-        Args:
-            category_expected_prices: Median posted price per lowercase
-                category; None falls back to this household's price beliefs.
-
-        Returns:
-            Currency per week, ``living_cost_housing_share * housing price +
-            min_food_per_tick * food price``. Reads market prices, so it uses
-            whatever rent the market (and any government cap) set.
-        """
-        if category_expected_prices is not None:
-            housing = category_expected_prices.get("housing", self.default_price_level)
-            food = category_expected_prices.get("food", self.default_price_level)
-        else:
-            housing = self.price_beliefs.get("housing", self.default_price_level)
-            food = self.price_beliefs.get("food", self.default_price_level)
-        share = CONFIG.households.living_cost_housing_share
-        return share * housing + self.min_food_per_tick * food
-
-    def reservation_wage_floor(
-        self,
-        unemployment_benefit: float,
-        category_expected_prices: Optional[Dict[str, float]] = None,
-    ) -> float:
-        """Live floor under the reservation wage (PR3, spec 3B).
-
-        ``min(benefit + living cost, reservation_floor_benefit_cap * benefit)``.
-        ``unemployment_benefit`` is the government's current benefit level
-        (``get_unemployment_benefit_level()``), read each tick; transfer
-        top-ups are not included. With a zero benefit the floor is 0, so a
-        household with no safety net can accept any positive wage.
-        """
-        benefit = max(0.0, float(unemployment_benefit))
-        cap = CONFIG.households.reservation_floor_benefit_cap * benefit
-        return min(benefit + self.living_cost_per_tick(category_expected_prices), cap)
 
     def _normalize_category_weights(self, weights: Dict[str, float]) -> Dict[str, float]:
         """Normalize spending-category budget weights so they sum to 1.0.
@@ -1520,7 +1473,13 @@ class HouseholdAgent(AgentMixin):
         reservation_wage_for_tick = self.reservation_wage
 
         # Dynamic living cost based on price beliefs
-        living_cost = self.living_cost_per_tick(category_expected_prices)
+        if category_expected_prices is not None:
+            expected_housing_price = category_expected_prices.get("housing", self.default_price_level)
+            expected_food_price = category_expected_prices.get("food", self.default_price_level)
+        else:
+            expected_housing_price = self.price_beliefs.get("housing", self.default_price_level)
+            expected_food_price = self.price_beliefs.get("food", self.default_price_level)
+        living_cost = 0.3 * expected_housing_price + self.min_food_per_tick * expected_food_price
 
         # Desperation scaling: the worse off you are, the lower your standards.
         # Factors: low cash, poor health, long unemployment — each independently
@@ -1575,16 +1534,8 @@ class HouseholdAgent(AgentMixin):
                 market_anchored_reservation,
             )
 
-        if hh_config.slow_reservation_decay:
-            # Live floor: nobody takes a job that pays less than the benefit
-            # plus living cost, capped at 1.5x benefit (spec 3B).
-            reservation_wage_for_tick = max(
-                self.reservation_wage_floor(unemployment_benefit, category_expected_prices),
-                reservation_wage_for_tick,
-            )
-        else:
-            # Legacy absolute floor: never go below $1.
-            reservation_wage_for_tick = max(1.0, reservation_wage_for_tick)
+        # Absolute floor: never go below $1 (any job beats no job)
+        reservation_wage_for_tick = max(1.0, reservation_wage_for_tick)
 
         # Search if unemployed or if cash stress is severe.
         searching_for_job = (not self.is_employed) or (self.cash_balance < living_cost)
@@ -1815,8 +1766,7 @@ class HouseholdAgent(AgentMixin):
         self,
         outcome: Dict[str, object],
         market_wage_anchor: Optional[float] = None,
-        current_tick: int = 0,
-        unemployment_rate: float = 0.0,
+        current_tick: int = 0
     ) -> None:
         """
         Update employment status and wage beliefs based on labor market outcome.
@@ -1827,9 +1777,6 @@ class HouseholdAgent(AgentMixin):
             outcome: Dict with employer_id (int | None), wage (float), and employer_category (str | None)
             market_wage_anchor: Optional market-paid wage to nudge expectations toward
             current_tick: Current simulation tick (for rate-limiting skill/wage growth)
-            unemployment_rate: This tick's unemployment rate, in [0, 1]. Only
-                read under ``slow_reservation_decay`` (raises the buffer target
-                that sets how fast the reservation wage falls).
         """
         self.employer_id = outcome["employer_id"]
         self.wage = outcome["wage"]
@@ -1902,10 +1849,6 @@ class HouseholdAgent(AgentMixin):
             else:
                 self.expected_wage = decayed_expectation
 
-        if hh_config.slow_reservation_decay and not self.is_employed:
-            self.reservation_wage = self.decayed_reservation_wage(unemployment_rate)
-            return
-
         # Reservation wage tracks expected wage — faster when desperate
         if self.unemployment_duration > 5:
             res_rate = hh_config.reservation_adjustment_rate * 3.0
@@ -1928,26 +1871,6 @@ class HouseholdAgent(AgentMixin):
         income = max(float(weekly_income), cfg.buffer_income_floor)
         precaution = 1.0 + cfg.buffer_unemployment_slope * max(0.0, float(unemployment_rate))
         return float(self.buffer_target_weeks) * float(self.risk_aversion) * precaution * income
-
-    def decayed_reservation_wage(self, unemployment_rate: float = 0.0) -> float:
-        """Next reservation wage for an unemployed household (PR3, spec 3B).
-
-        Weekly rate = ``reservation_decay_rate`` (per-household, mean 0.14%)
-        x ``(1 + s * (1 - 2 * cushion))`` x ``(1 + a * min(1, weeks / 52))``,
-        where cushion = min(1, liquidity / buffer target for the expected
-        wage), s = ``reservation_savings_slowdown`` and a =
-        ``reservation_spell_acceleration``. Low cash and long spells speed
-        the fall; savings slow it. No floor here: the live floor is applied
-        in ``plan_labor_supply`` because the benefit can change.
-        """
-        cfg = CONFIG.households
-        liquidity = max(0.0, self.cash_balance) + max(0.0, self.bank_deposit)
-        target = self.buffer_target(self.expected_wage, unemployment_rate)
-        cushion = min(1.0, liquidity / target) if target > 0 else 0.0
-        cash_factor = 1.0 + cfg.reservation_savings_slowdown * (1.0 - 2.0 * cushion)
-        spell_factor = 1.0 + cfg.reservation_spell_acceleration * min(1.0, self.unemployment_duration / 52.0)
-        rate = min(0.99, float(self.reservation_decay_rate) * cash_factor * spell_factor)
-        return self.reservation_wage * (1.0 - rate)
 
     def maybe_active_education(self) -> float:
         """
