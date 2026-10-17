@@ -4,6 +4,18 @@ Notable changes and decisions for EcoSim, newest first. The project does not use
 
 ## Unreleased
 
+### 2026-10-17: Read-only estimate of the household's share of a healthcare visit
+
+Households had no way to know what a visit would cost them before the charge, so they could not set money aside for a queued visit. New read-only getters give that number. No behavior change: per-tick metrics JSON is byte-identical to `main` in 24 seeded runs (details below).
+
+- `GovernmentAgent.healthcare_visit_subsidy_share()`: the requested public share on the legacy path, moved out of `Economy._process_healthcare_services` unchanged (the healthcare sector-subsidy rate when that lever is active, else `healthcare_visit_subsidy_share`, default 0). The legacy visit charge now calls it.
+- `GovernmentAgent.expected_healthcare_household_share(visit_price, subsidy_budget_left=inf)`: the legacy rule, `(price - min(price * share, budget)) / price`, clamped to [0, 1]; `1 - share` at price 0. The subsidy cap is in dollars, so the share rises with the price once the cap binds. Pure; documented as an estimate because the budget can change before the visit is served.
+- `Economy.sector_subsidy_budget_left()`: the dollars `apply_sector_subsidy_payment` will pay against (legacy: the smaller of the per-tick cap left and free treasury cash, 0 when free cash is not positive; payment arms: the `G` restriction). `apply_sector_subsidy_payment` now reads it.
+- `payment_sectors.payment_care_public_share(economy)`: 1.0 for `payment_care_mode="covered"`, 0.0 for `"patient_pay"` (the default). On `income_first` / `income_late`, care is charged in `settle_payment_care`, which ignores the sector subsidy lever; it now takes its public/household split from this helper (`public = price * share`, exactly `price` or `0.0` as before).
+- `Economy.expected_healthcare_household_share(visit_price)`: the entry point for households. Legacy: the government getter with this tick's budget. Payment sequences: `1 - payment_care_public_share`, so 1.0 under `patient_pay` and 0.0 under `covered`, whatever the subsidy lever says. Households will read it with `queued_healthcare_firm_id` and that firm's price (a later PR).
+
+Evidence: `tests_contracts/test_expected_healthcare_share.py` (14 unit tests) and `tests_contracts/test_expected_healthcare_share_live.py` (6 seeded-run tests: the legacy budget and charge, plus the estimate against every care sale `settle_payment_care` commits for both payment sequences and both care modes). `tools/benchmarks/run_healthcare_share_snapshot.py` hashes the full metrics JSON; all 24 hashes match `main` (legacy and `income_first` under `patient_pay`; `income_first` and `income_late` under `covered`).
+
 ### 2026-10-16: Poverty and wealth-loss terms read liquid wealth
 
 Bug fix from the PR7 investigation (item 3). `Economy._batch_update_wellbeing` read `cash_balance` alone for the poverty penalties and the wealth-loss term. The weekly deposit sweep runs after `last_tick_cash_start` is set and before wellbeing, so saving money in the bank counted as a wealth loss. The legacy withdrawal refills cash only to about 160, below the 200 poverty line, so households with savings were also scored as poor.

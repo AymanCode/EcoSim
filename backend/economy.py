@@ -1491,6 +1491,46 @@ class Economy:
             if abs(taxes_paid) > 1e-12:
                 ledger["taxes"] = ledger.get("taxes", 0.0) - float(taxes_paid)
 
+    def sector_subsidy_budget_left(self) -> float:
+        """$ the treasury can still pay toward sector subsidies this tick (read-only).
+
+        The cap ``apply_sector_subsidy_payment`` pays against. Legacy path:
+        the smaller of the per-tick subsidy budget left
+        (``sector_subsidy_remaining_this_tick``) and free treasury cash, or 0
+        when free cash is not positive. Payment arms: the ``G`` restriction.
+        """
+        if self.payment_sequence != "legacy":
+            return self.payment_state["restrictions"].get("G", 0.0)
+        free_cash = self._payment_free_treasury_cash()
+        if free_cash <= 0.0:
+            return 0.0
+        return min(max(0.0, self.sector_subsidy_remaining_this_tick), free_cash)
+
+    def expected_healthcare_household_share(self, visit_price: float) -> float:
+        """Estimated share (0..1) a household would pay for a visit at ``visit_price`` now.
+
+        Read-only. Mirrors the charge path of the active payment sequence:
+
+        - ``legacy``: visits are charged in ``_process_healthcare_services``,
+          so this is ``GovernmentAgent.expected_healthcare_household_share``
+          with this tick's subsidy budget (``sector_subsidy_budget_left``).
+          An estimate: the budget can change before the visit is served.
+        - ``income_first`` / ``income_late``: visits are charged in
+          ``payment_sectors.settle_payment_care``, which ignores the sector
+          subsidy lever and splits by ``payment_care_mode`` through
+          ``payment_care_public_share``: 1.0 for ``patient_pay`` (part may be
+          borrowed as a medical loan, still the household's) and 0.0 for
+          ``covered``. A covered visit the care budget cannot fund is not
+          served rather than shifted to the household.
+        """
+        if self.payment_sequence != "legacy":
+            from payment_sectors import payment_care_public_share
+
+            return 1.0 - payment_care_public_share(self)
+        return self.government.expected_healthcare_household_share(
+            visit_price, self.sector_subsidy_budget_left()
+        )
+
     def apply_sector_subsidy_payment(self, requested_share: float) -> Tuple[float, float]:
         """Pay a sector subsidy request from the shared per-tick subsidy cap.
 
@@ -1504,7 +1544,7 @@ class Economy:
             return 0.0, 0.0
 
         if self.payment_sequence != "legacy":
-            funded = min(requested_share, self.payment_state["restrictions"].get("G", 0.0))
+            funded = min(requested_share, self.sector_subsidy_budget_left())
             if funded:
                 self._payment_spend_restriction("G", funded)
             denied = requested_share - funded
@@ -1515,10 +1555,7 @@ class Economy:
             self.last_tick_gov_subsidy_denied_by_cap += requested_share
             return 0.0, requested_share
 
-        available = min(
-            max(0.0, self.sector_subsidy_remaining_this_tick),
-            self._payment_free_treasury_cash(),
-        )
+        available = self.sector_subsidy_budget_left()
         government_paid = min(requested_share, available)
         denied = requested_share - government_paid
 
@@ -7925,11 +7962,8 @@ class Economy:
         if not healthcare_firms:
             return
 
-        # Use sector_subsidy lever if targeting healthcare; otherwise fall back to config
-        if self.government.sector_subsidy_target == "healthcare" and self.government._sector_subsidy_rate > 0:
-            subsidy_share = self.government._sector_subsidy_rate
-        else:
-            subsidy_share = max(0.0, min(1.0, CONFIG.government.healthcare_visit_subsidy_share))
+        # Same share rule as GovernmentAgent.expected_healthcare_household_share.
+        subsidy_share = self.government.healthcare_visit_subsidy_share()
 
         for firm in healthcare_firms:
             firm.inventory_units = 0.0
