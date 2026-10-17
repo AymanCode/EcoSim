@@ -12,6 +12,9 @@ Scenarios:
     public_works  public works on and high infrastructure/technology spending;
                   the treasury gets +$2M at tick 0 so the startup is affordable,
                   so purchases reach the PublicWorks firm.
+    social_high   sensitivity only: default levers with social_spending
+                  "high", the one setting where social_max_multiplier binds
+                  (at "medium" the multiplier settles near 1.05).
 
 Usage (from backend/):
     python tools/benchmarks/run_pr5_government_compare.py \\
@@ -79,8 +82,11 @@ SENSITIVITY = (
     ("government.surplus_trigger_share_of_reserve", 0.20, 0.10, 0.30, ("default", "stress")),
     ("government.surplus_use_rate", 0.12, 0.06, 0.18, ("default", "stress")),
     ("government.public_capital_decay_per_tick", 0.05, 0.025, 0.075, ("stress",)),
-    ("government.public_capital_max_multiplier", 1.15, 1.075, 1.225, ("stress",)),
-    ("government.social_max_multiplier", 1.15, 1.075, 1.225, ("default",)),
+    # Caps are tested where they can bind: public_works keeps infra/tech
+    # funding on all run (multipliers near 1.146 at tick 104); stress stops
+    # funding at mid-run, so by tick 104 the stock has decayed below any cap.
+    ("government.public_capital_max_multiplier", 1.15, 1.075, 1.225, ("public_works",)),
+    ("government.social_max_multiplier", 1.15, 1.075, 1.225, ("social_high",)),
     ("government.public_works_purchase_markup", 0.05, 0.025, 0.075, ("public_works",)),
     ("llm.government_rolling_windows_ticks", 13, 6, 20, ("default",)),
     ("llm.government_approval_stress_weeks_of_wage", 1.0, 0.5, 1.5, ("default",)),
@@ -92,6 +98,7 @@ SENSITIVITY_KEYS = (
     ("gdp_this_tick", "GDP", "{:+,.0f}"),
     ("public_debt", "debt", "{:+,.0f}"),
     ("technology_quality", "tech", "{:+.4f}"),
+    ("social_multiplier", "social", "{:+.4f}"),
     ("public_works_workers", "PW workers", "{:+.0f}"),
     ("approval_happiness_change", "approval dH", "{:+.4f}"),
     ("approval_financial_stress_share", "stress share", "{:+.3f}"),
@@ -131,6 +138,8 @@ def run_once(households: int, firms: int, seed: int, ticks: int, pr5_on: bool, s
             gov.set_lever("technology_spending", "high")
         if scenario == "stress":
             gov.set_lever("benefit_level", "crisis")
+        if scenario == "social_high":
+            gov.set_lever("social_spending", "high")
         if scenario == "public_works":
             gov.set_lever("public_works", "on")
             gov.cash_balance += 2_000_000.0
@@ -151,6 +160,7 @@ def run_once(households: int, firms: int, seed: int, ticks: int, pr5_on: bool, s
         metrics["government_cash"] = float(gov.cash_balance)
         metrics["gov_profit_taxes_this_tick"] = float(economy.last_tick_gov_profit_taxes)
         metrics["bank_reserves_min"] = bank_reserves_min
+        metrics["social_multiplier"] = float(gov.social_happiness_multiplier)
         metrics["public_works_workers"] = float(sum(
             len(f.employees) for f in economy.firms if f.good_category == "PublicWorks"
         ))
