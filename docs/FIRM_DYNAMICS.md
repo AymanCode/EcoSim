@@ -185,11 +185,18 @@ same value for diagnostics.
 
 ```
 score = 0.30*skill + 0.25*health + 0.25*morale + 0.20*happiness   (each 0-1)
-effectiveness = clamp(1 + 1.2*(score - 0.5), 0.8, 1.25)
+z = 1.3*(score - 0.5)
+effectiveness = 1 + 0.25*tanh(z/0.25)   if z >= 0
+                1 - 0.20*tanh(-z/0.20)  if z < 0
 ```
 
 - A worker at 0.5 on every input is exactly 1.0x.
-- Happiness alone moves output by at most 1.2 * 0.20 * 0.5 = +/-12%.
+- The curve flattens toward 0.8x and 1.25x but never reaches them, so a
+  better worker always produces more. A hard clamp put about half of all
+  employed workers exactly at 1.25x in seeded runs; the soft saturation
+  leaves about 2% within 0.005 of it.
+- Happiness alone moves a neutral worker's output by about +/-12%
+  (+11.9% / -11.4%).
 - Goods: a worker's multiplier is `(1 + experience_bonus) * effectiveness`,
   where the experience bonus (5% per year in the category, capped at 50%) is
   unchanged. The firm's average then takes the infrastructure and supply-shock
@@ -198,10 +205,18 @@ effectiveness = clamp(1 + 1.2*(score - 0.5), 0.8, 1.25)
   to `services_units_per_worker_range` (1-7). Before PR2 this path ignored the
   firm's own `units_per_worker` and mapped a 0-1 score straight onto 1-7.
 
+Labor demand does not read effectiveness. `_workers_for_sales`,
+`_capacity_for_workers` and `_profit_optimal_workers` plan headcount from the
+firm's frontier (`units_per_worker`, capital); effectiveness only scales the
+realized output afterwards, which stays capped by capacity. Wage offers do
+not read it either, and layoffs take the roster front (`employees[:n]`), not
+the least effective worker.
+
 Config (all in `CONFIG.firms`): `worker_effectiveness_{skill,health,morale,
 happiness}_weight` (must sum to 1), `worker_effectiveness_slope`,
 `worker_effectiveness_min`, `worker_effectiveness_max`. See `config.py` for
-units and valid ranges.
+units and valid ranges, and `backend/worker_effectiveness.py` for why each
+number has its value.
 
 ---
 
