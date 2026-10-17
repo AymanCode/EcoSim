@@ -398,11 +398,19 @@ class Economy:
         """True when the firm may change its price this tick.
 
         Firms reprice every tick today. PR4 (sticky prices) adds
-        ``FirmAgent.next_price_review_tick``; when present and still in the
-        future, the firm is between reviews.
+        ``FirmAgent.next_price_review_tick`` and ``last_price_review_tick``.
+        The cap check runs after ``plan_pricing``, so on a review tick PR4
+        has already moved ``next_price_review_tick`` into the future; the
+        ``last_price_review_tick == current_tick`` test keeps that tick a
+        review. Both attributes are read with ``getattr`` fallbacks, so this
+        returns True every tick until PR4 adds them.
         """
+        now = int(self.current_tick)
+        last_review = getattr(firm, "last_price_review_tick", None)
+        if last_review is not None and int(last_review) == now:
+            return True
         next_review = getattr(firm, "next_price_review_tick", None)
-        return next_review is None or int(next_review) <= int(self.current_tick)
+        return next_review is None or int(next_review) <= now
 
     def _apply_price_stabilization_to_plan(self, firm: FirmAgent, price_plan: Dict[str, float]) -> None:
         """Cap sector price increases selected by government policy.

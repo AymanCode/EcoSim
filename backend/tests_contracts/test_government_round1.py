@@ -260,3 +260,22 @@ def test_approval_observation_reports_change_and_stress(monkeypatch):
     assert obs["approval_happiness_change"] == pytest.approx(0.1)
     assert obs["approval_financial_stress_share"] == pytest.approx(0.5)
     assert "Approval" in _format_approval(obs)
+
+
+def test_review_tick_counts_as_review_after_pr4_moves_the_clock():
+    """PR4 sets next_price_review_tick during plan_pricing, before the cap check.
+
+    FirmAgent uses slots and has no PR4 fields yet, so a stand-in object
+    carries them; _price_review_due only reads the two attributes.
+    """
+    from types import SimpleNamespace
+
+    economy, firm = _capped_food_economy()
+    now = economy.current_tick
+    reviewed_now = SimpleNamespace(last_price_review_tick=now, next_price_review_tick=now + 6)
+    between = SimpleNamespace(last_price_review_tick=now - 2, next_price_review_tick=now + 4)
+    due = SimpleNamespace(last_price_review_tick=now - 6, next_price_review_tick=now)
+    assert economy._price_review_due(reviewed_now)
+    assert not economy._price_review_due(between)
+    assert economy._price_review_due(due)
+    assert economy._price_review_due(firm)  # pre-PR4 firm: every tick is a review
