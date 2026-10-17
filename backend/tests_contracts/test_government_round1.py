@@ -91,6 +91,23 @@ def test_weekly_interest_at_bank_rate_goes_to_bank():
     assert gov.cash_balance + bank.cash_reserves == pytest.approx(before)  # conserved
 
 
+def test_debt_rate_follows_bank_policy_rate_and_debt_burden():
+    bank = BankAgent(cash_reserves=0.0, base_interest_rate=0.02)
+    gov = GovernmentAgent(cash_balance=0.0)
+    low = gov.public_debt_annual_rate(bank, debt_to_gdp=0.0)
+    high = gov.public_debt_annual_rate(bank, debt_to_gdp=1.0)
+    assert low == pytest.approx(0.02)
+    assert high == pytest.approx(0.02 + CONFIG.government.public_debt_risk_premium)
+    bank.base_interest_rate = 0.05  # policy rate moves -> debt rate moves
+    assert gov.public_debt_annual_rate(bank, 0.0) == pytest.approx(0.05)
+
+
+def test_surplus_reserve_scales_with_gdp():
+    gov = GovernmentAgent(cash_balance=0.0)
+    gov.settle_public_debt(BankAgent(cash_reserves=0.0), recent_gdp=100_000.0)
+    assert gov._surplus_reserve() == pytest.approx(100_000.0 * CONFIG.government.surplus_reserve_gdp_weeks)
+
+
 def test_unpaid_interest_is_capitalized():
     gov = GovernmentAgent(cash_balance=0.0)
     gov.public_debt = 52_000.0
@@ -101,7 +118,7 @@ def test_unpaid_interest_is_capitalized():
 
 
 def test_surplus_splits_between_paydown_and_bond_buy():
-    reserve = CONFIG.government.surplus_reserve
+    reserve = GovernmentAgent.LEGACY_SURPLUS_RESERVE  # no GDP passed yet
     gov = GovernmentAgent(cash_balance=reserve + 100_000.0)
     gov.public_debt = 1_000_000.0
     bank = BankAgent(cash_reserves=0.0, base_interest_rate=0.0)
@@ -114,7 +131,7 @@ def test_surplus_splits_between_paydown_and_bond_buy():
 
 
 def test_no_debt_means_full_bond_buy_like_before():
-    reserve = CONFIG.government.surplus_reserve
+    reserve = GovernmentAgent.LEGACY_SURPLUS_RESERVE  # no GDP passed yet
     gov = GovernmentAgent(cash_balance=reserve + 100_000.0)
     gov.settle_public_debt(BankAgent(cash_reserves=0.0))
     assert gov.make_investments()["bonds"] == pytest.approx(100_000.0 * CONFIG.government.surplus_use_rate)
@@ -307,8 +324,8 @@ def test_approval_observation_reports_change_and_stress(monkeypatch):
     from tools.llm.llm_government import _format_approval
 
     monkeypatch.setattr(CONFIG.llm, "government_approval_observation_enabled", True)
-    poor, rich = _household(1), _household(2)
-    poor.cash_balance, rich.cash_balance = 0.0, 10_000.0
+    poor, rich = _household(1), _household(2, wage=100.0, employed=True)
+    poor.cash_balance, rich.cash_balance = 50.0, 10_000.0  # threshold = 1 week of mean wage = 100
     poor.happiness = rich.happiness = 0.6
     gov = GovernmentAgent(cash_balance=0.0)
     economy = Economy(households=[poor, rich], firms=[], government=gov)

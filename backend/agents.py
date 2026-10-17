@@ -5898,6 +5898,8 @@ class GovernmentAgent(AgentMixin):
     last_tick_debt_borrowed: float = 0.0   # $ shortfall moved to debt this tick
     last_tick_debt_repaid: float = 0.0     # $ surplus used to repay principal this tick
     last_tick_surplus_use_base: float = 0.0  # $ surplus use computed before paydown this tick
+    last_tick_debt_rate: float = 0.0       # annual rate charged this tick (policy rate + risk premium)
+    last_recent_gdp: float = 0.0           # trailing weekly GDP passed to settle_public_debt
 
     # ── Healthcare telemetry for get_health_coverage (round 1, PR5) ──
     # Rolled over by Economy at the start of each tick from the previous
@@ -6823,34 +6825,59 @@ class GovernmentAgent(AgentMixin):
         )
         return investment
 
+    # Pre-PR5 literal reserve, kept only for the flag-off (rollback) path.
+    LEGACY_SURPLUS_RESERVE = 50_000.0
+
+    def _surplus_reserve(self) -> float:
+        """Treasury working balance ($) kept before any surplus is used.
+
+        With public debt on: ``surplus_reserve_gdp_weeks`` weeks of recent
+        GDP, so the reserve scales with the economy (1.5 weeks is about the
+        old $50k at the 400-household calibration). Falls back to the
+        pre-PR5 $50k before any GDP is known or with public debt off.
+        """
+        gdp = float(self.last_recent_gdp or 0.0)
+        if CONFIG.government.public_debt_enabled and gdp > 0.0:
+            return max(0.0, float(CONFIG.government.surplus_reserve_gdp_weeks)) * gdp
+        return self.LEGACY_SURPLUS_RESERVE
+
     def _surplus_above_reserve(self) -> float:
-        """Free treasury cash ($) above ``surplus_reserve``; 0 when below it."""
+        """Free treasury cash ($) above ``_surplus_reserve()``; 0 when below it."""
         free_cash = self.cash_balance - self.payment_reserved_cash
-        return max(0.0, free_cash - float(CONFIG.government.surplus_reserve))
+        return max(0.0, free_cash - self._surplus_reserve())
 
     def _surplus_use_this_tick(self) -> float:
         """Surplus ($) the treasury puts to use this tick (paydown + bonds).
 
-        Matches the pre-PR5 rule: nothing until the surplus exceeds 20% of the
-        reserve, then ``surplus_use_rate`` of it per tick.
+        Pre-PR5 rule with its literals moved to config: nothing until the
+        surplus exceeds ``surplus_trigger_share_of_reserve`` (0.2) of the
+        reserve, then ``surplus_use_rate`` (0.12) of it per tick.
         """
+        reserve = self._surplus_reserve()
         surplus = self._surplus_above_reserve()
-        if surplus <= float(CONFIG.government.surplus_reserve) * 0.20:
+        trigger = max(0.0, float(CONFIG.government.surplus_trigger_share_of_reserve))
+        if surplus <= reserve * trigger:
             return 0.0
         return surplus * max(0.0, min(1.0, float(CONFIG.government.surplus_use_rate)))
 
-    def public_debt_annual_rate(self, bank: Optional["BankAgent"] = None) -> float:
-        """Annual interest rate on public debt (fraction/yr).
+    def public_debt_annual_rate(self, bank: "BankAgent", debt_to_gdp: float = 0.0) -> float:
+        """Annual interest rate on public debt (fraction/yr), read fresh each tick.
 
-        The bank's ``base_interest_rate`` is the policy rate when a bank
-        exists (a later Taylor-rule PR moves that rate); otherwise
-        ``public_debt_fallback_annual_rate``.
+        ``bank.current_annual_rate`` (the bank's policy/base rate; a later
+        Taylor-rule PR moves it) plus a sovereign risk premium of
+        ``public_debt_risk_premium`` per unit of annualized debt/GDP.
+        0.035 = 3.5 bp per percentage point of debt/GDP, the midpoint of
+        Laubach (2009, JEEA 7(4)) 3-4 bp estimate.
+
+        Args:
+            bank: the lender holding the debt.
+            debt_to_gdp: public debt / annualized GDP (unitless, >= 0).
         """
-        if bank is not None:
-            return max(0.0, float(bank.base_interest_rate))
-        return max(0.0, float(CONFIG.government.public_debt_fallback_annual_rate))
+        policy_rate = max(0.0, float(bank.current_annual_rate))
+        premium = max(0.0, float(CONFIG.government.public_debt_risk_premium)) * max(0.0, float(debt_to_gdp))
+        return policy_rate + premium
 
-    def settle_public_debt(self, bank: Optional["BankAgent"] = None) -> Dict[str, float]:
+    def settle_public_debt(self, bank: Optional["BankAgent"] = None, recent_gdp: float = 0.0) -> Dict[str, float]:
         """End-of-tick debt settlement (G1). Call once per tick after all spending.
 
         Runs in the institutional-close phase, after discretionary spending.
@@ -6867,6 +6894,9 @@ class GovernmentAgent(AgentMixin):
 
         Args:
             bank: the economy's bank, or None.
+            recent_gdp: trailing weekly GDP ($/tick), for debt/GDP (risk
+                premium) and the GDP-scaled surplus reserve. Stored on
+                ``last_recent_gdp`` for ``make_investments`` this tick.
 
         Returns:
             Dict with ``interest``, ``borrowed`` and ``repaid`` in $ this tick.
@@ -6877,6 +6907,7 @@ class GovernmentAgent(AgentMixin):
         self.last_tick_debt_borrowed = 0.0
         self.last_tick_debt_repaid = 0.0
         self.last_tick_surplus_use_base = 0.0
+        self.last_recent_gdp = max(0.0, float(recent_gdp or 0.0))
         if not CONFIG.government.public_debt_enabled:
             return result
         if bank is None:
@@ -6884,7 +6915,10 @@ class GovernmentAgent(AgentMixin):
             return result
 
         ticks_per_year = max(1, int(CONFIG.time.ticks_per_year))
-        interest = self.public_debt * self.public_debt_annual_rate(bank) / ticks_per_year
+        annual_gdp = self.last_recent_gdp * ticks_per_year
+        debt_to_gdp = self.public_debt / annual_gdp if annual_gdp > 0.0 else 0.0
+        self.last_tick_debt_rate = self.public_debt_annual_rate(bank, debt_to_gdp)
+        interest = self.public_debt * self.last_tick_debt_rate / ticks_per_year
         if interest > 0.0:
             # Paid from cash; if that leaves cash negative, step 2 borrows it,
             # which is the same as capitalizing unpaid interest.
@@ -6915,8 +6949,8 @@ class GovernmentAgent(AgentMixin):
     def make_investments(self) -> Dict[str, float]:
         """Misc bond buy with surplus funds.
 
-        When free treasury cash exceeds ``surplus_reserve`` by more than 20%
-        of the reserve, the treasury uses ``surplus_use_rate`` of the surplus
+        When free treasury cash exceeds the reserve (``_surplus_reserve``)
+        by more than ``surplus_trigger_share_of_reserve`` of it, the treasury uses ``surplus_use_rate`` of the surplus
         per tick. With public debt on and debt outstanding (or repaid this
         tick), ``surplus_debt_paydown_share`` of that already went to
         ``settle_public_debt``; the rest buys "bonds" from the Misc firm,

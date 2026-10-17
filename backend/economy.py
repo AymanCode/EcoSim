@@ -2941,7 +2941,7 @@ class Economy:
 
         # Public debt (PR5, G1): interest, shortfall borrowing, surplus paydown.
         # Runs before the bond buy so the bond buy gets only its share.
-        self.government.settle_public_debt(self.bank)
+        self.government.settle_public_debt(self.bank, trailing_gdp(self))
 
         # Bond purchases with surplus — redirect to Misc firm
         govt_investments = self.government.make_investments()
@@ -7697,13 +7697,14 @@ class Economy:
         self.misc_firm_revenue = 0.0
 
     def _public_works_purchase_price(self, firm: FirmAgent) -> float:
-        """Unit price ($/unit) the government pays a PublicWorks firm: cost + 5% (G3).
+        """Unit price ($/unit) the government pays a PublicWorks firm: cost plus a fee (G3).
 
         Unit cost is the labor cost of one unit, ``wage_offer /
         productivity_per_worker``. Never below the firm's posted price.
         """
         unit_cost = float(firm.wage_offer) / max(float(firm.productivity_per_worker), 1e-6)
-        return max(float(firm.price), unit_cost * 1.05, 1e-6)
+        markup = max(0.0, float(CONFIG.government.public_works_purchase_markup))
+        return max(float(firm.price), unit_cost * (1.0 + markup), 1e-6)
 
     def _book_public_capital_purchase(self, amount: float) -> None:
         """Pay infrastructure/technology spending to the public works sector as sales (G3).
@@ -7808,17 +7809,27 @@ class Economy:
         """Last tick's public share of healthcare spending, see ``GovernmentAgent.get_health_coverage``."""
         return self.government.get_health_coverage()
 
-    def approval_observation(self, lookback_ticks: int = 13) -> Dict[str, float]:
+    def approval_observation(self, lookback_ticks: Optional[int] = None) -> Dict[str, float]:
         """Approval summary for the LLM government (observation only, no elections).
+
+        Args:
+            lookback_ticks: window for the happiness change. Default: the
+                LLM's shortest rolling window
+                (``CONFIG.llm.government_rolling_windows_ticks[0]``, 13 =
+                one quarter), so it matches the other trends it sees.
 
         Returns:
             ``approval_mean_happiness``: mean household happiness now (0-1).
             ``approval_happiness_change``: change versus the snapshot
             ``lookback_ticks`` ago in ``metrics_history`` (0.0 if none yet).
             ``approval_financial_stress_share``: share of households whose
-            cash plus deposits is below ``government.min_cash_threshold``.
-            PR3's buffer-stock target will replace this threshold.
+            cash plus deposits is below ``approval_stress_weeks_of_wage``
+            weeks of the current mean employed wage (scales with wages and
+            prices). PR3's buffer-stock target will replace this threshold.
         """
+        if lookback_ticks is None:
+            windows = tuple(getattr(CONFIG.llm, "government_rolling_windows_ticks", ()) or (13,))
+            lookback_ticks = int(windows[0])
         households = self.households or []
         if not households:
             return {
@@ -7833,7 +7844,8 @@ class Economy:
             if int(row.get("tick", -1)) <= target_tick:
                 past_h = row.get("metrics", {}).get("mean_happiness")
                 break
-        threshold = float(self.government.min_cash_threshold)
+        weeks = max(0.0, float(CONFIG.llm.government_approval_stress_weeks_of_wage))
+        threshold = weeks * self.mean_employed_wage()
         stressed = sum(
             1 for h in households
             if float(h.cash_balance) + float(getattr(h, "bank_deposit", 0.0) or 0.0) < threshold
@@ -8962,6 +8974,7 @@ class Economy:
         metrics["public_debt"] = float(getattr(gov, "public_debt", 0.0))
         metrics["annualized_debt_to_gdp"] = annualized_debt_to_gdp(gov, recent_gdp)
         metrics["gov_public_capital_to_public_works_this_tick"] = float(self.last_tick_gov_public_capital_to_public_works)
+        metrics["gov_debt_rate_annual"] = float(gov.last_tick_debt_rate)
         metrics["gov_debt_interest_this_tick"] = float(gov.last_tick_debt_interest)
         metrics["gov_debt_borrowed_this_tick"] = float(gov.last_tick_debt_borrowed)
         metrics["gov_debt_repaid_this_tick"] = float(gov.last_tick_debt_repaid)

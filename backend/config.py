@@ -803,18 +803,27 @@ class GovernmentPolicyConfig:
     # interest is paid weekly at the bank's base_interest_rate, and part of any
     # surplus pays the debt down. Off: the treasury goes negative for free.
     public_debt_enabled: bool = True
-    # Treasury cash ($) kept before any surplus is used. Was a literal in
-    # make_investments. Range >= 0.
-    surplus_reserve: float = 50_000.0
-    # Share of surplus above surplus_reserve used per tick (paydown + bond buy).
-    # Was a literal 0.12 in make_investments. Range [0, 1].
+    # Treasury working balance kept before any surplus is used, in weeks of
+    # trailing GDP. 1.5 weeks reproduces the pre-PR5 literal $50k at the
+    # 400-household calibration (GDP about $33k/week) and scales with the
+    # economy. Derivation, no external source. Range >= 0. Adaptive (GDP).
+    surplus_reserve_gdp_weeks: float = 1.5
+    # Surplus must exceed this share of the reserve before any is used.
+    # Pre-PR5 literal (0.20), moved here. Range >= 0. Fixed.
+    surplus_trigger_share_of_reserve: float = 0.20
+    # Share of surplus above the reserve used per tick (paydown + bond buy).
+    # Pre-PR5 literal 0.12 (surplus half-life ~5.4 weeks). Range [0, 1]. Fixed.
     surplus_use_rate: float = 0.12
     # Share of that surplus use that pays down debt while debt is outstanding;
     # the rest goes to the Misc bond buy (first-pass spec G1: 50/50). With no
-    # debt, the whole amount goes to the bond buy as before. Range [0, 1].
+    # debt, the whole amount goes to the bond buy as before. Open decision for
+    # Ayman (round two proposed 1.0). Range [0, 1].
     surplus_debt_paydown_share: float = 0.5
-    # Annual rate used when the economy runs without a bank. Fraction/yr.
-    public_debt_fallback_annual_rate: float = 0.03
+    # Sovereign risk premium added to the bank's policy rate, per unit of
+    # annualized debt/GDP (0.035 = 3.5 bp per percentage point). Laubach
+    # (2009, JEEA 7(4):858-885): 3-4 bp per pp of projected debt/GDP.
+    # Range >= 0. The debt rate is adaptive: policy rate + premium * debt/GDP.
+    public_debt_risk_premium: float = 0.035
 
     # G2. Flat profit tax: profit_tax_rate on positive profit only, no loss
     # carryforward. Off: the cash-rank brackets (base +/- seeded extras).
@@ -825,15 +834,26 @@ class GovernmentPolicyConfig:
     # ~13.5 weeks, same rate infrastructure already used). Off: technology
     # never decays (pre-PR5); infrastructure keeps its old 5% decay.
     public_capital_decay_enabled: bool = True
-    public_capital_decay_per_tick: float = 0.05   # range [0, 1]
-    # Cap on both public capital multipliers (was a literal 1.15). Range >= 1.
+    # 0.05 is the rate infrastructure already used before PR5 (derivation,
+    # kept for continuity). It is a stylized benefit fade, much faster than
+    # physical depreciation of public capital. Range [0, 1]. Fixed.
+    public_capital_decay_per_tick: float = 0.05
+    # Cap on both public capital multipliers (was a literal 1.15). Loose
+    # upper bound: Bom & Ligthart (2014, J. Econ. Surveys 28(5)) put the
+    # long-run output elasticity of public capital at 0.122, so even doubling
+    # the stock lifts output ~8.8% (2**0.122). Range >= 1. Fixed.
     public_capital_max_multiplier: float = 1.15
-    # Cap on social_happiness_multiplier (was a literal 1.15). Range >= 1.
+    # Cap on social_happiness_multiplier (was a literal 1.15, kept). No
+    # external source; policy-effect bound. Range >= 1. Fixed.
     social_max_multiplier: float = 1.15
     # Infrastructure/technology purchases are paid to the PublicWorks firm
     # (when one exists) as sales, so it hires to match. Otherwise, or when
     # off, they go to the Misc pool as before.
     public_works_purchases_enabled: bool = True
+    # Fee over unit labor cost the government pays PublicWorks firms (spec G3:
+    # cost + 5%). Cost-plus-fixed-fee convention; US FAR 15.404-4(b)(4)(i)(C)
+    # caps such fees at 10% of cost. Range >= 0. Fixed (cost is adaptive).
+    public_works_purchase_markup: float = 0.05
 
     # Price cap hold: when a soft/strict price cap binds, the firm keeps the
     # capped price until its next price review, with no catch-up jump when the
@@ -971,6 +991,10 @@ class LLMConfig:
     # 13-tick change, share of households in financial stress). Observation
     # only; no elections. Off by default.
     government_approval_observation_enabled: bool = False
+    # Financial stress in the approval line: cash + deposits below this many
+    # weeks of the current mean employed wage. Derivation (a household that
+    # could not cover one missed paycheck); adaptive to wages. Range >= 0.
+    government_approval_stress_weeks_of_wage: float = 1.0
 
     # Future: LLM-controlled household/firm agents
     enable_llm_agents: bool = False

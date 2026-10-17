@@ -194,12 +194,12 @@ When the live LLM government is enabled, deterministic rule-based policy adjustm
 
 Fiscal mechanics (round 1, PR5; each behind a `CONFIG.government` flag):
 
-- **Public debt (`public_debt_enabled`).** Once per tick, after discretionary spending, the treasury pays a week of interest on `public_debt` at the bank's `base_interest_rate` and borrows any cash shortfall from bank reserves. While debt is outstanding, `surplus_debt_paydown_share` (0.5) of the surplus use (12% of cash above the $50k reserve) repays principal; the misc bond buy gets the rest. Without a bank, `public_debt` only reports negative cash.
+- **Public debt (`public_debt_enabled`).** Once per tick, after discretionary spending, the treasury pays a week of interest on `public_debt` at the bank's current policy rate plus `public_debt_risk_premium` × debt/GDP, and borrows any cash shortfall from bank reserves. While debt is outstanding, `surplus_debt_paydown_share` (0.5) of the surplus use (12% of cash above a reserve of 1.5 weeks of GDP) repays principal; the misc bond buy gets the rest. Without a bank, `public_debt` only reports negative cash.
 - **Profit tax (`flat_profit_tax_enabled`).** `profit_tax_rate` (default 20%) on positive profit; losses pay nothing and carry nothing forward. The cash-rank brackets remain behind the flag.
-- **Public capital (`public_capital_decay_enabled`).** Infrastructure and technology multipliers are stocks: their excess over 1.0 decays 5% per tick (half-life about 13.5 weeks) and new spending adds to it, capped at `public_capital_max_multiplier` (1.15).
+- **Public capital (`public_capital_decay_enabled`).** Infrastructure and technology multipliers are stocks: their excess over 1.0 decays 5% per tick (half-life about 13.5 weeks) and new spending adds to it, capped at `public_capital_max_multiplier` (1.15). Purchases paid to a PublicWorks firm (labor cost + 5%) are booked as its sales, so they count in GDP and drive its demand forecast and hiring.
 - **Price-cap hold (`price_cap_hold_enabled`).** When a soft or strict price cap binds, the firm keeps the capped price until its next price review and then reprices from it with no catch-up.
 - **Happiness hooks.** `Economy.get_benefit_replacement_rate()` (benefit / mean employed wage, 0-1) and `Economy.get_health_coverage()` (public share of last tick's completed-visit spending, 0-1) are in metrics as `benefit_replacement_rate` and `health_coverage`.
-- **Approval observation.** `CONFIG.llm.government_approval_observation_enabled` (off) adds mean happiness, its 13-tick change and the financial-stress share to the LLM prompt. No elections.
+- **Approval observation.** `CONFIG.llm.government_approval_observation_enabled` (off) adds mean happiness, its change over the LLM's shortest rolling window (13 ticks) and the share of households with less than a week of the mean employed wage in cash and deposits to the LLM prompt. No elections.
 
 ## Bank And Credit
 
