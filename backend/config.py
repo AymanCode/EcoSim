@@ -188,6 +188,58 @@ class HouseholdBehaviorConfig:
     unemployed_market_anchor_percentile: float = 50.0
     reservation_adjustment_rate: float = 0.1
 
+    # Buffer-stock consumption and slow reservation-wage decay (round 1 PR3,
+    # first-pass spec section 3 A/B). Both flags default off so the joint
+    # before/after run (PR7) can toggle them; every range is sampled once per
+    # household from a private RNG seeded by household_id, so turning a flag
+    # on does not shift any other household draw.
+    #
+    # buffer_stock_consumption: bool, default False. When True, weekly
+    #   budget = income * MPC + k * (liquidity - buffer_target), replacing the
+    #   savings_drawdown_rate trickle and the personality MPC cut (which gave
+    #   spenders a lower wage MPC, the backwards saving-personality bug).
+    #   Carroll (1997, QJE) buffer-stock model; k and target are per household.
+    buffer_stock_consumption: bool = False
+    # buffer_target_weeks_range: weeks of weekly income a household aims to
+    #   hold as cash + deposits. Units: weeks. Valid: 0 < lo <= hi. Placed by
+    #   saving_tendency (savers near hi) plus +/-1 week noise. Default (2, 8):
+    #   about half of US households hold under a month of income liquid
+    #   (Fed SHED 2023), a minority hold several months.
+    buffer_target_weeks_range: Tuple[float, float] = (2.0, 8.0)
+    # buffer_adjust_speed_range: k, share of the gap between liquidity and the
+    #   target spent (or saved, when negative) per week. Units: 1/week.
+    #   Valid: 0 < lo <= hi <= 1. Placed by spender score. Default (0.02, 0.10)
+    #   closes half a gap in roughly 7 to 35 weeks.
+    buffer_adjust_speed_range: Tuple[float, float] = (0.02, 0.10)
+    # buffer_income_floor: weekly income used for the target when a household
+    #   has no income this week, so the target never collapses to zero.
+    #   Units: currency per week. Valid: >= 0.
+    buffer_income_floor: float = 20.0
+
+    # slow_reservation_decay: bool, default False. When True, an unemployed
+    #   household's reservation wage falls by its own weekly rate (slower with
+    #   savings) instead of blending 15-30%/tick toward an expected wage that
+    #   itself decays 3%/tick, and the $1 absolute floor becomes a live floor
+    #   min(benefit + living cost, 1.5 x benefit). The 3x speed-up after 5
+    #   unemployed ticks is removed on this path.
+    slow_reservation_decay: bool = False
+    # reservation_decay_rate_range: weekly proportional decay while
+    #   unemployed. Units: fraction/week. Valid: 0 <= lo <= hi < 1. Default
+    #   (0.0007, 0.0021) centres on 0.14%/week, the decline in reservation
+    #   wages per week of unemployment estimated by Krueger & Mueller (2016,
+    #   AEJ: Policy) and in the range of Le Barbanchon et al. (2019).
+    reservation_decay_rate_range: Tuple[float, float] = (0.0007, 0.0021)
+    # reservation_savings_slowdown: share of the decay removed when liquidity
+    #   reaches the household's buffer target (linear below it). Valid: [0, 1].
+    reservation_savings_slowdown: float = 0.5
+    # reservation_floor_benefit_cap: cap on the floor as a multiple of the
+    #   live unemployment benefit. Valid: >= 1. Default 1.5 (spec).
+    reservation_floor_benefit_cap: float = 1.5
+    # living_cost_housing_share: share of one housing unit price counted as
+    #   weekly living cost (was the inline 0.3 in plan_labor_supply).
+    #   Valid: [0, 1]. Unchanged default, so no behavior change.
+    living_cost_housing_share: float = 0.3
+
     # Skill Development
     skill_growth_rate: float = 0.001  # Passive improvement per tick
     education_cost_per_skill_point: float = 1000.0
