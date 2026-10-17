@@ -1,11 +1,15 @@
 """Seeded study of how worker effectiveness reaches labor demand (round 1 PR2).
 
-Answers two review questions with real runs instead of reasoning:
+Answers three review questions with real runs instead of reasoning:
 
 1. Labor demand: with higher worker effectiveness, do firms hire fewer
    workers for the same output? Reports headcount per firm, employment,
    unfilled vacancies, output per worker, mean wage, profit tax and GDP.
-2. Low-happiness trap: after a household cash shock, do the workers in the
+2. Factor shares: the distribution of each per-worker factor (skill factor,
+   effort, hours present, and their product) over employed workers, and the
+   share of Services workers whose output sits on the
+   ``services_units_per_worker_range`` clip.
+3. Low-happiness trap: after a household cash shock, do the workers in the
    bottom happiness quintile get stuck unemployed? Reports their unemployment
    rate, spell lengths and happiness recovery against everyone else.
 
@@ -16,7 +20,7 @@ Like ``business_ab_metrics.py`` it reads only public attributes, so
     python backend/tools/benchmarks/worker_effectiveness_study.py --seed 42 \
         --backend /tmp/ecosim-main/backend
     python backend/tools/benchmarks/worker_effectiveness_study.py --seed 42 \
-        --set firms.worker_effectiveness_slope=0.65
+        --set firms.worker_effort_range=0.06
 
 The shock (``--shock-week``, ``--shock-cash-loss``) removes a share of every
 household's cash at the start of that week. It is an outside intervention
@@ -39,12 +43,29 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from business_ab_metrics import DEFAULT_BACKEND, _apply_override, _parse_override  # noqa: E402
 
 
-def _ceiling(config) -> float:
-    """Upper bound of the per-worker multiplier on this checkout."""
-    firms = config.firms
-    if hasattr(firms, "worker_effectiveness_max"):
-        return float(firms.worker_effectiveness_max)
-    return float(config.households.performance_max_multiplier)
+def _factors(household, firm, config) -> tuple[float, float, float, float] | None:
+    """(skill factor, effort, hours present, product) for one worker.
+
+    Returns None on a checkout without ``worker_effectiveness.effort`` (main),
+    where the factors do not exist separately.
+    """
+    try:
+        import worker_effectiveness as we
+    except ImportError:
+        return None
+    if not hasattr(we, "effort"):
+        return None
+    exp_years = household.category_experience.get(firm.good_category, 0) / 52.0
+    bonus = 0.0 if (firm.good_category or "").lower() == "services" else min(exp_years * 0.05, 0.5)
+    s = we.skill_factor(household.skills_level, bonus)
+    e = we.effort(household.morale, household.happiness)
+    h = we.hours_present(household.health)
+    return s, e, h, s * e * h
+
+
+def _pct(values, q):
+    import numpy as np
+    return float(np.percentile(values, q)) if values else 0.0
 
 
 def run(backend: Path, households: int, firms_per_category: int, seed: int, ticks: int,
@@ -57,14 +78,14 @@ def run(backend: Path, households: int, firms_per_category: int, seed: int, tick
 
     profit_tax = [0.0]
     rows = []
-    near_cap = []
+    factor_rows = {"skill": [], "effort": [], "hours": [], "product": []}
+    services_clip = [0, 0]
     with use_config(clone_config()):
         random.seed(seed)
         np.random.seed(seed)
         CONFIG.random_seed = int(seed)
         for path, value in overrides:
             _apply_override(CONFIG, path, value)
-        ceiling = _ceiling(CONFIG)
         with contextlib.redirect_stdout(io.StringIO()):
             economy = create_large_economy(households, firms_per_category)
             # GovernmentAgent uses __slots__, so record profit tax by wrapping
@@ -103,8 +124,25 @@ def run(backend: Path, households: int, firms_per_category: int, seed: int, tick
                 private = [f for f in economy.firms if not f.is_baseline]
                 food = [f for f in private if (f.good_category or "").lower() == "food"]
                 food_workers = sum(len(f.employees) for f in food)
-                ceil_hits = [h.get_performance_multiplier() >= ceiling - 0.02 * (ceiling - 1.0) - 1e-12 for h in employed]
-                near_cap.append(sum(ceil_hits) / len(employed) if employed else 0.0)
+                lookup = economy.household_lookup
+                for firm in private:
+                    services = (firm.good_category or "").lower() == "services"
+                    units = firm._service_units_per_worker() if services else None
+                    lo, hi = CONFIG.firms.services_units_per_worker_range
+                    for hid in firm.employees:
+                        hh = lookup.get(hid)
+                        if hh is None:
+                            continue
+                        f = _factors(hh, firm, CONFIG)
+                        if f is None:
+                            continue
+                        for key, v in zip(("skill", "effort", "hours", "product"), f):
+                            factor_rows[key].append(v)
+                        if services:
+                            services_clip[1] += 1
+                            raw = units * f[3]
+                            if raw <= max(1.0, lo) or raw >= min(7.0, hi):
+                                services_clip[0] += 1
                 rows.append({
                     "employment": len(employed),
                     "headcount_per_private_firm": mean(len(f.employees) for f in private) if private else 0.0,
@@ -146,9 +184,14 @@ def run(backend: Path, households: int, firms_per_category: int, seed: int, tick
         "mean_wage_mean": avg("mean_wage"),
         "gdp_per_tick_mean": avg("gdp"),
         "profit_tax_total": profit_tax[0],
-        "share_within_2pct_of_ceiling_mean": float(mean(near_cap)) if near_cap else 0.0,
-        "ceiling": ceiling,
     }
+    for key, values in factor_rows.items():
+        if values:
+            out[f"factor_{key}_mean"] = float(mean(values))
+            out[f"factor_{key}_p10"] = _pct(values, 10)
+            out[f"factor_{key}_p90"] = _pct(values, 90)
+    if services_clip[1]:
+        out["services_worker_share_on_units_clip"] = services_clip[0] / services_clip[1]
     if h_at_shock:
         open_spells = [("low" if hid in cohort else "rest", n) for hid, n in spell.items()]
         for group in ("low", "rest"):

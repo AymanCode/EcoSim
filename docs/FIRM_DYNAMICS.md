@@ -177,46 +177,53 @@ letting different firms react at different speeds.
 
 ## Worker Effectiveness
 
-Since round 1 PR2, one pure function, `worker_effectiveness(skill, health,
-morale, happiness)` in `backend/worker_effectiveness.py`, sets how much each
-employed worker produces relative to the firm's plan. Goods and Services
-firms both use it; `HouseholdAgent.get_performance_multiplier()` returns the
-same value for diagnostics.
+Since round 1 PR2, every producing firm (goods and Services) turns a worker
+into output with one rule, `worker_effectiveness(skill, health, morale,
+happiness)` in `backend/worker_effectiveness.py`:
 
 ```
-score = 0.30*skill + 0.25*health + 0.25*morale + 0.20*happiness   (each 0-1)
-z = 1.3*(score - 0.5)
-effectiveness = 1 + 0.25*tanh(z/0.25)   if z >= 0
-                1 - 0.20*tanh(-z/0.20)  if z < 0
+output per worker = units per worker               (the firm)
+                  x (1 + 0.25*skill [+ experience]) (skill factor)
+                  x (1 + 0.12*(morale + happiness - 1))  (effort)
+                  x (1 - absence(health))           (hours present)
+absence(h) = 1.1% * (1 + 1.2*(1 - h)) / (1 + 1.2*(1 - 0.77))
 ```
 
-- A worker at 0.5 on every input is exactly 1.0x.
-- The curve flattens toward 0.8x and 1.25x but never reaches them, so a
-  better worker always produces more. A hard clamp put about half of all
-  employed workers exactly at 1.25x in seeded runs; the soft saturation
-  leaves about 2% within 0.005 of it.
-- Happiness alone moves a neutral worker's output by about +/-12%
-  (+11.9% / -11.4%).
-- Goods: a worker's multiplier is `(1 + experience_bonus) * effectiveness`,
-  where the experience bonus (5% per year in the category, capped at 50%) is
-  unchanged. The firm's average then takes the infrastructure and supply-shock
-  multipliers, and output stays capped by capacity.
-- Services: each worker supplies `units_per_worker * effectiveness`, clipped
-  to `services_units_per_worker_range` (1-7). Before PR2 this path ignored the
-  firm's own `units_per_worker` and mapped a 0-1 score straight onto 1-7.
+The three worker factors multiply, so none can make up for another.
 
-Labor demand does not read effectiveness. `_workers_for_sales`,
+- Skill factor: kept from main's goods path (+25% at skill 1.0). It equals
+  the skill pay premium firms pay at hire, so productivity and pay rise
+  together (Hellerstein, Neumark & Troske 1999). The 0.25 has no external
+  source of its own. Goods firms add the category-experience bonus (5% a
+  year, capped at 50%), as before.
+- Effort: efficiency-wage effort (Akerlof & Yellen 1990). Morale is the
+  fair-treatment state, happiness the broader mood; they share drivers, so
+  effort reads their mean. 0.88x at a mean of 0, 1.0x at 0.5, 1.12x at 1
+  (Oswald, Proto & Sgroi 2015: ~12%; Bellet, De Neve & Ward 2024: ~13%).
+- Hours present: sickness absence. 1.1% of hours at EcoSim's average
+  employed health (BLS CPS Table 47, own illness/injury/medical lost-worktime
+  rate), linear in health, 2.2x higher at health 0 than at health 1
+  (Halford et al. 2012). Range about 98.1-99.1%. Workers under health 0.10
+  are already out of the labor market (`can_work`).
+- Goods: the firm's average multiplier scales its planned output, then the
+  infrastructure and supply-shock multipliers apply, and output stays capped
+  by capacity.
+- Services: each worker supplies `units_per_worker x multiplier`, clipped to
+  `services_units_per_worker_range` (1-7).
+
+`HouseholdAgent.get_performance_multiplier()` returns effort x hours present
+(the skill-free part) for diagnostics.
+
+Labor demand does not read the multiplier. `_workers_for_sales`,
 `_capacity_for_workers` and `_profit_optimal_workers` plan headcount from the
-firm's frontier (`units_per_worker`, capital); effectiveness only scales the
-realized output afterwards, which stays capped by capacity. Wage offers do
-not read it either, and layoffs take the roster front (`employees[:n]`), not
-the least effective worker.
+firm's frontier (`units_per_worker`, capital); the multiplier only scales the
+realized output afterwards. Wage offers do not read it either, and layoffs
+take the roster front (`employees[:n]`), not the least effective worker.
 
-Config (all in `CONFIG.firms`): `worker_effectiveness_{skill,health,morale,
-happiness}_weight` (must sum to 1), `worker_effectiveness_slope`,
-`worker_effectiveness_min`, `worker_effectiveness_max`. See `config.py` for
-units and valid ranges, and `backend/worker_effectiveness.py` for why each
-number has its value.
+Config (all in `CONFIG.firms`): `worker_effort_range` (0.12),
+`worker_absence_reference_rate` (0.011), `worker_absence_reference_health`
+(0.77), `worker_absence_sick_ratio` (2.2). See `config.py` for units and
+valid ranges and `backend/worker_effectiveness.py` for the derivations.
 
 ---
 
