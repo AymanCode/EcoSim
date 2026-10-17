@@ -4,6 +4,18 @@ Notable changes and decisions for EcoSim, newest first. The project does not use
 
 ## Unreleased
 
+### 2026-10-16: One worker-effectiveness rule for goods and Services firms (round 1 PR2)
+
+Round 1 first-pass item 2, owned by the business bot. Before: goods firms scored a worker with `HouseholdAgent.get_performance_multiplier` (morale 0.5, health 0.3, happiness 0.2 mapped onto 0.75-1.5x) times a separate `1 + 0.25*skill` bonus, so a typical worker ran at 1.56x; Services firms used an inline `0.30*skill + 0.25*health + 0.25*morale + 0.20*happiness` score mapped straight onto 1-7 units and ignored the firm's own `units_per_worker`. Now both call `worker_effectiveness()` in `backend/worker_effectiveness.py`: the Services weights, centred at 0.5, slope 1.2, clamped to 0.8-1.25x. Happiness alone moves output by at most +/-12% (Oswald, Proto & Sgroi 2015).
+
+- Goods: per-worker multiplier is `(1 + experience_bonus) * effectiveness`; the experience bonus, infrastructure and supply-shock multipliers and the capacity caps are unchanged.
+- Services: each worker supplies `units_per_worker * effectiveness`, clipped to `services_units_per_worker_range`, so a firm's sampled throughput now shows in realized output.
+- Config: added `firms.worker_effectiveness_{skill,health,morale,happiness}_weight` (0.30/0.25/0.25/0.20, must sum to 1), `firms.worker_effectiveness_slope` (1.2), `firms.worker_effectiveness_min`/`_max` (0.8/1.25), validated in `SimulationConfig.__post_init__`. Removed `households.performance_{morale,health,happiness}_weight` and `households.performance_{min,max}_multiplier`, which only the replaced formula read.
+- Removed the unread `FirmAgent.happiness_boost_per_unit` field.
+- Added `backend/tools/benchmarks/business_ab_metrics.py`, a seeded before/after metrics runner that can import an older `backend/`.
+
+Seeded run, 1,000 households, 5 firms per category, 156 weeks, metrics over weeks 27-156, mean of seeds 42/43/44: unemployment 35.8% -> 36.8%, mean wage 58.01 -> 58.03, GDP per tick 72,072 -> 71,730 (-0.5%), mean happiness 0.335 -> 0.331, firm exits 9.0 -> 8.7. The typical goods worker's multiplier fell from 1.56x to 1.19x at week 100 (seed 42), but output barely moved because 11 of 14 Food firms were already at their capacity cap. Treasury revenue over the run was 3.4% lower (seed 42). Command: `python backend/tools/benchmarks/business_ab_metrics.py --seed 42` on this branch and with `--backend <main worktree>/backend`.
+
 ### 2026-10-16: Poverty and wealth-loss terms read liquid wealth
 
 Bug fix from the PR7 investigation (item 3). `Economy._batch_update_wellbeing` read `cash_balance` alone for the poverty penalties and the wealth-loss term. The weekly deposit sweep runs after `last_tick_cash_start` is set and before wellbeing, so saving money in the bank counted as a wealth loss. The legacy withdrawal refills cash only to about 160, below the 200 poverty line, so households with savings were also scored as poor.

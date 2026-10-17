@@ -175,6 +175,36 @@ letting different firms react at different speeds.
 
 ---
 
+## Worker Effectiveness
+
+Since round 1 PR2, one pure function, `worker_effectiveness(skill, health,
+morale, happiness)` in `backend/worker_effectiveness.py`, sets how much each
+employed worker produces relative to the firm's plan. Goods and Services
+firms both use it; `HouseholdAgent.get_performance_multiplier()` returns the
+same value for diagnostics.
+
+```
+score = 0.30*skill + 0.25*health + 0.25*morale + 0.20*happiness   (each 0-1)
+effectiveness = clamp(1 + 1.2*(score - 0.5), 0.8, 1.25)
+```
+
+- A worker at 0.5 on every input is exactly 1.0x.
+- Happiness alone moves output by at most 1.2 * 0.20 * 0.5 = +/-12%.
+- Goods: a worker's multiplier is `(1 + experience_bonus) * effectiveness`,
+  where the experience bonus (5% per year in the category, capped at 50%) is
+  unchanged. The firm's average then takes the infrastructure and supply-shock
+  multipliers, and output stays capped by capacity.
+- Services: each worker supplies `units_per_worker * effectiveness`, clipped
+  to `services_units_per_worker_range` (1-7). Before PR2 this path ignored the
+  firm's own `units_per_worker` and mapped a 0-1 score straight onto 1-7.
+
+Config (all in `CONFIG.firms`): `worker_effectiveness_{skill,health,morale,
+happiness}_weight` (must sum to 1), `worker_effectiveness_slope`,
+`worker_effectiveness_min`, `worker_effectiveness_max`. See `config.py` for
+units and valid ranges.
+
+---
+
 ## Labor-Market Signals
 
 The household "newspaper" mechanic is now more local.
