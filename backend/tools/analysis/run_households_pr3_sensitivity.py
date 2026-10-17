@@ -1,12 +1,10 @@
-"""+/-50% sensitivity of the PR3 household parameters (both flags on).
+"""+/-50% sensitivity of the PR3 buffer-stock parameters (flag on).
 
-For each parameter, runs the seeded AB arm of ``run_households_pr3_compare``
+For each parameter, runs the seeded A arm of ``run_households_pr3_compare``
 with the parameter scaled by 0.5 and 1.5 and prints post-warmup mean
 unemployment, median completed spell, and mean weekly consumption per
-household. Ranges scale both ends. Two parameters scale their distance from a
-natural reference instead, so the scaled value stays valid:
-``risk_aversion_range`` scales its half-width around 1 and
-``reservation_floor_benefit_cap`` scales its premium over 1.
+household. Ranges scale both ends, except ``risk_aversion_range``, which
+scales its half-width around 1 so the mean stays 1.
 
 Usage (from backend/):
     PYTHONHASHSEED=0 python tools/analysis/run_households_pr3_sensitivity.py --jobs 4
@@ -24,9 +22,7 @@ from run_households_pr3_compare import CONFIG, run_arm  # noqa: E402
 
 PARAMS = [
     "buffer_target_weeks_range", "buffer_adjust_speed_range", "risk_aversion_range",
-    "buffer_unemployment_slope", "buffer_income_floor", "reservation_decay_rate_range",
-    "reservation_savings_slowdown", "reservation_spell_acceleration",
-    "reservation_floor_benefit_cap", "living_cost_housing_share",
+    "buffer_unemployment_slope", "buffer_income_floor",
 ]
 
 
@@ -34,8 +30,6 @@ def scaled(name: str, value, factor: float):
     """Return ``value`` scaled by ``factor`` under the rules in the module docstring."""
     if name == "risk_aversion_range":
         return tuple(1.0 + (v - 1.0) * factor for v in value)
-    if name == "reservation_floor_benefit_cap":
-        return 1.0 + (value - 1.0) * factor
     if isinstance(value, tuple):
         return tuple(v * factor for v in value)
     return value * factor
@@ -45,7 +39,7 @@ def one(job):
     name, factor, households, ticks = job
     if name is not None:
         setattr(CONFIG.households, name, scaled(name, copy.copy(getattr(CONFIG.households, name)), factor))
-    row = run_arm("AB", households, ticks)
+    row = run_arm("A", households, ticks)
     value = getattr(CONFIG.households, name) if name else None
     return name, factor, value, row
 

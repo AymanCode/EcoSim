@@ -4,18 +4,16 @@ Notable changes and decisions for EcoSim, newest first. The project does not use
 
 ## Unreleased
 
-### 2026-10-16: Household buffer-stock consumption and slow reservation-wage decay (round 1 PR3, flags off)
+### 2026-10-16: Household buffer-stock consumption (round 1 PR3, flag off)
 
-First-pass spec section 3, items A and B. Both behaviors sit behind new `CONFIG.households` flags that default off, so default runs are unchanged and the joint before/after run (PR7) can toggle them.
+First-pass spec section 3, item A, and the saving-personality fix from item C. The behavior sits behind `CONFIG.households.buffer_stock_consumption`, default off, so default runs are unchanged and the joint before/after run (PR7) can toggle it. The reservation-wage change (item B) is parked on branch `feat/households-b-reservation-wage` for a separate PR.
 
-- **Buffer-stock consumption (`buffer_stock_consumption`).** Before: the budget was income times a personality-adjusted MPC plus 1% to 5% of cash and 90% of deposits each week. The personality adjustment read the drawdown rate as a saving rate, so spenders got the lower wage MPC. After: income times its MPC plus `k * (liquidity - target)`, floored at the subsistence minimum the household can afford and capped at liquidity. Target weeks, risk aversion, and `k` are per-household draws. The target also rises with the live unemployment rate: `target = weeks * risk_aversion * (1 + 2 * u) * weekly income`.
-- **Reservation wage (`slow_reservation_decay`).** Before: while unemployed, the reservation wage blended 15% per tick (30% after 5 ticks) toward an expected wage that itself fell about 3% per tick, with a $1 floor. After: it falls by the household's own rate (mean 0.14% per week, Krueger and Mueller 2016). An empty cash cushion makes it 1.5x faster and a full one 0.5x. A year-long spell doubles it. A live floor `min(benefit + living cost, 1.5 x benefit)` replaces the $1 floor.
-- **New per-household traits** `buffer_target_weeks`, `buffer_adjust_speed`, `reservation_decay_rate`, and `risk_aversion` come from a separate RNG seeded by household id, so no existing draw changes.
-- **Living cost** moved to `HouseholdAgent.living_cost_per_tick` with `living_cost_housing_share` (default 0.3, unchanged).
+- **Before:** the budget was income times a personality-adjusted MPC, plus 1% to 5% of cash and 90% of deposits each week. The personality adjustment read the drawdown rate as a saving rate, so spenders got the lower wage MPC.
+- **After:** income times its MPC plus `k * (liquidity - target)`, floored at the subsistence minimum the household can afford and capped at liquidity. `target = weeks * risk_aversion * (1 + 2 * u) * weekly income`, so households save more when unemployment is high.
+- **New per-household traits** `buffer_target_weeks`, `buffer_adjust_speed`, and `risk_aversion` come from a separate RNG seeded by household id, so no existing draw changes.
+- **Measured effect (seed 42, 1,000 households, 260 weeks).** Mean post-warmup unemployment falls from 36.9% to 29.8% and mean weekly spend per household rises from 61.4 to 67.6. Repeated runs of the same seed differ by about 1 to 3 pp. The PR description has the full table and the +/-50% sensitivity runs.
 
-- **Measured effect (seed 42, 1,000 households, 260 weeks, both flags on).** Mean post-warmup unemployment goes from 33.6% to 44.6%. The 1.5x-benefit floor (45) sits above the minimum wage (36) that a third of firms post, so unemployed workers no longer take those jobs. The PR description has the full table and the +/-50% parameter sensitivity runs.
-
-Evidence: `backend/tests_contracts/test_households_pr3.py` (11 tests). Repro, from `backend/`: `PYTHONHASHSEED=0 python tools/analysis/run_households_pr3_compare.py` and `PYTHONHASHSEED=0 python tools/analysis/run_households_pr3_sensitivity.py --jobs 6`.
+Evidence: `backend/tests_contracts/test_households_pr3.py` (7 tests). Repro, from `backend/`: `PYTHONHASHSEED=0 python tools/analysis/run_households_pr3_compare.py` and `PYTHONHASHSEED=0 python tools/analysis/run_households_pr3_sensitivity.py --jobs 5`.
 
 ### 2026-10-16: Server error replies, logging context, and two review checks
 

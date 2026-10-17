@@ -1,9 +1,8 @@
-"""Seeded before/after run for round 1 PR3 (household flags).
+"""Seeded before/after run for round 1 PR3 (buffer-stock consumption).
 
 Builds the same economy as ``run_large_simulation.create_large_economy`` for
 each arm, runs it, and prints post-warmup household metrics. Arms:
-``before`` (both flags off), ``A`` (buffer-stock consumption), ``B`` (slow
-reservation decay), ``AB`` (both).
+``before`` (flag off) and ``A`` (``buffer_stock_consumption`` on).
 
 Usage (from backend/):
     python tools/analysis/run_households_pr3_compare.py --households 1000 --ticks 260
@@ -24,7 +23,7 @@ for _path in (BACKEND_ROOT, BACKEND_ROOT / "tools" / "runners"):
 from config import CONFIG  # noqa: E402
 from run_large_simulation import create_large_economy  # noqa: E402
 
-ARMS = {"before": (False, False), "A": (True, False), "B": (False, True), "AB": (True, True)}
+ARMS = {"before": False, "A": True}
 
 
 def run_arm(name: str, households: int, ticks: int) -> dict:
@@ -35,9 +34,7 @@ def run_arm(name: str, households: int, ticks: int) -> dict:
     (weeks). Spells still running at the end are not in those numbers, so
     ``ongoing_mean`` reports their mean length so far.
     """
-    buffer_flag, reservation_flag = ARMS[name]
-    CONFIG.households.buffer_stock_consumption = buffer_flag
-    CONFIG.households.slow_reservation_decay = reservation_flag
+    CONFIG.households.buffer_stock_consumption = ARMS[name]
     with contextlib.redirect_stdout(io.StringIO()):
         economy = create_large_economy(num_households=households, num_firms_per_category=5)
     warmup = economy.warmup_ticks
@@ -85,14 +82,9 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--households", type=int, default=1000)
     parser.add_argument("--ticks", type=int, default=260)
-    parser.add_argument("--arms", default="before,A,B,AB")
-    parser.add_argument("--floor-cap", type=float, default=None,
-                        help="override reservation_floor_benefit_cap for the B arms")
+    parser.add_argument("--arms", default="before,A")
     args = parser.parse_args()
-    if args.floor_cap is not None:
-        CONFIG.households.reservation_floor_benefit_cap = args.floor_cap
-    print(f"seed={CONFIG.random_seed} households={args.households} ticks={args.ticks} "
-          f"floor_cap={CONFIG.households.reservation_floor_benefit_cap}")
+    print(f"seed={CONFIG.random_seed} households={args.households} ticks={args.ticks}")
     keys = ["arm", "unemp_mean", "unemp_last", "spells", "spell_median", "spell_mean",
             "share_gt26", "ongoing_mean", "mean_wage", "median_liquid", "happy_median", "spend_cv", "consumption_mean"]
     print(" | ".join(keys))
