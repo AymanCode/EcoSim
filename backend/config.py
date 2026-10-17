@@ -106,9 +106,12 @@ class HouseholdBehaviorConfig:
     # spends and saves from. Nothing moves: the charge still happens at
     # service in Economy._process_healthcare_services (or the payment arms'
     # care settlement), and the reserve lapses on its own when the queue id
-    # clears (served, dropped for affordability, provider exit). Adds no
-    # numeric parameter: the price is the provider's, the share is
-    # government's getter (PR #45), the same rule the charge uses.
+    # clears (served, dropped for affordability) or the provider leaves
+    # firm_lookup (exit). Adds no numeric parameter: the price is the
+    # provider's, the share is government's getter (PR #45), the same rule
+    # the legacy charge uses. On payment arms the getter reads the G budget
+    # while settle_payment_care charges patient_pay households the full
+    # price, so there the reserve can be below the charge (see PR #47).
     healthcare_cash_reservation: bool = False
 
     # Job acceptance (H1 - no job worse than benefits)
