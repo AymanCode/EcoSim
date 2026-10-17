@@ -1451,7 +1451,12 @@ def _build_recent_policy_memory(
                 "mean_happiness_delta_pp": delta_pp("mean_happiness"),
                 "government_cash_delta": delta_abs("government_cash"),
                 "net_fiscal_flow_delta": net_flow_delta,
-                "consumer_distress_delta_pct": delta_pct("labor_seekers_wage_ineligible"),
+                # Percent change in job seekers whose reservation wage is
+                # above every open offer. Named for what it measures; it was
+                # "consumer_distress_delta_pct", but metrics rows carry no
+                # consumer-distress series (that score lives only in the
+                # server's warehouse features).
+                "wage_ineligible_seekers_delta_pct": delta_pct("labor_seekers_wage_ineligible"),
             }
         )
         return impact

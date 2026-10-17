@@ -4883,6 +4883,10 @@ class FirmAgent(AgentMixin):
                 - ``units_sold``: Number of units sold this tick
                 - ``revenue``: Total revenue from sales
                 - ``profit_taxes_paid``: Taxes paid on profits (deducted from revenue)
+                - ``revenue_already_in_cash`` (optional, default 0): the part of
+                  ``revenue`` that reached ``cash_balance`` earlier in the tick
+                  (legacy Housing rent). It counts toward revenue and profit
+                  but is not credited to cash again.
 
         Side Effects:
             - Deducts sold units from self.inventory_units (sets to 0 for services)
@@ -4904,7 +4908,7 @@ class FirmAgent(AgentMixin):
 
         # Update cash
         if not result.get("committed_sale_book", False):
-            self.cash_balance += revenue
+            self.cash_balance += revenue - result.get("revenue_already_in_cash", 0.0)
         self.cash_balance -= profit_taxes_paid
 
         self.last_units_sold = units_sold

@@ -13,6 +13,22 @@ Households (#29) saw offers at the $36 minimum wage, not `max(minimum wage, 1.5x
 - Seeded run (same seed, all 104 ticks): every baseline firm-tick posts below $45 (415 of 416); private Food/Services under annual review never do (0/2,437); weekly-rule private firms do in 18 of 33 firm-ticks (warm-up holds and Services entrants).
 - `_benefit_wage_floor_multiplier()` holds the 1.5x / payment-sequence multiplier rule that `plan_wage` inlined; same values.
 
+### 2026-10-16: LLM government policy memory: wage-ineligible seekers labeled correctly
+
+`_build_recent_policy_memory` (`tools/llm/llm_government.py`) stored the percent change in `labor_seekers_wage_ineligible` (job seekers whose reservation wage is above every open offer) under the key `consumer_distress_delta_pct`. The metrics rows have no consumer-distress series, so the key named a different quantity than the one it held. The key is now `wage_ineligible_seekers_delta_pct`; the value is unchanged. The prompt formatters never printed this field, so the LLM's prompt text is unchanged; the rename shows up in each decision record's `short_term_impact` / `mature_impact` (`recent_policy_memory`) and in anything that reads those records. No code in the repo read the old key.
+
+Evidence: `test_contract_policy_memory_labels_wage_ineligible_seekers_honestly` (fails on main because the old key is present; passes now).
+
+### 2026-10-16: Healthcare queue check test matches the current demand model
+
+`tools/checks/test_firm_behavior.py::test_healthcare_queue_service_flow` failed on `main`. The test was out of date, not the code: it scheduled a visit through the annual care plan (`care_plan_due_ticks`), which `should_request_healthcare_service` stopped reading in 4ecdd4f when the probabilistic episode model replaced it. Its methods were later deleted as never called (ee689d4). The test now starts an episode in progress (two visits left, next one due), which the current model requests without a random draw, and asserts the same exact outcome as before (+0.3 health, one unit sold, no inventory) plus the episode bookkeeping. No simulation code changed. `tools/checks` is outside the pytest `testpaths`, which is why CI did not catch it.
+
+### 2026-10-16: Tenants pay the posted rent, and rent is Housing revenue, on the default path (business bug 1)
+
+From the PR7 baseline investigation. Before: on the default `legacy` payment path an existing tenant paid the rent written at signing forever, so every household paid the starting 20/wk while the Housing firm posted 5/wk; only the named payment arms renewed leases. Now `Economy._lease_rent_due` returns the landlord's posted price, the housing phase charges it and writes it to `monthly_rent`, and `_legacy_obligations_due` reserves the same amount before shopping. New key `labor_market.rent_tracks_posted_price` (default `True`; `False` restores the old locked rent for before/after runs). Rent was also never booked as Housing revenue on this path (cash only), so the firm's profit read as minus its wage bill and it paid no profit tax or dividends. Now the housing phase records each firm's receipts in `Economy.legacy_rent_receipts`; the tax snapshot and `apply_sales_and_profit` count them as revenue, and the new `revenue_already_in_cash` key keeps settlement from crediting the cash a second time, matching how the payment arms book `PaymentBook.rent_receipts`. New key `labor_market.rent_booked_as_revenue` (default `True`). Booked profit now reaches the baseline Housing firm's 1-3 random household owners as dividends; O1 will reroute it to government later. No change to the Housing firm's pricing rule or to the payment arms.
+
+Evidence: `test_rent_tracks_posted_price.py` (7 tests; 6 fail on main) and `test_housing_rent_revenue.py` (6 tests; 4 fail on main; flag-off and money-conservation guards pass on both). 5 seeds x 104 weeks: median rent paid 20 -> 5, Housing net profit -2.05k -> +2.38k/wk, Housing profit tax 0 -> 564/wk, dividends to Housing owners 0 -> 602/wk, median happiness 0 -> 0.69, share with cash + deposits under 200 46% -> 8%, Housing firm cash at week 104 1.83M -> 0.11M, unemployment over weeks 13-104 38.5% -> 37.6% (inside the seed spread).
+
 ### 2026-10-16: Server error replies, logging context, and two review checks
 
 From the outside portfolio review (items #8, #9, #14, #15, #21, #25, #28). No simulation behavior changed: the engine, tick order, and every success reply are unchanged.
