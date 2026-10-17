@@ -256,6 +256,8 @@ class Economy:
         # household list object, its length and fix_preference_applied_once;
         # see _household_static_traits().
         self._household_static_traits_cache: Optional[Tuple[List[HouseholdAgent], int, bool, Dict[str, object]]] = None
+        # Skill dynamics (households h1): cached weekly per-household rates.
+        self._skill_rate_cache: Optional[Tuple[Tuple[int, int], np.ndarray, np.ndarray]] = None
 
         # Cache wage percentiles to avoid repeated sorting
         self.cached_wage_percentiles: Tuple[float, float, float] = (0.0, 0.0, 0.0)  # low, mid, high
@@ -2564,6 +2566,8 @@ class Economy:
                 market_wage_anchor=anchor,
                 current_tick=self.current_tick
             )
+        if CONFIG.households.skills_dynamics:
+            self._batch_update_skills()
 
         # Keep firm-side employee rosters aligned with household employment outcomes.
         # This prevents stale counts in firm telemetry versus unemployment metrics.
@@ -7031,6 +7035,41 @@ class Economy:
 
             hh.needs_consumption_loan = False
             hh.consumption_loan_amount = 0.0
+
+    def _skill_rate_arrays(self) -> Tuple[np.ndarray, np.ndarray]:
+        """Weekly learning and depreciation rates per household, cached (h1).
+
+        Rebuilt when the household list changes; the traits never change
+        after initialization.
+        """
+        key = (id(self.households), len(self.households))
+        cached = self._skill_rate_cache
+        if cached is None or cached[0] != key:
+            learn = np.fromiter((h.learning_rate_annual for h in self.households), dtype=np.float64,
+                                count=len(self.households)) / 52.0
+            depreciate = np.fromiter((h.skill_depreciation_annual for h in self.households), dtype=np.float64,
+                                     count=len(self.households)) / 52.0
+            cached = (key, learn, depreciate)
+            self._skill_rate_cache = cached
+        return cached[1], cached[2]
+
+    def _batch_update_skills(self) -> None:
+        """Weekly learning by doing and depreciation in one numpy pass (h1).
+
+        Employed: ``s += g * (1 - s)``; unemployed: ``s -= d * s``, where
+        g and d are the weekly per-household rates (annual / 52).
+        """
+        households = self.households
+        n = len(households)
+        if n == 0:
+            return
+        learn, depreciate = self._skill_rate_arrays()
+        skills = np.fromiter((h.skills_level for h in households), dtype=np.float64, count=n)
+        employed = np.fromiter((h.employer_id is not None for h in households), dtype=bool, count=n)
+        updated = np.where(employed, skills + learn * (1.0 - skills), skills * (1.0 - depreciate))
+        np.clip(updated, 0.0, 1.0, out=updated)
+        for household, value in zip(households, updated.tolist()):
+            household.skills_level = value
 
     # -------------------------------------------------------------------------
     # Section: Bailouts, public works, stimulus, and shocks

@@ -259,6 +259,41 @@ class HouseholdBehaviorConfig:
     # weeks of the income the safety net provides, and that floor moves with
     # the benefit policy (no fixed nominal floor).
 
+    # Skill dynamics (households h1). Flag default off. Time unit: 1 tick =
+    # 1 week. skills_level is in [0, 1]; it is the strict hiring queue's sort
+    # key and earns the live hiring premium wage_offer * (1 + 0.25 * s)
+    # (economy.py, hiring), on top of a separate category experience premium
+    # (3%/yr, capped at 30%), both unchanged.
+    # Each week: employed s += g * (1 - s); unemployed s -= d * s, with
+    #   g = learning_rate_annual / 52 and d = skill_depreciation_annual / 52,
+    #   both per-household traits. Replaces, on this path only, the yearly
+    #   passive grant (skill_growth_rate * ticks worked * (1 - s), about
+    #   2.6-10% of the gap per year). Applied in one numpy pass
+    #   (Economy._batch_update_skills).
+    skills_dynamics: bool = False
+    # learning_rate_annual_range: uniform draw, share of the gap (1 - s)
+    #   closed per year employed. Derived from the shape of Mincer's (1974,
+    #   Table 5.1 P(1)) profile ln Y = ... + 0.081x - 0.0012x^2: the marginal
+    #   return to experience, 0.081 - 0.0024x, halves at x = 16.9 years.
+    #   Gap closing makes the marginal gain proportional to (1 - s), which
+    #   halves after ln 2 / g years, so g = ln 2 / 16.9 = 0.041/yr (range
+    #   centre rounded to 0.04). Only the shape is matched: with the live
+    #   0.25 premium the wage gain is 0.25 * g * (1 - s), e.g. 0.6%/yr at
+    #   s = 0.4. Together with the 3%/yr experience premium it stays below
+    #   Mincer's 8.1%/yr at entry, so the two channels do not over-count.
+    #   The +/-0.01 spread around 0.04 is a judgment for heterogeneity, not
+    #   sourced.
+    learning_rate_annual_range: Tuple[float, float] = (0.03, 0.05)
+    # skill_depreciation_annual_range: uniform draw, share of s lost per
+    #   year unemployed. Edin & Gustavsson (2008, ILR Review 61(2)): a year
+    #   of non-employment moves a worker from the 50th to the 44.5th skill
+    #   percentile and from the 25th to the 20.5th. Matching is a strict
+    #   skill queue, so rank is what matters; mapped onto the sim's skill
+    #   distribution (seed 42, 1,000 households, at tick 0 and tick 104),
+    #   d = 1 - s(44.5)/s(50) = 0.060-0.072 and d = 1 - s(20.5)/s(25) =
+    #   0.087-0.100. The range spans those derivations.
+    skill_depreciation_annual_range: Tuple[float, float] = (0.06, 0.10)
+
     # Skill Development
     skill_growth_rate: float = 0.001  # Passive improvement per tick
     education_cost_per_skill_point: float = 1000.0
