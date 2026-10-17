@@ -4,6 +4,15 @@ Notable changes and decisions for EcoSim, newest first. The project does not use
 
 ## Unreleased
 
+### 2026-10-16: Poverty and wealth-loss terms read liquid wealth
+
+Bug fix from the PR7 investigation (item 3). `Economy._batch_update_wellbeing` read `cash_balance` alone for the poverty penalties and the wealth-loss term. The weekly deposit sweep runs after `last_tick_cash_start` is set and before wellbeing, so saving money in the bank counted as a wealth loss. The legacy withdrawal refills cash only to about 160, below the 200 poverty line, so households with savings were also scored as poor.
+
+- Both terms now read liquid wealth, `cash_balance + max(0, bank_deposit)`. The snapshot taken at income settlement (phase 8, `_apply_household_income`) gains `HouseholdAgent.last_tick_deposit_start`, set next to `last_tick_cash_start`, so moving money between cash and deposits is neutral. Deposits count at 100% (not `accessible_liquidity`'s 0.90 haircut) so a sweep is exactly neutral. On non-legacy payment sequences the snapshots are never set, so the wealth-loss term is inert there, as on main (not fixed here). Thresholds and penalties are unchanged.
+- Seeded run (1,000 households, 104 weeks, seeds 42 and 7): median happiness goes from 0 to 0.76 and 0.74. The share at 0 goes from 60% and 59% to 33% and 35%. Mean unemployment over weeks 13 to 104 moves by less than 0.5 pp.
+
+Evidence: `backend/tests_contracts/test_wellbeing_liquid_wealth.py` (4 tests). With a cash-only wellbeing read, tests 1 and 3 fail on their assertions; the snapshot-timing test fails if the deposit snapshot in `_apply_household_income` is removed.
+
 ### 2026-10-16: Wage offer floor and posted-offer getters
 
 Households (#29) saw offers at the $36 minimum wage, not `max(minimum wage, 1.5x benefit)` = $45. Read-only getters so they can read the real numbers; no offer changes (seed 42, 1,000 households, 104 ticks: final state hash identical to `main`).

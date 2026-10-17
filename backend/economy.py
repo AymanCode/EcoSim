@@ -1453,8 +1453,9 @@ class Economy:
         was already debited from employers at production; CEO pay (3x the
         median of the firm's current contracts) is debited from the firm here.
         The matching treasury totals (wage tax in, transfers out) are settled by
-        the caller. Sets ``last_tick_cash_start`` just before the credit, so the
-        wellbeing cash-loss term measures from this point.
+        the caller. Sets ``last_tick_cash_start`` and ``last_tick_deposit_start``
+        just before the credit, so the wellbeing wealth-loss term measures
+        liquid wealth (cash + deposits) from this point.
         """
         ceo_pay: Dict[int, float] = {}
         household_lookup = self.household_lookup
@@ -1468,6 +1469,7 @@ class Economy:
         for household in self.households:
             hid = household.household_id
             household.last_tick_cash_start = household.cash_balance
+            household.last_tick_deposit_start = household.bank_deposit
             if frozen_wages is not None:
                 wage_income = frozen_wages.get(hid, 0.0)
             else:
@@ -5259,7 +5261,21 @@ class Economy:
     # Section: Wellbeing, tax snapshots, production, and firm lifecycle
     # -------------------------------------------------------------------------
     def _batch_update_wellbeing(self, happiness_multiplier: float) -> None:
-        """Vectorized wellbeing update; the only wellbeing implementation (per-agent update_wellbeing was removed)."""
+        """Vectorized wellbeing update; the only wellbeing implementation (per-agent update_wellbeing was removed).
+
+        The poverty penalties and the wealth-loss term read liquid wealth:
+        ``cash_balance + max(0, bank_deposit)`` now, against
+        ``last_tick_cash_start + max(0, last_tick_deposit_start)``. Both
+        snapshots are taken at income settlement in phase 8
+        (``_apply_household_income``, just before the credit), not at the
+        start of the tick; the deposit sweep runs after that point, so it
+        nets to zero. Moving money between cash and deposits is neither a
+        loss nor poverty. Deposits count at 100%, not with
+        ``accessible_liquidity``'s 0.90 haircut, so a sweep is exactly
+        neutral. On non-legacy payment sequences the snapshots are never set
+        (``payments.settle_income`` bypasses ``_apply_household_income``), so
+        the wealth-loss term is inert there, as on main.
+        """
         if not self.households:
             return
 
@@ -5279,8 +5295,17 @@ class Economy:
         morale_decay = np.fromiter((h.morale_decay_rate for h in households), dtype=np.float64, count=n)
         health_decay = np.fromiter((h.health_decay_rate for h in households), dtype=np.float64, count=n)
 
-        cash_balances = np.fromiter((h.cash_balance for h in households), dtype=np.float64, count=n)
-        cash_prev = np.fromiter((h.last_tick_cash_start for h in households), dtype=np.float64, count=n)
+        # Poverty and wealth loss read liquid wealth (cash + bank deposits).
+        # The deposit sweep and bank withdrawals move money between the two
+        # within the tick, so reading cash alone scored saving as a loss and
+        # parked savers below the poverty line (PR7 investigation, item 3).
+        liquid_wealth = np.fromiter(
+            (h.cash_balance + max(0.0, h.bank_deposit) for h in households), dtype=np.float64, count=n
+        )
+        liquid_prev = np.fromiter(
+            (h.last_tick_cash_start + max(0.0, h.last_tick_deposit_start) for h in households),
+            dtype=np.float64, count=n,
+        )
         housing_met = np.fromiter((h.met_housing_need for h in households), dtype=np.bool_, count=n)
         food_consumed = np.fromiter((h.food_consumed_this_tick for h in households), dtype=np.float64, count=n)
         min_food = np.fromiter((h.min_food_per_tick for h in households), dtype=np.float64, count=n)
@@ -5314,10 +5339,10 @@ class Economy:
         happiness_change = np.zeros(n, dtype=np.float64)
 
         # Poverty penalties (from config)
-        happiness_change -= np.where(cash_balances < hc.extreme_poverty_threshold,
+        happiness_change -= np.where(liquid_wealth < hc.extreme_poverty_threshold,
                                      hc.extreme_poverty_penalty, 0.0)
         happiness_change -= np.where(
-            (cash_balances >= hc.extreme_poverty_threshold) & (cash_balances < hc.poverty_threshold),
+            (liquid_wealth >= hc.extreme_poverty_threshold) & (liquid_wealth < hc.poverty_threshold),
             hc.poverty_penalty, 0.0)
 
         # Government social programs boost
@@ -5337,11 +5362,11 @@ class Economy:
         # (a) Unemployment: being jobless hurts happiness independently of poverty
         happiness_change -= np.where(~employed, hc.unemployed_happiness_penalty, 0.0)
 
-        # (b) Relative wealth-loss: losing cash hurts proportionally, not just at thresholds
-        has_prior_cash = cash_prev > 1.0
+        # (b) Relative wealth-loss: losing liquid wealth hurts proportionally, not just at thresholds
+        has_prior_cash = liquid_prev > 1.0
         cash_loss_pct = np.where(
             has_prior_cash,
-            np.maximum(0.0, (cash_prev - cash_balances) / np.maximum(cash_prev, 1.0)),
+            np.maximum(0.0, (liquid_prev - liquid_wealth) / np.maximum(liquid_prev, 1.0)),
             0.0
         )
         happiness_change -= cash_loss_pct * hc.wealth_loss_happiness_scaling
