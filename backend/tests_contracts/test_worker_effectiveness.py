@@ -2,7 +2,8 @@
 
 Requirement (first-pass spec item 2): one pure function of skill, health,
 morale and happiness drives worker output for every firm; happiness alone
-moves output by at most +/-12%; the result is clamped to 0.8-1.25x.
+moves output by about +/-12%; the result stays within 0.8-1.25x. Ayman's
+follow-up: no hard wall, so better workers always produce more.
 """
 
 import itertools
@@ -23,45 +24,49 @@ def test_average_worker_is_exactly_one():
     assert worker_effectiveness(0.5, 0.5, 0.5, 0.5) == pytest.approx(1.0)
 
 
-def test_extremes_hit_the_configured_clamp():
-    assert worker_effectiveness(0.0, 0.0, 0.0, 0.0) == pytest.approx(0.8)
-    assert worker_effectiveness(1.0, 1.0, 1.0, 1.0) == pytest.approx(1.25)
+def test_extremes_approach_but_never_reach_the_bounds():
+    worst = worker_effectiveness(0.0, 0.0, 0.0, 0.0)
+    best = worker_effectiveness(1.0, 1.0, 1.0, 1.0)
+    assert 0.8 < worst < 0.81
+    assert 1.24 < best < 1.25
 
 
-def test_result_stays_in_band_for_every_input_combination():
+def test_result_stays_strictly_inside_band_for_every_input_combination():
     for combo in itertools.product(GRID, repeat=4):
         value = worker_effectiveness(*combo)
-        assert 0.8 - 1e-12 <= value <= 1.25 + 1e-12, combo
+        assert 0.8 < value < 1.25, combo
 
 
 @pytest.mark.parametrize("position", range(4))
-def test_non_decreasing_in_each_input(position):
+def test_strictly_increasing_in_each_input(position):
+    """No hard wall: raising any input always raises output."""
     for others in itertools.product(GRID, repeat=3):
         previous = -math.inf
         for x in GRID:
             args = list(others)
             args.insert(position, x)
             value = worker_effectiveness(*args)
-            assert value >= previous - 1e-12, (position, args)
+            assert value > previous, (position, args)
             previous = value
 
 
-def test_each_input_strictly_raises_output_away_from_the_clamp():
-    base = worker_effectiveness(0.5, 0.5, 0.5, 0.5)
-    for position in range(4):
-        args = [0.5] * 4
-        args[position] = 0.6
-        assert worker_effectiveness(*args) > base, position
+def test_near_neutral_the_rule_is_almost_linear():
+    # A small score change passes through with slope ~1.3 (saturation is
+    # negligible near the centre).
+    delta = worker_effectiveness(0.55, 0.5, 0.5, 0.5) - 1.0
+    assert delta == pytest.approx(1.3 * 0.30 * 0.05, rel=0.01)
 
 
-def test_happiness_alone_moves_output_twelve_percent_at_most():
-    # Neutral worker: happiness spans exactly 0.88x-1.12x.
-    assert worker_effectiveness(0.5, 0.5, 0.5, 0.0) == pytest.approx(0.88)
-    assert worker_effectiveness(0.5, 0.5, 0.5, 1.0) == pytest.approx(1.12)
-    # Any other worker: the happiness swing never exceeds 0.24 in total.
+def test_happiness_alone_moves_output_about_twelve_percent():
+    up = worker_effectiveness(0.5, 0.5, 0.5, 1.0) - 1.0
+    down = 1.0 - worker_effectiveness(0.5, 0.5, 0.5, 0.0)
+    assert 0.11 <= up <= 0.125
+    assert 0.11 <= down <= 0.125
+    # Any worker: happiness never moves output by more than 24 points in
+    # total (+/-12%); saturation only shrinks the swing away from neutral.
     for skill, health, morale in itertools.product(GRID, repeat=3):
         swing = worker_effectiveness(skill, health, morale, 1.0) - worker_effectiveness(skill, health, morale, 0.0)
-        assert 0.0 <= swing <= 0.24 + 1e-12
+        assert 0.0 < swing <= 0.24
 
 
 def test_out_of_range_inputs_are_clipped_not_extrapolated():
@@ -70,12 +75,13 @@ def test_out_of_range_inputs_are_clipped_not_extrapolated():
     assert worker_effectiveness(float("nan"), 0.5, 0.5, 0.5) == worker_effectiveness(0.0, 0.5, 0.5, 0.5)
 
 
-def test_clamp_and_slope_come_from_config():
+def test_bounds_and_slope_come_from_config():
     narrow = replace(CONFIG.firms, worker_effectiveness_min=0.95, worker_effectiveness_max=1.05)
-    assert worker_effectiveness(0.0, 0.0, 0.0, 0.0, config=narrow) == pytest.approx(0.95)
-    assert worker_effectiveness(1.0, 1.0, 1.0, 1.0, config=narrow) == pytest.approx(1.05)
+    assert 0.95 < worker_effectiveness(0.0, 0.0, 0.0, 0.0, config=narrow) < 0.96
+    assert 1.04 < worker_effectiveness(1.0, 1.0, 1.0, 1.0, config=narrow) < 1.05
     flat = replace(CONFIG.firms, worker_effectiveness_slope=0.1)
-    assert worker_effectiveness(1.0, 1.0, 1.0, 1.0, config=flat) == pytest.approx(1.05)
+    # z = 0.05 is far from the 0.25 ceiling, so output is ~1.05.
+    assert worker_effectiveness(1.0, 1.0, 1.0, 1.0, config=flat) == pytest.approx(1.05, abs=0.002)
 
 
 def test_config_rejects_weights_that_do_not_sum_to_one():
@@ -131,14 +137,16 @@ def test_goods_output_follows_the_shared_rule():
     planned = 100.0
     sad = _realized(_food_firm(), happiness=0.0, planned=planned)
     happy = _realized(_food_firm(), happiness=1.0, planned=planned)
-    assert sad == pytest.approx(planned * 0.88)
-    assert happy == pytest.approx(planned * 1.12)
+    assert sad == pytest.approx(planned * worker_effectiveness(0.5, 0.5, 0.5, 0.0))
+    assert happy == pytest.approx(planned * worker_effectiveness(0.5, 0.5, 0.5, 1.0))
+    assert sad < planned < happy
 
 
 def test_services_output_follows_the_shared_rule():
     # 2 workers x 4 units each; planned above capacity so effectiveness binds.
     sad = _realized(_services_firm(), happiness=0.0, planned=100.0)
-    assert sad == pytest.approx(2 * 4.0 * 0.88)
+    assert sad == pytest.approx(2 * 4.0 * worker_effectiveness(0.5, 0.5, 0.5, 0.0))
+    assert sad < 2 * 4.0
 
 
 def test_services_firms_differ_by_their_own_throughput():

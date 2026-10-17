@@ -7,27 +7,46 @@ bonus) and Services used an inline weighted sum of skill, health, morale and
 happiness mapped onto 1-7 units. This module is the single replacement.
 
 The rule is a weighted score of four household states, centred at a neutral
-score of 0.5 and scaled by one slope::
+score of 0.5, scaled by one slope, then passed through a soft (tanh)
+saturation toward a floor and a ceiling::
 
     score = w_skill*skill + w_health*health + w_morale*morale + w_happy*happiness
-    effectiveness = clamp(1 + slope * (score - 0.5), lo, hi)
+    z = slope * (score - 0.5)
+    effectiveness = 1 + up * tanh(z / up)      if z >= 0, up   = max - 1
+                    1 - down * tanh(-z / down) if z <  0, down = 1 - min
 
-With the defaults (weights 0.30/0.25/0.25/0.20 from the old Services sum,
-slope 1.2) happiness on its own can move a worker's output by at most
-``slope * w_happy * 0.5 = 0.12`` (+/-12%), and the whole result is clamped to
-0.8-1.25x. An average worker (every input 0.5) is exactly 1.0x.
+Near the neutral worker the curve has slope 1 in ``z``, so small differences
+pass through almost unchanged. Far from it the curve flattens toward the
+0.8x floor and the 1.25x ceiling but never reaches them, so better workers
+always produce more and nobody piles up at a hard wall.
 
-Evidence for the size of the happiness effect: Oswald, Proto and Sgroi (2015,
-J. Labor Econ. 33(4)) find that induced happiness raises lab productivity by
-about 12%; Bellet, De Neve and Ward (2024, Mgmt. Sci. 70(3)) find about 13%
-more weekly sales in a call centre's very happy weeks than its very unhappy
-ones. The full 0-1 happiness range here spans 24% (0.88x-1.12x), so it sits
-at the top of that evidence. The clamp keeps a burned-out or a star worker
-within a band that firms' capacity plans can absorb.
+Why each number:
+
+- Weights 0.30/0.25/0.25/0.20: the former Services weighted sum, kept so
+  Services output changes as little as possible (first-pass spec item 2).
+  They sum to 1, so an all-0.5 worker scores exactly 0.5.
+- Neutral score 0.5: the midpoint of the 0-1 states, so "average on every
+  input" means exactly 1.0x.
+- Slope 1.3: makes happiness alone move a neutral worker's output by about
+  +/-12% after saturation (+11.9% / -11.4%). Oswald, Proto and Sgroi (2015,
+  J. Labor Econ. 33(4)) find induced happiness raises productivity by about
+  12%; Bellet, De Neve and Ward (2024, Mgmt. Sci. 70(3)) find about 13% more
+  weekly sales in very happy than very unhappy weeks.
+- Asymptotes 0.8x and 1.25x (spec values): the band spans 1.56x top to
+  bottom for one worker's state. Firm-level spread (Syverson 2011, J. Econ.
+  Lit.: p90/p10 TFP about 2x within US 4-digit industries) also comes from
+  firms' own productivity, capital and experience, which multiply on top of
+  this rule, so the worker-state band is set narrower than 2x. 0.8 is
+  1/1.25, so floor and ceiling are symmetric in log output (+/-22.3%).
+- Current happiness, not a smoothed one: round 1 PR6 (happiness v2) makes
+  happiness itself move 5% per week toward its target, which is already an
+  exponential average with a 20-week time constant. Smoothing it again here
+  would lag it twice.
 """
 
 from __future__ import annotations
 
+import math
 from typing import Any
 
 from config import CONFIG
@@ -66,10 +85,11 @@ def worker_effectiveness(
             ``FirmBehaviorConfig``; defaults to the live ``CONFIG.firms``.
 
     Returns:
-        Dimensionless multiplier on a worker's planned output, in
-        ``[worker_effectiveness_min, worker_effectiveness_max]``
-        (default 0.8-1.25). Inputs outside 0-1 are clipped first, so the
-        result is non-decreasing in each input and never leaves the band.
+        Dimensionless multiplier on a worker's planned output, strictly
+        between ``worker_effectiveness_min`` and ``worker_effectiveness_max``
+        (default 0.8-1.25) for finite inputs. Inputs outside 0-1 are clipped
+        first. The result rises strictly with each input that has a
+        positive weight and approaches, but never reaches, the bounds.
     """
     if config is None:
         config = CONFIG.firms
@@ -79,8 +99,12 @@ def worker_effectiveness(
         + config.worker_effectiveness_morale_weight * _unit(morale)
         + config.worker_effectiveness_happiness_weight * _unit(happiness)
     )
-    raw = 1.0 + config.worker_effectiveness_slope * (score - NEUTRAL_SCORE)
-    return min(config.worker_effectiveness_max, max(config.worker_effectiveness_min, raw))
+    z = config.worker_effectiveness_slope * (score - NEUTRAL_SCORE)
+    if z >= 0.0:
+        up = config.worker_effectiveness_max - 1.0
+        return 1.0 + (up * math.tanh(z / up) if up > 0.0 else 0.0)
+    down = 1.0 - config.worker_effectiveness_min
+    return 1.0 - (down * math.tanh(-z / down) if down > 0.0 else 0.0)
 
 
 def household_effectiveness(household: Any, *, config: Any = None) -> float:

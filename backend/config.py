@@ -390,21 +390,22 @@ class FirmBehaviorConfig:
     default_units_per_worker: float = 20.0
     services_units_per_worker_range: Tuple[float, float] = (1.0, 7.0)
 
-    # Worker effectiveness (round 1 PR2; see backend/worker_effectiveness.py).
-    # One rule for every firm: effectiveness = clamp(1 + slope*(score - 0.5),
-    # min, max), score = weighted sum of the worker's skill, health, morale
-    # and happiness (each 0-1). Dimensionless output multiplier per worker.
+    # Worker effectiveness (round 1 PR2; see backend/worker_effectiveness.py
+    # for the full "why" of each number). One rule for every firm:
+    # z = slope*(score - 0.5), score = weighted sum of the worker's skill,
+    # health, morale and happiness (each 0-1); effectiveness saturates
+    # smoothly (tanh) toward min and max. Dimensionless multiplier.
     # Weights are the former Services weighted sum; they must sum to 1 so an
     # all-0.5 worker is exactly 1.0x.
     worker_effectiveness_skill_weight: float = 0.30      # valid 0-1
     worker_effectiveness_health_weight: float = 0.25     # valid 0-1
     worker_effectiveness_morale_weight: float = 0.25     # valid 0-1
     worker_effectiveness_happiness_weight: float = 0.20  # valid 0-1
-    # Output change per unit of score above/below 0.5. With the happiness
-    # weight 0.20, happiness alone moves output by slope*0.20*0.5 = +/-12%
+    # Output change per unit of score near 0.5. 1.3 makes happiness alone
+    # move a neutral worker's output by about +/-12% after saturation
     # (Oswald, Proto & Sgroi 2015: ~12%). Valid > 0.
-    worker_effectiveness_slope: float = 1.2
-    # Clamp on the result (replaces the old 0.75-1.5x goods range). Valid
+    worker_effectiveness_slope: float = 1.3
+    # Asymptotes of the soft saturation (spec values; never reached). Valid
     # 0 < min <= 1 <= max.
     worker_effectiveness_min: float = 0.8
     worker_effectiveness_max: float = 1.25

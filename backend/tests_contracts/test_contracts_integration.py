@@ -6,6 +6,7 @@ import pytest
 from agents import BankAgent, FirmAgent, FirmHealthSnapshot, GovernmentAgent, HouseholdAgent
 from config import CONFIG
 from economy import Economy
+from worker_effectiveness import worker_effectiveness
 from tools.runners.run_large_simulation import create_large_economy
 
 
@@ -596,7 +597,7 @@ def test_contract_economy_services_realized_production_keeps_worker_cap():
 
 
 def test_contract_economy_services_realized_production_keeps_worker_floor():
-    """Worst-state workers still deliver the firm's throughput at the 0.8x floor."""
+    """Worst-state workers still deliver the firm's throughput near the 0.8x floor."""
     households = [
         HouseholdAgent(household_id=i, skills_level=0.0, age=30, cash_balance=1_000.0)
         for i in range(1, 7)
@@ -616,8 +617,9 @@ def test_contract_economy_services_realized_production_keeps_worker_floor():
 
     realized = economy._calculate_experience_adjusted_production(firm, planned_production_units=199.0)
 
-    # 5 slots x 7 units x 0.8 (worker_effectiveness_min) = 28 units.
-    assert realized == pytest.approx(5 * 7.0 * 0.8)
+    # 5 slots x 7 units x the worst-state effectiveness (just above 0.8).
+    assert realized == pytest.approx(5 * 7.0 * worker_effectiveness(0.0, 0.0, 0.0, 0.0))
+    assert 5 * 7.0 * 0.8 < realized < 5 * 7.0 * 0.81
 
 
 def test_contract_economy_services_low_throughput_firm_keeps_one_unit_floor():
