@@ -61,3 +61,32 @@ def test_savings_in_the_bank_are_not_poverty():
     _wellbeing(cash_only, banked, poor)
     assert banked.happiness == pytest.approx(cash_only.happiness)
     assert poor.happiness < cash_only.happiness
+
+
+def test_snapshot_at_income_settlement_makes_the_deposit_sweep_neutral():
+    """Real phase order: income settlement -> deposit sweep -> wellbeing.
+
+    The saver starts the week with stale ``last_tick_*_start`` values from an
+    earlier week (deposits were higher then). Only the snapshot taken in
+    ``_apply_household_income`` resets them; without it the saver reads a
+    wealth loss. The comparator holds the same liquid wealth all in cash, has
+    no deposits and does not sweep.
+    """
+    from agents import BankAgent
+
+    saver = _household(1, cash=2_000.0, deposit=500.0, cash_start=2_000.0, deposit_start=5_000.0)
+    saver.deposit_buffer_weeks = 1.0
+    saver.deposit_fraction = 0.5
+    cash_only = _household(2, cash=2_500.0, deposit=0.0, cash_start=2_500.0, deposit_start=0.0)
+    cash_only.deposit_fraction = 0.0
+    economy = Economy(households=[saver, cash_only], firms=[],
+                      government=GovernmentAgent(cash_balance=5_000.0),
+                      bank=BankAgent(cash_reserves=10_000.0))
+
+    economy._apply_household_income({}, {})
+    deposit_before_sweep = saver.bank_deposit
+    economy._process_bank_deposits()
+    assert saver.bank_deposit > deposit_before_sweep  # the sweep fired
+    economy._batch_update_wellbeing(happiness_multiplier=1.0)
+
+    assert saver.happiness == pytest.approx(cash_only.happiness)

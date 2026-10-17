@@ -5250,9 +5250,16 @@ class Economy:
 
         The poverty penalties and the wealth-loss term read liquid wealth:
         ``cash_balance + max(0, bank_deposit)`` now, against
-        ``last_tick_cash_start + max(0, last_tick_deposit_start)`` at the start
-        of the tick. Moving money between cash and deposits is neither a loss
-        nor poverty.
+        ``last_tick_cash_start + max(0, last_tick_deposit_start)``. Both
+        snapshots are taken at income settlement in phase 8
+        (``_apply_household_income``, just before the credit), not at the
+        start of the tick; the deposit sweep runs after that point, so it
+        nets to zero. Moving money between cash and deposits is neither a
+        loss nor poverty. Deposits count at 100%, not with
+        ``accessible_liquidity``'s 0.90 haircut, so a sweep is exactly
+        neutral. On non-legacy payment sequences the snapshots are never set
+        (``payments.settle_income`` bypasses ``_apply_household_income``), so
+        the wealth-loss term is inert there, as on main.
         """
         if not self.households:
             return
