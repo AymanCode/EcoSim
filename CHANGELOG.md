@@ -8,12 +8,14 @@ Notable changes and decisions for EcoSim, newest first. The project does not use
 
 First-pass spec section 3, items A and B. Both behaviors sit behind new `CONFIG.households` flags that default off, so default runs are unchanged and the joint before/after run (PR7) can toggle them.
 
-- **Buffer-stock consumption (`buffer_stock_consumption`).** Before: the budget was income times a personality-adjusted MPC plus 1% to 5% of cash and 90% of deposits each week. The personality adjustment read the drawdown rate as a saving rate, so spenders got the lower wage MPC. After: income times its MPC plus `k * (liquidity - target)`, floored at the subsistence minimum the household can afford and capped at liquidity. Target weeks and `k` are per-household draws.
-- **Reservation wage (`slow_reservation_decay`).** Before: while unemployed, the reservation wage blended 15% per tick (30% after 5 ticks) toward an expected wage that itself fell about 3% per tick, with a $1 floor. After: it falls by the household's own rate (mean 0.14% per week, Krueger and Mueller 2016), slowed by savings, with a live floor `min(benefit + living cost, 1.5 x benefit)`.
-- **New per-household traits** `buffer_target_weeks`, `buffer_adjust_speed`, and `reservation_decay_rate` come from a separate RNG seeded by household id, so no existing draw changes.
+- **Buffer-stock consumption (`buffer_stock_consumption`).** Before: the budget was income times a personality-adjusted MPC plus 1% to 5% of cash and 90% of deposits each week. The personality adjustment read the drawdown rate as a saving rate, so spenders got the lower wage MPC. After: income times its MPC plus `k * (liquidity - target)`, floored at the subsistence minimum the household can afford and capped at liquidity. Target weeks, risk aversion, and `k` are per-household draws. The target also rises with the live unemployment rate: `target = weeks * risk_aversion * (1 + 2 * u) * weekly income`.
+- **Reservation wage (`slow_reservation_decay`).** Before: while unemployed, the reservation wage blended 15% per tick (30% after 5 ticks) toward an expected wage that itself fell about 3% per tick, with a $1 floor. After: it falls by the household's own rate (mean 0.14% per week, Krueger and Mueller 2016). An empty cash cushion makes it 1.5x faster and a full one 0.5x. A year-long spell doubles it. A live floor `min(benefit + living cost, 1.5 x benefit)` replaces the $1 floor.
+- **New per-household traits** `buffer_target_weeks`, `buffer_adjust_speed`, `reservation_decay_rate`, and `risk_aversion` come from a separate RNG seeded by household id, so no existing draw changes.
 - **Living cost** moved to `HouseholdAgent.living_cost_per_tick` with `living_cost_housing_share` (default 0.3, unchanged).
 
-Evidence: `backend/tests_contracts/test_households_pr3.py` (10 tests). Repro of the metrics in the PR: `python tools/analysis/run_households_pr3_compare.py --households 1000 --ticks 260` from `backend/`.
+- **Measured effect (seed 42, 1,000 households, 260 weeks, both flags on).** Mean post-warmup unemployment goes from 33.6% to 44.6%. The 1.5x-benefit floor (45) sits above the minimum wage (36) that a third of firms post, so unemployed workers no longer take those jobs. The PR description has the full table and the +/-50% parameter sensitivity runs.
+
+Evidence: `backend/tests_contracts/test_households_pr3.py` (11 tests). Repro, from `backend/`: `PYTHONHASHSEED=0 python tools/analysis/run_households_pr3_compare.py` and `PYTHONHASHSEED=0 python tools/analysis/run_households_pr3_sensitivity.py --jobs 6`.
 
 ### 2026-10-16: Server error replies, logging context, and two review checks
 

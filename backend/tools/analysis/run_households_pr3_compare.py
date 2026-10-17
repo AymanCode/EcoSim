@@ -41,7 +41,7 @@ def run_arm(name: str, households: int, ticks: int) -> dict:
     with contextlib.redirect_stdout(io.StringIO()):
         economy = create_large_economy(num_households=households, num_firms_per_category=5)
     warmup = economy.warmup_ticks
-    unemployment, wages, spending_cv = [], [], []
+    unemployment, wages, spending_cv, consumption = [], [], [], []
     spells = []
     previous = {}
     for _ in range(ticks):
@@ -53,6 +53,7 @@ def run_arm(name: str, households: int, ticks: int) -> dict:
         unemployment.append(metrics["unemployment_rate"])
         wages.append(metrics["mean_wage"])
         spend = [h.last_consumption_spending for h in economy.households]
+        consumption.append(statistics.mean(spend))
         if spend and statistics.mean(spend) > 0:
             spending_cv.append(statistics.pstdev(spend) / statistics.mean(spend))
         for h in economy.households:
@@ -76,6 +77,7 @@ def run_arm(name: str, households: int, ticks: int) -> dict:
         "median_liquid": statistics.median(liquid),
         "happy_median": statistics.median(happy),
         "spend_cv": statistics.mean(spending_cv) if spending_cv else 0.0,
+        "consumption_mean": statistics.mean(consumption),
     }
 
 
@@ -84,10 +86,15 @@ def main() -> None:
     parser.add_argument("--households", type=int, default=1000)
     parser.add_argument("--ticks", type=int, default=260)
     parser.add_argument("--arms", default="before,A,B,AB")
+    parser.add_argument("--floor-cap", type=float, default=None,
+                        help="override reservation_floor_benefit_cap for the B arms")
     args = parser.parse_args()
-    print(f"seed={CONFIG.random_seed} households={args.households} ticks={args.ticks}")
+    if args.floor_cap is not None:
+        CONFIG.households.reservation_floor_benefit_cap = args.floor_cap
+    print(f"seed={CONFIG.random_seed} households={args.households} ticks={args.ticks} "
+          f"floor_cap={CONFIG.households.reservation_floor_benefit_cap}")
     keys = ["arm", "unemp_mean", "unemp_last", "spells", "spell_median", "spell_mean",
-            "share_gt26", "ongoing_mean", "mean_wage", "median_liquid", "happy_median", "spend_cv"]
+            "share_gt26", "ongoing_mean", "mean_wage", "median_liquid", "happy_median", "spend_cv", "consumption_mean"]
     print(" | ".join(keys))
     for name in args.arms.split(","):
         row = run_arm(name, args.households, args.ticks)
