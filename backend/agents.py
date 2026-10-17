@@ -6517,7 +6517,22 @@ class GovernmentAgent(AgentMixin):
 
         firm_cash = [f.get("cash_balance", 0.0) for f in firms]
 
-        if firm_cash and len(firm_cash) >= 4:
+        if CONFIG.government.flat_profit_tax_enabled:
+            # G2 (PR5): one statutory rate on positive profit, as corporate
+            # income tax works (US federal 21%, OECD average ~23%). Taxing by
+            # cash rank taxed accumulated wealth, not profit, and pushed
+            # cash-rich firms to 60%. Losses pay 0; no carryforward.
+            for firm in firms:
+                profit_before_tax = float(firm.get("profit_before_tax", 0.0) or 0.0)
+                profit_taxes[firm["firm_id"]] = max(profit_before_tax * self.profit_tax_rate, 0.0)
+            firms_for_brackets: List[Dict[str, object]] = []
+        else:
+            firms_for_brackets = firms
+
+        if not firms_for_brackets:
+            q1 = q2 = q3 = p90 = p99 = 0.0
+            poor_rate = average_rate = rich_rate = very_rich_rate = top_1_rate = self.profit_tax_rate
+        elif firm_cash and len(firm_cash) >= 4:
             # Calculate percentile thresholds
             q1, q2, q3, p90, p99 = np.percentile(firm_cash, [25, 50, 75, 90, 99])  # poor / average / rich / very rich / ultra rich
 
@@ -6547,8 +6562,8 @@ class GovernmentAgent(AgentMixin):
             q1 = q2 = q3 = p90 = p99 = 0.0
             poor_rate = average_rate = rich_rate = very_rich_rate = top_1_rate = self.profit_tax_rate
 
-        # Apply wealth-based tax rates to each firm
-        for firm in firms:
+        # Legacy cash-rank brackets (flat_profit_tax_enabled=False only)
+        for firm in firms_for_brackets:
             firm_id = firm["firm_id"]
             profit_before_tax = firm.get("profit_before_tax", 0.0)
             cash_balance = firm.get("cash_balance", 0.0)

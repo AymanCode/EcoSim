@@ -962,6 +962,8 @@ def test_contract_profit_tax_brackets_share_the_top_cap_and_are_built_once(monke
     """
     import agents as agents_module
 
+    # Legacy bracket path; PR5 made the flat tax the default.
+    monkeypatch.setattr(CONFIG.government, "flat_profit_tax_enabled", False)
     gov = GovernmentAgent(cash_balance=0.0, profit_tax_rate=0.45)
     firms = [{"firm_id": i, "profit_before_tax": 100.0, "cash_balance": float(i)} for i in range(1, 101)]
 

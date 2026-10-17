@@ -125,3 +125,27 @@ def test_debt_flag_off_keeps_negative_cash(monkeypatch):
     gov = GovernmentAgent(cash_balance=-1_000.0)
     gov.settle_public_debt(BankAgent(cash_reserves=10_000.0))
     assert gov.cash_balance == -1_000.0 and gov.public_debt == 0.0
+
+
+# ── G2 flat profit tax ───────────────────────────────────────────────
+
+def _firm_snapshots():
+    # Same profit, very different cash: the flat tax must ignore cash.
+    return [
+        {"firm_id": i, "profit_before_tax": 1_000.0, "cash_balance": cash}
+        for i, cash in enumerate([100.0, 5_000.0, 50_000.0, 500_000.0, 5_000_000.0])
+    ] + [{"firm_id": 9, "profit_before_tax": -2_000.0, "cash_balance": 1_000.0}]
+
+
+def test_flat_profit_tax_is_rate_times_positive_profit():
+    gov = GovernmentAgent(cash_balance=0.0, profit_tax_rate=0.20)
+    taxes = gov.plan_taxes([], _firm_snapshots())["profit_taxes"]
+    assert all(taxes[i] == pytest.approx(200.0) for i in range(5))
+    assert taxes[9] == 0.0  # loss pays nothing, no credit carried
+
+
+def test_legacy_brackets_still_available_behind_flag(monkeypatch):
+    monkeypatch.setattr(CONFIG.government, "flat_profit_tax_enabled", False)
+    gov = GovernmentAgent(cash_balance=0.0, profit_tax_rate=0.20)
+    taxes = gov.plan_taxes([], _firm_snapshots())["profit_taxes"]
+    assert taxes[4] > taxes[0]  # cash-rich firm pays more on the same profit
