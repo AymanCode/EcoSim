@@ -256,6 +256,11 @@ class Economy:
         # household list object, its length and fix_preference_applied_once;
         # see _household_static_traits().
         self._household_static_traits_cache: Optional[Tuple[List[HouseholdAgent], int, bool, Dict[str, object]]] = None
+        # Adaptive reservation wage (households B): (hires, unemployed job
+        # seekers before matching) per tick for the job-finding rate, and the
+        # tick's reservation context built in household planning.
+        self._job_finding_history: deque = deque(maxlen=max(1, int(CONFIG.households.job_finding_window_weeks)))
+        self._reservation_context: Optional[Dict[str, object]] = None
 
         # Cache wage percentiles to avoid repeated sorting
         self.cached_wage_percentiles: Tuple[float, float, float] = (0.0, 0.0, 0.0)  # low, mid, high
@@ -1089,6 +1094,60 @@ class Economy:
         drawdown = np.where(in_desperation, np.maximum(drawdown, desperation_drawdown), drawdown)
 
         return np.minimum(base_budget + drawdown, accessible_liquidity)
+
+    def job_finding_rate(self) -> Optional[float]:
+        """Weekly job-finding rate: hires / unemployed job seekers.
+
+        Summed over the last ``job_finding_window_weeks`` ticks. None until
+        the first labor match has run.
+        """
+        if not self._job_finding_history:
+            return None
+        hires = sum(h for h, _ in self._job_finding_history)
+        seekers = sum(u for _, u in self._job_finding_history)
+        return hires / seekers if seekers > 0 else 0.0
+
+    @staticmethod
+    def normal_weekly_job_finding_rate() -> float:
+        """The absolute reference job-finding rate, per week.
+
+        ``1 - (1 - m) ** (12 / 52)``, with m =
+        ``CONFIG.households.normal_monthly_job_finding_rate`` (US CPS
+        unemployed-to-employed flows). It is fixed by data, not by this
+        simulation's own baseline, so a sim with far fewer hires per job
+        seeker reads as a slack market.
+        """
+        monthly = min(max(float(CONFIG.households.normal_monthly_job_finding_rate), 0.0), 0.999)
+        return 1.0 - (1.0 - monthly) ** (12.0 / 52.0)
+
+    def _build_reservation_context(self, benefit: float, firm_production_plans: Dict[int, Dict]) -> Dict[str, object]:
+        """Live inputs for the adaptive reservation wage, built once per tick.
+
+        Known offers are the posted offers of firms hiring this tick
+        (``planned_hires_count > 0``), baseline firms included because they
+        hire, excluding healthcare and housing firms like the existing
+        posted-offer pool (healthcare hires doctors only). Keys:
+        ``median_offer`` and ``best_offer`` (None when no firm is hiring),
+        ``finding_ratio`` = f / f_normal (1.0 before the first match, i.e.
+        assume a normal market), and ``benefit`` (live benefit level).
+        """
+        posted = self.get_posted_wage_offers(include_baseline=True)
+        lookup = self.firm_lookup
+        hiring = []
+        for firm_id, offer in posted.items():
+            firm = lookup.get(firm_id)
+            if firm is None or (firm.good_category or "").lower() in {"healthcare", "housing"}:
+                continue
+            if int(firm_production_plans.get(firm_id, {}).get("planned_hires_count", 0) or 0) > 0:
+                hiring.append(float(offer))
+        rate = self.job_finding_rate()
+        ratio = 1.0 if rate is None else rate / self.normal_weekly_job_finding_rate()
+        return {
+            "median_offer": float(np.median(hiring)) if hiring else None,
+            "best_offer": max(hiring) if hiring else None,
+            "finding_ratio": ratio,
+            "benefit": float(benefit),
+        }
 
     def _legacy_obligations_due(self) -> np.ndarray:
         """Known household payments that fall due later in this legacy tick.
@@ -2366,6 +2425,10 @@ class Economy:
         # planning below must not change household cash, wage, expected wage or subsistence.
         total_education_spending = 0.0
         _cooldown_rng = random.Random(int(CONFIG.random_seed) + self.current_tick * 31337)
+        reservation_context = None
+        if CONFIG.households.adaptive_reservation_wage:
+            reservation_context = self._build_reservation_context(gov_benefit, firm_production_plans)
+        self._reservation_context = reservation_context
         tick_cooldowns = not self.in_warmup
         bank = self.bank
         firm_lookup = self.firm_lookup
@@ -2382,6 +2445,7 @@ class Economy:
                 category_posted_wages=category_posted_wage_signals,
                 employer_category=employer_category,
                 category_expected_prices=tick.category_expected_prices,
+                reservation_context=reservation_context,
             )
             tick.household_labor_plans[household.household_id] = labor_plan
             if bank is not None:
@@ -2493,6 +2557,15 @@ class Economy:
         for firm in self.firms:
             firm.apply_labor_outcome(firm_labor_outcomes[firm.firm_id])
 
+        seekers_before = 0
+        hires = 0
+        for household in self.households:
+            if household.employer_id is None and household.can_work:
+                seekers_before += 1
+                if household_labor_outcomes[household.household_id].get("employer_id") is not None:
+                    hires += 1
+        self._job_finding_history.append((hires, seekers_before))
+
         for household in self.households:
             anchor = None
             if household.skills_level < 0.4:
@@ -2515,7 +2588,8 @@ class Economy:
             household.apply_labor_outcome(
                 hh_outcome,
                 market_wage_anchor=anchor,
-                current_tick=self.current_tick
+                current_tick=self.current_tick,
+                reservation_context=self._reservation_context,
             )
 
         # Keep firm-side employee rosters aligned with household employment outcomes.
