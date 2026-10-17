@@ -16,6 +16,16 @@ python -m backend.tools.benchmarks.run_sim_bench --households 1000,5000,10000 --
 
 Measures p50/p95/p99 tick duration, ticks/sec, memory RSS when available, and separates warmup from active private-market ticks.
 
+## Sticky Price Study
+
+```bash
+python backend/tools/benchmarks/sticky_price_study.py --seed 42
+python backend/tools/benchmarks/sticky_price_study.py --seed 42 --set firms.sticky_prices_enabled=false
+python backend/tools/benchmarks/sticky_price_study.py --seed 42 --backend /path/to/main-worktree/backend
+```
+
+One seeded `create_large_economy` run (default 1,000 households, 156 weeks, 26-week burn-in). Prints unemployment, mean wage, GDP, CPI inflation, firm exits and treasury, plus, per private-firm category, the share of firm-weeks with a price change, mean weeks between changes, mean change size, and (sticky prices on) the posted-vs-shadow gap and early-review share. `--set` takes `section.key=value` with a JSON value (lists become tuples).
+
 ## Warehouse Ingest
 
 ```powershell

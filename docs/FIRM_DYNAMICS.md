@@ -173,6 +173,46 @@ letting different firms react at different speeds.
 - baseline firms during warmup still use their safety-net pricing rules
 - healthcare keeps queue-pressure-aware pricing
 
+### Sticky prices (round 1 PR4a)
+
+With `CONFIG.firms.sticky_prices_enabled` (default on), private Food,
+Services and Healthcare firms post a price that changes only at a price
+review. The rules above still run every tick, but on a background shadow
+price (`FirmAgent.price_shadow`): the price the firm would have reached
+repricing weekly. At a review the posted price jumps to the shadow.
+
+```python
+hazard = (1 / interval) * (1 + gap / 0.10) * (1 + 1.38 * max(0, inflation - 0.125))
+pressure += hazard            # every tick
+if pressure >= 1:             # review
+    price = shadow; pressure = 0
+gap = abs(price / shadow - 1); inflation = CPI 52-week rate
+```
+
+- `interval` (calm-market weeks between reviews) is drawn once per firm from
+  its category's range: Food 15-39 weeks (Nakamura & Steinsson 2008,
+  unprocessed 3.5 / processed 9.0 months), Services 19-34 (Bils & Klenow
+  2004, all items 4.3 / services 7.8 months), Healthcare 34-65 (Bils &
+  Klenow, services 7.8 / medical care 14.9 months). The draw hashes
+  `firm_id`, so no random number is consumed.
+- A gap of 10% doubles the hazard: 9.5-11% is the typical size of a regular
+  price change in menu-cost data (Golosov & Lucas 2007; Midrigan 2011).
+- Inflation above 12.5% a year speeds reviews (Gagnon 2009, Mexico).
+- `last_price_review_tick` is the latest review; `next_price_review_tick` is
+  the projected next one at the current hazard, always in the future between
+  reviews. They are the contract a review-aware price cap reads (the hold
+  in #27's `Economy._price_review_due`; #27 was closed and the hold dropped
+  on 2026-10-17, so nothing on main reads them yet).
+- Not sticky: baseline firms, warm-up, and Housing (settlement resets rent
+  from occupancy every tick, which would overwrite a held rent).
+- Services: market clearing can still raise a Services price on scarcity
+  between reviews (`_effective_market_price`), as on main.
+
+Implementation: `FirmAgent.uses_sticky_prices`, `price_review_interval`,
+`price_review_hazard`, `plan_sticky_pricing`; called from
+`Economy._phase_firm_planning`. Flag off: every firm reprices every tick,
+identical to main.
+
 ---
 
 ## Labor-Market Signals

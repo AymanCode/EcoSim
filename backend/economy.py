@@ -2230,13 +2230,25 @@ class Economy:
 
             # Plan pricing — pass current profit tax rate so firms inflate gross
             # margins to preserve their targeted after-tax margin.
-            price_plan = firm.plan_pricing(
-                self.last_tick_sell_through_rate.get(firm.firm_id, 0.5),
-                unemployment_rate=unemployment_rate,
-                in_warmup=self.in_warmup,
-                health_snapshot=health_snapshot,
-                profit_tax_rate=float(self.government.profit_tax_rate),
-            )
+            # Sticky prices (PR4a): eligible private firms run the same rule on
+            # a background shadow price and post it only at a price review.
+            if firm.uses_sticky_prices(self.in_warmup):
+                price_plan = firm.plan_sticky_pricing(
+                    self.current_tick,
+                    float(self.consumer_prices.annual_rate or 0.0),
+                    self.last_tick_sell_through_rate.get(firm.firm_id, 0.5),
+                    unemployment_rate=unemployment_rate,
+                    health_snapshot=health_snapshot,
+                    profit_tax_rate=float(self.government.profit_tax_rate),
+                )
+            else:
+                price_plan = firm.plan_pricing(
+                    self.last_tick_sell_through_rate.get(firm.firm_id, 0.5),
+                    unemployment_rate=unemployment_rate,
+                    in_warmup=self.in_warmup,
+                    health_snapshot=health_snapshot,
+                    profit_tax_rate=float(self.government.profit_tax_rate),
+                )
             self._apply_price_stabilization_to_plan(firm, price_plan)
             tick.firm_price_plans[firm.firm_id] = price_plan
 
