@@ -4,6 +4,25 @@ Notable changes and decisions for EcoSim, newest first. The project does not use
 
 ## Unreleased
 
+### 2026-10-17: Households hold back cash for a queued healthcare visit (flag off)
+
+Steering B (households). Stacked on #45, whose getter it reads. The behavior sits behind `CONFIG.households.healthcare_cash_reservation`, default off.
+
+- **Before:** a queued household spent and saved as if the visit were free. The visit then hit its cash at service, after the shopping decision, so it relied on the deposit withdrawal, a medical loan, or being dropped from the queue.
+- **After:** while `queued_healthcare_firm_id` is set, the weekly budget takes `firm.price * Economy.expected_healthcare_household_share(firm.price)` off the accessible liquidity it spends and saves from. That liquidity is also the input #29's buffer rule reads.
+  - It is a reservation, not a charge: no money moves.
+  - The charge still happens at service, in the unchanged `_process_healthcare_services`.
+  - The reserve lapses when the queue id clears (served, dropped, provider exit).
+  - It applies on every payment sequence.
+- **No new numbers:** the price is the provider's, and the share comes from government's getter.
+- **Measured (legacy path, seed 42, 1,000 households, 260 weeks).**
+  - No household was dropped for lack of funds and no medical loan was issued in either arm, so the reserve has nothing to prevent there.
+  - Consumption and liquid wealth move within path noise; seed 7 flips the sign of the liquid-wealth change.
+  - Happiness is unchanged.
+- **`income_first`:** with the healthcare subsidy lever at 50%, drops fall from 5.4% to 2.2% of visit attempts. The reserve there is half the price, because the getter reads the `G` budget, while `settle_payment_care` charges `patient_pay` households the full price. That getter fix belongs to government (#45); it is logged in the PR.
+
+Evidence: `backend/tests_contracts/test_households_healthcare_reserve.py` (9 tests). Repro, from `backend/`: `PYTHONHASHSEED=0 python tools/analysis/run_households_healthcare_reserve_compare.py`.
+
 ### 2026-10-17: Read-only estimate of the household's share of a healthcare visit
 
 Households had no way to know what a visit would cost them before the charge, so they could not set money aside for a queued visit. New read-only getters give that number. No behavior change: per-tick metrics JSON is byte-identical to `main` in 12 seeded runs (details below).

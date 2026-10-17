@@ -97,6 +97,20 @@ class HouseholdBehaviorConfig:
     subsistence_min_cash: float = 50.0  # Always spend at least this much if available
     max_spend_fraction: float = 0.9  # Upper bound on discretionary spending fraction
 
+    # Healthcare cash reservation (households, steering B). Flag default off.
+    # While a household is queued for a visit (queued_healthcare_firm_id set),
+    # the weekly consumption budget treats
+    #     reserve = firm.price * Economy.expected_healthcare_household_share(firm.price)
+    # as already spoken for: it is subtracted from the accessible liquidity the
+    # budget (and #29's buffer-stock rule, which reads the same liquidity)
+    # spends and saves from. Nothing moves: the charge still happens at
+    # service in Economy._process_healthcare_services (or the payment arms'
+    # care settlement), and the reserve lapses on its own when the queue id
+    # clears (served, dropped for affordability, provider exit). Adds no
+    # numeric parameter: the price is the provider's, the share is
+    # government's getter (PR #45), the same rule the charge uses.
+    healthcare_cash_reservation: bool = False
+
     # Job acceptance (H1 - no job worse than benefits)
     min_job_premium_over_unemployment: float = 1.05  # Jobs must pay 5% more than unemployment benefits
 
