@@ -845,6 +845,24 @@ class LaborMarketConfig:
     occupancy_low_threshold: float = 0.50
     rent_shortage_multiplier: float = 1.05  # Extra increase during housing shortage
     rent_shortage_interval_ticks: int = 13  # How often shortage premium applies
+    # Legacy payment path only (payment_sequence="legacy"). True (default):
+    # every tick an existing tenant owes the landlord's current posted rent
+    # (firm.price), so rent follows the Housing firm's pricing rule (wage bill
+    # + debt service + 10% margin, at most +15%/tick, floored at the firm's
+    # min_price; FirmAgent.plan_pricing) and any cap applied to that price.
+    # False: the tenant keeps the rent written at signing forever (behavior
+    # before the 2026-10-16 bug fix); kept only for before/after runs. The
+    # named payment arms renew on their own 52-week term
+    # (payment_lease_term_ticks) and ignore this key.
+    rent_tracks_posted_price: bool = True
+    # Legacy payment path only. True (default): rent collected in the housing
+    # phase counts as the Housing firm's revenue for this tick's profit tax,
+    # last_revenue, net_profit and dividend check, as the named payment arms
+    # already do (PaymentBook.rent_receipts). The cash itself moves once, in
+    # the housing phase; settlement does not credit it again. False: rent
+    # reaches cash only and the firm's profit reads as minus its wage bill
+    # (behavior before the 2026-10-16 bug fix); kept for before/after runs.
+    rent_booked_as_revenue: bool = True
 
 
 @dataclass
