@@ -7088,7 +7088,11 @@ class Economy:
                 )
 
     def _deauthorize_public_works_capacity(self) -> None:
-        """Wind down existing public works firms when the lever is off."""
+        """Wind down existing public works firms when the lever is off.
+
+        Sets the headcount to 0; with headcount planning the firm then releases
+        staff at the ramp pace, and the treasury keeps funding their payroll.
+        """
 
         public_firms = [
             firm for firm in self.firms
@@ -7106,6 +7110,12 @@ class Economy:
             else:
                 firm.planned_layoffs_ids = []
             firm.decision_diagnostics["public_works_authorized"] = False
+        config = CONFIG.government
+        if public_firms and config.public_works_headcount_planning_enabled and config.public_works_payroll_funding_enabled:
+            # Staff leave over public_works_ramp_weeks ticks; keep paying them
+            # meanwhile, or a firm without startup capital left would go
+            # bankrupt and fire everyone at once.
+            self._fund_public_works_payroll(public_firms)
 
     def _public_works_target_jobs(self, public_firms: List[FirmAgent]) -> int:
         """Public works headcount the government authorizes this tick (workers).

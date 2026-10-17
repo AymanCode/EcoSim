@@ -240,3 +240,18 @@ def test_payroll_funding_flag_off_leaves_firm_on_startup_capital(tiny_economy_fa
 
     assert economy.government.cash_balance == gov_before
     assert firm.cash_balance == 0.0
+
+
+def test_lever_off_winds_down_at_ramp_pace_with_payroll_still_funded(tiny_economy_factory):
+    economy = tiny_economy_factory(num_households=60, government_cash=300_000.0)
+    firm = _funded_firm_with_staff(economy, staff=8)
+    firm.cash_balance = 0.0
+    economy.government.set_lever("public_works", "off")
+
+    economy._deauthorize_public_works_capacity()
+    plan = firm.plan_production_and_labor(0.0, total_households=60)
+
+    assert firm.public_works_target_jobs == 0
+    assert len(plan["planned_layoffs_ids"]) == firm.public_works_step_limit()
+    # The remaining staff are still paid by the treasury, not fired at once.
+    assert firm.cash_balance == pytest.approx(2 * 8 * 50.0)
