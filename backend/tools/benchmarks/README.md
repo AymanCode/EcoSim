@@ -16,6 +16,16 @@ python -m backend.tools.benchmarks.run_sim_bench --households 1000,5000,10000 --
 
 Measures p50/p95/p99 tick duration, ticks/sec, memory RSS when available, and separates warmup from active private-market ticks.
 
+## Business Before/After Metrics
+
+```bash
+python backend/tools/benchmarks/business_ab_metrics.py --seed 42
+python backend/tools/benchmarks/business_ab_metrics.py --seed 42 --backend /path/to/main-worktree/backend
+python backend/tools/benchmarks/business_ab_metrics.py --seed 42 --set firms.some_flag=true
+```
+
+Runs one seeded `create_large_economy` run (default 1,000 households, 156 weeks, metrics after a 26-week burn-in) and prints unemployment, mean wage, GDP, inflation, the share of private firm-weeks with a price change, firm exits, mean happiness and end treasury cash as JSON. `--backend` imports another checkout's `backend/` for the "before" column; `--set` toggles a config key.
+
 ## Warehouse Ingest
 
 ```powershell
