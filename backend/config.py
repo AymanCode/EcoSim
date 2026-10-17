@@ -855,6 +855,14 @@ class LaborMarketConfig:
     # named payment arms renew on their own 52-week term
     # (payment_lease_term_ticks) and ignore this key.
     rent_tracks_posted_price: bool = True
+    # Legacy payment path only. True (default): rent collected in the housing
+    # phase counts as the Housing firm's revenue for this tick's profit tax,
+    # last_revenue, net_profit and dividend check, as the named payment arms
+    # already do (PaymentBook.rent_receipts). The cash itself moves once, in
+    # the housing phase; settlement does not credit it again. False: rent
+    # reaches cash only and the firm's profit reads as minus its wage bill
+    # (behavior before the 2026-10-16 bug fix); kept for before/after runs.
+    rent_booked_as_revenue: bool = True
 
 
 @dataclass
