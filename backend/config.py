@@ -794,6 +794,13 @@ class GovernmentPolicyConfig:
     rent_stabilization_soft_max_increase: float = 1.02
     rent_stabilization_strict_max_increase: float = 1.005
 
+    # Flat profit tax (round 1 G2). True: every firm pays profit_tax_rate on
+    # positive profit before tax; losses pay 0 and nothing carries forward.
+    # False: the older cash-rank brackets (the rate rises with the firm's cash
+    # percentile, plus seeded extras, capped at 60%). Kept so a run can switch
+    # back for a before/after comparison.
+    flat_profit_tax_enabled: bool = True
+
 
 @dataclass
 class LaborMarketConfig:

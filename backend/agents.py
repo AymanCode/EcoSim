@@ -6517,10 +6517,64 @@ class GovernmentAgent(AgentMixin):
 
             wage_taxes[household_id] = max(wage_income * rate, 0.0)
 
-        # WEALTH-BASED PROGRESSIVE TAXATION FOR FIRMS
-        # Use quartiles of firm cash balance to determine tax brackets
-        # This ensures consistent progressive taxation regardless of absolute wealth levels
+        if CONFIG.government.flat_profit_tax_enabled:
+            profit_taxes = self._flat_profit_taxes(firms)
+        else:
+            profit_taxes = self._cash_rank_profit_taxes(firms)
 
+        # Calculate property taxes for housing firms
+        property_taxes = {}
+        for firm in firms:
+            firm_id = firm["firm_id"]
+            if firm.get("good_category") == "Housing" and firm.get("property_tax_rate", 0.0) > 0:
+                # Property tax based on assessed property value (rent × units), not cash balance.
+                # Annual rate divided by 52 for weekly payment.
+                rental_units = firm.get("max_rental_units", 0)
+                rent_per_unit = firm.get("price", 0.0)
+                assessed_property_value = rental_units * rent_per_unit * 52.0  # annualized rental income as proxy
+                weekly_property_tax = firm["property_tax_rate"] * assessed_property_value / 52.0
+                property_taxes[firm_id] = max(weekly_property_tax, 0.0)
+
+        return {
+            "wage_taxes": wage_taxes,
+            "profit_taxes": profit_taxes,
+            "property_taxes": property_taxes,
+        }
+
+    def _flat_profit_taxes(self, firms: List[Dict[str, object]]) -> Dict[int, float]:
+        """Profit tax at one rate on positive profit (round 1 G2).
+
+        Corporate income tax is one statutory rate on taxable profit, not on
+        the cash a firm holds, so two firms with the same profit pay the same
+        tax. A loss pays 0 this tick and earns no credit against later profit
+        (no loss carryforward).
+
+        Args:
+            firms: dicts with ``firm_id`` and ``profit_before_tax`` ($ this tick).
+
+        Returns:
+            firm_id -> tax in $, ``profit_tax_rate * max(profit_before_tax, 0)``.
+        """
+        rate = float(self.profit_tax_rate)
+        return {
+            firm["firm_id"]: max(float(firm.get("profit_before_tax", 0.0) or 0.0), 0.0) * rate
+            for firm in firms
+        }
+
+    def _cash_rank_profit_taxes(self, firms: List[Dict[str, object]]) -> Dict[int, float]:
+        """Legacy profit tax by cash percentile (``flat_profit_tax_enabled=False``).
+
+        The rate depends on where the firm's cash balance ranks among all
+        firms this tick: below-median firms get a discount, the top 25%/10%/1%
+        pay the base rate plus seeded extras, all capped at 60%.
+
+        Args:
+            firms: dicts with ``firm_id``, ``profit_before_tax`` and ``cash_balance``.
+
+        Returns:
+            firm_id -> tax in $.
+        """
+        profit_taxes: Dict[int, float] = {}
         firm_cash = [f.get("cash_balance", 0.0) for f in firms]
 
         if firm_cash and len(firm_cash) >= 4:
@@ -6582,24 +6636,7 @@ class GovernmentAgent(AgentMixin):
             # Calculate total profit tax
             profit_taxes[firm_id] = max(profit_before_tax * rate, 0.0)
 
-        # Calculate property taxes for housing firms
-        property_taxes = {}
-        for firm in firms:
-            firm_id = firm["firm_id"]
-            if firm.get("good_category") == "Housing" and firm.get("property_tax_rate", 0.0) > 0:
-                # Property tax based on assessed property value (rent × units), not cash balance.
-                # Annual rate divided by 52 for weekly payment.
-                rental_units = firm.get("max_rental_units", 0)
-                rent_per_unit = firm.get("price", 0.0)
-                assessed_property_value = rental_units * rent_per_unit * 52.0  # annualized rental income as proxy
-                weekly_property_tax = firm["property_tax_rate"] * assessed_property_value / 52.0
-                property_taxes[firm_id] = max(weekly_property_tax, 0.0)
-
-        return {
-            "wage_taxes": wage_taxes,
-            "profit_taxes": profit_taxes,
-            "property_taxes": property_taxes,
-        }
+        return profit_taxes
 
     def apply_fiscal_results(
         self,
