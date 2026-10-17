@@ -1104,7 +1104,7 @@ class Economy:
             if provider is not None and provider.good_category == "Housing":
                 income = household.wage if household.employer_id is not None else benefit
                 liquidity = household.cash_balance + 0.90 * max(0.0, household.bank_deposit)
-                rent = household.monthly_rent
+                rent = self._lease_rent_due(household, provider)
                 if not (rent > self._max_affordable_rent(income, liquidity) or liquidity < rent):
                     amount += rent
             if bank is not None:
@@ -7343,6 +7343,30 @@ class Economy:
         self._withdraw_deposits_to_cash(household, withdraw)
         return household.cash_balance + 1e-9 >= amount
 
+    @staticmethod
+    def _lease_rent_due(household: HouseholdAgent, provider: FirmAgent) -> float:
+        """Rent an existing tenant owes this tick on the legacy payment path.
+
+        Args:
+            household: A tenant of ``provider``.
+            provider: The Housing firm the household rents from.
+
+        Returns:
+            Rent in currency units per tick (1 tick = 1 week). With
+            ``CONFIG.labor_market.rent_tracks_posted_price`` (the default) it
+            is the landlord's current posted rent ``provider.price``, floored
+            at 0; otherwise it is the rent signed at, ``monthly_rent``.
+
+        ``provider.price`` does not change between household planning, which
+        reserves this amount through ``_legacy_obligations_due``, and the
+        housing phase, which collects it (prices move later, in the housing
+        firm adjustment and in firm settlement), so both callers see the same
+        number.
+        """
+        if CONFIG.labor_market.rent_tracks_posted_price:
+            return max(0.0, float(provider.price))
+        return household.monthly_rent
+
     def _clear_housing_rental_market(self) -> None:
         """
         Match households with housing firms for rental agreements.
@@ -7417,6 +7441,8 @@ class Economy:
                         severity=1.0,
                     )
                     continue
+
+                household.monthly_rent = self._lease_rent_due(household, housing_firm)
 
                 # Affordability: income stream (wage or benefit) + 25% of accessible
                 # liquidity (cash + 90% of bank deposits). Households with savings
