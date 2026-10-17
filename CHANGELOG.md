@@ -4,6 +4,12 @@ Notable changes and decisions for EcoSim, newest first. The project does not use
 
 ## Unreleased
 
+### 2026-10-16: Tenants pay the posted rent on the default path (business bug 1)
+
+From the PR7 baseline investigation. Before: on the default `legacy` payment path an existing tenant paid the rent written at signing forever, so every household paid the starting 20/wk while the Housing firm posted 5/wk; only the named payment arms renewed leases. Now `Economy._lease_rent_due` returns the landlord's posted price, the housing phase charges it and writes it to `monthly_rent`, and `_legacy_obligations_due` reserves the same amount before shopping. New key `labor_market.rent_tracks_posted_price` (default `True`; `False` restores the old locked rent for before/after runs). No change to the Housing firm's pricing rule, to the payment arms, or to where the Housing firm's cash goes (government owns that follow-up).
+
+Evidence: `test_rent_tracks_posted_price.py` (7 tests; 6 fail on main, the flag-off guard passes on both). 5 seeds x 104 weeks: median rent paid 20 -> 5, median happiness 0 -> 0.66, share of households with cash + deposits under 200 46% -> 9%, Housing firm cash at week 104 1.83M -> 0.29M, unemployment over weeks 13-104 38.5% -> 38.0% (inside the seed spread).
+
 ### 2026-10-16: Server error replies, logging context, and two review checks
 
 From the outside portfolio review (items #8, #9, #14, #15, #21, #25, #28). No simulation behavior changed: the engine, tick order, and every success reply are unchanged.
