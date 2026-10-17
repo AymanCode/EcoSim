@@ -6950,8 +6950,8 @@ class GovernmentAgent(AgentMixin):
         """Misc bond buy with surplus funds.
 
         When free treasury cash exceeds the reserve (``_surplus_reserve``)
-        by more than ``surplus_trigger_share_of_reserve`` of it, the treasury uses ``surplus_use_rate`` of the surplus
-        per tick. With public debt on and debt outstanding (or repaid this
+        by more than ``surplus_trigger_share_of_reserve`` of it, the treasury
+        uses ``surplus_use_rate`` of the surplus per tick. With public debt on and debt outstanding (or repaid this
         tick), ``surplus_debt_paydown_share`` of that already went to
         ``settle_public_debt``; the rest buys "bonds" from the Misc firm,
         which pays the money out to households. With no debt the whole amount
@@ -6977,24 +6977,4 @@ class GovernmentAgent(AgentMixin):
             return investments
         self.cash_balance -= use
         investments["bonds"] = use
-        return investments
-
-        # Define surplus threshold as percentage of cash balance
-        surplus_threshold_pct = 0.20  # Consider 20%+ above baseline as surplus
-        baseline_reserve = 50000.0  # Minimum reserve to maintain
-
-        # Calculate surplus (scaled, not fixed)
-        if self.cash_balance - self.payment_reserved_cash < baseline_reserve:
-            return investments
-
-        surplus = max(0.0, self.cash_balance - self.payment_reserved_cash - baseline_reserve)
-
-        # Spend 10-15% of surplus on bonds each tick (scaled)
-        if surplus > baseline_reserve * surplus_threshold_pct:
-            bond_purchase_rate = 0.12  # 12% of surplus per tick
-            bond_spend = surplus * bond_purchase_rate
-
-            self.cash_balance -= bond_spend
-            investments["bonds"] = bond_spend
-
         return investments
