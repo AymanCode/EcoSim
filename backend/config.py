@@ -193,23 +193,46 @@ class HouseholdBehaviorConfig:
     # it; every range is sampled once per household from a private RNG seeded
     # by household_id, so these traits do not shift any other household draw.
     #
-    # buffer_stock_consumption: bool, default False. When True, weekly
-    #   budget = income * MPC + k * (liquidity - buffer_target), replacing the
-    #   savings_drawdown_rate trickle and the personality MPC cut (which gave
-    #   spenders a lower wage MPC, the backwards saving-personality bug).
-    #   Carroll (1997, QJE) buffer-stock model; k and target are per household.
+    # buffer_stock_consumption: bool, default False. When True, the weekly
+    #   budget is
+    #     sum over income sources of income_s * (1 - (1 - MPC_s) * taper)
+    #       * trait_multiplier + k * max(0, liquidity - target),
+    #     taper = 2 * target / (target + liquidity).
+    #   The share of income saved therefore falls smoothly as liquidity
+    #   approaches and passes the household's own target (2x the source's
+    #   1 - MPC with an empty buffer, exactly 1 - MPC at the target, a quarter
+    #   of 2x at three targets) and never stops abruptly. The 2 is a
+    #   normalization, not a tuned value: it makes saving at the target equal
+    #   the calibrated source MPCs. Liquidity above the target is also spent
+    #   at the weekly rate k. Consumption is then concave in liquidity, with a
+    #   positive and declining MPC out of wealth: the shape of the buffer-stock
+    #   consumption function (Carroll 1997, QJE; Carroll & Kimball 1996,
+    #   Econometrica). Replaces the savings_drawdown_rate trickle and the
+    #   personality MPC cut (which gave spenders a lower wage MPC, the
+    #   backwards saving-personality bug).
     buffer_stock_consumption: bool = False
+    # buffer_saving_taper_scale: the 2 in taper = 2 * T / (T + L). Derived:
+    #   at L = T the taper is scale / 2 = 1, so saving equals the calibrated
+    #   1 - MPC_s exactly at the target. Units: multiplier. Valid: > 0.
+    buffer_saving_taper_scale: float = 2.0
     # buffer_target_weeks_range: weeks of weekly income a household aims to
     #   hold as cash + deposits. Units: weeks. Valid: 0 < lo <= hi. Placed by
-    #   saving_tendency (savers near hi) plus +/-1 week noise. Default (2, 8):
+    #   saving_tendency alone (savers near hi); that trait is continuous and
+    #   per household, so no extra noise is added. Default (2, 8):
     #   about half of US households hold under a month of income liquid
     #   (Fed SHED 2023), a minority hold several months.
     buffer_target_weeks_range: Tuple[float, float] = (2.0, 8.0)
     # buffer_adjust_speed_range: k, share of the gap between liquidity and the
     #   target spent (or saved, when negative) per week. Units: 1/week.
-    #   Valid: 0 < lo <= hi <= 1. Placed by spender score. Default (0.02, 0.10)
-    #   closes half a gap in roughly 7 to 35 weeks.
-    buffer_adjust_speed_range: Tuple[float, float] = (0.02, 0.10)
+    #   Valid: 0 < lo <= hi <= 1. Placed by spender score alone (no noise).
+    #   Derived from measured MPCs out of windfalls: a weekly rate k spends
+    #   1 - (1 - k)^n of an excess within n weeks. Parker, Souleles, Johnson
+    #   & McClelland (2013, AER): 12-30% of the 2008 stimulus payments went
+    #   on nondurables within 3 months (n = 13), so k = 0.010-0.027.
+    #   Fagereng, Holm & Natvik (2021, AEJ: Macro): about half of a lottery
+    #   win is spent in the year of winning (n = 52), so k = 0.013. Default
+    #   (0.01, 0.03) brackets both.
+    buffer_adjust_speed_range: Tuple[float, float] = (0.01, 0.03)
     # risk_aversion_range: per-household precautionary multiplier on the
     #   buffer target, mean 1. Units: multiplier. Valid: 0 < lo <= hi.
     #   Correlated with saving_tendency (savers more risk averse). Spread
@@ -225,12 +248,16 @@ class HouseholdBehaviorConfig:
     #   saving rate per 5 pp of unemployment (Mody, Ohnsorge & Sandri 2012,
     #   IMF WP/12/2; Carroll, Slacalek & Sommer 2019).
     buffer_unemployment_slope: float = 2.0
-    # buffer_income_floor: weekly income used for the target when a household
-    #   has no income this week, so the target never collapses to zero.
-    #   Units: currency per week. Valid: >= 0. Default 20, about two-thirds
-    #   of the default 30/week benefit, so a household with no income aims to
-    #   hold a few weeks of a minimal income.
-    buffer_income_floor: float = 20.0
+    # buffer_unemployment_cap: the u in (1 + slope * u) is capped here. The
+    #   estimates above come from advanced economies where unemployment sat
+    #   below about 10% (US peak 10.0%, October 2009), so the linear response
+    #   is not extrapolated beyond that. Above it the precautionary term stays
+    #   at 1.2. Units: unemployment rate. Valid: >= 0.
+    buffer_unemployment_cap: float = 0.10
+    # The income in the target is max(weekly income, live unemployment
+    # benefit): a household with no income this week still aims to hold some
+    # weeks of the income the safety net provides, and that floor moves with
+    # the benefit policy (no fixed nominal floor).
 
     # Skill Development
     skill_growth_rate: float = 0.001  # Passive improvement per tick

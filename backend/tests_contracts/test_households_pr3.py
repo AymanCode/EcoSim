@@ -84,5 +84,36 @@ def test_budget_bounded_by_liquidity_and_keeps_subsistence(buffer_on):
 def test_buffer_target_rises_with_unemployment_and_risk_aversion():
     cautious = make_household(1, buffer_target_weeks=4.0, risk_aversion=1.4)
     relaxed = make_household(2, buffer_target_weeks=4.0, risk_aversion=0.6)
-    assert cautious.buffer_target(100.0, 0.05) > relaxed.buffer_target(100.0, 0.05)
-    assert cautious.buffer_target(100.0, 0.20) > cautious.buffer_target(100.0, 0.05)
+    assert cautious.buffer_target(100.0, 0.05, 30.0) > relaxed.buffer_target(100.0, 0.05, 30.0)
+    assert cautious.buffer_target(100.0, 0.08, 30.0) > cautious.buffer_target(100.0, 0.05, 30.0)
+
+
+def test_unemployment_term_is_capped_at_the_sourced_range():
+    household = make_household(1, buffer_target_weeks=4.0, risk_aversion=1.0)
+    at_cap = household.buffer_target(100.0, CONFIG.households.buffer_unemployment_cap, 30.0)
+    assert household.buffer_target(100.0, 0.35, 30.0) == pytest.approx(at_cap)
+    assert at_cap == pytest.approx(4.0 * 1.2 * 100.0)
+
+
+def test_income_floor_is_the_live_benefit():
+    household = make_household(1, buffer_target_weeks=4.0, risk_aversion=1.0)
+    assert household.buffer_target(0.0, 0.0, 30.0) == pytest.approx(120.0)
+    assert household.buffer_target(0.0, 0.0, 45.0) == pytest.approx(180.0)  # moves with policy
+
+
+def _saving(cash, spending_tendency=1.0):
+    # frugality 1.0 and spending_tendency 1.0 = neutral personality (multiplier 1);
+    # spending_tendency 0.85 = a saver (multiplier 0.85).
+    household = _employed(1, cash=cash, buffer_target_weeks=4.0, buffer_adjust_speed=0.01, risk_aversion=1.0,
+                          spending_tendency=spending_tendency, frugality=1.0)
+    budget = _budgets([household], unemployment_rate=0.05)[0]
+    return household.wage - budget
+
+
+@pytest.mark.parametrize("spending_tendency", [1.0, 0.85])
+def test_savers_keep_saving_past_the_target_at_a_smaller_rate(buffer_on, spending_tendency):
+    target = 4.0 * 1.0 * (1 + 2.0 * 0.05) * 100.0  # 440
+    half, at_target, above = (_saving(c, spending_tendency) for c in (0.5 * target, target, 1.25 * target))
+    assert half > at_target > above > 0.0  # still saves above the target, but less
+    # No hard stop: a small step past the target changes saving only a little.
+    assert _saving(1.01 * target, spending_tendency) == pytest.approx(at_target, rel=0.05)

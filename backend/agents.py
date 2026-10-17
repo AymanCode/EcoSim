@@ -661,15 +661,16 @@ class HouseholdAgent(AgentMixin):
         config = CONFIG.households
         rng = random.Random(CONFIG.random_seed * 7919 + self.household_id * 104729 + 3)
         lo, hi = config.buffer_target_weeks_range
-        target = lo + (hi - lo) * float(self.saving_tendency) + rng.uniform(-1.0, 1.0)
+        target = lo + (hi - lo) * float(self.saving_tendency)
         if self.buffer_target_weeks is None:
-            self.buffer_target_weeks = max(0.5, min(hi + 1.0, target))
+            self.buffer_target_weeks = max(1e-3, target)
         lo, hi = config.buffer_adjust_speed_range
-        k = lo + (hi - lo) * spender_score * rng.uniform(0.8, 1.2)
+        k = lo + (hi - lo) * float(spender_score)
         if self.buffer_adjust_speed is None:
             self.buffer_adjust_speed = max(1e-4, min(1.0, k))
         # Half saving_tendency, half noise: savers lean risk averse, but the
-        # traits are not the same number.
+        # traits are not the same number. The 50/50 weight is a judgment (no
+        # estimate of the correlation was found).
         lo, hi = config.risk_aversion_range
         position = 0.5 * float(self.saving_tendency) + 0.5 * rng.random()
         if self.risk_aversion is None:
@@ -1860,17 +1861,19 @@ class HouseholdAgent(AgentMixin):
             (1.0 - res_rate) * self.reservation_wage
         )
 
-    def buffer_target(self, weekly_income: float, unemployment_rate: float) -> float:
+    def buffer_target(self, weekly_income: float, unemployment_rate: float, benefit: float) -> float:
         """Cash + deposits this household aims to hold, in currency.
 
         ``buffer_target_weeks * risk_aversion * (1 + buffer_unemployment_slope
-        * unemployment_rate) * max(weekly_income, buffer_income_floor)``.
-        The target rises with the live unemployment rate (precautionary
-        saving in bad times) and with the household's risk aversion.
+        * min(u, buffer_unemployment_cap)) * max(weekly_income, benefit)``.
+        The target rises with the live unemployment rate up to the sourced
+        range (precautionary saving in bad times) and with the household's
+        risk aversion. ``benefit`` is the live unemployment benefit level.
         """
         cfg = CONFIG.households
-        income = max(float(weekly_income), cfg.buffer_income_floor)
-        precaution = 1.0 + cfg.buffer_unemployment_slope * max(0.0, float(unemployment_rate))
+        income = max(float(weekly_income), float(benefit), 1e-6)
+        u = min(max(0.0, float(unemployment_rate)), cfg.buffer_unemployment_cap)
+        precaution = 1.0 + cfg.buffer_unemployment_slope * u
         return float(self.buffer_target_weeks) * float(self.risk_aversion) * precaution * income
 
     def maybe_active_education(self) -> float:

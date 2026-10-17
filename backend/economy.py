@@ -1095,19 +1095,29 @@ class Economy:
             )
 
         if buffer_stock:
-            # Carroll (1997) buffer stock: spend income at its MPC, plus k times
-            # the gap between liquidity and the target (negative gap = save).
-            # A household below target still buys the subsistence minimum
-            # when it can afford it.
+            # Buffer stock with a concave consumption function (Carroll 1997;
+            # Carroll & Kimball 1996): the share of each income source saved,
+            # 1 - MPC_s, is scaled by taper = 2T / (T + L). That is 2x with an
+            # empty buffer, 1x at the target, and falls smoothly beyond it
+            # without ever reaching zero. Liquidity above the target is also
+            # spent at the household's weekly rate k. A household below target
+            # still buys the subsistence minimum when it can afford it.
             weekly_income = wage_income + benefit_income + dividend_incomes
             # Same formula as HouseholdAgent.buffer_target, vectorized.
-            precaution = 1.0 + cfg.buffer_unemployment_slope * max(0.0, float(unemployment_rate))
+            u_capped = min(max(0.0, float(unemployment_rate)), cfg.buffer_unemployment_cap)
+            precaution = 1.0 + cfg.buffer_unemployment_slope * u_capped
             targets = (
                 static_traits["buffer_weeks"] * static_traits["risk_aversion"] * precaution
-                * np.maximum(weekly_income, cfg.buffer_income_floor)
+                * np.maximum(np.maximum(weekly_income, float(unemployment_benefit)), 1e-6)
             )
-            adjustment = static_traits["buffer_speeds"] * (accessible_liquidity - targets)
-            budget = np.maximum(base_budget + adjustment, 0.0)
+            taper = cfg.buffer_saving_taper_scale * targets / (targets + accessible_liquidity)
+            spend_income = (
+                wage_income * np.clip(1.0 - (1.0 - mpc_wage) * taper, 0.0, 1.0)
+                + benefit_income * np.clip(1.0 - (1.0 - mpc_benefit) * taper, 0.0, 1.0)
+                + dividend_incomes * np.clip(1.0 - (1.0 - mpc_dividend) * taper, 0.0, 1.0)
+            ) * trait_multiplier
+            excess_spend = static_traits["buffer_speeds"] * np.maximum(accessible_liquidity - targets, 0.0)
+            budget = spend_income + excess_spend
             budget = np.maximum(budget, np.minimum(cfg.subsistence_min_cash, accessible_liquidity))
             return np.minimum(budget, accessible_liquidity)
 
