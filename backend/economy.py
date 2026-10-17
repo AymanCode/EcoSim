@@ -7091,7 +7091,8 @@ class Economy:
         """Wind down existing public works firms when the lever is off.
 
         Sets the headcount to 0; with headcount planning the firm then releases
-        staff at the ramp pace, and the treasury keeps funding their payroll.
+        about ``1 / public_works_ramp_weeks`` of its staff each tick, and the
+        treasury keeps funding their payroll.
         """
 
         public_firms = [

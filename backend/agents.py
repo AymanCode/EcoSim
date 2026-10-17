@@ -2400,8 +2400,10 @@ class FirmAgent(AgentMixin):
     def public_works_step_limit(self) -> int:
         """Most workers a public works firm hires or releases in one tick.
 
-        ``ceil(max(target, staff) / public_works_ramp_weeks)``, at least 1, so
-        any target is reached in about ``public_works_ramp_weeks`` ticks.
+        ``ceil(max(target, staff) / public_works_ramp_weeks)``, at least 1.
+        Hiring reaches a higher target in about ``public_works_ramp_weeks``
+        ticks; when releasing, the step shrinks with the staff, so about
+        ``1 / public_works_ramp_weeks`` of the staff leave each tick.
         """
         ramp_weeks = max(1, int(CONFIG.government.public_works_ramp_weeks))
         size = max(int(self.public_works_target_jobs), len(self.employees))
@@ -2417,10 +2419,11 @@ class FirmAgent(AgentMixin):
         and read by the baseline planner as output units, which turned 200
         authorized jobs into about 8 actual jobs.
 
-        The step size is ``ceil(max(target, staff) / public_works_ramp_weeks)``
-        workers per tick in either direction, so a program reaches a new target
-        in about ``public_works_ramp_weeks`` ticks whatever its size, and winds
-        down at the same pace when the target falls or the lever is switched off.
+        The step size is ``public_works_step_limit()`` workers per tick in
+        either direction: a program reaches a higher target in about
+        ``public_works_ramp_weeks`` ticks whatever its size, and when the
+        target falls or the lever is switched off about
+        ``1 / public_works_ramp_weeks`` of the staff leave each tick.
 
         Production is zero: nobody buys PublicWorks output, and the inventory
         governor already planned zero for this firm before the fix.

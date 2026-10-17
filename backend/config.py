@@ -751,9 +751,11 @@ class GovernmentPolicyConfig:
     # unemployment rate and Darby's (1976) rate that counts relief workers as
     # employed. Only read when public_works_headcount_planning_enabled.
     public_works_jobless_share: float = 1.0 / 3.0
-    # Weeks to reach a new headcount target: the firm hires (or releases) at
-    # most ceil(max(target, current staff) / ramp_weeks) workers per tick.
-    # Units: ticks (weeks), range >= 1, default 8. Source: the 1933-34 Civil
+    # Pace of staff changes: the firm hires or releases at most
+    # ceil(max(target, current staff) / ramp_weeks) workers per tick. Hiring
+    # up to a target takes about ramp_weeks ticks; a release shrinks the step
+    # with the staff, so about 1/ramp_weeks of staff leave each tick (half in
+    # ~5 ticks at 8). Units: ticks (weeks), range >= 1, default 8. Source: the 1933-34 Civil
     # Works Administration put about 4 million people to work within roughly
     # two months. Only read when public_works_headcount_planning_enabled.
     public_works_ramp_weeks: int = 8
