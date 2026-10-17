@@ -80,8 +80,8 @@ The authoritative lifecycle is `Economy.step()` in [`backend/economy.py`](../bac
 21. Bank loan repayments are collected after wages and sales are available.
 22. Household purchases, remaining medical fallback payments and consumption receipts are applied; income already received is skipped.
 23. Remaining firm fiscal results settle. Household wage taxes and benefits remain in weekly telemetry without a second cash transfer.
-24. Bank deposit rates update, household deposit sweeps/withdrawals run, credit scores update, and settled loans are cleaned up.
-25. Government infrastructure, technology, social spending, and bond purchases are applied and routed back into circulation where appropriate.
+24. The treasury pays a week of interest on public debt to the bank. Bank deposit rates update, household deposit sweeps/withdrawals run, credit scores update, and settled loans are cleaned up.
+25. Government infrastructure, technology and social spending are applied and routed back into circulation where appropriate. The treasury then borrows any cash shortfall from the bank or repays debt from cash above its working balance. The misc bond buy runs only while no debt is owed.
 26. Investment taxes are collected and fiscal pressure/spending efficiency are updated.
 27. Household wellbeing updates run, with lower cadence in performance mode.
 28. Bankrupt private firms exit and eligible new firms enter under-served sectors.
@@ -192,6 +192,12 @@ Policy choices can come from:
 - offline LLM runners and benchmark tools
 
 When the live LLM government is enabled, deterministic rule-based policy adjustment is bypassed so policy choices come from the model plus mechanical validation and application code.
+
+Public debt (`government.public_debt_enabled`, default on):
+
+- **Borrowing.** After its weekly spending, a treasury with negative cash borrows the gap from the bank, up to the bank's lendable cash (reserves above the reserve requirement), and only when `BankAgent.can_lend()` is true. The loan moves bank reserves to the treasury. Any part the bank cannot lend stays as negative treasury cash, which is what happens to every shortfall with the flag off. Without a bank nothing is borrowed.
+- **Interest.** Each week the treasury pays `public_debt` x (the bank's current lending rate + `public_debt_risk_premium` x annualized debt/GDP) / 52 to the bank, before the bank pays deposit interest, so it counts in the bank's interest income for that week. Nothing changes the bank's rate during a run yet (3% by default), so the debt rate moves only with debt/GDP.
+- **Repayment.** While debt is owed, all treasury cash above `public_debt_cash_buffer_weeks` (1) weeks of last week's government spending repays principal, and the misc bond buy is skipped. With no debt, the bond buy runs as before.
 
 ## Bank And Credit
 

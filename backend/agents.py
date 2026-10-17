@@ -5920,6 +5920,16 @@ class GovernmentAgent(AgentMixin):
     last_tick_revenue: float = 0.0            # total tax revenue last tick
     last_tick_spending: float = 0.0           # total govt spending last tick
 
+    # ── Public debt (round 1 G1) ─────────────────────────────────────
+    # Principal owed to the bank ($). Negative treasury cash the bank could
+    # not lend stays in cash_balance, as before G1.
+    public_debt: float = 0.0
+    last_tick_debt_rate: float = 0.0        # annual rate charged this tick
+    last_tick_debt_interest: float = 0.0    # $ interest paid this tick
+    last_tick_debt_borrowed: float = 0.0    # $ lent by the bank this tick
+    last_tick_debt_repaid: float = 0.0      # $ principal repaid this tick
+    last_tick_debt_unfunded: float = 0.0    # $ shortfall the bank could not lend this tick
+
     # ── Legacy fields (kept for compatibility) ───────────────────────
     ubi_amount: float = 0.0
     wealth_tax_threshold: float = 1_000_000.0
@@ -6334,6 +6344,7 @@ class GovernmentAgent(AgentMixin):
             "spending_efficiency": self.spending_efficiency,
             "last_tick_revenue": self.last_tick_revenue,
             "last_tick_spending": self.last_tick_spending,
+            "public_debt": self.public_debt,
             # Multipliers
             "infrastructure_productivity_multiplier": self.infrastructure_productivity_multiplier,
             "technology_quality_multiplier": self.technology_quality_multiplier,
@@ -6762,6 +6773,117 @@ class GovernmentAgent(AgentMixin):
         )
         return investment
 
+    def public_debt_annual_rate(self, bank: "BankAgent", debt_to_gdp: float) -> float:
+        """Annual interest rate on public debt (fraction per year).
+
+        The bank's current lending rate plus ``public_debt_risk_premium`` per
+        unit of annualized debt/GDP. Nothing moves the bank's rate during a
+        run yet, so today the rate changes only through debt/GDP.
+
+        Args:
+            bank: the lender.
+            debt_to_gdp: public debt / annualized GDP (unitless, >= 0).
+        """
+        premium = max(0.0, float(CONFIG.government.public_debt_risk_premium)) * max(0.0, float(debt_to_gdp))
+        return max(0.0, float(bank.current_annual_rate)) + premium
+
+    def pay_public_debt_interest(self, bank: Optional["BankAgent"], recent_gdp: float) -> float:
+        """Pay one week of interest on public debt to the bank (G1).
+
+        Runs at the start of the institutional-close phase, before the bank
+        pays deposit interest, so the payment counts in the bank's interest
+        income for the tick: depositors are paid from it at the bank's deposit
+        rate, and the rest stays in bank reserves. Paid from treasury cash; if
+        that leaves cash negative, ``settle_public_debt`` borrows the gap later
+        in the tick, if the bank can lend.
+
+        Args:
+            bank: the lender, or None (no interest without a lender).
+            recent_gdp: trailing weekly GDP in $/tick, for debt/GDP.
+
+        Returns:
+            Interest paid in $.
+        """
+        self.last_tick_debt_interest = 0.0
+        if not CONFIG.government.public_debt_enabled or bank is None:
+            self.last_tick_debt_rate = 0.0
+            return 0.0
+        if self.public_debt <= 0.0:
+            self.last_tick_debt_rate = max(0.0, float(bank.current_annual_rate))
+            return 0.0
+        ticks_per_year = max(1, int(CONFIG.time.ticks_per_year))
+        annual_gdp = max(0.0, float(recent_gdp or 0.0)) * ticks_per_year
+        debt_to_gdp = self.public_debt / annual_gdp if annual_gdp > 0.0 else 0.0
+        self.last_tick_debt_rate = self.public_debt_annual_rate(bank, debt_to_gdp)
+        interest = self.public_debt * self.last_tick_debt_rate / ticks_per_year
+        self.cash_balance -= interest
+        bank.cash_reserves += interest
+        bank.last_tick_interest_income += interest
+        self.last_tick_debt_interest = interest
+        return interest
+
+    def public_debt_cash_buffer(self) -> float:
+        """Treasury working balance in $ kept before any debt is repaid.
+
+        ``public_debt_cash_buffer_weeks`` weeks of last tick's government
+        spending (``last_tick_spending``), so it scales with what the treasury
+        actually pays out.
+        """
+        weeks = max(0.0, float(CONFIG.government.public_debt_cash_buffer_weeks))
+        return weeks * max(0.0, float(self.last_tick_spending))
+
+    def settle_public_debt(self, bank: Optional["BankAgent"]) -> Dict[str, float]:
+        """Borrow this tick's shortfall from the bank, or repay debt from surplus (G1).
+
+        Call once per tick after discretionary spending and before
+        ``make_investments``.
+
+        1. Borrow: if cash is negative, the bank lends
+           ``min(shortfall, bank.lendable_cash)``, and only when
+           ``bank.can_lend()``. Lending moves bank reserves to the treasury,
+           so money is conserved. Any part the bank cannot lend stays as
+           negative cash, as on main.
+        2. Repay: while debt is outstanding, all free cash above
+           ``public_debt_cash_buffer()`` repays principal, back into bank
+           reserves.
+
+        Args:
+            bank: the lender, or None (then nothing is borrowed, as on main).
+
+        Returns:
+            Dict of $ this tick: ``borrowed``, ``repaid``, ``unfunded``
+            (shortfall left as negative cash).
+        """
+        self.last_tick_debt_borrowed = 0.0
+        self.last_tick_debt_repaid = 0.0
+        self.last_tick_debt_unfunded = 0.0
+        result = {"borrowed": 0.0, "repaid": 0.0, "unfunded": 0.0}
+        if not CONFIG.government.public_debt_enabled:
+            return result
+
+        shortfall = max(0.0, -self.cash_balance)
+        borrowed = 0.0
+        if shortfall > 0.0 and bank is not None and bank.can_lend():
+            borrowed = min(shortfall, bank.lendable_cash)
+            self.public_debt += borrowed
+            self.cash_balance += borrowed
+            bank.cash_reserves -= borrowed
+        unfunded = shortfall - borrowed
+
+        repaid = 0.0
+        if self.public_debt > 0.0 and bank is not None:
+            free_cash = self.cash_balance - self.payment_reserved_cash - self.public_debt_cash_buffer()
+            repaid = min(self.public_debt, max(0.0, free_cash))
+            if repaid > 0.0:
+                self.public_debt -= repaid
+                self.cash_balance -= repaid
+                bank.cash_reserves += repaid
+
+        self.last_tick_debt_borrowed = result["borrowed"] = borrowed
+        self.last_tick_debt_repaid = result["repaid"] = repaid
+        self.last_tick_debt_unfunded = result["unfunded"] = unfunded
+        return result
+
     def make_investments(self) -> Dict[str, float]:
         """
         Government bond purchases with surplus funds.
@@ -6774,6 +6896,9 @@ class GovernmentAgent(AgentMixin):
         The purchase amount is 12% of the surplus (cash_balance - baseline_reserve),
         capped at the available surplus.
 
+        With ``public_debt_enabled``, nothing is bought while public debt is
+        owed: ``settle_public_debt`` has already used the surplus to repay it.
+
         Returns:
             Dict with "bonds" key containing amount spent on bond purchases
 
@@ -6784,6 +6909,11 @@ class GovernmentAgent(AgentMixin):
         investments = {"bonds": 0.0}
 
         if self.stabilization_disabled:
+            return investments
+
+        # G1: while the treasury owes the bank, settle_public_debt has already
+        # used the surplus to repay principal, so there is no bond buy.
+        if CONFIG.government.public_debt_enabled and self.public_debt > 0.0:
             return investments
 
         # Define surplus threshold as percentage of cash balance

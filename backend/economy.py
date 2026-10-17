@@ -2886,6 +2886,10 @@ class Economy:
         total_price_ceiling_taxes = tick.total_price_ceiling_taxes
         total_property_taxes = tick.total_property_taxes
         total_transfers = tick.total_transfers
+        # Phase 11.2: Interest on public debt (G1), before deposit interest so
+        # it counts in the bank's interest income this tick.
+        self.government.pay_public_debt_interest(self.bank, trailing_gdp(self))
+
         # Phase 11.3: Bank deposit sweep & interest (households → bank)
         if self.bank is not None:
             self.bank.update_deposit_rate()  # Fix 22: adjust rate based on reserve ratio
@@ -2913,6 +2917,10 @@ class Economy:
         self.last_tick_gov_social_spending = social_spent
         if social_spent > 0:
             self._collect_misc_revenue(social_spent)
+
+        # Public debt (G1): borrow the shortfall from the bank or repay from
+        # surplus. Runs before the bond buy, which is skipped while debt is owed.
+        self.government.settle_public_debt(self.bank)
 
         # Bond purchases with surplus — redirect to Misc firm
         govt_investments = self.government.make_investments()
@@ -2961,6 +2969,7 @@ class Economy:
             + self.last_tick_gov_bailouts
             + self.last_tick_gov_public_works_capitalization
             + self.last_tick_gov_post_warmup_stimulus
+            + self.government.last_tick_debt_interest
         )
         self._update_budget_pressure(tick_revenue, tick_spending)
 
@@ -8903,6 +8912,11 @@ class Economy:
         metrics["recent_gdp"] = recent_gdp
         metrics["public_debt"] = float(getattr(gov, "public_debt", 0.0))
         metrics["annualized_debt_to_gdp"] = annualized_debt_to_gdp(gov, recent_gdp)
+        metrics["gov_debt_rate_annual"] = float(gov.last_tick_debt_rate)
+        metrics["gov_debt_interest_this_tick"] = float(gov.last_tick_debt_interest)
+        metrics["gov_debt_borrowed_this_tick"] = float(gov.last_tick_debt_borrowed)
+        metrics["gov_debt_repaid_this_tick"] = float(gov.last_tick_debt_repaid)
+        metrics["gov_debt_unfunded_this_tick"] = float(gov.last_tick_debt_unfunded)
         metrics["bailout_budget_remaining"] = float(gov.bailout_budget_remaining)
         metrics["bailout_cycle_disbursed"] = float(gov.bailout_cycle_disbursed)
         metrics["bailout_cycle_firms_assisted"] = float(gov.bailout_cycle_firms_assisted)
