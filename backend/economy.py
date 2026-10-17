@@ -367,6 +367,10 @@ class Economy:
 
         # SOLID: SRP Violation - Unemployment tracking should be in LaborMarketState
         self._unemployment_history: deque = deque(maxlen=CONFIG.firms.unemployment_ma_window)
+        # (hires, unemployed job seekers before matching) per tick, for the
+        # job-finding rate the adaptive reservation wage reads.
+        self._job_finding_history: deque = deque(maxlen=max(1, int(CONFIG.households.job_finding_window_weeks)))
+        self._reservation_context: Optional[Dict[str, object]] = None
         self.unemployment_short_ma: float = 0.0
 
         # SOLID: SRP Violation - Audit state should be in AuditLogger class
@@ -1123,6 +1127,50 @@ class Economy:
         drawdown = np.where(in_desperation, np.maximum(drawdown, desperation_drawdown), drawdown)
 
         return np.minimum(base_budget + drawdown, accessible_liquidity)
+
+    def _posted_offers_for_households(self) -> Dict[int, float]:
+        """Posted offers a job seeker can act on, {firm_id: $/tick}.
+
+        Includes government baseline firms: they hire, so their offers are
+        real options. One line so it can follow the getter's evolution.
+        """
+        return self.get_posted_wage_offers(include_baseline=True)
+
+    def job_finding_rate(self) -> Optional[float]:
+        """Hires / unemployed job seekers over the last job_finding_window_weeks.
+
+        None until the first labor match has run.
+        """
+        if not self._job_finding_history:
+            return None
+        hires = sum(h for h, _ in self._job_finding_history)
+        seekers = sum(u for _, u in self._job_finding_history)
+        return hires / seekers if seekers > 0 else 0.0
+
+    def _build_reservation_context(self, benefit: float, unemployment_rate: float) -> Dict[str, object]:
+        """Live inputs for the adaptive reservation wage, built once per tick.
+
+        Keys: ``offers`` ({firm_id: offer}), ``median_offer`` and ``best_offer``
+        (economy-wide, 0 when nothing is posted), ``tightness`` =
+        f / (f + f_half) with f from ``job_finding_rate`` (0.5 before the
+        first match, i.e. neutral), ``benefit`` (live benefit level) and
+        ``unemployment_rate``.
+        """
+        offers = self._posted_offers_for_households()
+        values = sorted(offers.values())
+        median = float(np.median(values)) if values else 0.0
+        best = values[-1] if values else 0.0
+        rate = self.job_finding_rate()
+        half = float(CONFIG.households.job_finding_half_rate)
+        tightness = 0.5 if rate is None else rate / (rate + half) if (rate + half) > 0 else 0.5
+        return {
+            "offers": offers,
+            "median_offer": median,
+            "best_offer": best,
+            "tightness": tightness,
+            "benefit": float(benefit),
+            "unemployment_rate": float(unemployment_rate),
+        }
 
     def _legacy_obligations_due(self) -> np.ndarray:
         """Known household payments that fall due later in this legacy tick.
@@ -2400,6 +2448,10 @@ class Economy:
         tick_cooldowns = not self.in_warmup
         bank = self.bank
         firm_lookup = self.firm_lookup
+        reservation_context = None
+        if CONFIG.households.adaptive_reservation_wage:
+            reservation_context = self._build_reservation_context(gov_benefit, tick.unemployment_rate)
+        self._reservation_context = reservation_context
         for household in self.households:
             total_education_spending += household.maybe_active_education()
             if tick_cooldowns:
@@ -2413,6 +2465,7 @@ class Economy:
                 category_posted_wages=category_posted_wage_signals,
                 employer_category=employer_category,
                 category_expected_prices=tick.category_expected_prices,
+                reservation_context=reservation_context,
             )
             tick.household_labor_plans[household.household_id] = labor_plan
             if bank is not None:
@@ -2524,6 +2577,15 @@ class Economy:
         for firm in self.firms:
             firm.apply_labor_outcome(firm_labor_outcomes[firm.firm_id])
 
+        seekers_before = 0
+        hires = 0
+        for household in self.households:
+            if household.employer_id is None and household.can_work:
+                seekers_before += 1
+                if household_labor_outcomes[household.household_id].get("employer_id") is not None:
+                    hires += 1
+        self._job_finding_history.append((hires, seekers_before))
+
         for household in self.households:
             anchor = None
             if household.skills_level < 0.4:
@@ -2546,7 +2608,8 @@ class Economy:
             household.apply_labor_outcome(
                 hh_outcome,
                 market_wage_anchor=anchor,
-                current_tick=self.current_tick
+                current_tick=self.current_tick,
+                reservation_context=self._reservation_context,
             )
 
         # Keep firm-side employee rosters aligned with household employment outcomes.

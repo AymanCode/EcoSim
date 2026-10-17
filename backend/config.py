@@ -232,6 +232,41 @@ class HouseholdBehaviorConfig:
     #   hold a few weeks of a minimal income.
     buffer_income_floor: float = 20.0
 
+    # Adaptive reservation wage (round 1, households B). Flag default off.
+    # While unemployed: r <- max(F, r * (1 - d)), with the floor
+    #   F = min(P, max(B, s * M)) and
+    #   s = s_min + (1 - s_min) * f / (f + f_half),
+    #   d = d_i * (1 + (1 - f / (f + f_half))) * (1.5 - cushion),
+    # where M and P are the median and best posted offers among firms the
+    # household knows (economy-wide when it knows none), f is the economy's
+    # job-finding rate over the last job_finding_window_weeks, B is the
+    # live benefit level, and cushion = min(1, liquidity / buffer target).
+    # On job loss r restarts at the last wage; a household never employed
+    # starts at M. Replaces, on this path only, the 15-30%/tick blend toward
+    # the decaying expected wage and the $1 floor.
+    adaptive_reservation_wage: bool = False
+    # reservation_decay_mean / _sd: per-household base weekly decay d_i,
+    #   drawn normal and clipped to [0.0002, 0.004]. Mean 0.14%/week and
+    #   spread from Krueger & Mueller (2016, AEJ: Policy), who estimate the
+    #   decline per week of unemployment and find wide individual variation.
+    reservation_decay_mean: float = 0.0014
+    reservation_decay_sd: float = 0.0005
+    # reservation_floor_share_range: (lo, mode, hi) of the triangular draw
+    #   for s_min, the share of the median known offer a worker insists on
+    #   when jobs are hardest to find. PLACEHOLDER (mode 0.7, range 0.5-0.9):
+    #   no direct estimate; chosen so the worst-case floor sits near the
+    #   bottom of the observed offer distribution rather than at zero.
+    reservation_floor_share_range: Tuple[float, float, float] = (0.5, 0.7, 0.9)
+    # job_finding_half_rate: f_half, the job-finding rate at which labor-
+    #   market tightness counts as neutral (f / (f + f_half) = 0.5). Derived,
+    #   not a target: the median weekly job-finding rate over ticks 53-260 of
+    #   the seeded flag-off baseline (seed 42, 1,000 households): 0.0206.
+    #   Re-measure with run_households_b_compare.py --measure-f.
+    job_finding_half_rate: float = 0.021
+    # job_finding_window_weeks: weeks of hires / unemployed averaged into f.
+    #   4 weeks = one month, the CPS flow-rate convention (Shimer 2012).
+    job_finding_window_weeks: int = 4
+
     # Skill Development
     skill_growth_rate: float = 0.001  # Passive improvement per tick
     education_cost_per_skill_point: float = 1000.0

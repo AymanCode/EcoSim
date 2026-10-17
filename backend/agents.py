@@ -31,7 +31,7 @@ import math
 import random
 import zlib
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 
 import numpy as np
 
@@ -222,6 +222,10 @@ class HouseholdAgent(AgentMixin):
     buffer_target_weeks: Optional[float] = None  # Weeks of weekly income held as cash + deposits
     buffer_adjust_speed: Optional[float] = None  # k: share of the buffer gap spent or saved per week
     risk_aversion: Optional[float] = None  # Precautionary multiplier on the buffer target, mean 1
+    # Adaptive reservation-wage traits (households B), drawn in
+    # _initialize_reservation_traits from their own RNG; constructor values win.
+    reservation_decay_rate: Optional[float] = None  # d_i: base weekly decay while unemployed
+    reservation_floor_share: Optional[float] = None  # s_min: share of median offer kept in a slack market
 
     # Fix 25: Consumption credit (small loans to bridge income shocks)
     needs_consumption_loan: bool = False
@@ -641,6 +645,7 @@ class HouseholdAgent(AgentMixin):
         keep("min_food_per_tick", sample_range(config.min_food_per_tick_range, clip_min=0.5, clip_max=10.0))
         keep("min_services_per_tick", sample_range(config.min_services_per_tick_range, clip_min=0.1, clip_max=5.0))
         self._initialize_pr3_traits(spender_score)
+        self._initialize_reservation_traits()
 
     def _initialize_pr3_traits(self, spender_score: float) -> None:
         """Draw the buffer-stock traits for this household.
@@ -673,6 +678,96 @@ class HouseholdAgent(AgentMixin):
         position = 0.5 * float(self.saving_tendency) + 0.5 * rng.random()
         if self.risk_aversion is None:
             self.risk_aversion = lo + (hi - lo) * position
+
+    def _initialize_reservation_traits(self) -> None:
+        """Draw the adaptive reservation-wage traits (households B).
+
+        Uses its own RNG seeded by ``CONFIG.random_seed`` and ``household_id``,
+        so no other draw changes. ``reservation_decay_rate`` is normal around
+        ``reservation_decay_mean`` (clipped to [0.0002, 0.004]);
+        ``reservation_floor_share`` is triangular on
+        ``reservation_floor_share_range``.
+        """
+        config = CONFIG.households
+        rng = random.Random(CONFIG.random_seed * 6151 + self.household_id * 130363 + 11)
+        decay = rng.gauss(config.reservation_decay_mean, config.reservation_decay_sd)
+        if self.reservation_decay_rate is None:
+            self.reservation_decay_rate = max(0.0002, min(0.004, decay))
+        lo, mode, hi = config.reservation_floor_share_range
+        share = rng.triangular(lo, hi, mode)
+        if self.reservation_floor_share is None:
+            self.reservation_floor_share = share
+
+    def known_offer_stats(self, context: Dict[str, object]) -> Optional[Tuple[float, float]]:
+        """Median and best posted wage offer this household knows, or None.
+
+        Known firms are the household's shopping awareness pool (any
+        category). With no known firm posting, it uses the economy-wide
+        median and best offer. None when nothing is posted yet (tick 0).
+
+        Args:
+            context: The tick's reservation context from
+                ``Economy._reservation_context`` (keys ``offers``,
+                ``median_offer``, ``best_offer``).
+        """
+        offers: Dict[int, float] = context["offers"]  # type: ignore[assignment]
+        if not offers:
+            return None
+        known = [offers[fid] for pool in self.awareness_pool.values() for fid in pool if fid in offers]
+        if known:
+            known.sort()
+            mid = len(known) // 2
+            median = known[mid] if len(known) % 2 else 0.5 * (known[mid - 1] + known[mid])
+            return median, known[-1]
+        return float(context["median_offer"]), float(context["best_offer"])
+
+    def adaptive_reservation_floor(self, context: Dict[str, object]) -> Optional[float]:
+        """Floor F = min(P, max(B, s * M)) under the reservation wage, or None.
+
+        ``s = s_min + (1 - s_min) * tightness``, tightness = f / (f + f_half).
+        A worker asks for more of the median offer when jobs are easy to
+        find, never less than the benefit B, and never more than the best
+        offer P it knows, so the floor cannot rule out every job it sees.
+        B is the live benefit level; the sim does not track benefit
+        duration, so B does not shrink as a spell lengthens.
+        """
+        stats = self.known_offer_stats(context)
+        if stats is None:
+            return None
+        median, best = stats
+        tightness = float(context["tightness"])
+        share = float(self.reservation_floor_share) + (1.0 - float(self.reservation_floor_share)) * tightness
+        return min(best, max(float(context["benefit"]), share * median))
+
+    def adaptive_reservation_step(
+        self,
+        context: Dict[str, object],
+        lost_job_wage: Optional[float],
+    ) -> None:
+        """One week of the adaptive reservation wage for an unemployed household.
+
+        ``r <- max(F, r * (1 - d))`` with
+        ``d = reservation_decay_rate * (2 - tightness) * (1.5 - cushion)``,
+        cushion = min(1, liquidity / buffer target at the median offer).
+        A slack market doubles the decay, a full cushion halves it and an
+        empty one raises it 1.5x. On job loss r restarts at the last wage;
+        a household that has never worked starts at the median offer.
+        """
+        stats = self.known_offer_stats(context)
+        if lost_job_wage is not None and lost_job_wage > 0.0:
+            self.reservation_wage = float(lost_job_wage)
+        elif self.unemployment_duration == 1 and stats is not None and not self.category_experience:
+            # Never worked (no category experience): start at the median offer.
+            self.reservation_wage = stats[0]
+        tightness = float(context["tightness"])
+        income = stats[0] if stats is not None else self.expected_wage
+        target = self.buffer_target(income, float(context["unemployment_rate"]))
+        liquidity = max(0.0, self.cash_balance) + max(0.0, self.bank_deposit)
+        cushion = min(1.0, liquidity / target) if target > 0 else 0.0
+        rate = float(self.reservation_decay_rate) * (2.0 - tightness) * (1.5 - cushion)
+        decayed = self.reservation_wage * (1.0 - min(0.99, rate))
+        floor = self.adaptive_reservation_floor(context)
+        self.reservation_wage = decayed if floor is None else max(floor, decayed)
 
     def _normalize_category_weights(self, weights: Dict[str, float]) -> Dict[str, float]:
         """Normalize spending-category budget weights so they sum to 1.0.
@@ -1445,6 +1540,7 @@ class HouseholdAgent(AgentMixin):
         category_posted_wages: Optional[Dict[str, float]] = None,
         employer_category: Optional[str] = None,
         category_expected_prices: Optional[Dict[str, float]] = None,
+        reservation_context: Optional[Dict[str, object]] = None,
     ) -> Dict[str, object]:
         """
         Decide whether to search for job and what wage to require.
@@ -1463,6 +1559,9 @@ class HouseholdAgent(AgentMixin):
             category_expected_prices: Median posted price per lowercase category,
                 passed only under ``fix_category_price_beliefs`` (audit B11);
                 None keeps the old price_beliefs["housing"/"food"] lookups.
+            reservation_context: The tick's adaptive reservation context
+                (``Economy._reservation_context``); only read under
+                ``adaptive_reservation_wage``, where its floor replaces $1.
 
         Returns:
             Dict with household_id, searching_for_job, reservation_wage, skills_level,
@@ -1534,8 +1633,15 @@ class HouseholdAgent(AgentMixin):
                 market_anchored_reservation,
             )
 
-        # Absolute floor: never go below $1 (any job beats no job)
-        reservation_wage_for_tick = max(1.0, reservation_wage_for_tick)
+        floor = None
+        if hh_config.adaptive_reservation_wage and reservation_context is not None:
+            floor = self.adaptive_reservation_floor(reservation_context)
+        if floor is not None:
+            # The live floor F <= best known offer replaces the $1 floor.
+            reservation_wage_for_tick = max(floor, reservation_wage_for_tick)
+        else:
+            # Absolute floor: never go below $1 (any job beats no job)
+            reservation_wage_for_tick = max(1.0, reservation_wage_for_tick)
 
         # Search if unemployed or if cash stress is severe.
         searching_for_job = (not self.is_employed) or (self.cash_balance < living_cost)
@@ -1766,7 +1872,8 @@ class HouseholdAgent(AgentMixin):
         self,
         outcome: Dict[str, object],
         market_wage_anchor: Optional[float] = None,
-        current_tick: int = 0
+        current_tick: int = 0,
+        reservation_context: Optional[Dict[str, object]] = None,
     ) -> None:
         """
         Update employment status and wage beliefs based on labor market outcome.
@@ -1777,7 +1884,11 @@ class HouseholdAgent(AgentMixin):
             outcome: Dict with employer_id (int | None), wage (float), and employer_category (str | None)
             market_wage_anchor: Optional market-paid wage to nudge expectations toward
             current_tick: Current simulation tick (for rate-limiting skill/wage growth)
+            reservation_context: The tick's adaptive reservation context; under
+                ``adaptive_reservation_wage`` an unemployed household's
+                reservation wage follows ``adaptive_reservation_step``.
         """
+        lost_job_wage = self.wage if (self.employer_id is not None and outcome["employer_id"] is None) else None
         self.employer_id = outcome["employer_id"]
         self.wage = outcome["wage"]
         employer_category = outcome.get("employer_category", None)
@@ -1848,6 +1959,10 @@ class HouseholdAgent(AgentMixin):
                 )
             else:
                 self.expected_wage = decayed_expectation
+
+        if hh_config.adaptive_reservation_wage and reservation_context is not None and not self.is_employed:
+            self.adaptive_reservation_step(reservation_context, lost_job_wage)
+            return
 
         # Reservation wage tracks expected wage — faster when desperate
         if self.unemployment_duration > 5:
