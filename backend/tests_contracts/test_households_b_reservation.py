@@ -17,7 +17,7 @@ def adaptive_on(monkeypatch):
     monkeypatch.setattr(CONFIG.households, "adaptive_reservation_wage", True)
 
 
-def _context(offers=None, tightness=0.5, benefit=30.0, unemployment_rate=0.1):
+def _context(offers=None, tightness=0.5, benefit=30.0):
     offers = {1: 40.0, 2: 50.0, 3: 60.0} if offers is None else offers
     values = sorted(offers.values())
     return {
@@ -26,7 +26,6 @@ def _context(offers=None, tightness=0.5, benefit=30.0, unemployment_rate=0.1):
         "best_offer": values[-1] if values else 0.0,
         "tightness": tightness,
         "benefit": benefit,
-        "unemployment_rate": unemployment_rate,
     }
 
 
@@ -46,6 +45,15 @@ def test_traits_vary_by_household_and_repeat():
     assert list(decay) == [h.reservation_decay_rate for h in again]
     assert 0.0012 < decay.mean() < 0.0016 and decay.std() > 0.0003
     assert 0.5 <= share.min() and share.max() <= 0.9 and 0.66 < share.mean() < 0.74
+
+
+def test_floor_share_trait_is_clamped_to_one(monkeypatch):
+    monkeypatch.setattr(CONFIG.households, "reservation_floor_share_range", (0.75, 1.05, 1.35))
+    shares = [make_household(i).reservation_floor_share for i in range(1, 301)]
+    assert max(shares) == 1.0 and min(shares) >= 0.75
+    household = _unemployed(reservation_floor_share=max(shares))
+    # s_min = 1: the floor is the median offer even in the tightest market.
+    assert household.adaptive_reservation_floor(_context(tightness=1.0)) == pytest.approx(50.0)
 
 
 def test_floor_is_capped_at_best_known_offer_and_never_below_benefit():
@@ -80,13 +88,14 @@ def test_job_loss_restarts_at_last_wage_then_decays_slowly(adaptive_on):
     household.awareness_pool = {}
     context = _context(tightness=0.5)
     household.apply_labor_outcome({"employer_id": None, "wage": 0.0}, reservation_context=context)
-    # One week: d = 0.0014 * (2 - 0.5) * (1.5 - 0) = 0.00315.
-    assert household.reservation_wage == pytest.approx(80.0 * (1 - 0.00315))
+    # One week: d = 0.0014 * (2 - 0.5) = 0.0021.
+    assert household.reservation_wage == pytest.approx(80.0 * (1 - 0.0021))
 
 
-def test_slack_market_and_empty_cushion_decay_faster(adaptive_on):
-    def week(tightness, cash):
+def test_slack_market_decays_faster_and_savings_do_not_matter(adaptive_on):
+    def week(tightness, cash, deposit=0.0):
         household = _unemployed(cash_balance=cash, reservation_decay_rate=0.0014, reservation_floor_share=0.5)
+        household.bank_deposit = deposit
         household.unemployment_duration = 5
         household.category_experience = {"Food": 10}
         household.reservation_wage = 100.0
@@ -95,8 +104,10 @@ def test_slack_market_and_empty_cushion_decay_faster(adaptive_on):
         return 100.0 - household.reservation_wage
 
     assert week(0.0, 0.0) > week(1.0, 0.0)          # slack market
-    assert week(0.5, 0.0) > week(0.5, 1e6)          # broke vs cushioned
-    assert week(0.5, 1e6) == pytest.approx(100.0 * 0.0014 * 1.5 * 0.5)
+    assert week(0.0, 0.0) == pytest.approx(100.0 * 0.0014 * 2.0)
+    # Savings are neutral: broke, cash-rich and deposit-rich decay alike.
+    assert week(0.5, 0.0) == pytest.approx(week(0.5, 1e6)) == pytest.approx(week(0.5, 0.0, 1e6))
+    assert week(0.5, 0.0) == pytest.approx(100.0 * 0.0014 * 1.5)
 
 
 def test_reservation_never_falls_below_the_floor(adaptive_on):
@@ -126,10 +137,10 @@ def test_flag_off_keeps_legacy_reservation():
 def test_economy_job_finding_rate_and_context(adaptive_on):
     economy = make_economy(num_households=20)
     assert economy.job_finding_rate() is None
-    context = economy._build_reservation_context(30.0, 0.1)
+    context = economy._build_reservation_context(30.0)
     assert context["offers"] == {} and context["tightness"] == 0.5
     economy.step()
     rate = economy.job_finding_rate()
     assert rate is not None and 0.0 <= rate <= 1.0
     offers = economy.get_posted_wage_offers(include_baseline=True)
-    assert economy._build_reservation_context(30.0, 0.1)["offers"] == offers
+    assert economy._build_reservation_context(30.0)["offers"] == offers

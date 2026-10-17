@@ -685,8 +685,10 @@ class HouseholdAgent(AgentMixin):
         Uses its own RNG seeded by ``CONFIG.random_seed`` and ``household_id``,
         so no other draw changes. ``reservation_decay_rate`` is normal around
         ``reservation_decay_mean`` (clipped to [0.0002, 0.004]);
-        ``reservation_floor_share`` is triangular on
-        ``reservation_floor_share_range``.
+        ``reservation_floor_share`` (s_min) is triangular on
+        ``reservation_floor_share_range``, clamped to [0, 1] so the floor
+        share s = s_min + (1 - s_min) * tightness never exceeds 1, i.e. the
+        floor never asks for more than the median known offer.
         """
         config = CONFIG.households
         rng = random.Random(CONFIG.random_seed * 6151 + self.household_id * 130363 + 11)
@@ -694,7 +696,7 @@ class HouseholdAgent(AgentMixin):
         if self.reservation_decay_rate is None:
             self.reservation_decay_rate = max(0.0002, min(0.004, decay))
         lo, mode, hi = config.reservation_floor_share_range
-        share = rng.triangular(lo, hi, mode)
+        share = max(0.0, min(1.0, rng.triangular(lo, hi, mode)))
         if self.reservation_floor_share is None:
             self.reservation_floor_share = share
 
@@ -747,11 +749,13 @@ class HouseholdAgent(AgentMixin):
         """One week of the adaptive reservation wage for an unemployed household.
 
         ``r <- max(F, r * (1 - d))`` with
-        ``d = reservation_decay_rate * (2 - tightness) * (1.5 - cushion)``,
-        cushion = min(1, liquidity / buffer target at the median offer).
-        A slack market doubles the decay, a full cushion halves it and an
-        empty one raises it 1.5x. On job loss r restarts at the last wage;
-        a household that has never worked starts at the median offer.
+        ``d = reservation_decay_rate * (2 - tightness)``: a slack market
+        doubles the decay. Savings do not enter (neutral, 1.0x): Krueger and
+        Mueller (2016) find the decline concentrated among savers, a
+        descriptive correlation with no clean mechanism to map, so no
+        savings factor is applied in either direction. On job loss r
+        restarts at the last wage; a household that has never worked starts
+        at the median offer.
         """
         stats = self.known_offer_stats(context)
         if lost_job_wage is not None and lost_job_wage > 0.0:
@@ -760,11 +764,7 @@ class HouseholdAgent(AgentMixin):
             # Never worked (no category experience): start at the median offer.
             self.reservation_wage = stats[0]
         tightness = float(context["tightness"])
-        income = stats[0] if stats is not None else self.expected_wage
-        target = self.buffer_target(income, float(context["unemployment_rate"]))
-        liquidity = max(0.0, self.cash_balance) + max(0.0, self.bank_deposit)
-        cushion = min(1.0, liquidity / target) if target > 0 else 0.0
-        rate = float(self.reservation_decay_rate) * (2.0 - tightness) * (1.5 - cushion)
+        rate = float(self.reservation_decay_rate) * (2.0 - tightness)
         decayed = self.reservation_wage * (1.0 - min(0.99, rate))
         floor = self.adaptive_reservation_floor(context)
         self.reservation_wage = decayed if floor is None else max(floor, decayed)

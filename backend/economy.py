@@ -1147,14 +1147,13 @@ class Economy:
         seekers = sum(u for _, u in self._job_finding_history)
         return hires / seekers if seekers > 0 else 0.0
 
-    def _build_reservation_context(self, benefit: float, unemployment_rate: float) -> Dict[str, object]:
+    def _build_reservation_context(self, benefit: float) -> Dict[str, object]:
         """Live inputs for the adaptive reservation wage, built once per tick.
 
         Keys: ``offers`` ({firm_id: offer}), ``median_offer`` and ``best_offer``
         (economy-wide, 0 when nothing is posted), ``tightness`` =
         f / (f + f_half) with f from ``job_finding_rate`` (0.5 before the
-        first match, i.e. neutral), ``benefit`` (live benefit level) and
-        ``unemployment_rate``.
+        first match, i.e. neutral) and ``benefit`` (live benefit level).
         """
         offers = self._posted_offers_for_households()
         values = sorted(offers.values())
@@ -1169,7 +1168,6 @@ class Economy:
             "best_offer": best,
             "tightness": tightness,
             "benefit": float(benefit),
-            "unemployment_rate": float(unemployment_rate),
         }
 
     def _legacy_obligations_due(self) -> np.ndarray:
@@ -2450,7 +2448,7 @@ class Economy:
         firm_lookup = self.firm_lookup
         reservation_context = None
         if CONFIG.households.adaptive_reservation_wage:
-            reservation_context = self._build_reservation_context(gov_benefit, tick.unemployment_rate)
+            reservation_context = self._build_reservation_context(gov_benefit)
         self._reservation_context = reservation_context
         for household in self.households:
             total_education_spending += household.maybe_active_education()

@@ -9,12 +9,12 @@ Notable changes and decisions for EcoSim, newest first. The project does not use
 First-pass spec section 3, item B, in the redesigned form Ayman approved. The flag `CONFIG.households.adaptive_reservation_wage` defaults off.
 
 - **Before:** while unemployed, the reservation wage blended 15% per tick (30% after 5 ticks) toward an expected wage that itself fell about 3% per tick, with a $1 floor.
-- **After:** `r <- max(F, r * (1 - d))`. The floor is `F = min(P, max(B, s * M))`: the median and best known posted offer, the live benefit, and a share `s` that rises with the 4-week job-finding rate. The decay `d` is a per-household rate (mean 0.14% per week, Krueger and Mueller 2016), doubled in a slack market and scaled 0.5x to 1.5x by the cash cushion. On job loss `r` restarts at the last wage.
+- **After:** `r <- max(F, r * (1 - d))`. The floor is `F = min(P, max(B, s * M))`: the median and best known posted offer, the live benefit, and a share `s` that rises with the 4-week job-finding rate. `s_min` is clamped to [0, 1] at the trait draw, so `s <= 1`. The decay `d` is a per-household rate (mean 0.14% per week, the top of Krueger and Mueller's 2016 range of 0.05-0.14%), doubled in a slack market. Savings are neutral: K&M find the decline concentrated among savers, a correlation we can't map to a mechanism, so no savings factor is shipped in either direction. On job loss `r` restarts at the last wage.
 - **Offers** come from `Economy.get_posted_wage_offers(include_baseline=True)` (#30), so baseline firms count as real options. The floor compares against the base posted offer, not the skill-premium wage a match would pay.
 - **Benefit duration** is not tracked, so the benefit term does not shrink over a spell.
 - `job_finding_half_rate = 0.021` is the median weekly job-finding rate of the seeded flag-off baseline, not a target.
 
-Evidence: `backend/tests_contracts/test_households_b_reservation.py` (10 tests). Repro, from `backend/`: `PYTHONHASHSEED=0 python tools/analysis/run_households_b_compare.py`.
+Evidence: `backend/tests_contracts/test_households_b_reservation.py` (11 tests). Repro, from `backend/`: `PYTHONHASHSEED=0 python tools/analysis/run_households_b_compare.py`.
 
 ### 2026-10-16: Household buffer-stock consumption (round 1 PR3, flag off)
 

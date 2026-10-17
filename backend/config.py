@@ -236,11 +236,15 @@ class HouseholdBehaviorConfig:
     # While unemployed: r <- max(F, r * (1 - d)), with the floor
     #   F = min(P, max(B, s * M)) and
     #   s = s_min + (1 - s_min) * f / (f + f_half),
-    #   d = d_i * (1 + (1 - f / (f + f_half))) * (1.5 - cushion),
+    #   d = d_i * (1 + (1 - f / (f + f_half))),
     # where M and P are the median and best posted offers among firms the
     # household knows (economy-wide when it knows none), f is the economy's
     # job-finding rate over the last job_finding_window_weeks, B is the
-    # live benefit level, and cushion = min(1, liquidity / buffer target).
+    # live benefit level. Savings do not scale d (neutral, 1.0x): Krueger &
+    # Mueller (2016) find the decline concentrated among savers, opposite to
+    # the textbook "savings let you wait" story; that is a descriptive
+    # correlation we cannot cleanly map to a mechanism, so neither direction
+    # is shipped. Simpler and one fewer factor.
     # On job loss r restarts at the last wage; a household never employed
     # starts at M. Replaces, on this path only, the 15-30%/tick blend toward
     # the decaying expected wage and the $1 floor.
@@ -248,8 +252,8 @@ class HouseholdBehaviorConfig:
     # reservation_decay_mean / _sd: per-household base weekly decay d_i,
     #   drawn normal and clipped to [0.0002, 0.004]. Krueger & Mueller
     #   (2016, AEJ: Policy) estimate 0.05-0.14%/week; the mean sits at the
-    #   top of that range because the (2 - tightness) and cushion factors
-    #   only scale it, and a floor stops it anyway. The sd is a judgment
+    #   top of that range because the (2 - tightness) factor only scales it
+    #   and the floor stops it anyway. The sd is a judgment
     #   spread (about 95% of draws in 0.04-0.24%/week), not an estimate.
     reservation_decay_mean: float = 0.0014
     reservation_decay_sd: float = 0.0005
@@ -258,6 +262,8 @@ class HouseholdBehaviorConfig:
     #   when jobs are hardest to find. PLACEHOLDER (mode 0.7, range 0.5-0.9):
     #   no direct estimate; chosen so the worst-case floor sits near the
     #   bottom of the observed offer distribution rather than at zero.
+    #   Each draw is clamped to [0, 1], so s <= 1 and the floor never asks
+    #   for more than the median known offer (P still caps it).
     reservation_floor_share_range: Tuple[float, float, float] = (0.5, 0.7, 0.9)
     # job_finding_half_rate: f_half, the job-finding rate at which labor-
     #   market tightness counts as neutral (f / (f + f_half) = 0.5). Derived,
