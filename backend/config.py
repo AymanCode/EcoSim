@@ -459,6 +459,49 @@ class FirmBehaviorConfig:
     wage_adjustment_rate: float = 0.1
     target_inventory_multiplier: float = 1.5
 
+    # Sticky prices (round 1 PR4a). Private Food, Services and Healthcare
+    # firms, after warm-up, post a price that changes only at a price review.
+    # Every tick the existing per-tick rule (plan_pricing) still runs, from a
+    # background "shadow" price instead of the posted one, so the shadow is
+    # the price the firm would have reached repricing weekly. Each tick the
+    # firm adds a review hazard to a running total and reviews when the
+    # total reaches 1; at a review the posted price jumps to the shadow:
+    #   hazard = (1/interval) * (1 + gap/price_review_gap_scale)
+    #            * (1 + price_review_inflation_slope
+    #                   * max(0, inflation - price_review_inflation_knee))
+    # gap = |posted/shadow - 1|; inflation = the CPI's 52-week rate
+    # (Economy.consumer_prices.annual_rate, 0 until a year of data). With no
+    # gap and low inflation a firm reviews every `interval` weeks; a bigger
+    # gap brings the review sooner. Baseline (government) firms, Housing
+    # (rent is reset at settlement by the occupancy rule) and warm-up keep
+    # repricing every tick. False = every firm reprices every tick (main).
+    sticky_prices_enabled: bool = True
+    # Calm-market review interval in weeks, drawn once per firm (uniform,
+    # from a hash of firm_id, so no random draw is consumed). Sources are
+    # median durations between price changes, converted at 52/12 weeks per
+    # month. Valid: 1 <= low <= high.
+    # Food: Nakamura & Steinsson (2008, QJE, Table I/II, 1998-2005, regular
+    # prices): unprocessed food 3.5 months, processed food 9.0 months.
+    price_review_weeks_food: Tuple[float, float] = (15.0, 39.0)
+    # Services: Bils & Klenow (2004, JPE): all items 4.3 months, services 7.8.
+    price_review_weeks_services: Tuple[float, float] = (19.0, 34.0)
+    # Healthcare: Bils & Klenow (2004): services 7.8, medical care 14.9 months.
+    price_review_weeks_healthcare: Tuple[float, float] = (34.0, 65.0)
+    # Gap at which the review clock runs twice as fast: the typical size of
+    # a regular price change in menu-cost data, 9.5% (Golosov & Lucas 2007,
+    # mean price increase, Klenow-Kryvtsov data) to 11% (Midrigan 2011,
+    # mean regular price change). A menu-cost firm reprices when its gap
+    # reaches about the size of the change it then makes. Valid > 0.
+    price_review_gap_scale: float = 0.10
+    # Gagnon (2009, QJE), Mexico CPI: price-change frequency barely moves with
+    # annual inflation below 10-15% (12.5% is his regression cutoff), then
+    # rises 0.37 points of monthly frequency per point of annual inflation.
+    # His BK-basket frequency averages 32.5% at 27.9% inflation, so 26.8% at
+    # the knee; 0.37 / 0.268 = 1.38x hazard per unit of annual inflation
+    # above the knee. Valid: knee >= 0, slope >= 0.
+    price_review_inflation_knee: float = 0.125
+    price_review_inflation_slope: float = 1.38
+
     # Lost-sales expectation controls. Lost sales are a real demand signal,
     # but noisy and capacity-constrained.
     lost_sales_expectation_weight: float = 0.65
@@ -1062,6 +1105,14 @@ class SimulationConfig:
             raise ValueError("tie_break_scale must be finite and non-negative")
         if self.labor_market.switcher_vacancy_cap_per_firm < 0:
             raise ValueError("switcher_vacancy_cap_per_firm must be non-negative")
+        for name in ("price_review_weeks_food", "price_review_weeks_services", "price_review_weeks_healthcare"):
+            low, high = getattr(self.firms, name)
+            if not 1.0 <= float(low) <= float(high):
+                raise ValueError(f"{name} must satisfy 1 <= low <= high")
+        if not self.firms.price_review_gap_scale > 0.0:
+            raise ValueError("price_review_gap_scale must be positive")
+        if self.firms.price_review_inflation_knee < 0.0 or self.firms.price_review_inflation_slope < 0.0:
+            raise ValueError("price review inflation knee and slope must be non-negative")
         ratio = self.firms.services_expansion_min_excess_demand_ratio
         if not (math.isfinite(ratio) and ratio >= 0.0):
             raise ValueError("services_expansion_min_excess_demand_ratio must be finite and non-negative")

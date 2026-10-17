@@ -2086,6 +2086,22 @@ class FirmAgent(AgentMixin):
     survival_mode: bool = False  # Feature 1: Emergency restructuring flag
     pricing_rejection_streak: int = 0  # Consecutive ticks market rejected current price
 
+    # Sticky prices (round 1 PR4a; CONFIG.firms.sticky_prices_enabled). All
+    # stay None / 0 while the firm reprices every tick (flag off, baseline,
+    # Housing, warm-up), so readers can treat None as "every tick is a review".
+    # price_shadow: the price the per-tick rule would have reached, tracked
+    # every tick in the background. price_review_pressure: running total of
+    # the review hazard; a review fires when it reaches 1.
+    # last_price_review_tick: tick of the latest review (the posted price
+    # changed to the shadow then). next_price_review_tick: projected tick of
+    # the next review at the current hazard; always in the future between
+    # reviews. Contract for a review-aware price cap (#27's _price_review_due;
+    # #27 is closed, so nothing on main reads them yet).
+    price_shadow: Optional[float] = None
+    price_review_pressure: float = 0.0
+    last_price_review_tick: Optional[int] = None
+    next_price_review_tick: Optional[int] = None
+
     # Bank credit tracking (optional — unused when no bank exists)
     bank_loan_principal: float = 0.0       # Sum of active bank loan principals
     bank_loan_remaining: float = 0.0       # Sum of active bank loan remaining balances
@@ -4036,6 +4052,113 @@ class FirmAgent(AgentMixin):
             # Request investment loan — processed in Phase 1.5
             self.needs_investment_loan = True
             self.investment_loan_amount = investment_cost
+
+    def uses_sticky_prices(self, in_warmup: bool) -> bool:
+        """True when this firm holds its price between reviews this tick.
+
+        Private Food, Services and Healthcare firms after warm-up, with
+        ``CONFIG.firms.sticky_prices_enabled``. Baseline firms keep their
+        government rules; Housing is excluded because settlement resets rent
+        every tick from occupancy (``Economy`` housing phase), which would
+        overwrite a held rent anyway.
+        """
+        if not CONFIG.firms.sticky_prices_enabled or in_warmup or self.is_baseline:
+            return False
+        return (self.good_category or "").lower() in {"food", "services", "healthcare"}
+
+    def price_review_interval(self) -> float:
+        """Calm-market weeks between this firm's price reviews.
+
+        Drawn once per firm, uniform over its category's
+        ``CONFIG.firms.price_review_weeks_*`` range, from a hash of
+        ``firm_id``. No random number is consumed, so turning the flag on
+        does not shift any other draw.
+        """
+        cfg = CONFIG.firms
+        category = (self.good_category or "").lower()
+        low, high = {
+            "food": cfg.price_review_weeks_food,
+            "healthcare": cfg.price_review_weeks_healthcare,
+        }.get(category, cfg.price_review_weeks_services)
+        u = zlib.crc32(f"price_review:{int(self.firm_id)}".encode()) / 2**32
+        return float(low) + u * (float(high) - float(low))
+
+    def price_review_hazard(self, posted: float, shadow: float, inflation_annual: float) -> float:
+        """Review hazard per tick: calm rate x gap term x inflation term.
+
+        ``(1/interval) * (1 + gap/gap_scale) * (1 + slope*max(0, inflation - knee))``
+        with ``gap = |posted/shadow - 1|``. See ``CONFIG.firms`` for sources.
+        """
+        cfg = CONFIG.firms
+        gap = abs(posted / shadow - 1.0) if shadow > 0.0 else 0.0
+        inflation_term = 1.0 + cfg.price_review_inflation_slope * max(
+            0.0, float(inflation_annual) - cfg.price_review_inflation_knee
+        )
+        return (1.0 / self.price_review_interval()) * (1.0 + gap / cfg.price_review_gap_scale) * inflation_term
+
+    def plan_sticky_pricing(
+        self,
+        current_tick: int,
+        inflation_annual: float,
+        sell_through_rate: float,
+        unemployment_rate: float,
+        health_snapshot: Optional[FirmHealthSnapshot] = None,
+        profit_tax_rate: float = 0.0,
+    ) -> Dict[str, float]:
+        """Run the per-tick price rule on the shadow price; post it only at reviews.
+
+        1. Shadow update: ``plan_pricing`` runs exactly as on main, but from
+           ``price_shadow`` instead of the posted price (the posted price is
+           swapped in and restored). Its ``price_next`` becomes the new
+           shadow: the price the firm would have reached repricing weekly.
+        2. Review clock: add ``price_review_hazard`` to
+           ``price_review_pressure``. At 1 or more, review: the plan posts the
+           shadow, the pressure resets, ``last_price_review_tick`` is now.
+           Otherwise the plan keeps the posted price.
+        3. ``next_price_review_tick`` = now + weeks until the pressure would
+           reach 1 at this tick's hazard (at least 1).
+
+        The first sticky tick seeds the shadow with the posted price, so
+        switching on causes no jump. Returns a plan with the same keys as
+        ``plan_pricing`` plus ``price_review`` (bool) and ``price_shadow``.
+        """
+        posted = float(self.price)
+        if self.price_shadow is None:
+            self.price_shadow = posted
+        self.price = float(self.price_shadow)
+        try:
+            flexible = self.plan_pricing(
+                sell_through_rate,
+                unemployment_rate=unemployment_rate,
+                in_warmup=False,
+                health_snapshot=health_snapshot,
+                profit_tax_rate=profit_tax_rate,
+            )
+        finally:
+            self.price = posted
+        shadow = max(float(self.min_price), float(flexible["price_next"]))
+        self.price_shadow = shadow
+
+        hazard = self.price_review_hazard(posted, shadow, inflation_annual)
+        self.price_review_pressure += hazard
+        review = self.price_review_pressure >= 1.0
+        if review:
+            self.price_review_pressure = 0.0
+            self.last_price_review_tick = int(current_tick)
+            plan = dict(flexible)
+            plan["price_next"] = shadow
+        else:
+            plan = dict(flexible)
+            plan["price_next"] = posted
+            plan["markup_next"] = self._markup_for_price(posted)
+        remaining = max(0.0, 1.0 - self.price_review_pressure)
+        self.next_price_review_tick = int(current_tick) + max(1, math.ceil(remaining / hazard)) if hazard > 0 else None
+        plan["price_review"] = review
+        plan["price_shadow"] = shadow
+        self.decision_diagnostics["price_review"] = review
+        self.decision_diagnostics["price_shadow"] = shadow
+        self.decision_diagnostics["price_review_hazard"] = hazard
+        return plan
 
     def _markup_for_price(self, price: float) -> float:
         """Markup over unit cost implied by ``price``; the current markup when unit cost is not positive."""
