@@ -222,6 +222,9 @@ class HouseholdAgent(AgentMixin):
     buffer_target_weeks: Optional[float] = None  # Weeks of weekly income held as cash + deposits
     buffer_adjust_speed: Optional[float] = None  # k: share of the buffer gap spent or saved per week
     risk_aversion: Optional[float] = None  # Precautionary multiplier on the buffer target, mean 1
+    learning_rate_annual: Optional[float] = None  # h1: share of skill gap closed per year employed
+    skill_depreciation_annual: Optional[float] = None  # h1: share of skill lost per year unemployed
+    training_willingness: Optional[float] = None  # h2: weekly propensity to train when far behind
 
     # Fix 25: Consumption credit (small loans to bridge income shocks)
     needs_consumption_loan: bool = False
@@ -641,6 +644,7 @@ class HouseholdAgent(AgentMixin):
         keep("min_food_per_tick", sample_range(config.min_food_per_tick_range, clip_min=0.5, clip_max=10.0))
         keep("min_services_per_tick", sample_range(config.min_services_per_tick_range, clip_min=0.1, clip_max=5.0))
         self._initialize_pr3_traits(spender_score)
+        self._initialize_skill_traits()
 
     def _initialize_pr3_traits(self, spender_score: float) -> None:
         """Draw the buffer-stock traits for this household.
@@ -673,6 +677,60 @@ class HouseholdAgent(AgentMixin):
         position = 0.5 * float(self.saving_tendency) + 0.5 * rng.random()
         if self.risk_aversion is None:
             self.risk_aversion = lo + (hi - lo) * position
+
+    def _initialize_skill_traits(self) -> None:
+        """Draw the skills-and-training traits (households h1+h2).
+
+        Uses its own RNG seeded by ``CONFIG.random_seed`` and ``household_id``,
+        so no existing draw changes. ``learning_rate_annual`` and
+        ``skill_depreciation_annual`` are uniform on their config ranges;
+        ``training_willingness`` is triangular on
+        ``training_willingness_range``, clamped to [0, 1].
+        """
+        config = CONFIG.households
+        rng = random.Random(CONFIG.random_seed * 7193 + self.household_id * 155921 + 17)
+        learn = rng.uniform(*config.learning_rate_annual_range)
+        depreciate = rng.uniform(*config.skill_depreciation_annual_range)
+        lo, mode, hi = config.training_willingness_range
+        willing = max(0.0, min(1.0, rng.triangular(lo, hi, mode)))
+        if self.learning_rate_annual is None:
+            self.learning_rate_annual = learn
+        if self.skill_depreciation_annual is None:
+            self.skill_depreciation_annual = depreciate
+        if self.training_willingness is None:
+            self.training_willingness = willing
+
+    def wants_training(self, hiring_skill: Optional[float], current_tick: int) -> bool:
+        """Whether this household chooses a week of training (h2).
+
+        Only unemployed households that can work, are outside medical
+        training, and sit below the hiring line ``hiring_skill`` (median skill
+        of employed workers) consider it. They train with probability
+        ``training_willingness * (hiring_skill - s) / hiring_skill``: the
+        further behind the queue, the more a week of training is worth. The
+        draw is deterministic per household and tick.
+        """
+        if hiring_skill is None or hiring_skill <= 0.0:
+            return False
+        if self.is_employed or not self.can_work:
+            return False
+        if self.medical_training_status in {"student", "resident", "doctor"}:
+            return False
+        gap = (hiring_skill - self.skills_level) / hiring_skill
+        if gap <= 0.0:
+            return False
+        return self._deterministic_unit_random(current_tick, salt=4111) < float(self.training_willingness) * gap
+
+    def training_shortfall(self, cost: float, weekly_income: float, unemployment_rate: float) -> float:
+        """Part of a training cost that would cut into the buffer target (h2).
+
+        The household pays from liquidity (cash + deposits) above its own
+        ``buffer_target``; whatever is left it must borrow. Returns 0 when
+        the surplus covers the cost.
+        """
+        liquidity = max(0.0, self.cash_balance) + max(0.0, self.bank_deposit)
+        surplus = liquidity - self.buffer_target(weekly_income, unemployment_rate)
+        return max(0.0, float(cost) - max(0.0, surplus))
 
     def _normalize_category_weights(self, weights: Dict[str, float]) -> Dict[str, float]:
         """Normalize spending-category budget weights so they sum to 1.0.
@@ -1792,9 +1850,11 @@ class HouseholdAgent(AgentMixin):
 
             # Passive skill growth through work experience (diminishing returns)
             # Only update skills once every 52 ticks (yearly), crediting the
-            # ticks actually worked since the last grant (B31).
+            # ticks actually worked since the last grant (B31). With
+            # CONFIG.households.skills_dynamics on, Economy._batch_update_skills
+            # replaces this grant with weekly learning and depreciation.
             self.employed_ticks_since_skill_update += 1
-            if current_tick - self.last_skill_update_tick >= 52:
+            if not CONFIG.households.skills_dynamics and current_tick - self.last_skill_update_tick >= 52:
                 skill_improvement = self.skill_growth_rate * (1.0 - self.skills_level)
                 total_improvement = skill_improvement * self.employed_ticks_since_skill_update
                 self.skills_level = min(1.0, self.skills_level + total_improvement)
@@ -1878,11 +1938,13 @@ class HouseholdAgent(AgentMixin):
 
         Trigger: skills < 0.5, cash > 300, unemployed.
         Cost: $100, Skill gain: +0.005
+        Off (returns 0.0) when ``CONFIG.households.skills_dynamics`` is on;
+        ``Economy._process_training`` replaces it there.
 
         Returns:
             float: Cost paid (100.0) if education was pursued, 0.0 otherwise
         """
-        if self.is_employed:
+        if self.is_employed or CONFIG.households.skills_dynamics:
             return 0.0
         if self.skills_level >= 0.5 or self.cash_balance <= 300.0:
             return 0.0

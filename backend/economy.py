@@ -252,6 +252,12 @@ class Economy:
         # household list object, its length and fix_preference_applied_once;
         # see _household_static_traits().
         self._household_static_traits_cache: Optional[Tuple[List[HouseholdAgent], int, bool, Dict[str, object]]] = None
+        # Skills and training (households h1+h2): cached weekly rates and the
+        # hiring line (median employed skill) from the last skills update.
+        self._skill_rate_cache: Optional[Tuple[Tuple[int, int], np.ndarray, np.ndarray]] = None
+        self._hiring_skill: Optional[float] = None
+        self.training_weeks_total = 0  # weeks of training bought (h2 telemetry)
+        self.training_loans_total = 0  # of those, weeks financed by a loan
 
         # Cache wage percentiles to avoid repeated sorting
         self.cached_wage_percentiles: Tuple[float, float, float] = (0.0, 0.0, 0.0)  # low, mid, high
@@ -2408,6 +2414,10 @@ class Economy:
             tick.household_labor_plans[household.household_id] = labor_plan
             if bank is not None:
                 household.maybe_request_consumption_loan(bank=bank)
+        if CONFIG.households.skills_dynamics:
+            total_education_spending += self._process_training(
+                gov_benefit, tick.unemployment_rate, mean_posted_wage or 0.0
+            )
         if total_education_spending > 0:
             self._collect_misc_revenue(total_education_spending)
         self._normalize_household_labor_plans(
@@ -2539,6 +2549,8 @@ class Economy:
                 market_wage_anchor=anchor,
                 current_tick=self.current_tick
             )
+        if CONFIG.households.skills_dynamics:
+            self._batch_update_skills()
 
         # Keep firm-side employee rosters aligned with household employment outcomes.
         # This prevents stale counts in firm telemetry versus unemployment metrics.
@@ -6950,35 +6962,136 @@ class Economy:
                 hh.consumption_loan_amount = 0.0
                 continue
 
-            amount = hh.consumption_loan_amount
-            rate = bank.base_interest_rate + (1.0 - score) * 0.06
-            term_ticks = 26  # 6 months
-
-            if bank.lendable_cash >= amount:
-                if self.payment_sequence != "legacy":
-                    from payment_loans import originate_v2
-                    loan = originate_v2(self, "household", hh.household_id, amount, rate,
-                                        term_ticks, "consumption")
-                    if loan is not None:
-                        hh.cash_balance += amount
-                        hh.add_ledger_flow("bank", amount)
-                else:
-                    loan = bank.originate_loan(
-                        borrower_type="household",
-                        borrower_id=hh.household_id,
-                        principal=amount,
-                        annual_rate=rate,
-                        term_ticks=term_ticks,
-                        govt_backed=False,
-                    )
-                    loan["subtype"] = "consumption"  # tag for repayment routing
-                    hh.cash_balance += amount
-                    hh.add_ledger_flow("bank", amount)
-                    hh.consumption_loan_remaining += loan["remaining"]
-                    hh.consumption_loan_payment_per_tick += loan["payment_per_tick"]
+            self._originate_household_consumption_loan(hh, hh.consumption_loan_amount, score)
 
             hh.needs_consumption_loan = False
             hh.consumption_loan_amount = 0.0
+
+    def _originate_household_consumption_loan(self, hh: HouseholdAgent, amount: float, score: float) -> bool:
+        """Originate a 26-week household consumption loan and credit the cash.
+
+        Rate ``base_interest_rate + (1 - score) * 0.06``. Legacy books it on
+        the bank ledger (subtype ``consumption``) and the household's
+        consumption-loan mirrors; payment sequences use ``originate_v2``.
+        Returns False when the bank lacks lendable cash or the payment-arm
+        origination declines. Callers check ``can_lend`` and the score first.
+        """
+        bank = self.bank
+        rate = bank.base_interest_rate + (1.0 - score) * 0.06
+        term_ticks = 26  # 6 months
+        if bank.lendable_cash < amount:
+            return False
+        if self.payment_sequence != "legacy":
+            from payment_loans import originate_v2
+            loan = originate_v2(self, "household", hh.household_id, amount, rate,
+                                term_ticks, "consumption")
+            if loan is None:
+                return False
+            hh.cash_balance += amount
+            hh.add_ledger_flow("bank", amount)
+            return True
+        loan = bank.originate_loan(
+            borrower_type="household",
+            borrower_id=hh.household_id,
+            principal=amount,
+            annual_rate=rate,
+            term_ticks=term_ticks,
+            govt_backed=False,
+        )
+        loan["subtype"] = "consumption"  # tag for repayment routing
+        hh.cash_balance += amount
+        hh.add_ledger_flow("bank", amount)
+        hh.consumption_loan_remaining += loan["remaining"]
+        hh.consumption_loan_payment_per_tick += loan["payment_per_tick"]
+        return True
+
+    def _process_training(self, gov_benefit: float, unemployment_rate: float, mean_posted_wage: float) -> float:
+        """One week of household training decisions (h2). Returns total spent.
+
+        Each household that ``wants_training`` against the hiring line
+        ``self._hiring_skill`` pays ``training_cost_wage_share *
+        mean_posted_wage`` (the planning phase's median posted private offer)
+        for ``min(1 - s, training_gain_per_week)`` skill.
+        It pays from liquidity above its buffer target (weekly income = its
+        wage if employed, else the benefit); a shortfall is borrowed through
+        ``_originate_household_consumption_loan`` under the same checks as a
+        consumption-loan request (bank can lend, credit score >= 0.4,
+        consumption debt + loan <= 4x income baseline). No loan, no training.
+        Payment comes from cash; spending goes to the misc pool like legacy
+        education.
+        """
+        cfg = CONFIG.households
+        cost = float(cfg.training_cost_wage_share) * max(0.0, float(mean_posted_wage))
+        if cost <= 0.0 or self._hiring_skill is None:
+            return 0.0
+        bank = self.bank
+        tick = self.current_tick
+        spent = 0.0
+        for hh in self.households:
+            if not hh.wants_training(self._hiring_skill, tick):
+                continue
+            income = hh.wage if hh.is_employed else float(gov_benefit)
+            shortfall = hh.training_shortfall(cost, income, unemployment_rate)
+            if shortfall > 0.0:
+                if bank is None or not bank.can_lend():
+                    continue
+                score = bank.get_household_credit_score(hh.household_id)
+                if score < 0.4:
+                    continue
+                baseline = max(hh.expected_wage * 0.5, hh.subsistence_min_cash)
+                if hh.consumption_loan_remaining + shortfall > baseline * 4.0:
+                    continue
+                if not self._originate_household_consumption_loan(hh, shortfall, score):
+                    continue
+                self.training_loans_total += 1
+            if hh.cash_balance < cost:
+                continue
+            hh.cash_balance -= cost
+            hh.add_ledger_flow("education", -cost)
+            hh.skills_level = min(1.0, hh.skills_level + float(cfg.training_gain_per_week))
+            hh.education_active_this_tick = True
+            self.training_weeks_total += 1
+            spent += cost
+        return spent
+
+    def _skill_rate_arrays(self) -> Tuple[np.ndarray, np.ndarray]:
+        """Weekly learning and depreciation rates per household, cached (h1).
+
+        Rebuilt when the household list changes; the traits never change
+        after initialization.
+        """
+        key = (id(self.households), len(self.households))
+        cached = self._skill_rate_cache
+        if cached is None or cached[0] != key:
+            learn = np.fromiter((h.learning_rate_annual for h in self.households), dtype=np.float64,
+                                count=len(self.households)) / 52.0
+            depreciate = np.fromiter((h.skill_depreciation_annual for h in self.households), dtype=np.float64,
+                                     count=len(self.households)) / 52.0
+            cached = (key, learn, depreciate)
+            self._skill_rate_cache = cached
+        return cached[1], cached[2]
+
+    def _batch_update_skills(self) -> None:
+        """Weekly learning by doing and depreciation in one numpy pass (h1).
+
+        Employed: ``s += g * (1 - s)``; unemployed: ``s -= d * s`` (g, d are
+        the weekly per-household rates). Also records the hiring line
+        ``self._hiring_skill`` (median skill of employed workers, after the
+        update) that ``_process_training`` reads next week.
+        """
+        households = self.households
+        n = len(households)
+        if n == 0:
+            self._hiring_skill = None
+            return
+        learn, depreciate = self._skill_rate_arrays()
+        skills = np.fromiter((h.skills_level for h in households), dtype=np.float64, count=n)
+        employed = np.fromiter((h.employer_id is not None for h in households), dtype=bool, count=n)
+        updated = np.where(employed, skills + learn * (1.0 - skills), skills * (1.0 - depreciate))
+        np.clip(updated, 0.0, 1.0, out=updated)
+        for household, value in zip(households, updated.tolist()):
+            household.skills_level = value
+        self._hiring_skill = float(np.median(updated[employed])) if employed.any() else None
 
     # -------------------------------------------------------------------------
     # Section: Bailouts, public works, stimulus, and shocks
