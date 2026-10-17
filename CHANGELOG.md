@@ -15,6 +15,15 @@ First-pass spec section 3, item A, and the saving-personality fix from item C. T
 
 Evidence: `backend/tests_contracts/test_households_pr3.py` (7 tests). Repro, from `backend/`: `PYTHONHASHSEED=0 python tools/analysis/run_households_pr3_compare.py` and `PYTHONHASHSEED=0 python tools/analysis/run_households_pr3_sensitivity.py --jobs 5`.
 
+### 2026-10-16: Wage offer floor and posted-offer getters
+
+Households (#29) saw offers at the $36 minimum wage, not `max(minimum wage, 1.5x benefit)` = $45. Read-only getters so they can read the real numbers; no offer changes (seed 42, 1,000 households, 104 ticks: final state hash identical to `main`).
+
+- `FirmAgent.get_wage_offer_floor(unemployment_benefit)`: the floor the firm's offer rule applies. The 1.5x-benefit floor (`agents.py` `plan_wage`, `economy.py` annual review call) applies to private Food/Services firms under annual review and private non-Services firms on the weekly rule. Government baseline firms (Food pinned to the $20 config floor, others capped at 2.5x it), healthcare, and Services firms on the weekly rule (no employees yet, or warm-up) floor only at the minimum wage; the post-planning enforcement lifts them to $36. The warm-up path also caps offers after the floor.
+- `Economy.get_posted_wage_offers(include_baseline=False)`: `{firm_id: offer}` snapshot taken right after the minimum-wage enforcement, the offers labor matching reads that tick. Baseline firms are excluded by default because they pay the minimum wage by rule.
+- Seeded run (same seed, all 104 ticks): every baseline firm-tick posts below $45 (415 of 416); private Food/Services under annual review never do (0/2,437); weekly-rule private firms do in 18 of 33 firm-ticks (warm-up holds and Services entrants).
+- `_benefit_wage_floor_multiplier()` holds the 1.5x / payment-sequence multiplier rule that `plan_wage` inlined; same values.
+
 ### 2026-10-16: Server error replies, logging context, and two review checks
 
 From the outside portfolio review (items #8, #9, #14, #15, #21, #25, #28). No simulation behavior changed: the engine, tick order, and every success reply are unchanged.

@@ -2436,6 +2436,61 @@ class FirmAgent(AgentMixin):
         """Wage floor: the config floor or this tick's policy minimum, whichever is higher."""
         return max(float(self._firm_config().minimum_wage_floor), float(self.policy_minimum_wage))
 
+    def get_wage_offer_floor(self, unemployment_benefit: float) -> float:
+        """Floor term this firm's wage-offer rule applies this tick ($/tick).
+
+        Read-only: recomputes the floor that ``plan_wage``, or for firms under
+        annual pay review ``WageReview.plan`` (called by ``Economy``), puts
+        under the offer. Mutates nothing. Call it during or after the tick's
+        firm planning: it reads ``policy_minimum_wage`` and
+        ``annual_wage_control``, which ``Economy`` sets for the tick before
+        wages are planned.
+
+        By rule:
+
+        - Annual pay review (``annual_wage_control``), and private Food and
+          other non-Services, non-healthcare firms on ``plan_wage``:
+          ``max(minimum wage, multiplier x unemployment_benefit)``. The
+          multiplier is 1.5, or ``CONFIG.payment_benefit_wage_floor_multiplier``
+          for Food and Services under a non-legacy payment sequence.
+        - Minimum wage only: government baseline firms, private healthcare,
+          firms with stabilization disabled, and generic Services firms on
+          ``plan_wage`` (not under annual review). Their branches never apply
+          the benefit floor; the economy-wide minimum-wage enforcement after
+          planning lifts them to the minimum wage.
+
+        Where the benefit floor applies, a few later steps inside
+        ``plan_wage`` can still post below it: the warm-up/revenue-share path
+        caps offers after flooring (labor-share cap, no-revenue hold, and a
+        $40 cap for firms with no employees), and the hire-failure 5% bump
+        returns without re-flooring. Posted offers are therefore at least the
+        minimum wage always, and at least this value except on those steps.
+
+        Args:
+            unemployment_benefit: current benefit per unemployed household per
+                tick (``GovernmentAgent.get_unemployment_benefit_level()``).
+
+        Returns:
+            The floor in currency per tick.
+        """
+        minimum_wage = self._minimum_wage()
+        if self.annual_wage_control:
+            return max(minimum_wage, float(unemployment_benefit) * 1.5)
+        if (
+            self.is_baseline
+            or self.stabilization_disabled
+            or self.good_category.lower() == "healthcare"
+            or self._is_generic_services_firm()
+        ):
+            return minimum_wage
+        return max(minimum_wage, float(unemployment_benefit) * self._benefit_wage_floor_multiplier())
+
+    def _benefit_wage_floor_multiplier(self) -> float:
+        """Multiple of the unemployment benefit a private offer must clear."""
+        if CONFIG.payment_sequence != "legacy" and self.good_category.lower() in {"food", "services"}:
+            return CONFIG.payment_benefit_wage_floor_multiplier
+        return 1.5
+
     def _is_generic_services_firm(self) -> bool:
         """Generic services are per-tick flow capacity, not storable production."""
         return self.good_category.lower() == "services"
@@ -4459,9 +4514,7 @@ class FirmAgent(AgentMixin):
             else float(firm_config.minimum_wage_floor)
         )
         policy_minimum_wage = max(policy_minimum_wage, float(firm_config.minimum_wage_floor))
-        benefit_multiplier = (CONFIG.payment_benefit_wage_floor_multiplier
-                              if CONFIG.payment_sequence != "legacy" and self.good_category.lower() in {"food", "services"}
-                              else 1.5)
+        benefit_multiplier = self._benefit_wage_floor_multiplier()
         floor_wage = max(policy_minimum_wage, unemployment_benefit * benefit_multiplier)
 
         hire_failed = (

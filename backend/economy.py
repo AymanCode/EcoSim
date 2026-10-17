@@ -206,6 +206,10 @@ class Economy:
         # annual pay-review clock per reviewed firm. Observing prices moves no money.
         self.consumer_prices = ConsumerPriceIndex(CONFIG.inflation.basket_weights, CONFIG.time.ticks_per_year)
         self.wage_reviews: Dict[int, WageReview] = {}
+        # Wage offers posted in the latest firm-planning phase, after the
+        # minimum-wage enforcement: {firm_id: (offer, is_baseline)}. Written
+        # once per tick, read only through get_posted_wage_offers().
+        self._posted_wage_offers: Dict[int, Tuple[float, bool]] = {}
         if self.payment_sequence not in {"legacy", "income_first", "income_late"}:
             raise ValueError("unsupported payment sequence")
         self.payment_care_mode = str(getattr(CONFIG, "payment_care_mode", "patient_pay"))
@@ -2331,6 +2335,11 @@ class Economy:
         for wage_plan in tick.firm_wage_plans.values():
             if wage_plan["wage_offer_next"] < minimum_wage:
                 wage_plan["wage_offer_next"] = minimum_wage
+        baseline_ids = {firm.firm_id for firm in self.firms if firm.is_baseline}
+        self._posted_wage_offers = {
+            firm_id: (float(plan["wage_offer_next"]), firm_id in baseline_ids)
+            for firm_id, plan in tick.firm_wage_plans.items()
+        }
 
     def _phase_household_planning(self, tick: _TickScratch) -> None:
         """Households plan: offer signals, education, cooldowns, labor supply, consumption, loans."""
@@ -8513,6 +8522,39 @@ class Economy:
 
         # Clamp to valid range [0, 1]
         return max(0.0, min(1.0, gini))
+
+    def get_posted_wage_offers(self, include_baseline: bool = False) -> Dict[int, float]:
+        """Wage offers firms posted to job seekers this tick, {firm_id: $/tick}.
+
+        Read-only snapshot taken at the end of the firm-planning phase, after
+        the economy-wide minimum-wage enforcement: these are the offers
+        household planning and labor matching read in the same tick. Valid
+        from that point until the next tick's firm planning replaces it, so
+        after ``step()`` returns it holds the offers of the tick just run.
+        Empty before the first ``step()``.
+
+        It can differ from ``FirmAgent.wage_offer``. Settlement later stores
+        the plan on the firm, but a distressed firm keeps
+        ``min(plan, distress cut)`` (which may sit below the benefit floor
+        until its next plan) and healthcare firms are reset to the minimum
+        wage. Firms that exit in the same tick stay in the snapshot.
+
+        Government baseline firms are excluded by default: they pay the
+        minimum wage by rule (public fallback jobs) and skip the 1.5x-benefit
+        floor, so mixing them in reads as private offers below that floor.
+        Pass ``include_baseline=True`` to get them too.
+
+        Args:
+            include_baseline: also return baseline (government) firms' offers.
+
+        Returns:
+            A new dict; changing it does not affect the economy.
+        """
+        return {
+            firm_id: offer
+            for firm_id, (offer, is_baseline) in self._posted_wage_offers.items()
+            if include_baseline or not is_baseline
+        }
 
     def get_economic_metrics(self) -> Dict[str, float]:
         """

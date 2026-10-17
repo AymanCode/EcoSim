@@ -63,7 +63,7 @@ The authoritative lifecycle is `Economy.step()` in [`backend/economy.py`](../bac
 4. Firms refresh one shared health snapshot, consider long-term capital loans, plan production/labor, record working-capital diagnostics, plan prices, apply price/rent stabilization caps, plan wages, disable ordinary labor-market hiring for Healthcare, and plan capital investment.
 5. Issue working-capital bridge credit where enabled and eligible.
 6. Process firm investment loan requests through the bank.
-7. Enforce the active minimum-wage floor in firm wage plans.
+7. Enforce the active minimum-wage floor in firm wage plans, then snapshot the posted offers. `Economy.get_posted_wage_offers()` returns that snapshot (private firms by default; `include_baseline=True` adds government baseline firms), and `FirmAgent.get_wage_offer_floor(benefit)` returns the floor each firm's offer rule applies: `max(minimum wage, 1.5x benefit)` for annual-review firms and private Food-type firms on the weekly rule, the minimum wage alone for baseline, healthcare and weekly-rule Services firms. Neither changes any offer.
 8. Households update education status, job-search cooldowns tick, labor plans are created, and unemployment guardrails normalize search/reservation state.
 9. If the bank exists, households may request consumption loans and the bank may originate them.
 10. Labor matching runs through the configured matcher, records hire/layoff events, and records failed-hiring regime events.
