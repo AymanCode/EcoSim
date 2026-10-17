@@ -2756,6 +2756,14 @@ class Economy:
         assessed_project_receipts = tick.assessed_project_receipts
         firm_price_plans = tick.firm_price_plans
         firm_wage_plans = tick.firm_wage_plans
+        legacy_rent_writer = not payment_arm and CONFIG.labor_market.housing_rent_rule != "settlement_overwrites"
+        # Last week's posted rents: the rent-stabilization cap is measured
+        # against these once the plan has been applied below.
+        rent_before = {
+            firm.firm_id: float(firm.price)
+            for firm in self.firms
+            if legacy_rent_writer and firm.good_category == "Housing"
+        }
         # Phase 9: Apply sales, profits, taxes to firms
         for firm in self.firms:
             sales_data = per_firm_sales.get(firm.firm_id, {"units_sold": 0.0, "revenue": 0.0})
@@ -2817,6 +2825,8 @@ class Economy:
             from payment_sectors import update_payment_housing_asks
             update_payment_housing_asks(self)
             tick.total_price_ceiling_taxes = sum(price_ceiling_tax_by_firm_id.values())
+        elif legacy_rent_writer:
+            self._apply_legacy_housing_rent_rules(rent_before)
 
     def _phase_household_and_fiscal_settlement(self, tick: _TickScratch) -> None:
         """Loan repayments, household income/tax/purchase application, late income, fiscal results."""
@@ -7580,45 +7590,13 @@ class Economy:
         total_units = sum(f.max_rental_units for f in housing_firms)
         shortage = total_units < len(self.households)
 
-        # Phase 3: Housing firms adjust rent based on occupancy
-        lm = CONFIG.labor_market
-        # Dynamic rent floor: scales with the 25th-percentile wage so the floor is
-        # affordable to low-wage workers early in the simulation. Falls back to the
-        # configured absolute minimum if no wage data is available yet.
-        wage_p25, _, _ = self.cached_wage_percentiles
-        if wage_p25 is not None:
-            dynamic_rent_floor = max(lm.rent_floor_absolute_min, wage_p25 * lm.rent_affordability_share)
-        else:
-            dynamic_rent_floor = lm.rent_floor_absolute_min
-        for firm in housing_firms:
-            price_before = float(getattr(firm, "price", 0.0) or 0.0)
-            occupancy_rate = len(firm.current_tenants) / max(firm.max_rental_units, 1)
-
-            # Seek equilibrium: raise rent if fully occupied, lower if vacant
-            if occupancy_rate >= lm.occupancy_high_threshold:
-                firm.price *= lm.rent_increase_high_occupancy
-            elif occupancy_rate >= lm.occupancy_good_threshold:
-                firm.price *= lm.rent_increase_good_occupancy
-            elif occupancy_rate < lm.occupancy_low_threshold:
-                firm.price *= lm.rent_decrease_high_vacancy
-            elif occupancy_rate < lm.occupancy_moderate_threshold:
-                firm.price *= lm.rent_decrease_moderate_vacancy
-
-            firm.price = max(dynamic_rent_floor, firm.price)
-
-            if shortage and occupancy_rate >= lm.occupancy_high_threshold and self.current_tick % lm.rent_shortage_interval_ticks == 0:
-                firm.price *= lm.rent_shortage_multiplier
-
-            rent_level = str(getattr(self.government, "rent_stabilization_level", "off") or "off").lower()
-            if rent_level in {"soft", "strict"} and price_before > 0.0 and firm.price > price_before:
-                max_rent = max(dynamic_rent_floor, price_before * self._price_stabilization_multiplier(rent_level, rent=True))
-                if max_rent + 1e-9 < firm.price:
-                    firm.decision_diagnostics["rent_stabilization_limited"] = True
-                    firm.decision_diagnostics["rent_stabilization_level"] = rent_level
-                    firm.decision_diagnostics["rent_stabilization_uncapped_rent"] = firm.price
-                    firm.decision_diagnostics["rent_stabilization_capped_rent"] = max_rent
-                    firm.price = max_rent
-                    self.rent_increase_limited_count += 1
+        # Phase 3: Housing firms adjust rent based on occupancy. Unless
+        # housing_rent_rule is "settlement_overwrites", this runs after firm
+        # settlement instead (_phase_firm_settlement), with the firm's plan.
+        if CONFIG.labor_market.housing_rent_rule == "settlement_overwrites":
+            self._apply_legacy_housing_rent_rules(
+                {firm.firm_id: float(getattr(firm, "price", 0.0) or 0.0) for firm in housing_firms}
+            )
 
         homeless_household_count = sum(1 for household in self.households if household.renting_from_firm_id is None)
         self.last_housing_diagnostics = {
@@ -7629,6 +7607,80 @@ class Economy:
             "homeless_household_count": float(homeless_household_count),
             "housing_shortage_flag": float(1.0 if shortage else 0.0),
         }
+
+    def _apply_legacy_housing_rent_rules(self, rent_before: Dict[int, float]) -> None:
+        """Move legacy Housing rents by occupancy, floor, shortage and policy cap.
+
+        Args:
+            rent_before: Posted rent per Housing firm id at the start of the
+                tick (last week's rent). The rent-stabilization cap limits the
+                rise against this value. A firm missing from it is not capped.
+
+        ``CONFIG.labor_market.housing_rent_rule`` picks the starting rent:
+
+        - ``"plan_then_market"`` (default): the firm's current ``price``, which
+          after firm settlement holds its own plan (``FirmAgent.plan_pricing``),
+          moved by the occupancy rule. This is the last write of the tick, as
+          ``update_payment_housing_asks`` is on the named payment arms.
+        - ``"market_or_plan_higher"``: the higher of last week's rent moved by
+          the occupancy rule and the plan already in ``price``.
+        - ``"settlement_overwrites"``: the housing phase calls this before
+          settlement, ``price`` is still last week's rent, and settlement
+          overwrites the result with the plan.
+
+        The dynamic floor, the shortage premium and the cap then apply.
+
+        Mutates ``firm.price``, ``firm.decision_diagnostics`` and
+        ``rent_increase_limited_count``.
+        """
+        housing_firms = [f for f in self.firms if f.good_category == "Housing"]
+        if not housing_firms:
+            return
+        shortage = sum(f.max_rental_units for f in housing_firms) < len(self.households)
+        lm = CONFIG.labor_market
+        # Dynamic rent floor: scales with the 25th-percentile wage so the floor is
+        # affordable to low-wage workers early in the simulation. Falls back to the
+        # configured absolute minimum if no wage data is available yet.
+        wage_p25, _, _ = self.cached_wage_percentiles
+        if wage_p25 is not None:
+            dynamic_rent_floor = max(lm.rent_floor_absolute_min, wage_p25 * lm.rent_affordability_share)
+        else:
+            dynamic_rent_floor = lm.rent_floor_absolute_min
+        rent_level = str(getattr(self.government, "rent_stabilization_level", "off") or "off").lower()
+        market_or_plan = lm.housing_rent_rule == "market_or_plan_higher"
+        for firm in housing_firms:
+            price_before = float(rent_before.get(firm.firm_id, 0.0) or 0.0)
+            occupancy_rate = len(firm.current_tenants) / max(firm.max_rental_units, 1)
+
+            # Seek equilibrium: raise rent if fully occupied, lower if vacant
+            occupancy_factor = 1.0
+            if occupancy_rate >= lm.occupancy_high_threshold:
+                occupancy_factor = lm.rent_increase_high_occupancy
+            elif occupancy_rate >= lm.occupancy_good_threshold:
+                occupancy_factor = lm.rent_increase_good_occupancy
+            elif occupancy_rate < lm.occupancy_low_threshold:
+                occupancy_factor = lm.rent_decrease_high_vacancy
+            elif occupancy_rate < lm.occupancy_moderate_threshold:
+                occupancy_factor = lm.rent_decrease_moderate_vacancy
+            if market_or_plan:
+                firm.price = max(price_before * occupancy_factor, firm.price)
+            else:
+                firm.price *= occupancy_factor
+
+            firm.price = max(dynamic_rent_floor, firm.price)
+
+            if shortage and occupancy_rate >= lm.occupancy_high_threshold and self.current_tick % lm.rent_shortage_interval_ticks == 0:
+                firm.price *= lm.rent_shortage_multiplier
+
+            if rent_level in {"soft", "strict"} and price_before > 0.0 and firm.price > price_before:
+                max_rent = max(dynamic_rent_floor, price_before * self._price_stabilization_multiplier(rent_level, rent=True))
+                if max_rent + 1e-9 < firm.price:
+                    firm.decision_diagnostics["rent_stabilization_limited"] = True
+                    firm.decision_diagnostics["rent_stabilization_level"] = rent_level
+                    firm.decision_diagnostics["rent_stabilization_uncapped_rent"] = firm.price
+                    firm.decision_diagnostics["rent_stabilization_capped_rent"] = max_rent
+                    firm.price = max_rent
+                    self.rent_increase_limited_count += 1
 
     def _apply_housing_repairs(self) -> None:
         """Apply random weekly repair costs to housing firms."""

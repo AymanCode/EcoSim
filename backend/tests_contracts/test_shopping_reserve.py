@@ -61,11 +61,15 @@ def test_employed_renter_with_loan_ends_week_nonnegative(performance_mode, depos
             economy.bank.accept_deposit(household.household_id, deposits)
         economy.performance_mode = performance_mode
         loan = economy.bank.loans_for("household", household.household_id)[0]
+        landlord = economy.firm_lookup[2]
         for _ in range(3):  # covers the cached-plan rescale path in performance mode
             owed = loan["remaining"]
+            # The tenant owes the posted rent, which the landlord's rent rules
+            # (occupancy, wage-indexed floor) may move from week to week.
+            rent_due = landlord.price
             economy.step()
             assert household.renting_from_firm_id == 2
-            assert household.last_tick_ledger.get("rent", 0.0) == pytest.approx(-10.0)
+            assert household.last_tick_ledger.get("rent", 0.0) == pytest.approx(-rent_due)
             assert owed - loan["remaining"] == pytest.approx(loan["payment_per_tick"])  # installment paid
             assert household.last_consumption_spending > 0
             assert household.cash_balance >= -1e-9

@@ -4,6 +4,12 @@ Notable changes and decisions for EcoSim, newest first. The project does not use
 
 ## Unreleased
 
+### 2026-10-17: Legacy Housing rent has one writer per tick (draft, ownership pending Ayman's decision)
+
+Found while reviewing business bug 1 (PR 31, section 7). Before: on the default `legacy` payment path the housing phase moved each Housing firm's posted rent with the occupancy rule, the dynamic floor `max(10, p25 wage x 0.30)`, the shortage premium and the rent-stabilization cap, and firm settlement then overwrote it with the `FirmAgent.plan_pricing` result. In seed 42 rent went 5 -> 10.8 -> 5 every week, so none of those rules, and not the rent-stabilization lever, reached tenants. Now `Economy._apply_legacy_housing_rent_rules` is the last rent write of the tick, after settlement, as `update_payment_housing_asks` already is on the named payment arms (which still have no rent-stabilization cap; unchanged here). New key `labor_market.housing_rent_rule`: `"plan_then_market"` (default: the firm's plan, then occupancy, floor, premium and the cap measured against last week's rent), `"market_or_plan_higher"` (the higher of last week's rent moved by occupancy and the plan, then the same), and `"settlement_overwrites"` (the old overwrite, for before/after runs). Which of the first two should be the default is Ayman's call; the unchosen one will be removed.
+
+Evidence: `test_housing_rent_single_writer.py` (8 tests; 4 failed before the fix, the strict-cap and flag-off guards passed). Seeds 42, 7 and 123 x 104 weeks with 1000 households, on top of business bug 1 (post-warmup means): `plan_then_market` posted rent 5 -> 17.1 at week 104 (it follows the wage-indexed floor), rent burden 0.12 -> 0.35, happiness 0.64 -> 0.58, 0 evictions, Housing profit 2.4k -> 9.8k/wk, GDP 73.2k -> 68.6k/wk, unemployment 36.8% -> 38.5%, government cash at week 104 201k -> 147k; the strict rent-stabilization lever still changes nothing, because the floor wins over the cap and occupancy never pushes rent above the floor. `market_or_plan_higher`: rent rises to 33, burden 0.84, happiness 0.33, about 8.6k eviction events, Housing profit 22.5k/wk, GDP 63.1k/wk; the strict lever cuts burden to 0.63, evictions to 2.9k and raises happiness to 0.45.
+
 ### 2026-10-16: Wage offer floor and posted-offer getters
 
 Households (#29) saw offers at the $36 minimum wage, not `max(minimum wage, 1.5x benefit)` = $45. Read-only getters so they can read the real numbers; no offer changes (seed 42, 1,000 households, 104 ticks: final state hash identical to `main`).
