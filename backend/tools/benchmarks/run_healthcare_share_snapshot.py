@@ -14,6 +14,8 @@ Scenarios:
     cd backend
     python tools/benchmarks/run_healthcare_share_snapshot.py
     python tools/benchmarks/run_healthcare_share_snapshot.py --seeds 42,7 --ticks 104
+    python tools/benchmarks/run_healthcare_share_snapshot.py \
+        --payment-sequences income_first,income_late --payment-care-mode covered
 
 Columns: sha256 of the metrics JSON, its size, subsidy $ denied by the cap
 (sum of gov_subsidy_denied_by_cap_this_tick) and $ the treasury paid for
@@ -43,12 +45,23 @@ from tools.runners.run_large_simulation import create_large_economy  # noqa: E40
 SCENARIOS = ("default", "hc_cap", "hc_crisis")
 
 
-def run(seed: int, ticks: int, scenario: str, payment_sequence: str, households: int, firms: int):
+def run(
+    seed: int,
+    ticks: int,
+    scenario: str,
+    payment_sequence: str,
+    households: int,
+    firms: int,
+    care_mode: str = "patient_pay",
+):
     with use_config(clone_config()):
         random.seed(seed)
         np.random.seed(seed)
         CONFIG.random_seed = seed
         CONFIG.payment_sequence = payment_sequence
+        CONFIG.payment_care_mode = care_mode
+        if care_mode == "covered":
+            CONFIG.payment_assistance = "care"  # funds the covered-care budget
         with contextlib.redirect_stdout(io.StringIO()):
             economy = create_large_economy(households, firms)
         gov = economy.government
@@ -83,15 +96,27 @@ def main() -> None:
     parser.add_argument("--firms-per-category", type=int, default=6)
     parser.add_argument("--scenarios", default=",".join(SCENARIOS))
     parser.add_argument("--payment-sequences", default="legacy,income_first")
+    parser.add_argument(
+        "--payment-care-mode",
+        default="patient_pay",
+        choices=("patient_pay", "covered"),
+        help="payment sequences only; covered also sets payment_assistance=care",
+    )
     args = parser.parse_args()
     for seq in args.payment_sequences.split(","):
         for scenario in args.scenarios.split(","):
             for seed in (int(s) for s in args.seeds.split(",")):
                 digest, size, denied, paid = run(
-                    seed, args.ticks, scenario, seq, args.households, args.firms_per_category
+                    seed,
+                    args.ticks,
+                    scenario,
+                    seq,
+                    args.households,
+                    args.firms_per_category,
+                    args.payment_care_mode,
                 )
                 print(
-                    f"seq={seq} scenario={scenario} seed={seed} sha256={digest} bytes={size} "
+                    f"seq={seq} care={args.payment_care_mode} scenario={scenario} seed={seed} sha256={digest} bytes={size} "
                     f"denied_by_cap=${denied:,.0f} hc_gov_paid=${paid:,.0f}",
                     flush=True,
                 )

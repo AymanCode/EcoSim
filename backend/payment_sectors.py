@@ -470,13 +470,25 @@ def enqueue_payment_care_requests(economy):
         firm.healthcare_arrivals_ema = alpha * arrivals + (1.0 - alpha) * max(0.0, firm.healthcare_arrivals_ema)
 
 
+def payment_care_public_share(economy):
+    """Share of a care visit's price the public pays on the payment sequences.
+
+    1.0 when ``payment_care_mode`` is ``"covered"``, else 0.0 (``"patient_pay"``,
+    the default; config allows only these two). ``settle_payment_care``
+    charges with it and ``Economy.expected_healthcare_household_share``
+    reads it, so the estimate and the charge share one rule.
+    """
+    return 1.0 if getattr(economy, "payment_care_mode", "patient_pay") == "covered" else 0.0
+
+
 def settle_payment_care(economy, per_firm_sales):
     """Offer only qualified slots; a denied quote leaves the due episode alive."""
     from payment_loans import fund_medical_loan, quote_medical_loan, rollback_medical_loan
 
     economy.payment_care_physical_waits_this_tick = getattr(economy, "payment_care_physical_waits_this_tick", 0)
     economy.payment_care_funding_denials_this_tick = getattr(economy, "payment_care_funding_denials_this_tick", 0)
-    covered = getattr(economy, "payment_care_mode", "patient_pay") == "covered"
+    public_share = payment_care_public_share(economy)
+    covered = public_share > 0.0
     for firm in economy._healthcare_firms():
         firm.inventory_units = 0.0
         economy._prioritize_healthcare_queue(firm)
@@ -518,7 +530,7 @@ def settle_payment_care(economy, per_firm_sales):
                 household.payment_care_accepted_quote = math.inf  # new decision next eligible tick
                 economy.healthcare_affordability_rejects_this_tick += 1
                 continue
-            public = price if covered else 0.0
+            public = price * public_share  # price or 0.0, exactly
             household_payment = 0.0 if covered else min(price, _spendable(household))
             shortfall = max(0.0, price - public - household_payment)
             if covered:

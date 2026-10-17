@@ -1509,10 +1509,24 @@ class Economy:
     def expected_healthcare_household_share(self, visit_price: float) -> float:
         """Estimated share (0..1) a household would pay for a visit at ``visit_price`` now.
 
-        ``GovernmentAgent.expected_healthcare_household_share`` with this
-        tick's live subsidy budget. Read-only; an estimate, since the budget
-        can change before the visit is served.
+        Read-only. Mirrors the charge path of the active payment sequence:
+
+        - ``legacy``: visits are charged in ``_process_healthcare_services``,
+          so this is ``GovernmentAgent.expected_healthcare_household_share``
+          with this tick's subsidy budget (``sector_subsidy_budget_left``).
+          An estimate: the budget can change before the visit is served.
+        - ``income_first`` / ``income_late``: visits are charged in
+          ``payment_sectors.settle_payment_care``, which ignores the sector
+          subsidy lever and splits by ``payment_care_mode`` through
+          ``payment_care_public_share``: 1.0 for ``patient_pay`` (part may be
+          borrowed as a medical loan, still the household's) and 0.0 for
+          ``covered``. A covered visit the care budget cannot fund is not
+          served rather than shifted to the household.
         """
+        if self.payment_sequence != "legacy":
+            from payment_sectors import payment_care_public_share
+
+            return 1.0 - payment_care_public_share(self)
         return self.government.expected_healthcare_household_share(
             visit_price, self.sector_subsidy_budget_left()
         )

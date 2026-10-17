@@ -6390,8 +6390,13 @@ class GovernmentAgent(AgentMixin):
     ) -> float:
         """Estimated share (0..1) of a visit at ``visit_price`` the household pays.
 
-        Uses the same rule as the visit charge in
-        ``Economy._process_healthcare_services``: the treasury is asked for
+        Mirrors the legacy visit charge in
+        ``Economy._process_healthcare_services``. The payment sequences
+        (``income_first`` / ``income_late``) charge care elsewhere and ignore
+        this rule; ``Economy.expected_healthcare_household_share`` picks the
+        right one, so callers in the simulation should use that.
+
+        Legacy rule: the treasury is asked for
         ``visit_price * healthcare_visit_subsidy_share()`` and pays at most
         the subsidy budget left this tick; the household pays the rest.
         Because the cap is a dollar budget, the share rises with the price
