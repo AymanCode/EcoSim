@@ -1443,3 +1443,26 @@ def test_contract_llm_enabled_disables_legacy_government_policy_chooser(tiny_eco
     economy.step()
 
     assert calls["count"] == 0
+
+
+def test_contract_policy_memory_labels_wage_ineligible_seekers_honestly():
+    """The impact delta built from labor_seekers_wage_ineligible is named for it.
+
+    It used to be published as consumer_distress_delta_pct, a mislabel: the
+    metrics rows hold no consumer-distress series.
+    """
+
+    class FakeEconomy:
+        metrics_history = [
+            {"tick": 3, "metrics": {"labor_seekers_wage_ineligible": 20.0}},
+            {"tick": 30, "metrics": {"labor_seekers_wage_ineligible": 25.0}},
+        ]
+
+    decision_history = [{"tick": 4, "decisions": {"benefit_level": "high"}, "rationale": "test"}]
+    memory = _build_recent_policy_memory(
+        decision_history, FakeEconomy(), target_tick=30, lookback=3, impact_horizon=26
+    )[0]
+
+    for impact in (memory["short_term_impact"], memory["mature_impact"]):
+        assert "consumer_distress_delta_pct" not in impact
+        assert impact["wage_ineligible_seekers_delta_pct"] == pytest.approx(25.0)

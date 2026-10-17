@@ -195,9 +195,12 @@ def test_healthcare_queue_service_flow():
         category_weights={"food": 0.5, "housing": 0.25, "services": 0.25}
     )
     household.health = 0.4
-    household.care_plan_anchor_tick = 0
-    household.care_plan_due_ticks = [0]
-    household.care_plan_heal_deltas = [0.3]
+    # An episode already in progress: two visits left and the next one due
+    # now. should_request_healthcare_service then requests without the
+    # probabilistic episode draw, and each visit heals an equal share of the
+    # missing health: (1.0 - 0.4) / 2 = 0.3.
+    household.pending_healthcare_visits = 2
+    household.next_healthcare_request_tick = 0
 
     healthcare_firm = FirmAgent(
         firm_id=10,
@@ -239,6 +242,8 @@ def test_healthcare_queue_service_flow():
 
     economy._enqueue_healthcare_requests()
     assert household.household_id in healthcare_firm.healthcare_queue
+    assert household.pending_healthcare_visits == 1
+    assert household.next_healthcare_request_tick > economy.current_tick
 
     start_health = household.health
     per_firm_sales = {}
