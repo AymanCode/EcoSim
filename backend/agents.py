@@ -1994,6 +1994,9 @@ class FirmAgent(AgentMixin):
     target_inventory_multiplier: float = 1.5  # desired inventory as multiple of expected sales
     min_price: float = 5.0  # hard floor on price
     decision_diagnostics: Dict[str, object] = field(default_factory=dict)
+    # PR5 price-cap hold: True after a government price cap bound at a review;
+    # the firm keeps that price until its next review (Economy reads it).
+    price_cap_held: bool = False
     max_hires_per_tick: int = 2
     max_fires_per_tick: int = 2
     target_inventory_weeks: float = 2.0  # desired weeks of supply buffer

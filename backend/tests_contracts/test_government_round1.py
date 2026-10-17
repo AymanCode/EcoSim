@@ -195,3 +195,42 @@ def test_public_capital_purchase_is_paid_to_public_works_firm():
     economy._book_public_capital_purchase(1_000.0)
     assert pw.cash_balance == pytest.approx(1_000.0)
     assert economy.misc_firm_revenue == misc_before
+
+
+# ── Price-cap hold ───────────────────────────────────────────────────
+
+def _capped_food_economy():
+    from agents import FirmAgent
+
+    firm = FirmAgent(firm_id=3, good_name="Food3", cash_balance=50_000.0, inventory_units=10.0,
+                     good_category="Food", quality_level=5.0, wage_offer=40.0, price=10.0,
+                     expected_sales_units=10.0, production_capacity_units=100.0, productivity_per_worker=5.0)
+    gov = GovernmentAgent(cash_balance=0.0)
+    gov.price_stabilization_target = "food"
+    gov.price_stabilization_level = "strict"
+    economy = Economy(households=[_household(1)], firms=[firm], government=gov)
+    return economy, firm
+
+
+def test_capped_price_holds_between_reviews(monkeypatch):
+    economy, firm = _capped_food_economy()
+    plan = {"price_next": 12.0}
+    economy._apply_price_stabilization_to_plan(firm, plan)  # review: cap binds
+    capped = plan["price_next"]
+    assert capped < 12.0 and firm.price_cap_held
+    firm.price = capped
+    # FirmAgent gets next_price_review_tick in PR4; stand in for "between reviews".
+    monkeypatch.setattr(economy, "_price_review_due", lambda _firm: False)
+    plan = {"price_next": 12.0}
+    economy._apply_price_stabilization_to_plan(firm, plan)
+    assert plan["price_next"] == pytest.approx(capped)  # no creep between reviews
+
+
+def test_next_review_reprices_from_held_price_without_catch_up():
+    economy, firm = _capped_food_economy()
+    firm.price_cap_held = True
+    economy.government.price_stabilization_level = "off"  # cap lifted
+    plan = {"price_next": 10.5}
+    economy._apply_price_stabilization_to_plan(firm, plan)
+    assert plan["price_next"] == 10.5  # firm's own plan, nothing added for blocked raises
+    assert not firm.price_cap_held

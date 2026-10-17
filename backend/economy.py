@@ -394,15 +394,45 @@ class Economy:
             )
         return float("inf")
 
+    def _price_review_due(self, firm: FirmAgent) -> bool:
+        """True when the firm may change its price this tick.
+
+        Firms reprice every tick today. PR4 (sticky prices) adds
+        ``FirmAgent.next_price_review_tick``; when present and still in the
+        future, the firm is between reviews.
+        """
+        next_review = getattr(firm, "next_price_review_tick", None)
+        return next_review is None or int(next_review) <= int(self.current_tick)
+
     def _apply_price_stabilization_to_plan(self, firm: FirmAgent, price_plan: Dict[str, float]) -> None:
-        """Soft-cap sector price increases selected by government policy."""
+        """Cap sector price increases selected by government policy.
+
+        Price-cap hold rule (PR5, ``price_cap_hold_enabled``): once the cap
+        binds at a review, the firm keeps the capped price until its next
+        review instead of creeping up between reviews. At that review it
+        reprices from the held price by its normal rule, with no catch-up
+        for increases the cap blocked earlier (nothing is stored as "owed").
+        The hold ends as soon as the cap is lifted or retargeted.
+        """
         target = str(getattr(self.government, "price_stabilization_target", "none") or "none").lower()
         level = str(getattr(self.government, "price_stabilization_level", "off") or "off").lower()
         category = (getattr(firm, "good_category", "") or "").lower()
         if level not in {"soft", "strict"} or target == "none" or category != target:
+            firm.price_cap_held = False
             return
         if category == "housing":
             return
+        if (
+            CONFIG.government.price_cap_hold_enabled
+            and getattr(firm, "price_cap_held", False)
+            and not self._price_review_due(firm)
+        ):
+            held = max(0.0, float(getattr(firm, "price", 0.0) or 0.0))
+            if float(price_plan.get("price_next", held)) > held:
+                price_plan["price_next"] = held
+                firm.decision_diagnostics["price_stabilization_held"] = True
+            return
+        firm.price_cap_held = False
 
         current_price = max(0.0, float(getattr(firm, "price", 0.0) or 0.0))
         proposed = max(float(getattr(firm, "min_price", 0.0) or 0.0), float(price_plan.get("price_next", current_price)))
@@ -423,6 +453,7 @@ class Economy:
             firm.decision_diagnostics["price_stabilization_level"] = level
             firm.decision_diagnostics["price_stabilization_uncapped_price"] = proposed
             firm.decision_diagnostics["price_stabilization_capped_price"] = limited
+            firm.price_cap_held = True
 
     def _update_affordability_telemetry(self) -> None:
         """Track price/wage ratios for metrics and LLM observation."""
