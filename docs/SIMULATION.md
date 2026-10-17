@@ -168,7 +168,7 @@ Goods market:
 Housing:
 
 - Housing clears through a rental-market path separate from ordinary goods clearing.
-- On the default (legacy) payment path an existing tenant pays the Housing firm's current posted rent each week (`labor_market.rent_tracks_posted_price`, default true), and planning reserves that same amount before shopping. Named payment arms renew leases against the posted ask on a 52-week term instead.
+- On the default (legacy) payment path an existing tenant pays the Housing firm's current posted rent each week (`labor_market.rent_tracks_posted_price`, default true), and planning reserves that same amount before shopping. Named payment arms renew leases against the posted ask on a 52-week term instead. On both paths collected rent counts as the Housing firm's revenue for profit tax and dividends (`labor_market.rent_booked_as_revenue` on the legacy path).
 - Rent affordability, vacancies, evictions, repairs, occupancy pressure, rent stabilization, and housing expansion are tracked.
 - Housing unit expansion can use self-financing or bank loans depending on state.
 
