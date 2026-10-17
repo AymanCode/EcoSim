@@ -5862,6 +5862,12 @@ class GovernmentAgent(AgentMixin):
     last_tick_revenue: float = 0.0            # total tax revenue last tick
     last_tick_spending: float = 0.0           # total govt spending last tick
 
+    # ── Healthcare telemetry for get_health_coverage (round 1, PR5) ──
+    # Rolled over by Economy at the start of each tick from the previous
+    # tick's completed visits, so the hook always reads a whole tick.
+    last_tick_healthcare_subsidy_paid: float = 0.0   # $ the treasury paid toward visits
+    last_tick_healthcare_total_spend: float = 0.0    # $ full visit price, all payers
+
     # ── Legacy fields (kept for compatibility) ───────────────────────
     ubi_amount: float = 0.0
     wealth_tax_threshold: float = 1_000_000.0
@@ -6314,6 +6320,43 @@ class GovernmentAgent(AgentMixin):
             True if the firm is a registered baseline firm, False otherwise
         """
         return firm_id in self.baseline_firm_ids.values()
+
+    # ── Happiness hooks (round 1, PR5; read by happiness v2 in PR6) ──
+
+    def get_benefit_replacement_rate(self, mean_employed_wage: float) -> float:
+        """Unemployment benefit as a share of the typical paycheck.
+
+        Args:
+            mean_employed_wage: mean weekly wage of employed households this
+                tick, in $/tick. The caller computes it live (see
+                ``Economy.get_benefit_replacement_rate``).
+
+        Returns:
+            ``unemployment_benefit_level / mean_employed_wage`` clamped to
+            [0, 1]. 0.0 when no one is employed (no wage to compare against).
+        """
+        wage = float(mean_employed_wage or 0.0)
+        if wage <= 0.0:
+            return 0.0
+        return max(0.0, min(1.0, float(self.unemployment_benefit_level) / wage))
+
+    def get_health_coverage(self) -> float:
+        """Share of last tick's healthcare spending that the treasury paid.
+
+        Covers every public payment toward a completed visit: the
+        ``healthcare`` sector subsidy lever or, when it is off,
+        ``CONFIG.government.healthcare_visit_subsidy_share``, after the
+        per-tick subsidy cap (5% of GDP / 2% of cash) has denied any excess.
+
+        Returns:
+            ``last_tick_healthcare_subsidy_paid / last_tick_healthcare_total_spend``
+            clamped to [0, 1]; 0.0 when no visits completed last tick.
+            Default settings give 0.0; full universal coverage gives ~1.0.
+        """
+        total = float(self.last_tick_healthcare_total_spend or 0.0)
+        if total <= 0.0:
+            return 0.0
+        return max(0.0, min(1.0, float(self.last_tick_healthcare_subsidy_paid or 0.0) / total))
 
     def get_unemployment_benefit_level(self) -> float:
         """

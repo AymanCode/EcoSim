@@ -7671,6 +7671,37 @@ class Economy:
     # -------------------------------------------------------------------------
     # Section: Healthcare queue and service processing
     # -------------------------------------------------------------------------
+    def _roll_healthcare_coverage_telemetry(self) -> None:
+        """Copy last tick's completed-visit payments onto the government.
+
+        Feeds ``GovernmentAgent.get_health_coverage``. Both payment paths
+        (legacy and the payment arm) append ``visit_completed`` events with
+        ``visit_price`` and ``government_cost``, so summing the events covers
+        both without touching either payment path.
+        """
+        paid = 0.0
+        total = 0.0
+        for event in self.last_healthcare_events or []:
+            if event.get("event_type") != "visit_completed":
+                continue
+            paid += max(0.0, float(event.get("government_cost", 0.0) or 0.0))
+            total += max(0.0, float(event.get("visit_price", 0.0) or 0.0))
+        self.government.last_tick_healthcare_subsidy_paid = paid
+        self.government.last_tick_healthcare_total_spend = total
+
+    def mean_employed_wage(self) -> float:
+        """Mean weekly wage ($/tick) over employed households; 0.0 if none."""
+        wages = [float(h.wage) for h in self.households if h.is_employed and h.wage > 0.0]
+        return sum(wages) / len(wages) if wages else 0.0
+
+    def get_benefit_replacement_rate(self) -> float:
+        """Live benefit replacement rate, see ``GovernmentAgent.get_benefit_replacement_rate``."""
+        return self.government.get_benefit_replacement_rate(self.mean_employed_wage())
+
+    def get_health_coverage(self) -> float:
+        """Last tick's public share of healthcare spending, see ``GovernmentAgent.get_health_coverage``."""
+        return self.government.get_health_coverage()
+
     def _reset_healthcare_tick_state(self) -> None:
         """Reset per-tick healthcare counters.
 
@@ -7680,6 +7711,7 @@ class Economy:
         them. The per-household inventory scan that used to run here removed
         nothing and was deleted in remediation phase 2.
         """
+        self._roll_healthcare_coverage_telemetry()
         self.healthcare_requests_this_tick = 0.0
         self.healthcare_attempted_slots_this_tick = 0.0
         self.healthcare_completed_visits_this_tick = 0.0
@@ -8808,6 +8840,8 @@ class Economy:
         metrics["infrastructure_productivity"] = gov.infrastructure_productivity_multiplier
         metrics["technology_quality"] = gov.technology_quality_multiplier
         metrics["social_happiness"] = gov.social_happiness_multiplier
+        metrics["benefit_replacement_rate"] = self.get_benefit_replacement_rate()
+        metrics["health_coverage"] = self.get_health_coverage()
         metrics["social_investment_budget"] = gov.social_investment_budget
         metrics["warmup_active"] = 1.0 if self.in_warmup else 0.0
         metrics["warmup_ticks_remaining"] = float(max(0, self.warmup_ticks - self.current_tick))
