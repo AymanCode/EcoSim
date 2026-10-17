@@ -110,6 +110,36 @@ Normal wage control should come from the ratchet. The brake only steps in when
 wages are far out of line with revenue and the firm is already financially
 stressed.
 
+### Wage rigidity (round 1 PR4b)
+
+`CONFIG.firms.wage_rigidity_enabled` (default on) makes pay sticky downward.
+With it off every rule above is unchanged.
+
+- **No pay cuts for current staff** unless the firm is in survival mode:
+  cash runway (`cash_runway_ticks`, cash / wage bill in weeks) below
+  `survival_mode_runway_weeks` (2). This covers all four contract-cut paths:
+  the emergency brake's 2% distress cut (private firms), its labor-share cut
+  (baseline firms), the healthcare reset to the minimum wage (in
+  `adjust_wages_to_revenue_ratio` and `apply_price_and_wage_updates`), and
+  the annual pay review's distress cut (`contract_factor < 1` in
+  `Economy._phase_firm_settlement`). Survival-mode firms cut as before.
+- **Capped new-hire offer cuts.** Outside survival mode a posted offer falls
+  at most `offer_cut_cap = offer_cut_cap_max * tanh(u / offer_cut_slack_scale)`
+  per week below the offer posted at the start of the week, with `u` the
+  4-week average unemployment rate (0.4% at 2% unemployment, 0.9% at 5%, 1.5%
+  at 10%, about 2% at 36%). `Economy` sets the cap and the reference offer on
+  each firm before planning, and applies it after the minimum-wage
+  enforcement; the distress cut and the healthcare reset use the same
+  reference, so one week's total cut stays within the cap. Raises are never
+  capped.
+- `FirmAgent.wage_cuts_allowed()` and `FirmAgent.capped_offer()` hold the two
+  rules; `backend/tools/benchmarks/wage_rigidity_study.py` measures how often
+  they bind.
+
+The 5% unemployment switch in the weekly rule still chooses between the
+labor-surplus and labor-shortage branches; how far an offer can fall is now
+set by the smooth cap, so the size of a cut no longer jumps at 5%.
+
 ---
 
 ## Hiring and Contraction

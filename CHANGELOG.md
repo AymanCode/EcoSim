@@ -4,6 +4,16 @@ Notable changes and decisions for EcoSim, newest first. The project does not use
 
 ## Unreleased
 
+### 2026-10-16: Downward wage rigidity (round 1 PR4b)
+
+New `CONFIG.firms.wage_rigidity_enabled` (default on; off restores `main` exactly, seed-42 104-week state hash identical).
+
+- No pay cuts for current staff outside survival mode (cash runway below `survival_mode_runway_weeks`, 2 weeks), on all four contract-cut paths: the private distress cut, the baseline labor-share cut, the healthcare reset to the minimum wage, and the annual review's distress cut.
+- New-hire offers fall at most `offer_cut_cap_max * tanh(u / offer_cut_slack_scale)` per week (defaults 0.02 and 0.10; u = 4-week unemployment average), measured from the week's opening offer. Raises untouched.
+- Seeded run (seeds 42/43/44, 1,000 households, 156 weeks, weeks 27-156): unemployment 35.8% → 37.2% (outcome only), mean wage 58.01 → 59.99, GDP per week 72,072 → 72,493, firm exits 9.0 → 9.0. The cap lifted an offer in about 0.5% of firm-weeks, all before week 26.
+- Tests: `test_wage_rigidity.py` (13). Eight tests of the old cut rules and the two 10-household lever tests in `test_policy_sensitivity.py` now pin the flag off; a new flag-on lever test checks that a minimum wage above market pay binds for every employed household.
+- New `backend/tools/benchmarks/wage_rigidity_study.py`; `business_ab_metrics.py` copied unchanged from #28.
+
 ### 2026-10-16: Server error replies, logging context, and two review checks
 
 From the outside portfolio review (items #8, #9, #14, #15, #21, #25, #28). No simulation behavior changed: the engine, tick order, and every success reply are unchanged.
