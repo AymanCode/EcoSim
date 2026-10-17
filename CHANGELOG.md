@@ -4,6 +4,14 @@ Notable changes and decisions for EcoSim, newest first. The project does not use
 
 ## Unreleased
 
+### 2026-10-16: Public works hires the jobs it authorizes (PR7 investigation bug 8)
+
+- **Bug.** `Economy._ensure_public_works_capacity` set the target to 200 jobs (20% of households) but stored it in `baseline_production_quota`, which the baseline planner reads as output units (`0.8 * quota` = 160 units, which a conservative firm with ~24 units per worker and its capital stock covers with about 8 workers). About 8-11 of the 200 authorized jobs were filled, so the lever did nothing (PR7 investigation: +1.4 pp unemployment vs baseline, noise).
+- **Fix.** The firm gets a headcount (`FirmAgent.public_works_target_jobs`) and a PublicWorks branch in `plan_production_and_labor` hires toward it, at most `ceil(max(target, staff) / public_works_ramp_weeks)` per tick. The headcount is `public_works_jobless_share` (1/3) of the jobless pool (unemployed labor force + public works staff), capped at `public_works_job_fraction` (0.2) of the labor force, recomputed each tick instead of ratcheting up. No startup capitalization when nobody is jobless.
+- **Funding.** The program had only its one-time 200k startup capital; at ~130 workers that runs out around week 45 and the firm went bankrupt, firing everyone in one tick. The treasury now tops it up to two weeks of payroll each tick, booked as government spending (`gov_public_works_payroll_funding_this_tick`).
+- **New config** (`GovernmentPolicyConfig`): `public_works_headcount_planning_enabled` (True), `public_works_jobless_share` (1/3), `public_works_ramp_weeks` (8), `public_works_payroll_funding_enabled` (True). `public_works_job_fraction` is now a labor-force ceiling when headcount planning is on.
+- **Effect** (seeds 42 / 7, 1,000 households, 104 weeks, lever on): public works jobs (mean, weeks 13-104) 9.5 / 8.8 → 128.5 / 126.8; unemployment (mean) 0.398 / 0.401 → 0.268 / 0.264; cumulative public works spending 200k → 639k / 632k. Lever-off runs are unchanged. Repro: `python backend/tools/benchmarks/run_public_works_compare.py --seed 42`.
+
 ### 2026-10-16: Server error replies, logging context, and two review checks
 
 From the outside portfolio review (items #8, #9, #14, #15, #21, #25, #28). No simulation behavior changed: the engine, tick order, and every success reply are unchanged.
