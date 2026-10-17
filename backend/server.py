@@ -3062,7 +3062,7 @@ class SimulationManager:
                     "metrics": {
                         "unemployment": stats["unemployment_rate"] * 100,
                         "gdp": gdp / 1000000.0,
-                        "govDebt": -self.economy.government.cash_balance / 1000000.0 if self.economy.government.cash_balance < 0 else 0,
+                        "govDebt": (float(getattr(self.economy.government, "public_debt", 0.0)) + max(0.0, -self.economy.government.cash_balance)) / 1000000.0,
                         "govProfit": fiscal_balance / 1000000.0,
                         "govRevenue": gov_revenue / 1000000.0,
                         "govTransfers": gov_transfers / 1000000.0,
