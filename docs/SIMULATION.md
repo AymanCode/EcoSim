@@ -170,6 +170,7 @@ Housing:
 - Housing clears through a rental-market path separate from ordinary goods clearing.
 - On the default (legacy) payment path an existing tenant pays the Housing firm's current posted rent each week (`labor_market.rent_tracks_posted_price`, default true), and planning reserves that same amount before shopping. Named payment arms renew leases against the posted ask on a 52-week term instead. On both paths collected rent counts as the Housing firm's revenue for profit tax and dividends (`labor_market.rent_booked_as_revenue` on the legacy path).
 - Rent affordability, vacancies, evictions, repairs, occupancy pressure, rent stabilization, and housing expansion are tracked.
+- On the legacy path the Housing firm's posted rent is written once a tick, after firm settlement (`labor_market.housing_rent_rule`, default `plan_then_market`): the firm's own obligation-coverage plan, then the occupancy rule, the dynamic floor `max(10, p25 wage x 0.30)`, the shortage premium and the rent-stabilization cap against last week's rent. The floor wins over the cap.
 - Housing unit expansion can use self-financing or bank loans depending on state.
 
 Healthcare:

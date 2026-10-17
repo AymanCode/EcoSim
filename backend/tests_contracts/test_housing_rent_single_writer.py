@@ -24,9 +24,13 @@ HOUSEHOLDS = 300
 TICKS = 24
 
 
+def _rule(monkeypatch, rule: str) -> None:
+    monkeypatch.setattr(CONFIG.labor_market, "housing_rent_rule", rule, raising=False)
+
+
 @pytest.fixture
 def single_writer(monkeypatch):
-    monkeypatch.setattr(CONFIG.labor_market, "housing_rent_single_writer", True, raising=False)
+    _rule(monkeypatch, "plan_then_market")
 
 
 def _run(*, lever: str = "off", ticks: int = TICKS):
@@ -74,14 +78,20 @@ def test_strict_rent_stabilization_caps_the_weekly_rise(single_writer):
             assert rent <= max(before * strict, floor_now) + 1e-6, (firm_id, before, rent)
 
 
-def test_rent_stabilization_changes_the_posted_rent(single_writer):
+def test_rent_stabilization_changes_the_posted_rent_when_the_market_raises_it(monkeypatch):
+    # Under "plan_then_market" the seeded landlord's plan cuts rent faster than
+    # full occupancy raises it, so rent sits on the dynamic floor, which the
+    # cap does not limit. Under "market_or_plan_higher" occupancy drives rent
+    # up and the lever must bite.
+    _rule(monkeypatch, "market_or_plan_higher")
     _, off = _run(lever="off", ticks=40)
     _, strict = _run(lever="strict", ticks=40)
-    assert off[-1][1] != strict[-1][1]
+    for firm_id, rent in strict[-1][1].items():
+        assert rent < off[-1][1][firm_id]
 
 
 def test_flag_off_restores_the_settlement_overwrite(monkeypatch):
-    monkeypatch.setattr(CONFIG.labor_market, "housing_rent_single_writer", False, raising=False)
+    _rule(monkeypatch, "settlement_overwrites")
     _, history = _run(ticks=14)
     for _, end in history[2:]:
         for rent in end.values():
@@ -124,6 +134,24 @@ def test_market_rules_start_from_the_firm_plan_and_cap_against_last_week(single_
     # The cap is measured against the rent posted last week, not the plan.
     assert firm.price == pytest.approx(20.0 * CONFIG.government.rent_stabilization_soft_max_increase)
     assert firm.decision_diagnostics["rent_stabilization_limited"] is True
+
+
+def test_market_or_plan_higher_keeps_the_market_move_unless_the_plan_is_higher(monkeypatch):
+    _rule(monkeypatch, "market_or_plan_higher")
+    economy, firm = _economy_with_full_landlord(price=20.0)
+    high = CONFIG.labor_market.rent_increase_high_occupancy
+    # Plan cuts rent (costs covered); the full building's market move wins.
+    firm.price = 19.0
+    economy._apply_legacy_housing_rent_rules({firm.firm_id: 20.0})
+    assert firm.price == pytest.approx(20.0 * high)
+    # Plan raises rent to cover obligations by more than the market move.
+    firm.price = 23.0
+    economy._apply_legacy_housing_rent_rules({firm.firm_id: 20.0})
+    assert firm.price == pytest.approx(23.0)
+
+
+def test_plan_then_market_is_the_default():
+    assert CONFIG.labor_market.housing_rent_rule == "plan_then_market"
 
 
 def test_clearing_leaves_the_price_to_the_post_settlement_writer(single_writer):
