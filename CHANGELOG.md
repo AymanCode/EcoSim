@@ -4,6 +4,10 @@ Notable changes and decisions for EcoSim, newest first. The project does not use
 
 ## Unreleased
 
+### 2026-10-16: Healthcare queue check test matches the current demand model
+
+`tools/checks/test_firm_behavior.py::test_healthcare_queue_service_flow` failed on `main`. The test was out of date, not the code: it scheduled a visit through the annual care plan (`care_plan_due_ticks`), which `should_request_healthcare_service` stopped reading in 4ecdd4f when the probabilistic episode model replaced it. Its methods were later deleted as never called (ee689d4). The test now starts an episode in progress (two visits left, next one due), which the current model requests without a random draw, and asserts the same exact outcome as before (+0.3 health, one unit sold, no inventory) plus the episode bookkeeping. No simulation code changed. `tools/checks` is outside the pytest `testpaths`, which is why CI did not catch it.
+
 ### 2026-10-16: Server error replies, logging context, and two review checks
 
 From the outside portfolio review (items #8, #9, #14, #15, #21, #25, #28). No simulation behavior changed: the engine, tick order, and every success reply are unchanged.
