@@ -163,6 +163,7 @@ Goods market:
 - Food and Services clear through the goods-market path.
 - Services are treated as current-tick capacity rather than stored household inventory.
 - Households use bounded awareness pools, price/quality preferences, and stochastic noise when choosing firms.
+- When a household's Food or Services order is larger than the chosen firm's stock, the unfilled part is re-offered to that sector's baseline firm in the same pass (same units, never more money than the unfilled order). Only what the baseline also cannot fill counts as sector unmet demand; the first firm still records its lost sale.
 - Sector subsidies reduce household payment when the government has remaining subsidy budget.
 
 Housing:

@@ -36,6 +36,7 @@ import os
 import random
 from dataclasses import dataclass, fields
 from collections import deque
+from itertools import chain
 from typing import TYPE_CHECKING, Dict, List, Tuple, Optional
 
 from config import CONFIG, get_config
@@ -4880,6 +4881,17 @@ class Economy:
         services_unmet_by_firm = self.services_unmet_demand_by_firm
         record_firm_unmet = self._record_firm_unmet_demand
 
+        # Last-resort fallback: the part of a firm-id Food or Services order
+        # that its firm cannot fill is re-offered to that sector's baseline
+        # firm in the same pass. Every firm sells a uniquely named good, so the
+        # good-name path below never reaches a second firm, and firm-id orders
+        # had no fallback at all. Housing is left out: tenancy is assigned by
+        # the rental market, not here.
+        baseline_idx_by_cat: Dict[str, int] = {}
+        for idx, firm in enumerate(firms):
+            if firm.is_baseline and firm_cat_by_idx[idx] in ("food", "services"):
+                baseline_idx_by_cat.setdefault(firm_cat_by_idx[idx], idx)
+
         # Group firm indices by good_name, sorted by price then id. Python int
         # lists (not np arrays) — faster iteration, and a per-good cursor below
         # skips the contiguous sold-out prefix instead of rescanning from 0.
@@ -4924,11 +4936,17 @@ class Economy:
                 # it, and a food order is topped up to it (item 1b).
                 food_floor_remaining = consumption_plan.get("_food_floor", 0.0)
 
-            for target, desired_qty in planned.items():
+            # Re-offered shortfalls are appended here and run after the plan;
+            # they are already budget-limited, so they skip the plan scaling.
+            spill_orders: List[Tuple[int, float]] = []
+            n_planned = len(planned)
+            for order_no, (target, desired_qty) in enumerate(chain(planned.items(), spill_orders)):
+                spilled = order_no >= n_planned
                 if purchase_scale is not None:
                     if budget_remaining <= 0:
                         break
-                    desired_qty *= purchase_scale
+                    if not spilled:
+                        desired_qty *= purchase_scale
                 if desired_qty <= 0:
                     continue
 
@@ -4954,15 +4972,23 @@ class Economy:
                     available = firm_remaining[idx]
                     if available <= 0:
                         _cat = firm_cat_by_idx[idx]
+                        respilled = not spilled and self._spill_to_baseline(
+                            spill_orders, baseline_idx_by_cat.get(_cat), idx,
+                            desired_qty, firm_remaining, firm_prices, firm_ids,
+                        )
                         if _cat == "food":
-                            _unmet_food += desired_qty
+                            if not respilled:
+                                _unmet_food += desired_qty
                         elif _cat == "services":
-                            _unmet_services += desired_qty
-                            _fid = firm_ids[idx]
-                            services_unmet_by_firm[_fid] = (
-                                services_unmet_by_firm.get(_fid, 0.0) + desired_qty
-                            )
-                        record_firm_unmet(firm_ids[idx], desired_qty)
+                            if not respilled:
+                                _unmet_services += desired_qty
+                            if not spilled:
+                                _fid = firm_ids[idx]
+                                services_unmet_by_firm[_fid] = (
+                                    services_unmet_by_firm.get(_fid, 0.0) + desired_qty
+                                )
+                        if not spilled:
+                            record_firm_unmet(firm_ids[idx], desired_qty)
                         continue
                     qty = min(desired_qty, available)
                     if qty <= 0:
@@ -4970,15 +4996,23 @@ class Economy:
                     _unmet = desired_qty - qty
                     if _unmet > 0:
                         _cat = firm_cat_by_idx[idx]
+                        respilled = not spilled and self._spill_to_baseline(
+                            spill_orders, baseline_idx_by_cat.get(_cat), idx,
+                            _unmet, firm_remaining, firm_prices, firm_ids,
+                        )
                         if _cat == "food":
-                            _unmet_food += _unmet
+                            if not respilled:
+                                _unmet_food += _unmet
                         elif _cat == "services":
-                            _unmet_services += _unmet
-                            _fid = firm_ids[idx]
-                            services_unmet_by_firm[_fid] = (
-                                services_unmet_by_firm.get(_fid, 0.0) + _unmet
-                            )
-                        record_firm_unmet(firm_ids[idx], _unmet)
+                            if not respilled:
+                                _unmet_services += _unmet
+                            if not spilled:
+                                _fid = firm_ids[idx]
+                                services_unmet_by_firm[_fid] = (
+                                    services_unmet_by_firm.get(_fid, 0.0) + _unmet
+                                )
+                        if not spilled:
+                            record_firm_unmet(firm_ids[idx], _unmet)
                     firm_remaining[idx] -= qty
                     price = firm_prices[idx]
                     if purchase_scale is not None:
@@ -5079,6 +5113,39 @@ class Economy:
             }
 
         return per_household_purchases, per_firm_sales
+
+    @staticmethod
+    def _spill_to_baseline(
+        spill_orders: List[Tuple[int, float]],
+        baseline_idx: Optional[int],
+        idx: int,
+        shortfall_units: float,
+        firm_remaining: List[float],
+        firm_prices: List[float],
+        firm_ids: List[int],
+    ) -> bool:
+        """Queue the unfilled part of a firm-id order at the sector's baseline firm.
+
+        The household asks for the same units again, but never spends more
+        than the unfilled order was worth: when the baseline is dearer, the
+        units shrink by ``price / baseline_price``. Nothing is queued when the
+        sector has no baseline, the order was already at the baseline, or the
+        baseline is sold out.
+
+        Returns:
+            True when an order was queued, so the caller counts sector unmet
+            demand only for what the baseline then fails to fill.
+        """
+        if baseline_idx is None or baseline_idx == idx or firm_remaining[baseline_idx] <= 0:
+            return False
+        baseline_price = firm_prices[baseline_idx]
+        if baseline_price <= 0 or shortfall_units <= 0:
+            return False
+        units = shortfall_units * min(1.0, firm_prices[idx] / baseline_price)
+        if units <= 0:
+            return False
+        spill_orders.append((firm_ids[baseline_idx], units))
+        return True
 
     def _record_firm_unmet_demand(self, firm_id: int, unmet_units: float) -> None:
         unmet_units = max(0.0, float(unmet_units or 0.0))
