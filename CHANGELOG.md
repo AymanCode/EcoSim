@@ -4,6 +4,17 @@ Notable changes and decisions for EcoSim, newest first. The project does not use
 
 ## Unreleased
 
+### 2026-10-16: Household buffer-stock consumption and slow reservation-wage decay (round 1 PR3, flags off)
+
+First-pass spec section 3, items A and B. Both behaviors sit behind new `CONFIG.households` flags that default off, so default runs are unchanged and the joint before/after run (PR7) can toggle them.
+
+- **Buffer-stock consumption (`buffer_stock_consumption`).** Before: the budget was income times a personality-adjusted MPC plus 1% to 5% of cash and 90% of deposits each week. The personality adjustment read the drawdown rate as a saving rate, so spenders got the lower wage MPC. After: income times its MPC plus `k * (liquidity - target)`, floored at the subsistence minimum the household can afford and capped at liquidity. Target weeks and `k` are per-household draws.
+- **Reservation wage (`slow_reservation_decay`).** Before: while unemployed, the reservation wage blended 15% per tick (30% after 5 ticks) toward an expected wage that itself fell about 3% per tick, with a $1 floor. After: it falls by the household's own rate (mean 0.14% per week, Krueger and Mueller 2016), slowed by savings, with a live floor `min(benefit + living cost, 1.5 x benefit)`.
+- **New per-household traits** `buffer_target_weeks`, `buffer_adjust_speed`, and `reservation_decay_rate` come from a separate RNG seeded by household id, so no existing draw changes.
+- **Living cost** moved to `HouseholdAgent.living_cost_per_tick` with `living_cost_housing_share` (default 0.3, unchanged).
+
+Evidence: `backend/tests_contracts/test_households_pr3.py` (10 tests). Repro of the metrics in the PR: `python tools/analysis/run_households_pr3_compare.py --households 1000 --ticks 260` from `backend/`.
+
 ### 2026-10-16: Server error replies, logging context, and two review checks
 
 From the outside portfolio review (items #8, #9, #14, #15, #21, #25, #28). No simulation behavior changed: the engine, tick order, and every success reply are unchanged.

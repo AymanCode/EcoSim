@@ -104,6 +104,9 @@ Key current mechanics:
 - Matching wage premiums in the current matcher are `25% * skill_level` plus `3%` per year of category experience, capped at `30%`.
 - Default consumption planning uses actual take-home wage/benefit receipts, personality-driven saving behavior, current cash (including approved credit and released capital proceeds), and accessible deposit liquidity. Cash received after shopping, including end-of-week dividends, enters the following week's wallet. See [the timing contract](reviews/2026-09-28-household-income-timing.md) for the default and cached-plan boundaries; named payment experiments retain their specified sequences.
 - Health, happiness, and morale update from food, housing, services, employment, wage satisfaction, healthcare, poverty stress, and government social multipliers.
+- Two household flags from round 1 PR3 default off (`CONFIG.households`):
+  - `buffer_stock_consumption`: the weekly budget is income times its MPC plus `k * (liquidity - target)`. Each household draws its own target (`buffer_target_weeks`, 2 to 8 weeks of income, larger for savers) and its own `k` (`buffer_adjust_speed`, 0.02 to 0.10 per week, larger for spenders). The legacy savings trickle and the personality cut to the wage MPC are skipped.
+  - `slow_reservation_decay`: an unemployed household's reservation wage falls by its own weekly rate (`reservation_decay_rate`, mean 0.14% per week), up to half slower when its liquidity reaches its buffer target. The labor plan floors it at `min(benefit + living cost, 1.5 x benefit)`, read from the live benefit each tick, instead of $1. The market-anchor clamp above still applies after 8 weeks.
 - Medical training has student/resident/doctor stages. Residents and doctors add healthcare capacity; doctors are seeded during large-economy initialization.
 
 ## Firms
