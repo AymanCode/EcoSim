@@ -4,6 +4,15 @@ Notable changes and decisions for EcoSim, newest first. The project does not use
 
 ## Unreleased
 
+### 2026-10-16: Wage offer floor and posted-offer getters
+
+Households (#29) saw offers at the $36 minimum wage, not `max(minimum wage, 1.5x benefit)` = $45. Read-only getters so they can read the real numbers; no offer changes (seed 42, 1,000 households, 104 ticks: final state hash identical to `main`).
+
+- `FirmAgent.get_wage_offer_floor(unemployment_benefit)`: the floor the firm's offer rule applies. The 1.5x-benefit floor (`agents.py` `plan_wage`, `economy.py` annual review call) applies to private Food/Services firms under annual review and private non-Services firms on the weekly rule. Government baseline firms (Food pinned to the $20 config floor, others capped at 2.5x it), healthcare, and Services firms on the weekly rule (no employees yet, or warm-up) floor only at the minimum wage; the post-planning enforcement lifts them to $36. The warm-up path also caps offers after the floor.
+- `Economy.get_posted_wage_offers(include_baseline=False)`: `{firm_id: offer}` snapshot taken right after the minimum-wage enforcement, the offers labor matching reads that tick. Baseline firms are excluded by default because they pay the minimum wage by rule.
+- Seeded run (same seed, all 104 ticks): every baseline firm-tick posts below $45 (415 of 416); private Food/Services under annual review never do (0/2,437); weekly-rule private firms do in 18 of 33 firm-ticks (warm-up holds and Services entrants).
+- `_benefit_wage_floor_multiplier()` holds the 1.5x / payment-sequence multiplier rule that `plan_wage` inlined; same values.
+
 ### 2026-10-16: LLM government policy memory: wage-ineligible seekers labeled correctly
 
 `_build_recent_policy_memory` (`tools/llm/llm_government.py`) stored the percent change in `labor_seekers_wage_ineligible` (job seekers whose reservation wage is above every open offer) under the key `consumer_distress_delta_pct`. The metrics rows have no consumer-distress series, so the key named a different quantity than the one it held. The key is now `wage_ineligible_seekers_delta_pct`; the value is unchanged. The prompt formatters never printed this field, so the LLM's prompt text is unchanged; the rename shows up in each decision record's `short_term_impact` / `mature_impact` (`recent_policy_memory`) and in anything that reads those records. No code in the repo read the old key.
