@@ -69,3 +69,12 @@ benchmarks/results/YYYY-MM-DD-HHMMSS-<benchmark>/
 ```
 
 Each run includes raw JSON, CSV rows, a Markdown summary, and runtime metadata.
+
+## Wage Rigidity Study
+
+```bash
+python backend/tools/benchmarks/wage_rigidity_study.py --seed 42
+python backend/tools/benchmarks/wage_rigidity_study.py --seed 42 --set firms.wage_rigidity_enabled=false
+```
+
+One seeded run (default 1,000 households, 156 weeks, 26-week burn-in). Prints as JSON how often round 1 PR4b's wage rules bind: the share of worker-weeks with a contract cut and their mean size, the share of firm-weeks with an offer cut, the share where the offer-cut cap lifted an offer, the share of firm-weeks in survival mode, and the mean cap.
