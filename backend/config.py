@@ -794,6 +794,53 @@ class GovernmentPolicyConfig:
     rent_stabilization_soft_max_increase: float = 1.02
     rent_stabilization_strict_max_increase: float = 1.005
 
+    # ── Round 1 PR5: public debt, profit tax, public capital, price-cap hold ──
+    # Every key below was added by PR5. Set the four *_enabled flags to False
+    # to get the pre-PR5 behavior for a before/after run.
+
+    # G1. Public debt held by the bank. When on, a treasury shortfall at the
+    # end of a tick is borrowed from the bank (debt rises, cash returns to 0),
+    # interest is paid weekly at the bank's base_interest_rate, and part of any
+    # surplus pays the debt down. Off: the treasury goes negative for free.
+    public_debt_enabled: bool = True
+    # Treasury cash ($) kept before any surplus is used. Was a literal in
+    # make_investments. Range >= 0.
+    surplus_reserve: float = 50_000.0
+    # Share of surplus above surplus_reserve used per tick (paydown + bond buy).
+    # Was a literal 0.12 in make_investments. Range [0, 1].
+    surplus_use_rate: float = 0.12
+    # Share of that surplus use that pays down debt while debt is outstanding;
+    # the rest goes to the Misc bond buy (first-pass spec G1: 50/50). With no
+    # debt, the whole amount goes to the bond buy as before. Range [0, 1].
+    surplus_debt_paydown_share: float = 0.5
+    # Annual rate used when the economy runs without a bank. Fraction/yr.
+    public_debt_fallback_annual_rate: float = 0.03
+
+    # G2. Flat profit tax: profit_tax_rate on positive profit only, no loss
+    # carryforward. Off: the cash-rank brackets (base +/- seeded extras).
+    flat_profit_tax_enabled: bool = True
+
+    # G3. Public capital. Infrastructure and technology multipliers both lose
+    # this fraction of their excess over 1.0 each tick (0.05/tick = half-life
+    # ~13.5 weeks, same rate infrastructure already used). Off: technology
+    # never decays (pre-PR5); infrastructure keeps its old 5% decay.
+    public_capital_decay_enabled: bool = True
+    public_capital_decay_per_tick: float = 0.05   # range [0, 1]
+    # Cap on both public capital multipliers (was a literal 1.15). Range >= 1.
+    public_capital_max_multiplier: float = 1.15
+    # Cap on social_happiness_multiplier (was a literal 1.15). Range >= 1.
+    social_max_multiplier: float = 1.15
+    # Infrastructure/technology purchases are paid to the PublicWorks firm
+    # (when one exists) as sales, so it hires to match. Otherwise, or when
+    # off, they go to the Misc pool as before.
+    public_works_purchases_enabled: bool = True
+
+    # Price cap hold: when a soft/strict price cap binds, the firm keeps the
+    # capped price until its next price review, with no catch-up jump when the
+    # cap lifts. Today every tick is a review, so this matters once PR4's
+    # sticky prices add review intervals (FirmAgent.next_price_review_tick).
+    price_cap_hold_enabled: bool = True
+
 
 @dataclass
 class LaborMarketConfig:
@@ -920,6 +967,10 @@ class LLMConfig:
     government_history_window: int = 6  # recent decision cycles shown to the model
     government_impact_horizon: int = 26  # ticks used to evaluate post-policy changes
     government_rolling_windows_ticks: Tuple[int, ...] = (13, 26, 52)
+    # PR5: show the LLM government an approval line (mean happiness, its
+    # 13-tick change, share of households in financial stress). Observation
+    # only; no elections. Off by default.
+    government_approval_observation_enabled: bool = False
 
     # Future: LLM-controlled household/firm agents
     enable_llm_agents: bool = False

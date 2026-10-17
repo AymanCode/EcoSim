@@ -5862,6 +5862,14 @@ class GovernmentAgent(AgentMixin):
     last_tick_revenue: float = 0.0            # total tax revenue last tick
     last_tick_spending: float = 0.0           # total govt spending last tick
 
+    # ── Public debt (round 1, PR5, G1) ───────────────────────────────
+    # Principal owed to the bank ($). Stays 0 when public_debt_enabled is off.
+    public_debt: float = 0.0
+    last_tick_debt_interest: float = 0.0   # $ interest paid (or capitalized) this tick
+    last_tick_debt_borrowed: float = 0.0   # $ shortfall moved to debt this tick
+    last_tick_debt_repaid: float = 0.0     # $ surplus used to repay principal this tick
+    last_tick_surplus_use_base: float = 0.0  # $ surplus use computed before paydown this tick
+
     # ── Healthcare telemetry for get_health_coverage (round 1, PR5) ──
     # Rolled over by Economy at the start of each tick from the previous
     # tick's completed visits, so the hook always reads a whole tick.
@@ -6238,6 +6246,7 @@ class GovernmentAgent(AgentMixin):
         return {
             # Lever settings (action space)
             "wage_tax_rate": self.wage_tax_rate,
+            "public_debt": self.public_debt,
             "profit_tax_rate": self.profit_tax_rate,
             "investment_tax_rate": self.investment_tax_rate,
             "benefit_level": self.benefit_level,
@@ -6747,29 +6756,127 @@ class GovernmentAgent(AgentMixin):
         )
         return investment
 
-    def make_investments(self) -> Dict[str, float]:
+    def _surplus_above_reserve(self) -> float:
+        """Free treasury cash ($) above ``surplus_reserve``; 0 when below it."""
+        free_cash = self.cash_balance - self.payment_reserved_cash
+        return max(0.0, free_cash - float(CONFIG.government.surplus_reserve))
+
+    def _surplus_use_this_tick(self) -> float:
+        """Surplus ($) the treasury puts to use this tick (paydown + bonds).
+
+        Matches the pre-PR5 rule: nothing until the surplus exceeds 20% of the
+        reserve, then ``surplus_use_rate`` of it per tick.
         """
-        Government bond purchases with surplus funds.
+        surplus = self._surplus_above_reserve()
+        if surplus <= float(CONFIG.government.surplus_reserve) * 0.20:
+            return 0.0
+        return surplus * max(0.0, min(1.0, float(CONFIG.government.surplus_use_rate)))
 
-        When the government has surplus cash (above ``baseline_reserve`` of $50,000),
-        it purchases bonds from the Misc firm, which distributes the money
-        to households. This acts as a wealth transfer mechanism to
-        stimulate the economy during surplus periods.
+    def public_debt_annual_rate(self, bank: Optional["BankAgent"] = None) -> float:
+        """Annual interest rate on public debt (fraction/yr).
 
-        The purchase amount is 12% of the surplus (cash_balance - baseline_reserve),
-        capped at the available surplus.
+        The bank's ``base_interest_rate`` is the policy rate when a bank
+        exists (a later Taylor-rule PR moves that rate); otherwise
+        ``public_debt_fallback_annual_rate``.
+        """
+        if bank is not None:
+            return max(0.0, float(bank.base_interest_rate))
+        return max(0.0, float(CONFIG.government.public_debt_fallback_annual_rate))
+
+    def settle_public_debt(self, bank: Optional["BankAgent"] = None) -> Dict[str, float]:
+        """End-of-tick debt settlement (G1). Call once per tick after all spending.
+
+        Runs in the institutional-close phase, after discretionary spending.
+        Order: (1) pay a week's interest on existing debt, (2) move any cash
+        shortfall to debt so the treasury leaves this step at >= 0 cash (later
+        phases can still dip below; next tick's settlement borrows that), (3) use
+        ``surplus_debt_paydown_share`` of this tick's surplus use to repay
+        principal. Interest and principal flow to ``bank.cash_reserves`` and
+        borrowing comes out of it, so money is conserved; the bank pays
+        depositors from reserves through its existing deposit rate.
+
+        Without a bank there is no lender to hold the debt: ``public_debt``
+        just reports the negative cash balance and no interest is charged.
+
+        Args:
+            bank: the economy's bank, or None.
 
         Returns:
-            Dict with "bonds" key containing amount spent on bond purchases
+            Dict with ``interest``, ``borrowed`` and ``repaid`` in $ this tick.
+            All zero when ``public_debt_enabled`` is off.
+        """
+        result = {"interest": 0.0, "borrowed": 0.0, "repaid": 0.0}
+        self.last_tick_debt_interest = 0.0
+        self.last_tick_debt_borrowed = 0.0
+        self.last_tick_debt_repaid = 0.0
+        self.last_tick_surplus_use_base = 0.0
+        if not CONFIG.government.public_debt_enabled:
+            return result
+        if bank is None:
+            self.public_debt = max(0.0, -self.cash_balance)
+            return result
 
-        Side Effects:
-            - Decreases self.cash_balance by bond_spend (if surplus exists)
-            - Returns bond_spend for Economy to route to Misc firm for distribution
+        ticks_per_year = max(1, int(CONFIG.time.ticks_per_year))
+        interest = self.public_debt * self.public_debt_annual_rate(bank) / ticks_per_year
+        if interest > 0.0:
+            # Paid from cash; if that leaves cash negative, step 2 borrows it,
+            # which is the same as capitalizing unpaid interest.
+            self.cash_balance -= interest
+            bank.cash_reserves += interest
+
+        borrowed = max(0.0, -self.cash_balance)
+        if borrowed > 0.0:
+            self.public_debt += borrowed
+            self.cash_balance += borrowed
+            bank.cash_reserves -= borrowed
+
+        repaid = 0.0
+        if self.public_debt > 0.0:
+            share = max(0.0, min(1.0, float(CONFIG.government.surplus_debt_paydown_share)))
+            self.last_tick_surplus_use_base = self._surplus_use_this_tick()
+            repaid = min(self.public_debt, self.last_tick_surplus_use_base * share)
+            if repaid > 0.0:
+                self.public_debt -= repaid
+                self.cash_balance -= repaid
+                bank.cash_reserves += repaid
+
+        self.last_tick_debt_interest = result["interest"] = interest
+        self.last_tick_debt_borrowed = result["borrowed"] = borrowed
+        self.last_tick_debt_repaid = result["repaid"] = repaid
+        return result
+
+    def make_investments(self) -> Dict[str, float]:
+        """Misc bond buy with surplus funds.
+
+        When free treasury cash exceeds ``surplus_reserve`` by more than 20%
+        of the reserve, the treasury uses ``surplus_use_rate`` of the surplus
+        per tick. With public debt on and debt outstanding (or repaid this
+        tick), ``surplus_debt_paydown_share`` of that already went to
+        ``settle_public_debt``; the rest buys "bonds" from the Misc firm,
+        which pays the money out to households. With no debt the whole amount
+        goes to the bond buy, which is the pre-PR5 behavior.
+
+        Call after ``settle_public_debt`` in the same tick.
+
+        Returns:
+            ``{"bonds": $ spent}`` for Economy to route to the Misc pool.
         """
         investments = {"bonds": 0.0}
-
         if self.stabilization_disabled:
             return investments
+
+        if CONFIG.government.public_debt_enabled and self.last_tick_surplus_use_base > 0.0:
+            # settle_public_debt spent share * base on paydown this tick; the
+            # bond buy gets the (1 - share) remainder of the same base.
+            share = max(0.0, min(1.0, float(CONFIG.government.surplus_debt_paydown_share)))
+            use = min(self.last_tick_surplus_use_base * (1.0 - share), self._surplus_above_reserve())
+        else:
+            use = self._surplus_use_this_tick()
+        if use <= 0.0:
+            return investments
+        self.cash_balance -= use
+        investments["bonds"] = use
+        return investments
 
         # Define surplus threshold as percentage of cash balance
         surplus_threshold_pct = 0.20  # Consider 20%+ above baseline as surplus
