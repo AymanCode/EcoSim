@@ -888,7 +888,8 @@ class Economy:
     def _household_static_traits(self) -> Dict[str, object]:
         """Arrays of household traits that are written only at construction.
 
-        spending_tendency, frugality, savings_drawdown_rate, the three
+        spending_tendency, frugality, savings_drawdown_rate,
+        buffer_target_weeks, buffer_adjust_speed, the three
         *_preference values and category_weights are set in
         HouseholdAgent.__post_init__ and never reassigned by the engine, so
         _batch_plan_consumption gathers them once instead of every tick. The
@@ -917,6 +918,8 @@ class Economy:
         housing_prefs = np.array([h.housing_preference for h in households], dtype=np.float64)
         services_prefs = np.array([h.services_preference for h in households], dtype=np.float64)
         drawdown_rates = np.array([h.savings_drawdown_rate for h in households], dtype=np.float64)
+        buffer_weeks = np.array([h.buffer_target_weeks for h in households], dtype=np.float64)
+        buffer_speeds = np.array([h.buffer_adjust_speed for h in households], dtype=np.float64)
 
         standard_categories = ["food", "housing", "services"]
         category_weights_matrix = np.array([
@@ -950,6 +953,8 @@ class Economy:
             "spending_tendencies": spending_tendencies,
             "frugalities": frugalities,
             "drawdown_rates": drawdown_rates,
+            "buffer_weeks": buffer_weeks,
+            "buffer_speeds": buffer_speeds,
             "precomputed_fractions": precomputed_fractions,
         }
         self._household_static_traits_cache = (households, len(households), preference_once, traits)
@@ -971,6 +976,14 @@ class Economy:
         wage and CEO pay after wage tax) and ``last_transfer_income``. Without it
         they are the forecast inputs every direct caller and the named payment
         arms use: the contract wage when employed and the benefit level when not.
+
+        With ``CONFIG.households.buffer_stock_consumption`` (PR3) the budget is
+        ``income * MPC * trait + k * (liquidity - target)``, where ``target =
+        buffer_target_weeks * max(weekly income, buffer_income_floor)`` and k is
+        ``buffer_adjust_speed``, both per household. It is floored at
+        ``min(subsistence_min_cash, liquidity)`` and capped at liquidity. The
+        drawdown trickle and the personality wage-MPC cut are not used then.
+        Off, the legacy formula below runs unchanged.
         """
         # Extract household attributes as NumPy arrays
         # SOLID: DIP Violation - Directly accesses household internals
@@ -1018,7 +1031,11 @@ class Economy:
         # MPC fix.
         saving_rates = np.clip(drawdown_rates, 0.0, 1.0)
         in_crisis = unemployment_rate > cfg.crisis_unemployment_threshold
-        if in_crisis:
+        buffer_stock = bool(cfg.buffer_stock_consumption)
+        if in_crisis or buffer_stock:
+            # Buffer-stock mode drops the personality MPC cut: it used the
+            # drawdown rate as a saving rate, so spenders got the lower MPC.
+            # Saving personality now acts through the buffer target and k.
             wage_mpc_personalized = np.full(len(self.households), mpc_wage, dtype=np.float64)
         else:
             wage_mpc_personalized = np.where(
@@ -1066,6 +1083,18 @@ class Economy:
             accessible_liquidity = np.maximum(
                 accessible_liquidity - self._legacy_obligations_due(), 0.0
             )
+
+        if buffer_stock:
+            # Carroll (1997) buffer stock: spend income at its MPC, plus k times
+            # the gap between liquidity and the target (negative gap = save).
+            # A household below target still buys the subsistence minimum
+            # when it can afford it.
+            weekly_income = wage_income + benefit_income + dividend_incomes
+            targets = static_traits["buffer_weeks"] * np.maximum(weekly_income, cfg.buffer_income_floor)
+            adjustment = static_traits["buffer_speeds"] * (accessible_liquidity - targets)
+            budget = np.maximum(base_budget + adjustment, 0.0)
+            budget = np.maximum(budget, np.minimum(cfg.subsistence_min_cash, accessible_liquidity))
+            return np.minimum(budget, accessible_liquidity)
 
         # Savings drawdown: personality-derived fraction of accessible liquidity (slow trickle)
         drawdown = drawdown_rates * accessible_liquidity
