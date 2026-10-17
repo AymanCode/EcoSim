@@ -4,6 +4,12 @@ Notable changes and decisions for EcoSim, newest first. The project does not use
 
 ## Unreleased
 
+### 2026-10-16: LLM government policy memory: wage-ineligible seekers labeled correctly
+
+`_build_recent_policy_memory` (`tools/llm/llm_government.py`) stored the percent change in `labor_seekers_wage_ineligible` (job seekers whose reservation wage is above every open offer) under the key `consumer_distress_delta_pct`. The metrics rows have no consumer-distress series, so the key named a different quantity than the one it held. The key is now `wage_ineligible_seekers_delta_pct`; the value is unchanged. The prompt formatters never printed this field, so the LLM's prompt text is unchanged; the rename shows up in each decision record's `short_term_impact` / `mature_impact` (`recent_policy_memory`) and in anything that reads those records. No code in the repo read the old key.
+
+Evidence: `test_contract_policy_memory_labels_wage_ineligible_seekers_honestly` (fails on main because the old key is present; passes now).
+
 ### 2026-10-16: Healthcare queue check test matches the current demand model
 
 `tools/checks/test_firm_behavior.py::test_healthcare_queue_service_flow` failed on `main`. The test was out of date, not the code: it scheduled a visit through the annual care plan (`care_plan_due_ticks`), which `should_request_healthcare_service` stopped reading in 4ecdd4f when the probabilistic episode model replaced it. Its methods were later deleted as never called (ee689d4). The test now starts an episode in progress (two visits left, next one due), which the current model requests without a random draw, and asserts the same exact outcome as before (+0.3 health, one unit sold, no inventory) plus the episode bookkeeping. No simulation code changed. `tools/checks` is outside the pytest `testpaths`, which is why CI did not catch it.
