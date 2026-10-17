@@ -5621,11 +5621,12 @@ class Economy:
         """
         Calculate actual production based on workforce experience, skills, and wellbeing.
 
-        Every worker's skill, health, morale and happiness enter through the
-        shared ``worker_effectiveness`` rule (0.8-1.25x by default), for goods
-        and Services alike. Goods firms also reward category experience and
-        government infrastructure; Services firms convert each worker into
-        ``firm._service_units_per_worker() * effectiveness`` units of
+        Output per worker = units per worker x skill factor x effort x hours
+        present (``worker_effectiveness``), for goods and Services alike.
+        Goods: units per worker is the firm's plan; the skill factor also
+        carries the category-experience bonus, and government infrastructure
+        and supply shocks scale the result. Services: each worker supplies
+        ``firm._service_units_per_worker() * worker_effectiveness`` units of
         capacity, clipped to ``services_units_per_worker_range``.
 
         Args:
@@ -5650,10 +5651,10 @@ class Economy:
             low_units = max(1.0, float(config_low))
             high_units = min(7.0, max(low_units, float(config_high)))
 
-            # Each worker supplies the firm's own units-per-worker scaled by
-            # their effectiveness, so firms differ by their sampled
-            # throughput and workers by their state. A missing household
-            # record counts as an average (1.0x) worker.
+            # Each worker supplies the firm's own units-per-worker times their
+            # skill factor, effort and hours present, so firms differ by
+            # their sampled throughput and workers by their state. A missing
+            # household record counts as a 1.0x worker.
             firm_units = firm._service_units_per_worker()
             service_capacity = 0.0
             service_worker_slots = max(0, int(firm.production_capacity_units))
@@ -5678,14 +5679,15 @@ class Economy:
                 total_productivity_multiplier += 1.0
                 continue
 
-            # Experience bonus (5% per year in this category, capped at 50%)
-            # is firm-specific know-how, so it stays outside the shared rule.
+            # Experience bonus (5% per year in this category, capped at 50%):
+            # category-specific human capital, added to the skill factor as
+            # on main.
             experience_ticks = household.category_experience.get(firm.good_category, 0)
             experience_years = experience_ticks / 52.0
             experience_bonus = min(experience_years * 0.05, 0.5)
 
-            # Skill, health, morale and happiness: the shared 0.8-1.25x rule.
-            productivity_multiplier = (1.0 + experience_bonus) * household_effectiveness(household)
+            # Skill factor x effort x hours present (the shared rule).
+            productivity_multiplier = household_effectiveness(household, experience_bonus=experience_bonus)
 
             total_productivity_multiplier += productivity_multiplier
 

@@ -40,7 +40,7 @@ from policy_schema import ORDERED_LEVERS as POLICY_ORDERED_LEVERS, SIMPLE_ENUM_L
 
 
 from utils.category_utils import get_good_category
-from worker_effectiveness import household_effectiveness
+from worker_effectiveness import effort, hours_present
 
 if TYPE_CHECKING:
     from economy import Economy
@@ -1848,13 +1848,13 @@ class HouseholdAgent(AgentMixin):
         return 0.0
 
     def get_performance_multiplier(self) -> float:
-        """Return this worker's output multiplier (0.8-1.25x by default).
+        """Return this worker's wellbeing multiplier: effort x hours present.
 
-        Thin wrapper over ``worker_effectiveness.household_effectiveness`` so
-        diagnostics and runners report the same number production uses. Skill,
-        health, morale and happiness all count; see that module for the rule.
+        The skill-free part of ``worker_effectiveness`` (about 0.86-1.12x):
+        effort from morale and happiness, hours present from health. Kept so
+        diagnostics and runners report the same factors production uses.
         """
-        return household_effectiveness(self)
+        return effort(self.morale, self.happiness) * hours_present(self.health)
 
 
 # -----------------------------------------------------------------------------

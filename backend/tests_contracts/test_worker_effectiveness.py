@@ -1,13 +1,13 @@
-"""Contracts for the shared worker-effectiveness rule (round 1 PR2).
+"""Contracts for worker output: skill factor x effort x hours present (round 1 PR2).
 
-Requirement (first-pass spec item 2): one pure function of skill, health,
-morale and happiness drives worker output for every firm; happiness alone
-moves output by about +/-12%; the result stays within 0.8-1.25x. Ayman's
-follow-up: no hard wall, so better workers always produce more.
+Requirements (Ayman, 2026-10-17 re-review): output per worker = units per
+worker x skill factor x effort x hours present. Effort comes from morale and
+happiness and moves output by about +/-12% end to end. Hours present come
+from health as sickness absence, multiply the rest, and so cannot be made up
+by skill. No weighted average and no 0.8-1.25 band.
 """
 
 import itertools
-import math
 from dataclasses import replace
 
 import pytest
@@ -15,84 +15,118 @@ import pytest
 from agents import FirmAgent, GovernmentAgent, HouseholdAgent
 from config import CONFIG, SimulationConfig
 from economy import Economy
-from worker_effectiveness import worker_effectiveness
+from worker_effectiveness import (
+    absence_rate,
+    effort,
+    hours_present,
+    skill_factor,
+    worker_effectiveness,
+)
 
 GRID = [0.0, 0.1, 0.25, 0.5, 0.75, 0.9, 1.0]
 
 
-def test_average_worker_is_exactly_one():
-    assert worker_effectiveness(0.5, 0.5, 0.5, 0.5) == pytest.approx(1.0)
+# --- effort -----------------------------------------------------------------
+
+def test_effort_is_one_when_morale_and_happiness_average_one_half():
+    assert effort(0.5, 0.5) == pytest.approx(1.0)
+    assert effort(1.0, 0.0) == pytest.approx(1.0)
 
 
-def test_extremes_approach_but_never_reach_the_bounds():
-    worst = worker_effectiveness(0.0, 0.0, 0.0, 0.0)
-    best = worker_effectiveness(1.0, 1.0, 1.0, 1.0)
-    assert 0.8 < worst < 0.81
-    assert 1.24 < best < 1.25
+def test_effort_spans_about_twelve_percent_each_way():
+    assert effort(0.0, 0.0) == pytest.approx(0.88)
+    assert effort(1.0, 1.0) == pytest.approx(1.12)
 
 
-def test_result_stays_strictly_inside_band_for_every_input_combination():
-    for combo in itertools.product(GRID, repeat=4):
-        value = worker_effectiveness(*combo)
-        assert 0.8 < value < 1.25, combo
+def test_morale_and_happiness_count_equally():
+    for m, h in itertools.product(GRID, repeat=2):
+        assert effort(m, h) == pytest.approx(effort(h, m))
+
+
+def test_effort_rises_with_morale_and_with_happiness():
+    for other in GRID:
+        values_m = [effort(x, other) for x in GRID]
+        values_h = [effort(other, x) for x in GRID]
+        assert values_m == sorted(values_m) and len(set(values_m)) == len(GRID)
+        assert values_h == sorted(values_h) and len(set(values_h)) == len(GRID)
+
+
+# --- hours present ------------------------------------------------------------
+
+def test_absence_at_reference_health_equals_the_sourced_rate():
+    ref = CONFIG.firms.worker_absence_reference_health
+    assert absence_rate(ref) == pytest.approx(CONFIG.firms.worker_absence_reference_rate)
+
+
+def test_sickest_worker_is_absent_sick_ratio_times_as_much_as_the_healthiest():
+    assert absence_rate(0.0) / absence_rate(1.0) == pytest.approx(CONFIG.firms.worker_absence_sick_ratio)
+
+
+def test_hours_present_rise_with_health_and_stay_near_full_time():
+    values = [hours_present(h) for h in GRID]
+    assert values == sorted(values) and len(set(values)) == len(GRID)
+    assert all(0.97 < v < 1.0 for v in values)
+
+
+def test_skill_cannot_make_up_for_absence():
+    """Being sick costs the same share of output at any skill level."""
+    for skill in GRID:
+        sick = worker_effectiveness(skill, 0.1, 0.5, 0.5)
+        well = worker_effectiveness(skill, 1.0, 0.5, 0.5)
+        assert sick / well == pytest.approx(hours_present(0.1) / hours_present(1.0))
+
+
+# --- skill factor and the product ---------------------------------------------
+
+def test_skill_factor_matches_the_hire_pay_premium():
+    assert skill_factor(0.0) == pytest.approx(1.0)
+    assert skill_factor(1.0) == pytest.approx(1.25)
+    assert skill_factor(0.4, experience_bonus=0.1) == pytest.approx(1.2)
+
+
+def test_multiplier_is_the_product_of_the_three_factors():
+    for s, hl, m, h in itertools.product([0.0, 0.5, 1.0], repeat=4):
+        expected = skill_factor(s) * effort(m, h) * hours_present(hl)
+        assert worker_effectiveness(s, hl, m, h) == pytest.approx(expected)
 
 
 @pytest.mark.parametrize("position", range(4))
-def test_strictly_increasing_in_each_input(position):
-    """No hard wall: raising any input always raises output."""
-    for others in itertools.product(GRID, repeat=3):
-        previous = -math.inf
+def test_multiplier_rises_with_each_input(position):
+    for base in itertools.product([0.2, 0.6], repeat=3):
+        values = []
         for x in GRID:
-            args = list(others)
+            args = list(base)
             args.insert(position, x)
-            value = worker_effectiveness(*args)
-            assert value > previous, (position, args)
-            previous = value
-
-
-def test_near_neutral_the_rule_is_almost_linear():
-    # A small score change passes through with slope ~1.3 (saturation is
-    # negligible near the centre).
-    delta = worker_effectiveness(0.55, 0.5, 0.5, 0.5) - 1.0
-    assert delta == pytest.approx(1.3 * 0.30 * 0.05, rel=0.01)
-
-
-def test_happiness_alone_moves_output_about_twelve_percent():
-    up = worker_effectiveness(0.5, 0.5, 0.5, 1.0) - 1.0
-    down = 1.0 - worker_effectiveness(0.5, 0.5, 0.5, 0.0)
-    assert 0.11 <= up <= 0.125
-    assert 0.11 <= down <= 0.125
-    # Any worker: happiness never moves output by more than 24 points in
-    # total (+/-12%); saturation only shrinks the swing away from neutral.
-    for skill, health, morale in itertools.product(GRID, repeat=3):
-        swing = worker_effectiveness(skill, health, morale, 1.0) - worker_effectiveness(skill, health, morale, 0.0)
-        assert 0.0 < swing <= 0.24
+            values.append(worker_effectiveness(*args))
+        assert values == sorted(values) and len(set(values)) == len(GRID)
 
 
 def test_out_of_range_inputs_are_clipped_not_extrapolated():
-    assert worker_effectiveness(2.0, 0.5, 0.5, 0.5) == worker_effectiveness(1.0, 0.5, 0.5, 0.5)
-    assert worker_effectiveness(-1.0, 0.5, 0.5, 0.5) == worker_effectiveness(0.0, 0.5, 0.5, 0.5)
-    assert worker_effectiveness(float("nan"), 0.5, 0.5, 0.5) == worker_effectiveness(0.0, 0.5, 0.5, 0.5)
+    assert worker_effectiveness(2.0, 2.0, 2.0, 2.0) == pytest.approx(worker_effectiveness(1, 1, 1, 1))
+    assert worker_effectiveness(-1.0, -1.0, -1.0, -1.0) == pytest.approx(worker_effectiveness(0, 0, 0, 0))
+    assert worker_effectiveness(float("nan"), 0.5, 0.5, 0.5) == pytest.approx(worker_effectiveness(0, 0.5, 0.5, 0.5))
 
 
-def test_bounds_and_slope_come_from_config():
-    narrow = replace(CONFIG.firms, worker_effectiveness_min=0.95, worker_effectiveness_max=1.05)
-    assert 0.95 < worker_effectiveness(0.0, 0.0, 0.0, 0.0, config=narrow) < 0.96
-    assert 1.04 < worker_effectiveness(1.0, 1.0, 1.0, 1.0, config=narrow) < 1.05
-    flat = replace(CONFIG.firms, worker_effectiveness_slope=0.1)
-    # z = 0.05 is far from the 0.25 ceiling, so output is ~1.05.
-    assert worker_effectiveness(1.0, 1.0, 1.0, 1.0, config=flat) == pytest.approx(1.05, abs=0.002)
+def test_sizes_come_from_config():
+    flat = replace(CONFIG.firms, worker_effort_range=0.0, worker_absence_reference_rate=0.0)
+    assert worker_effectiveness(0.0, 0.0, 0.0, 1.0, config=flat) == pytest.approx(1.0)
+    double = replace(CONFIG.firms, worker_effort_range=0.24)
+    assert effort(1.0, 1.0, config=double) == pytest.approx(1.24)
 
 
-def test_config_rejects_weights_that_do_not_sum_to_one():
-    with pytest.raises(ValueError, match="worker_effectiveness weights"):
-        SimulationConfig(firms=replace(CONFIG.firms, worker_effectiveness_happiness_weight=0.5))
+@pytest.mark.parametrize("field,value", [
+    ("worker_effort_range", 1.0),
+    ("worker_effort_range", -0.1),
+    ("worker_absence_reference_rate", 1.0),
+    ("worker_absence_reference_health", 1.5),
+    ("worker_absence_sick_ratio", 0.5),
+])
+def test_config_rejects_out_of_range_values(field, value):
+    with pytest.raises(ValueError):
+        SimulationConfig(firms=replace(CONFIG.firms, **{field: value}))
 
 
-def test_config_rejects_bounds_that_exclude_one():
-    with pytest.raises(ValueError, match="worker_effectiveness bounds"):
-        SimulationConfig(firms=replace(CONFIG.firms, worker_effectiveness_min=1.1))
-
+# --- production paths ---------------------------------------------------------
 
 def _worker(household_id, firm, happiness, skill=0.5):
     household = HouseholdAgent(household_id=household_id, skills_level=skill, age=30, cash_balance=1_000.0)
@@ -139,14 +173,17 @@ def test_goods_output_follows_the_shared_rule():
     happy = _realized(_food_firm(), happiness=1.0, planned=planned)
     assert sad == pytest.approx(planned * worker_effectiveness(0.5, 0.5, 0.5, 0.0))
     assert happy == pytest.approx(planned * worker_effectiveness(0.5, 0.5, 0.5, 1.0))
-    assert sad < planned < happy
+    # Happiness alone (morale held at 0.5) moves effort by 6% each way.
+    assert happy / sad == pytest.approx(effort(0.5, 1.0) / effort(0.5, 0.0))
 
 
 def test_services_output_follows_the_shared_rule():
     # 2 workers x 4 units each; planned above capacity so effectiveness binds.
     sad = _realized(_services_firm(), happiness=0.0, planned=100.0)
+    happy = _realized(_services_firm(), happiness=1.0, planned=100.0)
     assert sad == pytest.approx(2 * 4.0 * worker_effectiveness(0.5, 0.5, 0.5, 0.0))
-    assert sad < 2 * 4.0
+    assert happy == pytest.approx(2 * 4.0 * worker_effectiveness(0.5, 0.5, 0.5, 1.0))
+    assert sad < happy
 
 
 def test_services_firms_differ_by_their_own_throughput():
@@ -155,7 +192,7 @@ def test_services_firms_differ_by_their_own_throughput():
     assert _realized(fast, 0.5, 100.0) == pytest.approx(3 * _realized(slow, 0.5, 100.0))
 
 
-def test_household_performance_multiplier_reports_the_production_rule():
+def test_household_performance_multiplier_reports_effort_times_hours_present():
     firm = _food_firm()
     household = _worker(1, firm, happiness=0.9, skill=0.2)
-    assert household.get_performance_multiplier() == pytest.approx(worker_effectiveness(0.2, 0.5, 0.5, 0.9))
+    assert household.get_performance_multiplier() == pytest.approx(effort(0.5, 0.9) * hours_present(0.5))
