@@ -82,3 +82,16 @@ def test_government_getter_takes_the_budget_explicitly():
     assert gov.expected_healthcare_household_share(100.0) == pytest.approx(0.75)  # no cap passed
     assert gov.expected_healthcare_household_share(100.0, subsidy_budget_left=5.0) == pytest.approx(0.95)
     assert gov.expected_healthcare_household_share(-10.0) == pytest.approx(0.75)  # negative price reads as 0
+
+
+@pytest.mark.parametrize("sequence", ["income_first", "income_late"])
+@pytest.mark.parametrize("care_mode,expected", [("patient_pay", 1.0), ("covered", 0.0)])
+def test_payment_sequences_follow_the_care_mode_not_the_subsidy_lever(sequence, care_mode, expected):
+    from payment_sectors import payment_care_public_share
+
+    economy = _economy(level=50, budget=10.0)
+    economy.payment_sequence = sequence
+    economy.payment_care_mode = care_mode
+    assert payment_care_public_share(economy) == 1.0 - expected
+    for price in (0.0, 19.43, 500.0):
+        assert economy.expected_healthcare_household_share(price) == expected
