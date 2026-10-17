@@ -895,7 +895,8 @@ class Economy:
     def _household_static_traits(self) -> Dict[str, object]:
         """Arrays of household traits that are written only at construction.
 
-        spending_tendency, frugality, savings_drawdown_rate, the three
+        spending_tendency, frugality, savings_drawdown_rate,
+        buffer_target_weeks, buffer_adjust_speed, risk_aversion, the three
         *_preference values and category_weights are set in
         HouseholdAgent.__post_init__ and never reassigned by the engine, so
         _batch_plan_consumption gathers them once instead of every tick. The
@@ -924,6 +925,9 @@ class Economy:
         housing_prefs = np.array([h.housing_preference for h in households], dtype=np.float64)
         services_prefs = np.array([h.services_preference for h in households], dtype=np.float64)
         drawdown_rates = np.array([h.savings_drawdown_rate for h in households], dtype=np.float64)
+        buffer_weeks = np.array([h.buffer_target_weeks for h in households], dtype=np.float64)
+        buffer_speeds = np.array([h.buffer_adjust_speed for h in households], dtype=np.float64)
+        risk_aversion = np.array([h.risk_aversion for h in households], dtype=np.float64)
 
         standard_categories = ["food", "housing", "services"]
         category_weights_matrix = np.array([
@@ -957,6 +961,9 @@ class Economy:
             "spending_tendencies": spending_tendencies,
             "frugalities": frugalities,
             "drawdown_rates": drawdown_rates,
+            "buffer_weeks": buffer_weeks,
+            "buffer_speeds": buffer_speeds,
+            "risk_aversion": risk_aversion,
             "precomputed_fractions": precomputed_fractions,
         }
         self._household_static_traits_cache = (households, len(households), preference_once, traits)
@@ -978,6 +985,15 @@ class Economy:
         wage and CEO pay after wage tax) and ``last_transfer_income``. Without it
         they are the forecast inputs every direct caller and the named payment
         arms use: the contract wage when employed and the benefit level when not.
+
+        With ``CONFIG.households.buffer_stock_consumption`` (PR3) the budget is
+        ``income * MPC * trait + k * (liquidity - target)``, where ``target`` is
+        ``HouseholdAgent.buffer_target`` (per-household weeks x risk aversion x
+        (1 + slope x unemployment rate) x weekly income) and k is
+        ``buffer_adjust_speed``. It is floored at
+        ``min(subsistence_min_cash, liquidity)`` and capped at liquidity. The
+        drawdown trickle and the personality wage-MPC cut are not used then.
+        Off, the legacy formula below runs unchanged.
         """
         # Extract household attributes as NumPy arrays
         # SOLID: DIP Violation - Directly accesses household internals
@@ -1025,7 +1041,11 @@ class Economy:
         # MPC fix.
         saving_rates = np.clip(drawdown_rates, 0.0, 1.0)
         in_crisis = unemployment_rate > cfg.crisis_unemployment_threshold
-        if in_crisis:
+        buffer_stock = bool(cfg.buffer_stock_consumption)
+        if in_crisis or buffer_stock:
+            # Buffer-stock mode drops the personality MPC cut: it used the
+            # drawdown rate as a saving rate, so spenders got the lower MPC.
+            # Saving personality now acts through the buffer target and k.
             wage_mpc_personalized = np.full(len(self.households), mpc_wage, dtype=np.float64)
         else:
             wage_mpc_personalized = np.where(
@@ -1073,6 +1093,33 @@ class Economy:
             accessible_liquidity = np.maximum(
                 accessible_liquidity - self._legacy_obligations_due(), 0.0
             )
+
+        if buffer_stock:
+            # Buffer stock with a concave consumption function (Carroll 1997;
+            # Carroll & Kimball 1996): the share of each income source saved,
+            # 1 - MPC_s, is scaled by taper = 2T / (T + L). That is 2x with an
+            # empty buffer, 1x at the target, and falls smoothly beyond it
+            # without ever reaching zero. Liquidity above the target is also
+            # spent at the household's weekly rate k. A household below target
+            # still buys the subsistence minimum when it can afford it.
+            weekly_income = wage_income + benefit_income + dividend_incomes
+            # Same formula as HouseholdAgent.buffer_target, vectorized.
+            u_capped = min(max(0.0, float(unemployment_rate)), cfg.buffer_unemployment_cap)
+            precaution = 1.0 + cfg.buffer_unemployment_slope * u_capped
+            targets = (
+                static_traits["buffer_weeks"] * static_traits["risk_aversion"] * precaution
+                * np.maximum(np.maximum(weekly_income, float(unemployment_benefit)), 1e-6)
+            )
+            taper = cfg.buffer_saving_taper_scale * targets / (targets + accessible_liquidity)
+            spend_income = (
+                wage_income * np.clip(1.0 - (1.0 - mpc_wage) * taper, 0.0, 1.0)
+                + benefit_income * np.clip(1.0 - (1.0 - mpc_benefit) * taper, 0.0, 1.0)
+                + dividend_incomes * np.clip(1.0 - (1.0 - mpc_dividend) * taper, 0.0, 1.0)
+            ) * trait_multiplier
+            excess_spend = static_traits["buffer_speeds"] * np.maximum(accessible_liquidity - targets, 0.0)
+            budget = spend_income + excess_spend
+            budget = np.maximum(budget, np.minimum(cfg.subsistence_min_cash, accessible_liquidity))
+            return np.minimum(budget, accessible_liquidity)
 
         # Savings drawdown: personality-derived fraction of accessible liquidity (slow trickle)
         drawdown = drawdown_rates * accessible_liquidity

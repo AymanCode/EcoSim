@@ -4,6 +4,26 @@ Notable changes and decisions for EcoSim, newest first. The project does not use
 
 ## Unreleased
 
+### 2026-10-16: Household buffer-stock consumption (round 1 PR3, flag off)
+
+First-pass spec section 3, item A, and the saving-personality fix from item C. The behavior sits behind `CONFIG.households.buffer_stock_consumption`, default off, so default runs are unchanged and the joint before/after run (PR7) can toggle it. The reservation-wage change (item B) is parked on branch `feat/households-b-reservation-wage` for a separate PR.
+
+- **Before:** the budget was income times a personality-adjusted MPC, plus 1% to 5% of cash and 90% of deposits each week. The personality adjustment read the drawdown rate as a saving rate, so spenders got the lower wage MPC.
+- **After:** each income source is spent at `1 - (1 - MPC_s) * taper`, with `taper = 2T / (T + L)`. Liquidity above the target is spent at the weekly rate `k`. The budget is floored at the subsistence minimum the household can afford and capped at liquidity.
+  - The share of income saved falls smoothly as liquidity `L` approaches and passes the target `T` and never stops abruptly. Consumption is concave in wealth (Carroll 1997; Carroll and Kimball 1996).
+  - `T = weeks * risk_aversion * (1 + 2 * min(u, 0.10)) * max(weekly income, live benefit)`. The unemployment term stops at 10%, the top of the range its sources cover, and the income floor follows the benefit policy instead of a fixed 20.
+- **Review changes (2026-10-17).**
+  - `buffer_income_floor` was removed (the live benefit replaces it) and `buffer_unemployment_cap` (0.10) and `buffer_saving_taper_scale` (2.0) were added.
+  - `buffer_adjust_speed_range` went from (0.02, 0.10) to (0.01, 0.03), derived from measured MPCs (Parker et al. 2013; Fagereng, Holm and Natvik 2021).
+  - The +/-1 week noise on target weeks and the 0.8-1.2 noise on k were dropped. Both traits are now placed by personality alone.
+- **New per-household traits** `buffer_target_weeks`, `buffer_adjust_speed`, and `risk_aversion` come from a separate RNG seeded by household id, so no existing draw changes.
+- **Measured effect (seed 42, 1,000 households, 260 weeks, current main).**
+  - Mean post-warmup unemployment is unchanged at 31.4%.
+  - Mean weekly spending per household falls from 83.7 to 77.4.
+  - Median liquid wealth rises from 518 to 812: households now build a buffer instead of spending it down. The earlier version cut unemployment only because its k spent buffers 3-5x faster than the evidence supports.
+  - The PR description has the full table and the +/-50% runs.
+
+Evidence: `backend/tests_contracts/test_households_pr3.py` (11 tests). Repro, from `backend/`: `PYTHONHASHSEED=0 python tools/analysis/run_households_pr3_compare.py` and `PYTHONHASHSEED=0 python tools/analysis/run_households_pr3_sensitivity.py --jobs 5`.
 ### 2026-10-16: Poverty and wealth-loss terms read liquid wealth
 
 Bug fix from the PR7 investigation (item 3). `Economy._batch_update_wellbeing` read `cash_balance` alone for the poverty penalties and the wealth-loss term. The weekly deposit sweep runs after `last_tick_cash_start` is set and before wellbeing, so saving money in the bank counted as a wealth loss. The legacy withdrawal refills cash only to about 160, below the 200 poverty line, so households with savings were also scored as poor.

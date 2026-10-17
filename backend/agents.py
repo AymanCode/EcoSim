@@ -218,6 +218,11 @@ class HouseholdAgent(AgentMixin):
     deposit_buffer_weeks: Optional[float] = None  # Weeks of expenses to keep liquid before depositing
     deposit_fraction: Optional[float] = None  # Fraction of excess cash deposited per tick
     savings_drawdown_rate: Optional[float] = None  # Fraction of cash savings spent per tick (personality-derived)
+    # PR3 buffer-stock traits, drawn once per household from a private RNG
+    # (see _initialize_pr3_traits); constructor values win.
+    buffer_target_weeks: Optional[float] = None  # Weeks of weekly income held as cash + deposits
+    buffer_adjust_speed: Optional[float] = None  # k: share of the buffer gap spent or saved per week
+    risk_aversion: Optional[float] = None  # Precautionary multiplier on the buffer target, mean 1
 
     # Fix 25: Consumption credit (small loans to bridge income shocks)
     needs_consumption_loan: bool = False
@@ -636,6 +641,40 @@ class HouseholdAgent(AgentMixin):
         keep("morale_decay_rate", sample_range(config.morale_decay_rate_range, clip_min=0.0, clip_max=0.1))
         keep("min_food_per_tick", sample_range(config.min_food_per_tick_range, clip_min=0.5, clip_max=10.0))
         keep("min_services_per_tick", sample_range(config.min_services_per_tick_range, clip_min=0.1, clip_max=5.0))
+        self._initialize_pr3_traits(spender_score)
+
+    def _initialize_pr3_traits(self, spender_score: float) -> None:
+        """Draw the buffer-stock traits for this household.
+
+        Uses its own RNG, seeded by ``CONFIG.random_seed`` and ``household_id``,
+        so the existing personality draws above keep their values and order.
+
+        Args:
+            spender_score: In [0, 1]; 1 is the strongest spender (high
+                spending_tendency, low saving_tendency).
+
+        Invariants: ``buffer_target_weeks`` > 0, ``buffer_adjust_speed`` in
+        (0, 1], ``risk_aversion`` in ``risk_aversion_range``. Savers get a
+        larger target and a smaller k; spenders the reverse. That is the
+        corrected direction of the saving personality.
+        """
+        config = CONFIG.households
+        rng = random.Random(CONFIG.random_seed * 7919 + self.household_id * 104729 + 3)
+        lo, hi = config.buffer_target_weeks_range
+        target = lo + (hi - lo) * float(self.saving_tendency)
+        if self.buffer_target_weeks is None:
+            self.buffer_target_weeks = max(1e-3, target)
+        lo, hi = config.buffer_adjust_speed_range
+        k = lo + (hi - lo) * float(spender_score)
+        if self.buffer_adjust_speed is None:
+            self.buffer_adjust_speed = max(1e-4, min(1.0, k))
+        # Half saving_tendency, half noise: savers lean risk averse, but the
+        # traits are not the same number. The 50/50 weight is a judgment (no
+        # estimate of the correlation was found).
+        lo, hi = config.risk_aversion_range
+        position = 0.5 * float(self.saving_tendency) + 0.5 * rng.random()
+        if self.risk_aversion is None:
+            self.risk_aversion = lo + (hi - lo) * position
 
     def _normalize_category_weights(self, weights: Dict[str, float]) -> Dict[str, float]:
         """Normalize spending-category budget weights so they sum to 1.0.
@@ -1821,6 +1860,21 @@ class HouseholdAgent(AgentMixin):
             res_rate * self.expected_wage +
             (1.0 - res_rate) * self.reservation_wage
         )
+
+    def buffer_target(self, weekly_income: float, unemployment_rate: float, benefit: float) -> float:
+        """Cash + deposits this household aims to hold, in currency.
+
+        ``buffer_target_weeks * risk_aversion * (1 + buffer_unemployment_slope
+        * min(u, buffer_unemployment_cap)) * max(weekly_income, benefit)``.
+        The target rises with the live unemployment rate up to the sourced
+        range (precautionary saving in bad times) and with the household's
+        risk aversion. ``benefit`` is the live unemployment benefit level.
+        """
+        cfg = CONFIG.households
+        income = max(float(weekly_income), float(benefit), 1e-6)
+        u = min(max(0.0, float(unemployment_rate)), cfg.buffer_unemployment_cap)
+        precaution = 1.0 + cfg.buffer_unemployment_slope * u
+        return float(self.buffer_target_weeks) * float(self.risk_aversion) * precaution * income
 
     def maybe_active_education(self) -> float:
         """
