@@ -246,9 +246,11 @@ class HouseholdBehaviorConfig:
     # the decaying expected wage and the $1 floor.
     adaptive_reservation_wage: bool = False
     # reservation_decay_mean / _sd: per-household base weekly decay d_i,
-    #   drawn normal and clipped to [0.0002, 0.004]. Mean 0.14%/week and
-    #   spread from Krueger & Mueller (2016, AEJ: Policy), who estimate the
-    #   decline per week of unemployment and find wide individual variation.
+    #   drawn normal and clipped to [0.0002, 0.004]. Krueger & Mueller
+    #   (2016, AEJ: Policy) estimate 0.05-0.14%/week; the mean sits at the
+    #   top of that range because the (2 - tightness) and cushion factors
+    #   only scale it, and a floor stops it anyway. The sd is a judgment
+    #   spread (about 95% of draws in 0.04-0.24%/week), not an estimate.
     reservation_decay_mean: float = 0.0014
     reservation_decay_sd: float = 0.0005
     # reservation_floor_share_range: (lo, mode, hi) of the triangular draw
