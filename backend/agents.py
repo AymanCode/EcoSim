@@ -1958,9 +1958,6 @@ class FirmAgent(AgentMixin):
     quality_decay_rate: float = 0.0  # quality decay removed
     accumulated_rd_investment: float = 0.0  # total R&D spending lifetime
 
-    # Hidden happiness boost (Services category only) - households don't know this value
-    happiness_boost_per_unit: float = 0.0  # 0.0 to 0.05 happiness gain per unit consumed
-
     # Healthcare service mode (non-storable): queue + visit capacity
     healthcare_queue: List[int] = field(default_factory=list)
     healthcare_capacity_per_worker: float = 0.0
