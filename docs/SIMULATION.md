@@ -192,6 +192,16 @@ Policy choices can come from:
 
 When the live LLM government is enabled, deterministic rule-based policy adjustment is bypassed so policy choices come from the model plus mechanical validation and application code.
 
+### Infrastructure
+
+The `infrastructure_spending` lever ("none", "low", "medium", "high") spends a fixed amount each tick on public capital. Every $1,000 spent raises `government.infrastructure_productivity_multiplier` by 0.5%; the gain decays 5% per tick and the multiplier is capped at 1.15 (`infrastructure_gain_divisor`, `infrastructure_gain_rate`, `infrastructure_productivity_cap`, `infrastructure_decay_rate` in `GovernmentPolicyConfig`).
+
+At the start of firm planning each tick, the economy copies the multiplier into `FirmAgent.public_capital_tfp` on every firm. `_capacity_for_workers` and `_workers_for_sales` multiply by it, so it raises the production frontier: firms need fewer workers for the same output, their unit cost and price fall, and realized output for goods and Services is capped at the higher frontier. Housing and healthcare plan capacity in units and visits and do not use it.
+
+`infrastructure_raises_firm_capacity_enabled` (default `True`) selects this behavior. When `False`, the multiplier only scales realized goods output, which is then clamped to the frontier without it, so it has almost no effect (+0.2% Food output, 0% Services at a 1.05-1.15 multiplier). With the lever at "none" the multiplier stays 1.0 and both settings give identical runs.
+
+Lever "high" (seeds 42 and 7, 104 ticks) leads to about +8% to +14% Services output, about 10% lower final CPI, and 11-12% higher real wages. Unemployment barely moves, because Services and goods firms produce more with slightly fewer workers. Final government cash is lower, because falling prices cut nominal tax revenue. Reproduce with `python tools/benchmarks/run_infrastructure_compare.py --seed 42` from `backend/`.
+
 ## Bank And Credit
 
 The standard dashboard economy includes a `BankAgent`. The bank tracks cash reserves, deposits, active loans, lending capacity, credit scores, interest income, deposit interest, defaults, repayments, and loan loss provision.

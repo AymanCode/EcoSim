@@ -4,6 +4,15 @@ Notable changes and decisions for EcoSim, newest first. The project does not use
 
 ## Unreleased
 
+### 2026-10-16: Infrastructure spending raises firms' production frontier
+
+Investigation bug 8, second half. Before: the infrastructure multiplier (up to 1.15) scaled realized goods output, which was then clamped to `_capacity_for_workers(n)`. That capacity did not include the multiplier, so a firm at its frontier gained nothing, and Services never applied it. At a 1.05-1.15 multiplier, realized private Food output rose 0.2% and Services 0%.
+
+- `FirmAgent.public_capital_tfp` (set from the multiplier each tick before planning) scales `_capacity_for_workers` and `_workers_for_sales`, so labor planning, unit-cost pricing, and realized output for goods and Services all use the same frontier. The multiplier is no longer applied a second time to realized goods output.
+- New flag `infrastructure_raises_firm_capacity_enabled` (default `True`); `False` restores the old behavior. Neither setting changes a run while the lever is "none" (byte-identical metrics with main).
+- Lever "high", before → after: Services output 88,128 → 100,045 (seed 42) and 90,432 → 97,737 (seed 7); final CPI 228.5 → 208.9 and 202.3 → 179.7; final real wage 27.93 → 31.10 and 31.32 → 35.10. Mean unemployment is unchanged within noise. Final government cash fell (60k → 23k, 51k → 17.6k), mostly because lower prices cut nominal revenue (seed 42: -3.8%).
+- Evidence: `test_infrastructure_productivity.py` (5 tests) and `tools/benchmarks/run_infrastructure_compare.py --seed 42` (`--budget` sets the per-tick spend).
+
 ### 2026-10-16: Server error replies, logging context, and two review checks
 
 From the outside portfolio review (items #8, #9, #14, #15, #21, #25, #28). No simulation behavior changed: the engine, tick order, and every success reply are unchanged.
