@@ -855,6 +855,10 @@ class GovernmentPolicyConfig:
     # Fee over unit labor cost the government pays PublicWorks firms (spec G3:
     # cost + 5%). Cost-plus-fixed-fee convention; US FAR 15.404-4(b)(4)(i)(C)
     # caps such fees at 10% of cost. Range >= 0. Fixed (cost is adaptive).
+    # The government pays max(posted price, cost x (1 + markup)), so the fee
+    # only binds when the posted price is below cost plus the fee; at the
+    # 400-household calibration the posted price ($5) is above labor cost
+    # ($3/unit) + 5%, so the fee does not bind today.
     public_works_purchase_markup: float = 0.05
 
     # Price cap hold: when a soft/strict price cap binds, the firm keeps the
