@@ -6373,6 +6373,54 @@ class GovernmentAgent(AgentMixin):
         """
         return firm_id in self.baseline_firm_ids.values()
 
+    def healthcare_visit_subsidy_share(self) -> float:
+        """Share of a healthcare visit's price the treasury is asked to pay (0..1).
+
+        The ``sector_subsidy`` lever when it targets healthcare at a positive
+        rate; otherwise ``CONFIG.government.healthcare_visit_subsidy_share``
+        (default 0). This is the requested share, before the per-tick
+        subsidy cap; ``Economy.apply_sector_subsidy_payment`` applies the cap.
+        """
+        if self.sector_subsidy_target == "healthcare" and self._sector_subsidy_rate > 0:
+            return self._sector_subsidy_rate
+        return max(0.0, min(1.0, CONFIG.government.healthcare_visit_subsidy_share))
+
+    def expected_healthcare_household_share(
+        self, visit_price: float, subsidy_budget_left: float = math.inf
+    ) -> float:
+        """Estimated share (0..1) of a visit at ``visit_price`` the household pays.
+
+        Uses the same rule as the visit charge in
+        ``Economy._process_healthcare_services``: the treasury is asked for
+        ``visit_price * healthcare_visit_subsidy_share()`` and pays at most
+        the subsidy budget left this tick; the household pays the rest.
+        Because the cap is a dollar budget, the share rises with the price
+        once the cap binds. Reads state only; nothing is charged or reserved.
+
+        It is an estimate: the budget when a household reserves money can
+        differ from the budget when the visit is served (other subsidy
+        payments in between, or a new tick's cap). Pass the live budget from
+        ``Economy.sector_subsidy_budget_left()``, or use
+        ``Economy.expected_healthcare_household_share``, which does that.
+
+        Args:
+            visit_price: the provider's visit price in $ (negative reads as 0).
+            subsidy_budget_left: $ the treasury can still pay toward subsidies
+                this tick. Default: no cap.
+
+        Returns:
+            ``(price - min(price * share, budget)) / price``, clamped to
+            [0, 1]. At price 0 no dollars are needed, so the cap cannot bind
+            and the result is ``1 - healthcare_visit_subsidy_share()``.
+        """
+        price = max(0.0, float(visit_price or 0.0))
+        share = self.healthcare_visit_subsidy_share()
+        if price <= 0.0:
+            return max(0.0, min(1.0, 1.0 - share))
+        requested = price * share
+        paid = min(requested, max(0.0, float(subsidy_budget_left)))
+        return max(0.0, min(1.0, (price - paid) / price))
+
     def get_unemployment_benefit_level(self) -> float:
         """
         Get the current unemployment benefit level.
