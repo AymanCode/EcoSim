@@ -4,6 +4,22 @@ Notable changes and decisions for EcoSim, newest first. The project does not use
 
 ## Unreleased
 
+### 2026-10-17: Public debt held by the bank (round 1 G1)
+
+Before: treasury outlays could leave `cash_balance` negative with no lender and no cost, and `public_debt` did not exist, so debt/GDP in metrics and the LLM prompt was always 0.
+
+Now (`government.public_debt_enabled`, default on):
+- After weekly spending, a negative treasury balance is borrowed from the bank, up to `BankAgent.lendable_cash` and only when `can_lend()` is true. The part the bank cannot lend stays as negative cash, which is the flag-off behavior. No bank, no borrowing.
+- Weekly interest = debt x (bank's current lending rate + `public_debt_risk_premium` 0.035 x annualized debt/GDP) / 52, paid to the bank before it pays deposit interest. Nothing moves the bank's rate during a run yet (3%).
+- While debt is owed, cash above `public_debt_cash_buffer_weeks` (1) weeks of last week's government spending repays principal, and the misc bond buy is skipped. With no debt the bond buy is unchanged.
+- New metrics: `gov_debt_rate_annual`, `gov_debt_interest_this_tick`, `gov_debt_borrowed_this_tick`, `gov_debt_repaid_this_tick`, `gov_debt_unfunded_this_tick`. The dashboard's `govDebt` is now `public_debt` plus any negative cash.
+
+Seeded run, 400 households, 104 weeks, seeds 42 and 1-4 (`python tools/benchmarks/run_public_debt_compare.py --seeds 42 1 2 3 4`, from `backend/`):
+- Default levers: no shortfall in any week, so results are identical to main.
+- Stress (crisis benefits, high infrastructure/technology spending until week 52): in debt 39% of weeks, peak debt/GDP 0.031, interest 0.04% of spending; weeks ending with negative cash go from 21-53% (mean 32%) to 0; mean happiness +0.014.
+- Deep (no starting cash, crisis benefits, high infrastructure/technology/social spending all run): in debt every week, debt $320k at week 104, peak debt/GDP 0.19, debt rate 3.48%, interest 1.1% of spending; mean happiness +0.023, unemployment within seed noise.
+- The bank's lending limit never bound in any run (bank reserves stay above $650k).
+
 ### 2026-10-16: Poverty and wealth-loss terms read liquid wealth
 
 Bug fix from the PR7 investigation (item 3). `Economy._batch_update_wellbeing` read `cash_balance` alone for the poverty penalties and the wealth-loss term. The weekly deposit sweep runs after `last_tick_cash_start` is set and before wellbeing, so saving money in the bank counted as a wealth loss. The legacy withdrawal refills cash only to about 160, below the 200 poverty line, so households with savings were also scored as poor.
