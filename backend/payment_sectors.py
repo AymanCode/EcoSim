@@ -10,6 +10,7 @@ import math
 from collections import defaultdict
 
 from config import CONFIG
+from household_liquidity import accessible_liquidity
 from utils.category_utils import get_good_category
 
 EPS = 1e-6
@@ -440,7 +441,10 @@ def enqueue_payment_care_requests(economy):
             continue
         rent_due = max(0.0, float(household.monthly_rent)) + max(0.0, float(household.rent_arrears))
         debt_due = max(0.0, float(due_by_household.get(household.household_id, 0.0)))
-        liquidity = max(0.0, float(household.cash_balance) + 0.9 * max(0.0, float(household.bank_deposit)) - rent_due - debt_due)
+        liquidity = max(
+            0.0,
+            accessible_liquidity(float(household.cash_balance), float(household.bank_deposit)) - rent_due - debt_due,
+        )
         household.payment_care_planning_liquidity = liquidity
         price = float(provider.price)
         if not math.isfinite(price) or price < 0:

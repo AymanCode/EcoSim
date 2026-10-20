@@ -20,6 +20,19 @@ This rebuilds #39 from `main`, following Claude's review and Ayman's decision: *
 
 Evidence: `test_households_skills.py` (11 tests, 15 cases, including a 156-tick live `Economy.step()` run asserting realized gains, wear-off, and no household below its floor). By-window panel (`tools/analysis/run_household_window_panel.py` + `summarize_household_window_panel.py`, 1,000 households, 260 ticks, seeds 42/7/1/3/11, one process per arm): see PR.
 
+### 2026-10-20: One shared definition of household liquid money (households 29a)
+
+Refactor with no behavior change, requested in the review of #29 (Ayman's item 3, Claude's item 8): every household reader of cash plus deposits now goes through one module, `backend/household_liquidity.py`. The rule is unchanged: the same floating-point operations run in the same order, so runs are bit-identical to `main`.
+
+- `liquid_wealth(cash, deposit)` = `cash + max(0, deposit)`: #32's definition, liquid net worth before loans (loans are not netted). Read by the wellbeing poverty and wealth-loss terms (current balances and the phase-8 snapshot).
+- `accessible_liquidity(cash, deposit)` = `cash + 0.90 * max(0, deposit)`: what can be spent this tick, because the bank pays out 90% of a deposit on demand (`DEPOSIT_ACCESS_SHARE`). Read by the legacy consumption budget, `_legacy_obligations_due`'s rent test, the legacy housing eviction and homeless-search rent tests, `payment_behavior.planning_inputs` (`nominal_access`), `payment_sectors` care-planning liquidity, and the payment arms' `payment_pre_policy_liquidity` (each caller that floors cash at 0 still does so explicitly).
+- `withdrawable_deposit(deposit)` = `0.90 * max(0, deposit)`: the bank's per-call withdrawal limit, read by the pre-purchase, payment-arm, shopping-reserve and legacy healthcare withdrawals.
+- Not migrated, by design: readers of cash alone (the `households_below_poverty` metric, the cash Gini in `run_evidence`, the price-cap heuristic in `HouseholdAgent`, the deposit sweep's cash floor). They measure cash, not liquid money; moving them would change behavior and is a separate decision.
+
+Evidence: `regression_snapshot` comparisons against `main` (f86f140), 1,000 households, seeds 42/7/1/3/11, legacy at 260 ticks (snapshots at ticks 1, 50, 100, 150, 200 and 260, or 1, 25, 50, 75, 100 and 260), income_first and income_late at 104 ticks: every snapshot matches exactly. New `test_household_liquidity.py` (definitions, edges, scalar/array bit-parity, a source scan for leftover inline 0.9 x deposit copies, and a live `Economy.step` check that realized pre-purchase withdrawals stay within the withdrawable share).
+
+
+Also adds the seeded by-window panel tooling the household PRs share (no engine change): `backend/tools/analysis/run_household_window_panel.py` runs one arm per process, seeded like `regression_snapshot._set_seed`, with `--set section.field=value` config overrides on a private config copy, `--lever NAME=VALUE` government levers, and optional `skills` / `healthcare` probes. It writes the weekly macro and household panel (GDP, unemployment, prices, government balance, firm profits, poverty, food sufficiency, liquid-wealth deciles, happiness, health). `summarize_household_window_panel.py` reports paired means, ranges and per-window std/CV by window (1-100, 101-200, 201+).
 ### 2026-10-16: Poverty and wealth-loss terms read liquid wealth
 
 Bug fix from the PR7 investigation (item 3). `Economy._batch_update_wellbeing` read `cash_balance` alone for the poverty penalties and the wealth-loss term. The weekly deposit sweep runs after `last_tick_cash_start` is set and before wellbeing, so saving money in the bank counted as a wealth loss. The legacy withdrawal refills cash only to about 160, below the 200 poverty line, so households with savings were also scored as poor.

@@ -7,7 +7,7 @@ runs with ``summarize_household_window_panel.py``.
 
 Usage (from backend/):
     python tools/analysis/run_household_window_panel.py --seed 42 --ticks 260 \
-        --set households.skills_dynamics=True --probe skills --out on_42.json
+        --set households.<flag>=True --probe skills --out on_42.json
 
 ``--set`` takes ``section.field=<python literal>`` and is applied to a private
 config copy (``clone_config``/``use_config``), never to a shared one.
@@ -31,11 +31,7 @@ for _path in (BACKEND_ROOT, BACKEND_ROOT / "tools" / "runners", BACKEND_ROOT / "
         sys.path.insert(0, str(_path))
 
 from config import CONFIG, clone_config, use_config  # noqa: E402
-try:  # households 29a's shared helper, when present
-    from household_liquidity import liquid_wealth  # noqa: E402
-except ImportError:  # same definition as main's wellbeing read (#32)
-    def liquid_wealth(cash: float, deposit: float) -> float:
-        return cash + max(0.0, deposit)
+from household_liquidity import liquid_wealth  # noqa: E402
 from regression_snapshot import _set_seed  # noqa: E402
 from run_large_simulation import create_large_economy  # noqa: E402
 
@@ -67,7 +63,8 @@ class SkillsProbe:
         hired = emp & ~self.prev_emp
         self.prev_emp = emp
         dur = np.array([h.unemployment_duration for h in hh])
-        floors = np.array([h.skill_floor if h.skill_floor is not None else np.nan for h in hh])
+        floors = np.array([getattr(h, "skill_floor", None) for h in hh], dtype=object)
+        floors = np.array([np.nan if f is None else f for f in floors], dtype=np.float64)
         return {
             "skill_mean": float(s.mean()), "skill_min": float(s.min()),
             "skill_unemployed": float(s[~emp].mean()) if (~emp).any() else None,
@@ -150,6 +147,13 @@ def run(args) -> dict:
         with contextlib.redirect_stdout(io.StringIO()):
             economy = create_large_economy(num_households=args.households,
                                            num_firms_per_category=args.firms_per_category)
+        for lever in args.lever:
+            name, _, value = lever.partition("=")
+            try:
+                parsed = float(value)
+            except ValueError:
+                parsed = value
+            economy.government.set_lever(name, parsed)
         probe = PROBES[args.probe](economy) if args.probe else None
         poverty_line = CONFIG.households.poverty_threshold
         rows = []
@@ -182,7 +186,7 @@ def run(args) -> dict:
                 row.update(probe.row(economy))
             rows.append(row)
     return {"seed": args.seed, "arm": args.arm, "sets": args.set, "payment_sequence": args.payment_sequence,
-            "households": args.households, "ticks": args.ticks, "rows": rows}
+            "levers": args.lever, "households": args.households, "ticks": args.ticks, "rows": rows}
 
 
 def main(argv=None) -> int:
@@ -194,6 +198,7 @@ def main(argv=None) -> int:
     p.add_argument("--firms-per-category", type=int, default=5)
     p.add_argument("--payment-sequence", default="legacy", choices=("legacy", "income_first", "income_late"))
     p.add_argument("--set", action="append", default=[])
+    p.add_argument("--lever", action="append", default=[], help="government lever NAME=VALUE, set after construction")
     p.add_argument("--probe", choices=sorted(PROBES), default=None)
     p.add_argument("--out", type=Path, required=True)
     args = p.parse_args(argv)
