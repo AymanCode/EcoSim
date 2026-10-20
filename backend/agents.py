@@ -193,6 +193,7 @@ class HouseholdAgent(AgentMixin):
     education_cost_per_skill_point: float = 1000.0  # cost to improve skill by 0.1
     last_skill_update_tick: int = 0  # Tick when skills were last increased (for rate limiting)
     employed_ticks_since_skill_update: int = 0  # Ticks worked since the last skill grant (B31)
+    skill_floor: Optional[float] = None  # Week-1 skill; skills_dynamics never wears skill below it
     last_wage_update_tick: int = 0  # Tick when wage premiums were last increased (for rate limiting)
 
     # Wellbeing and performance factors
@@ -1756,8 +1757,15 @@ class HouseholdAgent(AgentMixin):
             # Passive skill growth through work experience (diminishing returns)
             # Only update skills once every 52 ticks (yearly), crediting the
             # ticks actually worked since the last grant (B31).
-            self.employed_ticks_since_skill_update += 1
-            if current_tick - self.last_skill_update_tick >= 52:
+            # With CONFIG.households.skills_dynamics, Economy._batch_update_skills
+            # updates skill weekly instead; the grant clock is held at "now" so
+            # switching the flag off later cannot pay out the on-weeks at once.
+            if CONFIG.households.skills_dynamics:
+                self.employed_ticks_since_skill_update = 0
+                self.last_skill_update_tick = current_tick
+            else:
+                self.employed_ticks_since_skill_update += 1
+            if not CONFIG.households.skills_dynamics and current_tick - self.last_skill_update_tick >= 52:
                 skill_improvement = self.skill_growth_rate * (1.0 - self.skills_level)
                 total_improvement = skill_improvement * self.employed_ticks_since_skill_update
                 self.skills_level = min(1.0, self.skills_level + total_improvement)
@@ -1840,7 +1848,14 @@ class HouseholdAgent(AgentMixin):
         cost = 100.0
         if self.cash_balance >= cost:
             self.cash_balance -= cost
+            before = self.skills_level
             self.skills_level = min(1.0, self.skills_level + 0.005)
+            if CONFIG.households.skills_dynamics:
+                # Paid schooling is not an on-the-job gain: it raises the floor
+                # that unemployment wear-off stops at, so it is not lost.
+                if self.skill_floor is None:
+                    self.skill_floor = before
+                self.skill_floor = min(1.0, self.skill_floor + (self.skills_level - before))
             self.education_active_this_tick = True
             self.add_ledger_flow("education", -cost)
             return cost  # Return cost so caller can route it back into the economy

@@ -163,6 +163,36 @@ class HouseholdBehaviorConfig:
     reservation_markup_range: Tuple[float, float] = (1.02, 1.20)
     min_cash_aggressive_search_range: Tuple[float, float] = (60.0, 180.0)
     skill_growth_rate_range: Tuple[float, float] = (0.0005, 0.002)
+    # --- Skills dynamics (households skills PR), default off ------------------
+    # skills_dynamics: bool, default False. When True,
+    #   Economy._batch_update_skills replaces the yearly on-the-job skill grant
+    #   with a weekly update after roster sync. Employed: s += g * (1 - s),
+    #   where g is the household's own skill_growth_rate trait (the same
+    #   per-tick rate the yearly grant multiplies by weeks worked, so the
+    #   expected yearly gain is unchanged; only the cadence becomes weekly).
+    #   Unemployed: only skill gained above the household's week-1 level
+    #   (HouseholdAgent.skill_floor) wears off, s = f + (s - f) * (1 - d),
+    #   so skill approaches the floor smoothly and never goes below it.
+    #   Off: the yearly grant runs unchanged and skill never falls.
+    skills_dynamics: bool = False
+    # skill_gain_depreciation_annual_range: uniform per-household draw of the
+    #   share of the on-the-job gain (s - f) lost per year out of work. Units:
+    #   1/year of the gain, applied weekly as 1 - (1 - d)^(1/52). Valid:
+    #   finite, 0 <= lo <= hi < 1. Calibrated so the sim's realized result
+    #   matches the source's measured result: a year of non-employment moves a
+    #   worker about 5.5 percentile points down the skill distribution (Edin &
+    #   Gustavsson 2008, ILR Review 61(2): 50th -> 44.5th, 25th -> 20.5th),
+    #   measured in-sim with peers still learning, among households that hold
+    #   an on-the-job gain when the spell starts. Seeded check (1,000
+    #   households, 260 ticks, seeds 42/7/1/3/11, spells starting after tick
+    #   60): flag off (peers learning, no loss) 1.8 points; (0.5, 0.9) 4.2
+    #   points (3.4-5.4 across seeds). Since only the gain above the floor can
+    #   be lost, the realized loss saturates below the source's 5.5: -50%
+    #   (0.25, 0.45) gives 3.1, +50% capped below 1 (0.75, 0.99) gives 4.6.
+    #   Edin & Gustavsson's sample is small, so 5.5 is approximate; Cohen,
+    #   Johnston & Lindner (2025, AEJ: Applied 17(3)) find no measurable
+    #   general-skill decline, so the loss is bounded to on-the-job gains.
+    skill_gain_depreciation_annual_range: Tuple[float, float] = (0.5, 0.9)
     initial_happiness_range: Tuple[float, float] = (0.60, 0.80)
     initial_morale_range: Tuple[float, float] = (0.60, 0.80)
     happiness_decay_rate_range: Tuple[float, float] = (0.0015, 0.0025)
@@ -344,9 +374,11 @@ class HouseholdBehaviorConfig:
     # posted price this tick instead of price_beliefs["housing"/"food"], keys
     # no writer uses (so they always fell back to default_price_level).
     fix_category_price_beliefs: bool = False
-    skill_decay_unemployment_threshold: int = 26  # Ticks unemployed before skill decay starts (~6 months)
-    skill_decay_rate_per_tick: float = 0.002  # Skill loss per tick when decaying
-    skill_decay_floor: float = 0.1  # Minimum skill level (never decay below this)
+    # skill_decay_unemployment_threshold / skill_decay_rate_per_tick /
+    # skill_decay_floor were retired 2026-10-20 (households skills PR): no code
+    # read them, and skills_dynamics below is the one skill-loss mechanism
+    # (rule R12). Their old values (26 ticks, 0.002/tick, floor 0.1) are
+    # recorded in the CHANGELOG entry of that date.
 
     # Feature 2: Buffer-Stock Consumption Model
     target_wealth_income_ratio_base: float = 4.0  # Base target ratio (modified by thriftiness)
@@ -1065,6 +1097,16 @@ class SimulationConfig:
         ratio = self.firms.services_expansion_min_excess_demand_ratio
         if not (math.isfinite(ratio) and ratio >= 0.0):
             raise ValueError("services_expansion_min_excess_demand_ratio must be finite and non-negative")
+
+        # Skills dynamics (households skills PR)
+        if not isinstance(self.households.skills_dynamics, bool):
+            raise ValueError("households.skills_dynamics must be a bool")
+        lo, hi = self.households.skill_gain_depreciation_annual_range
+        if not (math.isfinite(lo) and math.isfinite(hi) and 0.0 <= lo <= hi < 1.0):
+            raise ValueError("skill_gain_depreciation_annual_range must be finite with 0 <= lo <= hi < 1")
+        lo, hi = self.households.skill_growth_rate_range
+        if not (math.isfinite(lo) and math.isfinite(hi) and 0.0 <= lo <= hi <= 0.01):
+            raise ValueError("skill_growth_rate_range must be finite with 0 <= lo <= hi <= 0.01")
 
         # Validate range tuples (low <= high)
         for name, (lo, hi) in [

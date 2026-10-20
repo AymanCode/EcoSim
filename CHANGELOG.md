@@ -4,6 +4,22 @@ Notable changes and decisions for EcoSim, newest first. The project does not use
 
 ## Unreleased
 
+### 2026-10-20: Skills learned on the job wear off out of work, never below week-1 skill (households, flag off)
+
+This rebuilds #39 from `main`, following Claude's review and Ayman's decision: *"skill loss needs a floor... the floor is where a household starts in week 1: time out of work erodes skill gained on the job, not the starting level."* New switch `CONFIG.households.skills_dynamics`, default `False`. With it off, runs are identical to `main`.
+
+- **On:** `Economy._batch_update_skills` runs once a tick, after `_sync_firm_employee_rosters`.
+  - Employed households gain `g * (1 - s)`, where `g` is the household's existing `skill_growth_rate` trait. That is the same per-week rate main's yearly grant multiplies by weeks worked, now credited weekly; realized learning is 6.2% of the gap per year against main's 6.3%.
+  - Unemployed households lose only the gain above their week-1 skill `f` (`HouseholdAgent.skill_floor`): `s = f + (s - f) * (1 - d_w)`. Skill approaches `f` smoothly and never goes below it.
+  - Paid education raises `f` by the skill it buys, so schooling is not worn off.
+- **Depreciation `d`:** drawn per household from `skill_gain_depreciation_annual_range = (0.5, 0.9)` per year of the gain. Each household gets its own generator seeded by (run seed, stream 0x5D11, household id), so no module RNG draw changes. The draw is cached in `_household_static_traits` (no `id()` key).
+- **Calibration** (`tools/analysis/run_households_skill_rank_loss.py`, seeds 42/7/1/3/11): the realized one-year rank loss with peers still learning is 4.2 percentile points (3.4-5.4), against 1.8 with the flag off and about 5.5 in Edin & Gustavsson (2008). With −50% it is 3.1; with +50% (capped below 1) it is 4.6. The floor bounds how much can be lost.
+- **Toggle hazard fixed:** while the flag is on, the yearly grant clock is held at the current tick, so switching it off later cannot pay out the on-weeks at once.
+- **Retired config keys (rule R12, one mechanism):** `skill_decay_unemployment_threshold` (was `26`, ticks unemployed before decay), `skill_decay_rate_per_tick` (was `0.002`) and `skill_decay_floor` (was `0.1`). No code read them.
+- **New validation:** `skill_gain_depreciation_annual_range` must be finite with `0 <= lo <= hi < 1`; `skill_growth_rate_range` finite with `0 <= lo <= hi <= 0.01`.
+
+Evidence: `test_households_skills.py` (11 tests, 15 cases, including a 156-tick live `Economy.step()` run asserting realized gains, wear-off, and no household below its floor). By-window panel (`tools/analysis/run_household_window_panel.py` + `summarize_household_window_panel.py`, 1,000 households, 260 ticks, seeds 42/7/1/3/11, one process per arm): see PR.
+
 ### 2026-10-16: Poverty and wealth-loss terms read liquid wealth
 
 Bug fix from the PR7 investigation (item 3). `Economy._batch_update_wellbeing` read `cash_balance` alone for the poverty penalties and the wealth-loss term. The weekly deposit sweep runs after `last_tick_cash_start` is set and before wellbeing, so saving money in the bank counted as a wealth loss. The legacy withdrawal refills cash only to about 160, below the 200 poverty line, so households with savings were also scored as poor.

@@ -907,6 +907,10 @@ class Economy:
         """
         households = self.households
         preference_once = bool(CONFIG.households.fix_preference_applied_once)
+        skills_key = (
+            (int(CONFIG.random_seed or 0), tuple(CONFIG.households.skill_gain_depreciation_annual_range))
+            if CONFIG.households.skills_dynamics else None
+        )
         cached = self._household_static_traits_cache
         # Holding the list itself (not its id) means a replaced list can never
         # match through a reused id.
@@ -914,7 +918,7 @@ class Economy:
             cached is not None
             and cached[0] is households
             and cached[1] == len(households)
-            and cached[2] == preference_once
+            and cached[2] == (preference_once, skills_key)
         ):
             return cached[3]
 
@@ -959,8 +963,79 @@ class Economy:
             "drawdown_rates": drawdown_rates,
             "precomputed_fractions": precomputed_fractions,
         }
-        self._household_static_traits_cache = (households, len(households), preference_once, traits)
+        if skills_key is not None:
+            # skills_dynamics: the learning trait and the weekly share of the
+            # on-the-job gain lost out of work (both fixed per household).
+            traits["skill_growth_rates"] = np.array(
+                [float(h.skill_growth_rate) for h in households], dtype=np.float64
+            )
+            traits["skill_gain_depreciation_weekly"] = self._skill_gain_depreciation_weekly(households)
+        self._household_static_traits_cache = (
+            households, len(households), (preference_once, skills_key), traits
+        )
         return traits
+
+    #: Named RNG stream for the per-household skill-depreciation draw. Each
+    #: household gets its own generator seeded by (run seed, this stream id,
+    #: household id), so the draw does not touch the module RNGs other traits
+    #: use and cannot collide with them or depend on other households.
+    SKILL_DEPRECIATION_STREAM = 0x5D11
+
+    @classmethod
+    def _skill_gain_depreciation_weekly(cls, households) -> np.ndarray:
+        """Weekly share of the on-the-job skill gain lost while unemployed.
+
+        Annual rate d ~ U(skill_gain_depreciation_annual_range) per household,
+        converted so 52 weekly steps lose exactly d: 1 - (1 - d) ** (1 / 52).
+        """
+        lo, hi = CONFIG.households.skill_gain_depreciation_annual_range
+        seed = int(CONFIG.random_seed or 0)
+        annual = np.array([
+            np.random.default_rng([seed, cls.SKILL_DEPRECIATION_STREAM, int(h.household_id)]).uniform(lo, hi)
+            if hi > lo else lo
+            for h in households
+        ], dtype=np.float64)
+        return 1.0 - np.power(1.0 - annual, 1.0 / 52.0)
+
+    def _batch_update_skills(self) -> None:
+        """Weekly skill update under ``CONFIG.households.skills_dynamics``.
+
+        Runs once per tick after labor outcomes and roster sync.
+
+        - Employed: learning by doing, ``s += g * (1 - s)``, with ``g`` the
+          household's ``skill_growth_rate`` trait.
+        - Unemployed: only the on-the-job gain above the household's week-1
+          skill ``f`` (``HouseholdAgent.skill_floor``) wears off:
+          ``s = f + (s - f) * (1 - d_w)``. At or below ``f`` nothing changes.
+
+        ``skill_floor`` is the household's skill before its first weekly
+        update (its starting skill, or its skill the week the flag is switched
+        on). Paid education (``maybe_active_education``) raises the floor by
+        the skill it buys, so schooling is not worn off. Result is clipped to
+        [0, 1].
+        """
+        households = self.households
+        n = len(households)
+        if n == 0:
+            return
+        traits = self._household_static_traits()
+        learn = traits["skill_growth_rates"]
+        depreciate = traits["skill_gain_depreciation_weekly"]
+        for household in households:
+            if household.skill_floor is None:
+                household.skill_floor = float(household.skills_level)
+        skills = np.fromiter((h.skills_level for h in households), dtype=np.float64, count=n)
+        floors = np.fromiter((h.skill_floor for h in households), dtype=np.float64, count=n)
+        employed = np.fromiter((h.employer_id is not None for h in households), dtype=bool, count=n)
+        gain = np.maximum(skills - floors, 0.0)
+        updated = np.where(
+            employed,
+            skills + learn * (1.0 - skills),
+            np.where(skills > floors, floors + gain * (1.0 - depreciate), skills),
+        )
+        np.clip(updated, 0.0, 1.0, out=updated)
+        for household, value in zip(households, updated.tolist()):
+            household.skills_level = value
 
     def _household_consumption_budgets(
         self,
@@ -2521,6 +2596,9 @@ class Economy:
         # Keep firm-side employee rosters aligned with household employment outcomes.
         # This prevents stale counts in firm telemetry versus unemployment metrics.
         self._sync_firm_employee_rosters()
+        if CONFIG.households.skills_dynamics:
+            # After roster sync, so employment status is final for the week.
+            self._batch_update_skills()
         if payment_arm:
             self.payment_project_worker_by_firm = {}
             if self.config.payment_services_project_enabled:
