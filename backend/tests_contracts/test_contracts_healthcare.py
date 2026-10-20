@@ -299,3 +299,36 @@ def test_contract_healthcare_wages_are_pinned_to_the_policy_minimum_wage(tiny_ec
         assert healthcare.wage_offer == pytest.approx(policy_minimum)
         for worker_id in healthcare.employees:
             assert healthcare.actual_wages[worker_id] == pytest.approx(policy_minimum)
+
+
+def test_contract_profitable_healthcare_firm_spends_nothing_on_rd(fixed_seed):
+    """R&D buys quality, and no healthcare decision reads quality.
+
+    Care is left out of the shopping snapshots, provider choice reads queue and
+    price, and healing reads the patient's missing health. Before this rule the
+    generic R&D step still spent up to 10% of a profitable week's revenue.
+    """
+    firm = _new_healthcare_firm(price=40.0)
+    firm.cash_balance = 1_000.0
+    firm.net_profit = 300.0
+    rd_before = firm.accumulated_rd_investment
+
+    spent = firm.apply_rd_and_quality_update(revenue=1_000.0)
+
+    assert spent == 0.0
+    assert firm.cash_balance == pytest.approx(1_000.0)
+    assert firm.accumulated_rd_investment == pytest.approx(rd_before)
+
+
+def test_contract_profitable_food_firm_still_spends_on_rd(fixed_seed):
+    """Guard: the healthcare exception does not switch R&D off for goods firms."""
+    firm = _new_healthcare_firm(price=40.0)
+    firm.good_category = "Food"
+    firm.good_name = "Food"
+    firm.cash_balance = 1_000.0
+    firm.net_profit = 300.0
+
+    spent = firm.apply_rd_and_quality_update(revenue=1_000.0)
+
+    assert spent > 0.0
+    assert firm.cash_balance == pytest.approx(1_000.0 - spent)

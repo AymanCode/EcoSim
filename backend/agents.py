@@ -5259,6 +5259,12 @@ class FirmAgent(AgentMixin):
         if self.survival_mode:
             return 0.0
 
+        # Healthcare does no R&D: no care decision reads quality (care is not
+        # in the shopping snapshots, provider choice reads queue and price, and
+        # healing reads the patient's missing health). Owner decision 2026-10-20.
+        if self.good_category.lower() == "healthcare":
+            return 0.0
+
         # Feature 4: Pro-Cyclical R&D — tied to net profit margin
         # Unprofitable firms spend nothing on R&D. Profitable firms scale up
         # R&D with margin, capped at a reasonable maximum.

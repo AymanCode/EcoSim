@@ -4,6 +4,14 @@ Notable changes and decisions for EcoSim, newest first. The project does not use
 
 ## Unreleased
 
+### 2026-10-20: Healthcare does no R&D
+
+Owner decision (Ayman). R&D buys quality, and no healthcare decision reads quality: care is left out of the shopping snapshots, provider choice reads queue length and price, and a visit heals the patient's missing health whatever the provider. Before, the generic phase-11.6 rule (`FirmAgent.apply_rd_and_quality_update`) still sent 5-10% of a profitable week's revenue from a Healthcare firm to the miscellaneous pool. It also ignored cash: the baseline clinic's one R&D payment on seed 42 (44.36, week 42) was made at -10,716. Now Healthcare firms return 0 from that step, next to the survival-mode exit. Other categories are unchanged.
+
+- Seed 42, 1,000 households, 260 weeks, current pricing: R&D disappears from the clinic's cash flow. Final cash -73,047.50 becomes -73,042.23, because the clinic is profitable in only one week. The price-to-demand investigation (same date) shows this matters once the price covers costs: with that proposed fix applied by monkeypatch, R&D would otherwise take about 17,000 over five years, and the clinic ends at +14,033 instead of +2,044.
+
+Evidence: `test_contract_profitable_healthcare_firm_spends_nothing_on_rd` (fails on main: 100.0 spent from 1,000 of revenue) and the guard `test_contract_profitable_food_firm_still_spends_on_rd` (passes on both). Backend suite 847 passed, 1 failed (`test_langgraph_is_installed_and_the_government_graph_builds`, pre-existing: `langgraph` is not installed in this venv).
+
 ### 2026-10-16: Poverty and wealth-loss terms read liquid wealth
 
 Bug fix from the PR7 investigation (item 3). `Economy._batch_update_wellbeing` read `cash_balance` alone for the poverty penalties and the wealth-loss term. The weekly deposit sweep runs after `last_tick_cash_start` is set and before wellbeing, so saving money in the bank counted as a wealth loss. The legacy withdrawal refills cash only to about 160, below the 200 poverty line, so households with savings were also scored as poor.
