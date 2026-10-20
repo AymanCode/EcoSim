@@ -330,7 +330,7 @@ export const LEVERS = {
   },
   profit_tax_rate: {
     name: 'the tax on profits',
-    help: 'Sets the tax on business profits, with richer businesses paying a larger share.',
+    help: 'Sets the tax on business profits; businesses that earn more in a week pay a higher rate.',
     kind: 'rate',
     values: {},
     policy: rate => `a ${percent(rate)} tax on profits`,
