@@ -10,7 +10,7 @@ Firm capacity counted every worker as one head, so skill and effort were clipped
 
 Health on the flag-on path defaults to `main_weight` (main's performance multiplier, normalized at a frozen employed state) so the health channel is not dropped. `absence` and `presenteeism` are config options and are not the default. A per-worker cap (`effective_labor_per_worker_cap`, default false) is the option that stops one worker's surplus filling another's shortfall.
 
-The paired window panel, including long unemployment spells, is in the pull request. The skill-ordered hiring queue is unchanged.
+The paired window panel, including long unemployment spells, is in the pull request. The skill-ordered hiring queue is unchanged. The rules record for this change is v1.12 (pending lead confirmation): #43 v1.7, #48 v1.8, #45 v1.9, #46 v1.10, households #54 v1.11, this change v1.12, renumbered at merge if the order changes.
 
 ### 2026-10-16: Poverty and wealth-loss terms read liquid wealth
 
