@@ -46,6 +46,7 @@ from fiscal_guards import (
     projected_public_works_startup_cost,
     public_works_affordable_budget,
     trailing_gdp,
+    treasury_net_position,
 )
 import numpy as np
 import math
@@ -8861,6 +8862,7 @@ class Economy:
 
         # Government metrics — derived numeric parameters
         metrics["government_cash"] = gov.cash_balance
+        metrics["government_net_position"] = treasury_net_position(gov)
         metrics["wage_tax_rate"] = gov.wage_tax_rate
         metrics["profit_tax_rate"] = gov.profit_tax_rate
         metrics["unemployment_benefit"] = gov.unemployment_benefit_level
@@ -8872,7 +8874,8 @@ class Economy:
         metrics["external_injection_total"] = float(self.external_injection_total)
 
         # Government metrics — budget pressure
-        metrics["deficit_ratio"] = max(0.0, -gov.cash_balance) / max(metrics["gdp_this_tick"], 1.0)
+        # Net of public debt (G1): with no debt this is negative cash, as before.
+        metrics["deficit_ratio"] = max(0.0, -treasury_net_position(gov)) / max(metrics["gdp_this_tick"], 1.0)
         metrics["fiscal_pressure"] = gov.fiscal_pressure
         metrics["fiscal_pressure_instant_ratio"] = self.last_fiscal_pressure_instant_ratio
         metrics["fiscal_pressure_denominator_gdp"] = self.last_fiscal_pressure_denominator_gdp
@@ -8949,6 +8952,9 @@ class Economy:
             metrics["bank_cash_reserves"] = bank.cash_reserves
             metrics["bank_total_deposits"] = bank.total_deposits
             metrics["bank_total_loans_outstanding"] = bank.total_loans_outstanding
+            metrics["bank_public_debt_held"] = bank.public_debt_held
+            metrics["bank_total_assets"] = bank.total_assets
+            metrics["bank_equity"] = bank.equity
             metrics["bank_base_interest_rate"] = bank.base_interest_rate
             metrics["bank_deposit_rate"] = bank.deposit_rate
             metrics["bank_loan_loss_provision"] = bank.loan_loss_provision

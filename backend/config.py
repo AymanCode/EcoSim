@@ -795,12 +795,21 @@ class GovernmentPolicyConfig:
     rent_stabilization_strict_max_increase: float = 1.005
 
     # Public debt held by the bank (round 1 G1). True: when the treasury ends
-    # its spending with negative cash, it borrows the gap from the bank, up to
-    # the bank's lendable cash (reserves above the reserve requirement), pays
+    # its spending with negative cash, it borrows from the bank, up to the
+    # bank's lendable cash (reserves above the reserve requirement), pays
     # weekly interest on what it owes, and repays from cash above its working
-    # balance. Whatever the bank cannot lend stays as negative treasury cash,
-    # exactly as on main. False: no borrowing or interest (main's behavior).
-    public_debt_enabled: bool = True
+    # balance. Whatever the bank cannot lend stays as negative treasury cash.
+    # False (default, main's behavior): no new borrowing. Debt already owed
+    # when the flag is turned off mid-run keeps paying interest and is repaid
+    # from surplus; it is never frozen or forgiven. Off by default until Ayman
+    # decides otherwise (new behavior ships flag off).
+    public_debt_enabled: bool = False
+    # How much the treasury borrows once it is short (owner question Q2):
+    # "zero" (default): borrow only the shortfall, back to $0 of cash.
+    # "buffer": borrow back up to the working balance
+    # (public_debt_cash_buffer_weeks of spending), as the Treasury's one-week
+    # cash policy does, so cash-limited programs next week see that balance.
+    public_debt_borrow_target: str = "zero"
     # Risk premium on public debt, added to the bank's current lending rate,
     # per unit of annualized debt/GDP (0.035 = 3.5 basis points per percentage
     # point). Midpoint of Laubach (2009, JEEA 7(4):858-885): a 1 pp rise in
@@ -1076,6 +1085,13 @@ class SimulationConfig:
             raise ValueError("food_elasticity must be non-negative")
         if self.households.services_elasticity < 0:
             raise ValueError("services_elasticity must be non-negative")
+        gov = self.government
+        if gov.public_debt_borrow_target not in {"zero", "buffer"}:
+            raise ValueError("public_debt_borrow_target must be 'zero' or 'buffer'")
+        for name in ("public_debt_risk_premium", "public_debt_cash_buffer_weeks"):
+            value = getattr(gov, name)
+            if not (math.isfinite(float(value)) and float(value) >= 0.0):
+                raise ValueError(f"government.{name} must be finite and >= 0")
         if not (math.isfinite(self.households.tie_break_scale) and self.households.tie_break_scale >= 0.0):
             raise ValueError("tie_break_scale must be finite and non-negative")
         if self.labor_market.switcher_vacancy_cap_per_firm < 0:

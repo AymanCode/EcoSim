@@ -48,6 +48,22 @@ def annualized_debt_to_gdp(government: Any, recent_gdp: float) -> float:
     return public_debt / annualized_gdp
 
 
+def treasury_net_position(government: Any) -> float:
+    """Treasury cash minus public debt owed to the bank, in $.
+
+    A reporting signal, not a spending gate. Before public debt existed the
+    treasury's net position was its cash, since a deficit showed up as
+    negative cash. With ``public_debt_enabled`` the bank lends the shortfall
+    and cash returns to about zero, so cash alone no longer shows a deficit;
+    cash minus debt does. The LLM government's prompt, fiscal mode, policy
+    memory and evaluation summaries read it. With no debt it equals cash.
+    """
+
+    cash = _to_float(getattr(government, "cash_balance", 0.0), 0.0)
+    debt = max(0.0, _to_float(getattr(government, "public_debt", 0.0), 0.0))
+    return cash - debt
+
+
 def fiscal_reserve_floor(recent_gdp: float) -> float:
     """Treasury reserve required after major discretionary startup spending."""
 

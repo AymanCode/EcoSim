@@ -5431,6 +5431,10 @@ class BankAgent:
     cash_reserves: float = 500_000.0
     total_deposits: float = 0.0
     total_loans_outstanding: float = 0.0
+    # Public debt principal the treasury owes the bank ($, G1). A bank asset
+    # kept apart from total_loans_outstanding, which the payment arm checks
+    # against its registered household/firm claims.
+    public_debt_held: float = 0.0
 
     # Rate policy
     base_interest_rate: float = 0.03                    # 3% annual
@@ -5506,6 +5510,21 @@ class BankAgent:
     def required_reserves(self) -> float:
         """Minimum cash the bank must hold against deposits."""
         return self.total_deposits * self.reserve_ratio
+
+    @property
+    def loan_book(self) -> float:
+        """$ owed to the bank: household and firm loans plus public debt."""
+        return self.total_loans_outstanding + self.public_debt_held
+
+    @property
+    def total_assets(self) -> float:
+        """Reserves plus everything owed to the bank, in $."""
+        return self.cash_reserves + self.loan_book
+
+    @property
+    def equity(self) -> float:
+        """Assets minus deposits, in $. Negative means the bank is insolvent on its books."""
+        return self.total_assets - self.total_deposits
 
     @property
     def lendable_cash(self) -> float:
@@ -5804,9 +5823,9 @@ class BankAgent:
         # Spread cap: deposit rate never exceeds 1.25× the nominal share of lending rate
         new_rate = min(new_rate, self.base_interest_rate * self.savings_rate_share_of_lending_rate * 1.25)
 
-        # Thin loan book adjustment
+        # Thin loan book adjustment (public debt is part of the loan book)
         if self.total_deposits > 0:
-            loan_to_deposit = self.total_loans_outstanding / self.total_deposits
+            loan_to_deposit = self.loan_book / self.total_deposits
             if loan_to_deposit < 0.05:
                 new_rate *= 0.25
 
@@ -5860,6 +5879,18 @@ class BankAgent:
 # -----------------------------------------------------------------------------
 # Section: GovernmentAgent policy levers and fiscal planning
 # -----------------------------------------------------------------------------
+def _public_debt_param(name: str) -> float:
+    """Read a public-debt config value, rejecting NaN, inf and negatives.
+
+    ``SimulationConfig`` validates these at construction; this also catches
+    values set on ``CONFIG`` at runtime, which bypass that check.
+    """
+    value = float(getattr(CONFIG.government, name))
+    if not (math.isfinite(value) and value >= 0.0):
+        raise ValueError(f"government.{name} must be finite and >= 0, got {value!r}")
+    return value
+
+
 @dataclass(slots=True)
 class GovernmentAgent(AgentMixin):
     """Represents the government in the economic simulation.
@@ -6784,7 +6815,7 @@ class GovernmentAgent(AgentMixin):
             bank: the lender.
             debt_to_gdp: public debt / annualized GDP (unitless, >= 0).
         """
-        premium = max(0.0, float(CONFIG.government.public_debt_risk_premium)) * max(0.0, float(debt_to_gdp))
+        premium = _public_debt_param("public_debt_risk_premium") * max(0.0, float(debt_to_gdp))
         return max(0.0, float(bank.current_annual_rate)) + premium
 
     def pay_public_debt_interest(self, bank: Optional["BankAgent"], recent_gdp: float) -> float:
@@ -6805,11 +6836,11 @@ class GovernmentAgent(AgentMixin):
             Interest paid in $.
         """
         self.last_tick_debt_interest = 0.0
-        if not CONFIG.government.public_debt_enabled or bank is None:
-            self.last_tick_debt_rate = 0.0
-            return 0.0
-        if self.public_debt <= 0.0:
-            self.last_tick_debt_rate = max(0.0, float(bank.current_annual_rate))
+        self.last_tick_debt_rate = 0.0
+        # Runs whenever debt is owed, even with public_debt_enabled turned off
+        # mid-run: interest on existing debt is owed regardless of the flag.
+        # The reported rate is 0 with no debt.
+        if bank is None or self.public_debt <= 0.0:
             return 0.0
         ticks_per_year = max(1, int(CONFIG.time.ticks_per_year))
         annual_gdp = max(0.0, float(recent_gdp or 0.0)) * ticks_per_year
@@ -6829,7 +6860,7 @@ class GovernmentAgent(AgentMixin):
         spending (``last_tick_spending``), so it scales with what the treasury
         actually pays out.
         """
-        weeks = max(0.0, float(CONFIG.government.public_debt_cash_buffer_weeks))
+        weeks = _public_debt_param("public_debt_cash_buffer_weeks")
         return weeks * max(0.0, float(self.last_tick_spending))
 
     def settle_public_debt(self, bank: Optional["BankAgent"]) -> Dict[str, float]:
@@ -6838,14 +6869,21 @@ class GovernmentAgent(AgentMixin):
         Call once per tick after discretionary spending and before
         ``make_investments``.
 
-        1. Borrow: if cash is negative, the bank lends
-           ``min(shortfall, bank.lendable_cash)``, and only when
-           ``bank.can_lend()``. Lending moves bank reserves to the treasury,
-           so money is conserved. Any part the bank cannot lend stays as
-           negative cash, as on main.
-        2. Repay: while debt is outstanding, all free cash above
-           ``public_debt_cash_buffer()`` repays principal, back into bank
-           reserves.
+        1. Borrow (only with ``public_debt_enabled``): if cash is negative,
+           the bank lends up to the borrow target, at most
+           ``bank.lendable_cash`` and only when ``bank.can_lend()``. The
+           target is $0 of cash (``public_debt_borrow_target="zero"``) or
+           ``public_debt_cash_buffer()`` (``"buffer"``; while debt is owed,
+           cash below the buffer is also topped up). Lending moves bank
+           reserves to the treasury, so money is conserved. Any part the bank
+           cannot lend stays as negative cash, as on main.
+        2. Repay (whenever debt is owed, flag on or off): free cash above
+           ``public_debt_cash_buffer()`` and ``payment_reserved_cash`` repays
+           principal, back into bank reserves.
+
+        Runs with ``stabilization_disabled`` too: financing is not a
+        stabilizer, and switching it off with the stabilizers would mix two
+        changes in one comparison (owner question Q4).
 
         Args:
             bank: the lender, or None (then nothing is borrowed, as on main).
@@ -6858,17 +6896,24 @@ class GovernmentAgent(AgentMixin):
         self.last_tick_debt_repaid = 0.0
         self.last_tick_debt_unfunded = 0.0
         result = {"borrowed": 0.0, "repaid": 0.0, "unfunded": 0.0}
-        if not CONFIG.government.public_debt_enabled:
-            return result
 
-        shortfall = max(0.0, -self.cash_balance)
+        # New borrowing needs the flag. Repayment of debt already owed does
+        # not: with the flag turned off mid-run, existing debt keeps being
+        # repaid from surplus (and pays interest), never frozen.
         borrowed = 0.0
-        if shortfall > 0.0 and bank is not None and bank.can_lend():
-            borrowed = min(shortfall, bank.lendable_cash)
-            self.public_debt += borrowed
-            self.cash_balance += borrowed
-            bank.cash_reserves -= borrowed
-        unfunded = shortfall - borrowed
+        if CONFIG.government.public_debt_enabled and bank is not None:
+            target = 0.0
+            if CONFIG.government.public_debt_borrow_target == "buffer":
+                target = self.public_debt_cash_buffer()
+            short = self.cash_balance < 0.0 or (self.public_debt > 0.0 and self.cash_balance < target)
+            need = max(0.0, target - self.cash_balance) if short else 0.0
+            if need > 0.0 and bank.can_lend():
+                borrowed = min(need, bank.lendable_cash)
+                self.public_debt += borrowed
+                self.cash_balance += borrowed
+                bank.cash_reserves -= borrowed
+                bank.public_debt_held += borrowed
+        unfunded = max(0.0, -self.cash_balance)
 
         repaid = 0.0
         if self.public_debt > 0.0 and bank is not None:
@@ -6878,6 +6923,7 @@ class GovernmentAgent(AgentMixin):
                 self.public_debt -= repaid
                 self.cash_balance -= repaid
                 bank.cash_reserves += repaid
+                bank.public_debt_held = max(0.0, bank.public_debt_held - repaid)
 
         self.last_tick_debt_borrowed = result["borrowed"] = borrowed
         self.last_tick_debt_repaid = result["repaid"] = repaid
@@ -6913,7 +6959,7 @@ class GovernmentAgent(AgentMixin):
 
         # G1: while the treasury owes the bank, settle_public_debt has already
         # used the surplus to repay principal, so there is no bond buy.
-        if CONFIG.government.public_debt_enabled and self.public_debt > 0.0:
+        if self.public_debt > 0.0:
             return investments
 
         # Define surplus threshold as percentage of cash balance
