@@ -6386,44 +6386,46 @@ class GovernmentAgent(AgentMixin):
         return max(0.0, min(1.0, CONFIG.government.healthcare_visit_subsidy_share))
 
     def expected_healthcare_household_share(
-        self, visit_price: float, subsidy_budget_left: float = math.inf
+        self, visit_price: float, *, subsidy_budget_left: float
     ) -> float:
-        """Estimated share (0..1) of a visit at ``visit_price`` the household pays.
+        """Share (0..1) of one visit at ``visit_price`` the household pays, given a subsidy budget.
 
-        Mirrors the legacy visit charge in
-        ``Economy._process_healthcare_services``. The payment sequences
-        (``income_first`` / ``income_late``) charge care elsewhere and ignore
-        this rule; ``Economy.expected_healthcare_household_share`` picks the
-        right one, so callers in the simulation should use that.
+        The legacy visit rule in ``Economy._process_healthcare_services``:
+        the treasury is asked for ``visit_price * healthcare_visit_subsidy_share()``
+        and pays at most ``subsidy_budget_left``; the household pays the rest.
+        The cap is in dollars, so once it binds the share rises with the price.
+        Pure: reads state, charges and reserves nothing.
 
-        Legacy rule: the treasury is asked for
-        ``visit_price * healthcare_visit_subsidy_share()`` and pays at most
-        the subsidy budget left this tick; the household pays the rest.
-        Because the cap is a dollar budget, the share rises with the price
-        once the cap binds. Reads state only; nothing is charged or reserved.
-
-        It is an estimate: the budget when a household reserves money can
-        differ from the budget when the visit is served (other subsidy
-        payments in between, or a new tick's cap). Pass the live budget from
-        ``Economy.sector_subsidy_budget_left()``, or use
-        ``Economy.expected_healthcare_household_share``, which does that.
+        This prices one visit against one budget. Several queued visits draw
+        on the same budget, so in the simulation use
+        ``Economy.expected_healthcare_household_shares()``, which walks the
+        queues in service order and passes each visit the budget left after
+        the visits served before it.
 
         Args:
-            visit_price: the provider's visit price in $ (negative reads as 0).
-            subsidy_budget_left: $ the treasury can still pay toward subsidies
-                this tick. Default: no cap.
+            visit_price: the provider's visit price in $. Must be finite and
+                non-negative (the charge path cannot price a NaN or infinite
+                visit either); otherwise ``ValueError``.
+            subsidy_budget_left: $ the treasury can still pay toward this
+                visit. Required, so a caller cannot get an uncapped share by
+                leaving it out. ``math.inf`` means explicitly uncapped; a
+                negative value reads as 0; NaN raises ``ValueError``.
 
         Returns:
             ``(price - min(price * share, budget)) / price``, clamped to
             [0, 1]. At price 0 no dollars are needed, so the cap cannot bind
             and the result is ``1 - healthcare_visit_subsidy_share()``.
         """
-        price = max(0.0, float(visit_price or 0.0))
+        price = float(visit_price)
+        if not math.isfinite(price) or price < 0.0:
+            raise ValueError(f"visit_price must be finite and non-negative, got {visit_price!r}")
+        budget = float(subsidy_budget_left)
+        if math.isnan(budget):
+            raise ValueError("subsidy_budget_left must not be NaN")
         share = self.healthcare_visit_subsidy_share()
-        if price <= 0.0:
+        if price == 0.0:
             return max(0.0, min(1.0, 1.0 - share))
-        requested = price * share
-        paid = min(requested, max(0.0, float(subsidy_budget_left)))
+        paid = min(price * share, max(0.0, budget))
         return max(0.0, min(1.0, (price - paid) / price))
 
     def get_unemployment_benefit_level(self) -> float:
