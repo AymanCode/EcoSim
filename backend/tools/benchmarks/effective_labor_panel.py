@@ -26,8 +26,10 @@ WINDOWS = (("1-100", 1, 100), ("101-200", 101, 200), ("201+", 201, None))
 
 def _spell_snapshot():
     path = Path(__file__).resolve().parents[2] / "worker_effectiveness.py"
-    spec = importlib.util.spec_from_file_location("effective_labor_spell_measure", path)
+    name = "effective_labor_spell_measure"
+    spec = importlib.util.spec_from_file_location(name, path)
     module = importlib.util.module_from_spec(spec)
+    sys.modules[name] = module
     spec.loader.exec_module(module)
     return module.spell_snapshot
 
@@ -41,6 +43,7 @@ def _parse() -> argparse.Namespace:
     parser.add_argument("--firms", type=int, default=5)
     parser.add_argument("--flag", action="store_true")
     parser.add_argument("--hash", action="store_true")
+    parser.add_argument("--payment-sequence", default="legacy")
     parser.add_argument("--out", type=Path, default=None)
     parser.add_argument("--set", action="append", default=[], dest="overrides")
     parser.add_argument("--aggregate", type=Path, default=None)
@@ -122,8 +125,8 @@ def _record(economy, spell_snapshot) -> dict:
 
 
 def _run(args: argparse.Namespace) -> dict:
-    if args.backend is not None:
-        sys.path.insert(0, str(args.backend.resolve()))
+    backend = args.backend.resolve() if args.backend is not None else Path(__file__).resolve().parents[2]
+    sys.path.insert(0, str(backend))
     from config import CONFIG, clone_config, use_config
     from tools.benchmarks.regression_snapshot import ROUND_DECIMALS, _set_seed, snapshot_economy
     from tools.runners.run_large_simulation import create_large_economy
@@ -134,6 +137,8 @@ def _run(args: argparse.Namespace) -> dict:
     started = time.perf_counter()
     with use_config(clone_config()):
         _set_seed(args.seed)
+        if args.payment_sequence != "legacy":
+            CONFIG.payment_sequence = args.payment_sequence
         if args.flag:
             if not hasattr(CONFIG.firms, "effective_labor_enabled"):
                 raise SystemExit("this backend has no effective_labor_enabled flag")
@@ -160,6 +165,7 @@ def _run(args: argparse.Namespace) -> dict:
         "seed": args.seed,
         "ticks": args.ticks,
         "flag": bool(args.flag),
+        "payment_sequence": args.payment_sequence,
         "overrides": list(args.overrides),
         "seconds": elapsed,
         "rows": rows,
