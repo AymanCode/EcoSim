@@ -4,6 +4,14 @@ Notable changes and decisions for EcoSim, newest first. The project does not use
 
 ## Unreleased
 
+### 2026-10-20: Effective labour, off by default
+
+Firm capacity counted every worker as one head, so skill and effort were clipped by the headcount cap. `firms.effective_labor_enabled` (default false) builds Food and Services capacity from effective labour: each worker's skill, category experience, and health channel, divided by one fixed reference worker. The hire count uses skill and category experience only. Realized output is the plan clipped by that capacity; it does not pay the old above-plan multiplier. Healthcare visits keep their skill term and, with the flag on, scale by the wellbeing ratio. Flag off is the previous headcount path.
+
+Health on the flag-on path defaults to `main_weight` (main's performance multiplier, normalized at a frozen employed state) so the health channel is not dropped. `absence` and `presenteeism` are config options and are not the default. A per-worker cap (`effective_labor_per_worker_cap`, default false) is the option that stops one worker's surplus filling another's shortfall.
+
+The paired window panel, including long unemployment spells, is in the pull request. The skill-ordered hiring queue is unchanged.
+
 ### 2026-10-16: Poverty and wealth-loss terms read liquid wealth
 
 Bug fix from the PR7 investigation (item 3). `Economy._batch_update_wellbeing` read `cash_balance` alone for the poverty penalties and the wealth-loss term. The weekly deposit sweep runs after `last_tick_cash_start` is set and before wellbeing, so saving money in the bank counted as a wealth loss. The legacy withdrawal refills cash only to about 160, below the 200 poverty line, so households with savings were also scored as poor.

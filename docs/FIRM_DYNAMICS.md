@@ -205,3 +205,11 @@ The system is trying to create a cleaner feedback loop:
 
 The result should be a labor market and goods market that clear through
 incremental local feedback rather than through one-off jumps.
+
+---
+
+## Effective labour (flag off by default)
+
+`firms.effective_labor_enabled` defaults to false. Nothing in the sections above changes while it is off.
+
+When it is on, Food and Services capacity is built from effective labour instead of a headcount. A reference worker counts as 1. Hiring still orders candidates by skill, and the number of openings uses skill and category experience only. This week's output uses the health and mood of people already on the roster. Output is the plan clipped by that capacity. Housing is unchanged. Healthcare visit capacity already includes skill; the flag scales it by the wellbeing ratio only.

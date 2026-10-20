@@ -37,6 +37,7 @@ import numpy as np
 
 from config import CONFIG
 from policy_schema import ORDERED_LEVERS as POLICY_ORDERED_LEVERS, SIMPLE_ENUM_LEVERS, TAX_LIMITS
+from worker_effectiveness import worker_weights
 
 
 from utils.category_utils import get_good_category
@@ -1308,12 +1309,13 @@ class HouseholdAgent(AgentMixin):
 
     @property
     def can_work(self) -> bool:
-        """
-        Check whether the household is healthy enough to participate in labor matching.
+        """Whether this household is healthy enough to be matched to a job.
 
-        Health below 0.10 means the household is too sick to work this tick.
-        The performance multiplier already degrades output for unhealthy workers;
-        this threshold only excludes the truly incapacitated.
+        Health below 0.10 keeps them out of the labor force this tick. It does
+        not by itself scale output. With effective labour off, goods output
+        uses ``get_performance_multiplier`` and services uses a wellbeing
+        blend, and both are then clipped by headcount capacity. With the flag
+        on, the same health enters the worker's labour weight.
         """
         return self.health >= 0.10
 
@@ -2012,6 +2014,11 @@ class FirmAgent(AgentMixin):
     # (employees list, its length, actual_wages dict, its length, wage_offer, bill);
     # see _current_wage_bill. Cleared by _invalidate_wage_bill_cache.
     _wage_bill_cache: Optional[tuple] = field(default=None, init=False, repr=False, compare=False)
+    # Effective-labour cache. Read only when firms.effective_labor_enabled is
+    # on. ``_effective_labor_weights`` maps employee id to (observable, full).
+    # ``_last_effective_labor_capacity`` is this tick's services output cap.
+    _effective_labor_weights: Optional[Dict[int, tuple]] = field(default=None, init=False, repr=False, compare=False)
+    _last_effective_labor_capacity: Optional[float] = field(default=None, init=False, repr=False, compare=False)
     # Self-financed housing construction cost set by invest_in_unit_expansion and
     # routed to the misc pool by Economy.step (phase 6.6), which resets it to 0.
     _pending_construction_cost: float = field(default=0.0, init=False, repr=False, compare=False)
@@ -2479,9 +2486,68 @@ class FirmAgent(AgentMixin):
         self.decision_diagnostics["service_weak_demand_streak"] = self.service_weak_demand_streak
         return utilization
 
+    def bind_effective_labor(self, lookup: Dict[int, object], spec: object) -> None:
+        """Store (observable, full) weights for the current roster.
+
+        Called once before planning and again before production, after the
+        roster has changed. The worker loop does not read config.
+        """
+        category = self.good_category or ""
+        weights: Dict[int, tuple] = {}
+        for employee_id in self.employees:
+            household = lookup.get(employee_id) if lookup is not None else None
+            weights[employee_id] = worker_weights(household, category, spec)
+        self._effective_labor_weights = weights
+
+    def _capacity_for_labor_units(self, labor_units: float) -> float:
+        """Same frontier as headcount capacity, with labour units in place of heads."""
+        if not math.isfinite(labor_units) or labor_units <= 0.0:
+            return 0.0
+        config = self._firm_config()
+        if self._is_generic_services_firm():
+            return self._service_units_per_worker() * labor_units
+        units = max(self.units_per_worker, config.min_base_productivity)
+        capital = max(self.capital_stock, 0.01)
+        return units * (capital ** config.alpha_k) * (labor_units ** config.alpha_n)
+
+    def _labor_units_for_headcount(self, headcount: float, skill_only: bool) -> float:
+        """Labour units for a headcount, using the bound roster.
+
+        Layoffs remove the front of ``employees``, so the workers a smaller
+        headcount keeps are the tail. Heads past the current roster are
+        reference hires and count as 1. A fraction takes that share of the
+        next worker, or of a reference hire once the roster is used up.
+        With no bound weights, every head counts as 1.
+        """
+        if not math.isfinite(headcount) or headcount <= 0.0:
+            return 0.0
+        weights = self._effective_labor_weights
+        employees = self.employees
+        if not weights or not employees:
+            return headcount
+        index = 0 if skill_only else 1
+        chosen = []
+        for employee_id in employees:
+            pair = weights.get(employee_id)
+            chosen.append(0.0 if pair is None else max(0.0, float(pair[index])))
+        count = len(chosen)
+        whole = int(math.floor(headcount))
+        frac = headcount - whole
+        if whole >= count:
+            return float(sum(chosen) + (headcount - count))
+        total = float(sum(chosen[count - whole:])) if whole else 0.0
+        if frac > 0.0:
+            total += frac * chosen[count - whole - 1]
+        return total
+
     def _capacity_for_workers(self, worker_count: float) -> float:
         """Two-factor Cobb-Douglas capacity: TFP * K^alpha_k * N^alpha_n."""
         config = self._firm_config()
+        if config.effective_labor_enabled:
+            # Full weights: this week's unit plan sees people already employed.
+            return self._capacity_for_labor_units(
+                self._labor_units_for_headcount(worker_count, skill_only=False)
+            )
         if worker_count <= 0:
             return 0.0
         if self._is_generic_services_firm():
@@ -2499,6 +2565,10 @@ class FirmAgent(AgentMixin):
     def _workers_for_sales(self, target_output: float) -> int:
         """Inverse of the two-factor capacity function to meet desired output."""
         config = self._firm_config()
+        if config.effective_labor_enabled:
+            # Hire count uses skill and category experience only. Mood is not
+            # known at hire (R06). New heads past the roster weigh 1.
+            return self._headcount_for_observable_capacity(target_output, config.min_target_workers)
         if target_output <= 0:
             return config.min_target_workers
         if self._is_generic_services_firm():
@@ -2509,6 +2579,33 @@ class FirmAgent(AgentMixin):
         effective_tfp = units * (K ** config.alpha_k)
         required = (target_output / max(effective_tfp, 1e-6)) ** (1.0 / config.alpha_n)
         return max(config.min_target_workers, math.ceil(required))
+
+    def _headcount_for_observable_capacity(self, target_output: float, minimum: int) -> int:
+        """Smallest headcount whose skill-and-experience capacity meets the target."""
+        if target_output <= 0:
+            return minimum
+        limit = 100_000
+
+        def covers(heads: int) -> bool:
+            units = self._labor_units_for_headcount(float(heads), skill_only=True)
+            return self._capacity_for_labor_units(units) >= target_output
+
+        if covers(0):
+            return max(minimum, 0)
+        low = 0
+        high = 1
+        while high < limit and not covers(high):
+            low = high
+            high = min(limit, high * 2)
+        if not covers(high):
+            return max(minimum, high)
+        while low + 1 < high:
+            mid = (low + high) // 2
+            if covers(mid):
+                high = mid
+            else:
+                low = mid
+        return max(minimum, high)
 
     def _category_expected_sales_market_cap(self, total_households: int) -> float:
         """Population-scaled upper bound for durable expected demand."""
@@ -4809,12 +4906,18 @@ class FirmAgent(AgentMixin):
             realized_production_units = 0.0
             self.inventory_units = 0.0
         elif self._is_generic_services_firm():
-            service_worker_slots = max(0, int(self.production_capacity_units))
-            active_service_workers = min(int(result.get("productive_worker_count", len(self.employees))), service_worker_slots)
-            realized_production_units = min(
-                max(0.0, realized_production_units),
-                self._capacity_for_workers(active_service_workers)
-            )
+            if self._firm_config().effective_labor_enabled and self._last_effective_labor_capacity is not None:
+                realized_production_units = min(
+                    max(0.0, realized_production_units),
+                    float(self._last_effective_labor_capacity),
+                )
+            else:
+                service_worker_slots = max(0, int(self.production_capacity_units))
+                active_service_workers = min(int(result.get("productive_worker_count", len(self.employees))), service_worker_slots)
+                realized_production_units = min(
+                    max(0.0, realized_production_units),
+                    self._capacity_for_workers(active_service_workers)
+                )
 
         # Track production for pricing decisions
         self.last_units_produced = realized_production_units

@@ -131,6 +131,8 @@ Private firm behavior includes:
 
 Baseline firms are protected from bankruptcy and provide a safety-net floor. Public works can create additional baseline-style capacity when enabled by policy.
 
+`firms.effective_labor_enabled` defaults off. Off, a worker counts as one head in capacity, which is the behavior above. On, Food and Services capacity uses effective labour (skill, category experience, and health, each divided by a fixed reference worker), and the hire count uses skill and category experience only. Realized output does not exceed the plan. There is no new UI control for the flag.
+
 ## Labor Market
 
 The default matcher is `fast`; the legacy matcher remains available for comparison.

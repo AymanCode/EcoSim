@@ -13,6 +13,13 @@ from contextvars import ContextVar
 from dataclasses import dataclass, field
 from typing import Dict, Iterator, Optional, Tuple
 
+from worker_effectiveness import (
+    MOOD_HALF_SPAN,
+    REFERENCE_MOOD,
+    REFERENCE_SKILL,
+    validate_effective_labor_config,
+)
+
 
 @dataclass
 class TimeConfig:
@@ -684,6 +691,35 @@ class FirmBehaviorConfig:
     nairu_threshold: float = 0.05       # Unemployment rate below which labor is scarce
     unemployment_ma_window: int = 4     # Ticks in short-term unemployment moving average
 
+    # Effective labour. Off (the default) keeps headcount capacity, so a run
+    # matches main. On, capacity is the sum of worker weights relative to one
+    # fixed reference worker. See backend/worker_effectiveness.py.
+    effective_labor_enabled: bool = False
+    # main_weight keeps main's health slope. absence and presenteeism are
+    # the other owner options; they are not the default.
+    effective_labor_health: str = "main_weight"
+    # Option D: cap each worker at the reference so a colleague's surplus
+    # cannot fill someone else's shortfall. Off, which is the sum the plan
+    # describes.
+    effective_labor_per_worker_cap: bool = False
+    # ±12% effort span. Inactive while health mode is main_weight, because
+    # morale and happiness are already inside the performance multiplier.
+    worker_effort_range: float = 0.12
+    worker_effort_reference_mood: float = REFERENCE_MOOD
+    worker_effort_mood_half_span: float = MOOD_HALF_SPAN
+    # BLS CPS Table 47 lost-worktime rate, own illness or injury.
+    worker_absence_reference_rate: float = 0.011
+    # Full health, the household's starting health. Not the employed mean.
+    worker_absence_reference_health: float = 1.0
+    # Halford et al. 2012: sick leave at the bottom of self-rated health is
+    # about 2.2 times the top.
+    worker_absence_sick_ratio: float = 2.2
+    # Stewart et al. 2003 JAMA: reduced performance at work is about 3.3
+    # times the absence share of pain-related lost productive time.
+    worker_presenteeism_multiple: float = 3.3
+    # Week-1 median skill at 1,000 households. Not the live employed mean.
+    worker_reference_skill: float = REFERENCE_SKILL
+
 
 @dataclass
 class GovernmentPolicyConfig:
@@ -1076,6 +1112,8 @@ class SimulationConfig:
         ]:
             if lo > hi:
                 raise ValueError(f"{name} low ({lo}) must be <= high ({hi})")
+
+        validate_effective_labor_config(self.firms)
 
 
 _DEFAULT_CONFIG = SimulationConfig()
