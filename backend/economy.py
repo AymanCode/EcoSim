@@ -5562,7 +5562,9 @@ class Economy:
             per_firm_sales: Sales data from goods market clearing
 
         Returns:
-            List of dicts with firm_id, profit_before_tax, and price_ceiling_tax
+            List of dicts with firm_id, profit_before_tax, price_ceiling_tax
+            and cash_balance; on the payment arms also the property-tax
+            inputs (good_category, property_tax_rate, max_rental_units, price).
         """
         snapshots = []
         PRICE_CEILING = CONFIG.market.price_ceiling
@@ -5606,8 +5608,12 @@ class Economy:
                 "firm_id": firm.firm_id,
                 "profit_before_tax": profit_before_tax,
                 "price_ceiling_tax": price_ceiling_tax,
-                **({"cash_balance": float(firm.cash_balance),
-                    "good_category": firm.good_category,
+                # Every sequence sends cash; the profit-tax brackets rank by
+                # profit_before_tax and do not read it.
+                "cash_balance": float(firm.cash_balance),
+                # Property-tax inputs go only to the payment arms; legacy has
+                # never sent them (see K01 in docs/ECONOMIC_AGENT_RULES.md).
+                **({"good_category": firm.good_category,
                     "property_tax_rate": float(firm.property_tax_rate),
                     "max_rental_units": int(firm.max_rental_units),
                     "price": float(firm.price)} if self.payment_sequence != "legacy" else {}),

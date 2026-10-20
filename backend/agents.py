@@ -31,7 +31,7 @@ import math
 import random
 import zlib
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 
 import numpy as np
 
@@ -6470,6 +6470,82 @@ class GovernmentAgent(AgentMixin):
 
         return transfers
 
+    # Profit-tax band names, lowest first, with the profit percentile that
+    # closes each band (the top band is open-ended).
+    PROFIT_TAX_BANDS = (
+        ("bottom", 25), ("below_median", 50), ("above_median", 75),
+        ("top_25", 90), ("top_10", 99), ("top_1", None),
+    )
+
+    def _profit_tax_band_rates(self) -> List[float]:
+        """Return the six profit-tax band rates, lowest band first.
+
+        Built from ``profit_tax_rate`` (the lever) and the fixed-seed
+        ``profit_bracket_extras`` (B23): bottom = base - poor_discount
+        (floored at 0.01), below-median = 0.9 x base, above-median = base,
+        then base + rich / very_rich / top_1 extras. Every rate is capped at
+        0.60. The values are sorted so a band never pays less than the band
+        below it, the same fix B23 applied to the wage-band multipliers: at the
+        default base of 0.20 the bottom rate (0.1915) is above the
+        below-median rate (0.18), so the two swap.
+
+        Returns:
+            Six rates in [0.01, 0.60], non-decreasing.
+        """
+        base = self.profit_tax_rate
+        extras = self.profit_bracket_extras
+        cap = 0.60  # every bracket shares the top bracket's cap (B23)
+        rates = [
+            max(0.01, base - extras["poor_discount"]),
+            base * 0.9,
+            base,
+            base + extras["rich"],
+            base + extras["very_rich"],
+            base + extras["top_1"],
+        ]
+        return sorted(min(cap, r) for r in rates)
+
+    def _profit_tax_brackets(self, firms: List[Dict[str, object]]) -> Dict[int, Tuple[str, float]]:
+        """Assign each profitable firm a profit-tax band by its taxable profit.
+
+        The band edges are the 25th, 50th, 75th, 90th and 99th percentiles of
+        this tick's positive ``profit_before_tax`` values, so they move with
+        the profit distribution rather than with any fixed dollar amount. Only
+        firms with positive profit set the edges and get a band: a firm with
+        zero or negative profit owes no profit tax at any rate, and counting
+        loss-makers would push the edges toward zero and put small earners
+        in the top bands. Equal profits always land in the same band.
+        With fewer than four profitable firms the percentiles mean little,
+        so every profitable firm pays the base rate.
+
+        Args:
+            firms: Snapshot dicts with ``firm_id`` and ``profit_before_tax``.
+                Cash is not read: the tax is on earnings, not on wealth.
+
+        Returns:
+            ``{firm_id: (band_name, rate)}`` for firms with positive profit.
+            Band names come from ``PROFIT_TAX_BANDS``; ``"base"`` marks the
+            fewer-than-four fallback.
+        """
+        profitable = {
+            f["firm_id"]: float(f.get("profit_before_tax", 0.0))
+            for f in firms
+            if float(f.get("profit_before_tax", 0.0)) > 0.0
+        }
+        if len(profitable) < 4:
+            return {firm_id: ("base", self.profit_tax_rate) for firm_id in profitable}
+
+        percentiles = [pct for _, pct in self.PROFIT_TAX_BANDS if pct is not None]
+        edges = np.percentile(list(profitable.values()), percentiles)
+        rates = self._profit_tax_band_rates()
+        result: Dict[int, Tuple[str, float]] = {}
+        for firm_id, profit in profitable.items():
+            # First band whose upper edge is at or above the profit; above
+            # the 99th percentile falls through to the open top band.
+            index = next((i for i, edge in enumerate(edges) if profit <= edge), len(edges))
+            result[firm_id] = (self.PROFIT_TAX_BANDS[index][0], rates[index])
+        return result
+
     def plan_taxes(
         self,
         households: List[Dict[str, object]],
@@ -6517,69 +6593,13 @@ class GovernmentAgent(AgentMixin):
 
             wage_taxes[household_id] = max(wage_income * rate, 0.0)
 
-        # WEALTH-BASED PROGRESSIVE TAXATION FOR FIRMS
-        # Use quartiles of firm cash balance to determine tax brackets
-        # This ensures consistent progressive taxation regardless of absolute wealth levels
-
-        firm_cash = [f.get("cash_balance", 0.0) for f in firms]
-
-        if firm_cash and len(firm_cash) >= 4:
-            # Calculate percentile thresholds
-            q1, q2, q3, p90, p99 = np.percentile(firm_cash, [25, 50, 75, 90, 99])  # poor / average / rich / very rich / ultra rich
-
-            # Fixed-seed bracket extras, drawn once in __post_init__ (B23).
-            extras = self.profit_bracket_extras
-            cap = 0.60  # every bracket shares the top bracket's cap (B23)
-
-            # Base profit tax rate (for average firms in Q2-Q3 range)
-            base_rate = self.profit_tax_rate
-
-            # Top 1%: base + (20-35% extra) - MASSIVE wealth tax on ultra-rich
-            top_1_rate = min(cap, base_rate + extras["top_1"])
-
-            # Very rich (top 10%): base + (10-20% extra)
-            very_rich_rate = min(cap, base_rate + extras["very_rich"])
-
-            # Rich (top 25%): base + (5% to very_rich_extra - 1%)
-            rich_rate = min(cap, base_rate + extras["rich"])
-
-            # Average: base rate (Q2-Q3)
-            average_rate = min(cap, base_rate)
-
-            # Poor: base - (0-5%)
-            poor_rate = min(cap, max(0.01, base_rate - extras["poor_discount"]))
-        else:
-            # Not enough firms for quartiles, use base rate
-            q1 = q2 = q3 = p90 = p99 = 0.0
-            poor_rate = average_rate = rich_rate = very_rich_rate = top_1_rate = self.profit_tax_rate
-
-        # Apply wealth-based tax rates to each firm
+        # Profit tax: one rate on the whole profit, picked by the firm's
+        # profit rank this tick (see _profit_tax_brackets).
+        brackets = self._profit_tax_brackets(firms)
         for firm in firms:
             firm_id = firm["firm_id"]
-            profit_before_tax = firm.get("profit_before_tax", 0.0)
-            cash_balance = firm.get("cash_balance", 0.0)
-
-            # Determine tax rate based on wealth percentile
-            if cash_balance <= q1:
-                # Poor firms (bottom 25%)
-                rate = poor_rate
-            elif cash_balance <= q2:
-                # Below average firms (25-50%)
-                rate = average_rate * 0.9  # Slight discount
-            elif cash_balance <= q3:
-                # Above average firms (50-75%)
-                rate = average_rate
-            elif cash_balance <= p90:
-                # Rich firms (75-90%)
-                rate = rich_rate
-            elif cash_balance <= p99:
-                # Very rich firms (90-99%)
-                rate = very_rich_rate
-            else:
-                # TOP 1% - Ultra rich firms get hit with massive wealth tax
-                rate = top_1_rate
-
-            # Calculate total profit tax
+            profit_before_tax = float(firm.get("profit_before_tax", 0.0))
+            rate = brackets[firm_id][1] if firm_id in brackets else self.profit_tax_rate
             profit_taxes[firm_id] = max(profit_before_tax * rate, 0.0)
 
         # Calculate property taxes for housing firms

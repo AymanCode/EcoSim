@@ -963,16 +963,17 @@ def test_contract_profit_tax_brackets_share_the_top_cap_and_are_built_once(monke
     import agents as agents_module
 
     gov = GovernmentAgent(cash_balance=0.0, profit_tax_rate=0.45)
-    firms = [{"firm_id": i, "profit_before_tax": 100.0, "cash_balance": float(i)} for i in range(1, 101)]
+    # Brackets rank by profit (profit-ranked brackets change); firm i earns 100 * i.
+    firms = [{"firm_id": i, "profit_before_tax": 100.0 * i} for i in range(1, 101)]
 
     def no_rng(*_args, **_kwargs):
         raise AssertionError("plan_taxes must not build a new generator")
 
     monkeypatch.setattr(agents_module.random, "Random", no_rng)
     plan = gov.plan_taxes([], firms)
-    rates = {round(plan["profit_taxes"][i] / 100.0, 10) for i in range(1, 101)}
+    rates = {round(plan["profit_taxes"][i] / (100.0 * i), 10) for i in range(1, 101)}
     assert max(rates) <= 0.60 + 1e-12
-    assert plan["profit_taxes"][95] == pytest.approx(60.0)  # very-rich band, capped
+    assert plan["profit_taxes"][95] == pytest.approx(0.60 * 9_500.0)  # top-10% band, capped
 
 
 def _debt_test_firm(category: str) -> FirmAgent:

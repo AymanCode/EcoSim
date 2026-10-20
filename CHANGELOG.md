@@ -4,6 +4,19 @@ Notable changes and decisions for EcoSim, newest first. The project does not use
 
 ## Unreleased
 
+### 2026-10-20: Profit-tax brackets rank firms by profit, not cash
+
+Owner decision (Ayman, option B): the profit tax is on earnings, so its brackets rank firms by earnings. Before: `GovernmentAgent.plan_taxes` cut six brackets at the 25th/50th/75th/90th/99th percentiles of firm `cash_balance`. On the default `legacy` sequence `Economy._build_firm_tax_snapshots` sent no cash, so every firm read 0, fell in the bottom bracket and paid 0.1915 (base 0.20 minus the 0.0085 fixed-seed discount); on `income_first`/`income_late` a cash-rich firm with a small profit paid a top rate. Now:
+
+- `GovernmentAgent._profit_tax_brackets` cuts the same percentiles over the tick's positive `profit_before_tax` values; loss-making firms owe nothing and do not set the edges; fewer than four profitable firms pay the base rate (the old fallback, which counted all firms).
+- `GovernmentAgent._profit_tax_band_rates` builds the same six rates from `profit_tax_rate` and `profit_bracket_extras`, capped at 0.60, and sorts them so a higher bracket never pays less. At the default base the bottom rate (0.1915) was above the 25th-50th rate (0.18); they swap. This is the B23 fix for the wage-band multipliers applied to profit brackets.
+- The legacy snapshot now carries `cash_balance` like the payment arms (nothing reads it for the tax). Legacy still sends no property-tax inputs (K01).
+- Rules doc v1.7 updates K01 and the M06 note.
+
+Seeded run (400 households, 6 firms per category, 104 weeks, legacy, seeds 42 and 1-4, main vs this change): average rate on taxed profit 0.191 -> 0.323, profit tax 5,023 -> 7,262 per week, Misc bond buy (treasury surplus to households) 14,680 -> 16,853 per week, so nearly all the extra revenue goes back to households that way. Mean private firm cash 271.6k -> 216.2k, dividends 2,659 -> 2,271 per week. Unemployment 0.290 -> 0.293, happiness 0.793 -> 0.792 and firm exits 3.6 -> 3.2 move within the seed spread. `income_first` seed 42: average rate 0.363 -> 0.355, profit tax 5,589 -> 5,431 per week. Not changed: pricing still grosses margins up by the flat `profit_tax_rate`, not the firm's bracket rate (logged for later).
+
+Evidence: `tests_contracts/test_profit_tax_brackets.py` (5 tests; 3 fail on main: equal profit with different cash paid different rates, a higher profit paid a lower rate, legacy produced one rate; the loss-maker and fewer-than-four guards pass on both). `test_contract_profit_tax_brackets_share_the_top_cap_and_are_built_once` now varies profit instead of cash.
+
 ### 2026-10-16: Poverty and wealth-loss terms read liquid wealth
 
 Bug fix from the PR7 investigation (item 3). `Economy._batch_update_wellbeing` read `cash_balance` alone for the poverty penalties and the wealth-loss term. The weekly deposit sweep runs after `last_tick_cash_start` is set and before wellbeing, so saving money in the bank counted as a wealth loss. The legacy withdrawal refills cash only to about 160, below the 200 poverty line, so households with savings were also scored as poor.
