@@ -35,7 +35,7 @@ from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 import numpy as np
 
-from config import CONFIG, services_target_markup_held
+from config import CONFIG, services_target_markup_held, sticky_prices_enabled
 from policy_schema import ORDERED_LEVERS as POLICY_ORDERED_LEVERS, SIMPLE_ENUM_LEVERS, TAX_LIMITS
 
 
@@ -1910,6 +1910,8 @@ _PLANNER_DIAGNOSTIC_KEYS = frozenset((
     "healthcare_surge_multiplier", "healthcare_target_price",
     "service_break_even_price", "service_capacity_for_pricing", "service_debt_service_for_pricing",
     "service_markup_next", "service_realized_markup", "service_target_markup",
+    "price_review", "price_shadow", "price_review_hazard",
+    "price_review_inflation_term_active", "price_review_inflation_annual",
     "service_total_cost_per_unit", "service_utilization",
     "service_utilization_for_wage_recovery", "service_variable_cost_per_unit",
     "service_wage_bill_for_pricing", "service_wage_recovery_cut", "service_weak_demand_streak",
@@ -1968,6 +1970,14 @@ class FirmAgent(AgentMixin):
     pricing_operating_unit_cost: float = 0.0  # cash operating cost per stable-throughput unit (no depreciation); used for price floors
     markup: float = 0.3  # markup over unit_cost
     price: float = 6.5  # current price
+    # Sticky prices. None / 0 while the firm posts every tick. price_shadow
+    # and markup_shadow are the weekly rule's price and markup. The posted
+    # price and the posted markup change only at a review. The cap reads
+    # last_posted_price_change_tick. There is no unread "next review" field.
+    price_shadow: Optional[float] = None
+    markup_shadow: Optional[float] = None
+    price_review_pressure: float = 0.0
+    last_posted_price_change_tick: Optional[int] = None
 
     # Quality and R&D
     rd_spending_rate: float = 0.05  # fraction of revenue spent on R&D each tick
@@ -4037,6 +4047,177 @@ class FirmAgent(AgentMixin):
             # Request investment loan — processed in Phase 1.5
             self.needs_investment_loan = True
             self.investment_loan_amount = investment_cost
+
+    def uses_sticky_prices(self, in_warmup: bool) -> bool:
+        """Private Food, Services or Healthcare, after warm-up, with the flag on.
+
+        Baseline firms keep their government rules. Housing is excluded because
+        settlement rewrites rent from occupancy in the same tick.
+        """
+        if in_warmup or self.is_baseline or not sticky_prices_enabled():
+            return False
+        return (self.good_category or "").lower() in {"food", "services", "healthcare"}
+
+    def clear_sticky_price_state(self) -> None:
+        """Drop the shadow when this firm is not holding a posted price."""
+        self.price_shadow = None
+        self.markup_shadow = None
+        self.price_review_pressure = 0.0
+        self.last_posted_price_change_tick = None
+
+    def price_review_interval(self) -> float:
+        """Calm weeks between this firm's reviews.
+
+        One uniform draw on the category range, from a purpose-prefixed hash
+        of ``firm_id``. No random draw is consumed, so the flag does not shift
+        any other stream. Firms with different ids get different intervals.
+        """
+        cfg = CONFIG.firms
+        category = (self.good_category or "").lower()
+        low, high = {
+            "food": cfg.price_review_weeks_food,
+            "healthcare": cfg.price_review_weeks_healthcare,
+        }.get(category, cfg.price_review_weeks_services)
+        low_f = float(low)
+        high_f = float(high)
+        unit = zlib.crc32(f"price_review:{int(self.firm_id)}".encode()) / 2**32
+        return low_f + unit * (high_f - low_f)
+
+    def price_review_hazard(self, posted: float, shadow: float, inflation_annual: Optional[float]) -> float:
+        """Per-tick review hazard. Non-finite inputs do not freeze the price.
+
+        ``(1/interval) * (1 + gap/gap_scale) * (1 + slope*max(0, inflation - knee))``
+        with ``gap = |posted/shadow - 1|``. A missing inflation rate (tracking
+        off, or no 52-week CPI yet) contributes a multiplier of 1, not a NaN.
+        """
+        cfg = CONFIG.firms
+        interval = self.price_review_interval()
+        if not math.isfinite(interval) or interval <= 0.0:
+            return 1.0
+        if not math.isfinite(posted) or not math.isfinite(shadow) or shadow <= 0.0 or posted <= 0.0:
+            gap = 0.0
+        else:
+            gap = abs(posted / shadow - 1.0)
+        gap_scale = float(cfg.price_review_gap_scale)
+        if not math.isfinite(gap_scale) or gap_scale <= 0.0:
+            return 1.0
+        inflation_term = 1.0
+        if inflation_annual is not None and math.isfinite(float(inflation_annual)):
+            knee = float(cfg.price_review_inflation_knee)
+            slope = float(cfg.price_review_inflation_slope)
+            if math.isfinite(knee) and math.isfinite(slope):
+                inflation_term = 1.0 + slope * max(0.0, float(inflation_annual) - knee)
+        hazard = (1.0 / interval) * (1.0 + gap / gap_scale) * inflation_term
+        if not math.isfinite(hazard) or hazard <= 0.0:
+            return 1.0
+        return hazard
+
+    def plan_sticky_pricing(
+        self,
+        current_tick: int,
+        inflation_annual: Optional[float],
+        sell_through_rate: float,
+        unemployment_rate: float,
+        health_snapshot: Optional[FirmHealthSnapshot] = None,
+        profit_tax_rate: float = 0.0,
+    ) -> Dict[str, float]:
+        """Run the weekly rule on the shadow. Post it only at a review.
+
+        The shadow carries its own price and its own markup, so a hold week
+        does not write the held price's margin onto the Services target, and
+        the shadow still follows the weekly rule (including that rule's
+        markup write-back). At a review both are applied together.
+
+        ``inflation_annual`` is the CPI's 52-week rate, a public statistic,
+        or None when that rate does not exist yet or inflation tracking is
+        off. The first sticky tick seeds the shadow at the posted price, so
+        turning the flag on does not jump the price by itself.
+        """
+        posted_price = float(self.price)
+        posted_markup = float(self.markup)
+        if not math.isfinite(posted_markup) or posted_markup < 0.0:
+            posted_markup = 0.0
+        if self.price_shadow is None or not math.isfinite(float(self.price_shadow)):
+            self.price_shadow = posted_price
+        if self.markup_shadow is None or not math.isfinite(float(self.markup_shadow)) or float(self.markup_shadow) < 0.0:
+            self.markup_shadow = posted_markup
+        if self.last_posted_price_change_tick is None:
+            # The price was last set on the previous non-sticky tick.
+            self.last_posted_price_change_tick = int(current_tick) - 1
+
+        self.price = float(self.price_shadow)
+        self.markup = float(self.markup_shadow)
+        try:
+            flexible = self.plan_pricing(
+                sell_through_rate,
+                unemployment_rate=unemployment_rate,
+                in_warmup=False,
+                health_snapshot=health_snapshot,
+                profit_tax_rate=profit_tax_rate,
+            )
+        finally:
+            self.price = posted_price
+            self.markup = posted_markup
+
+        shadow = flexible.get("price_next", posted_price)
+        if not math.isfinite(float(shadow)):
+            shadow = posted_price
+        shadow = max(float(self.min_price), float(shadow))
+        if not math.isfinite(shadow):
+            shadow = posted_price if math.isfinite(posted_price) else float(self.min_price)
+        self.price_shadow = shadow
+
+        shadow_markup = flexible.get("markup_next", posted_markup)
+        if not math.isfinite(float(shadow_markup)) or float(shadow_markup) < 0.0:
+            shadow_markup = posted_markup
+        self.markup_shadow = float(shadow_markup)
+
+        measured = (
+            inflation_annual is not None
+            and math.isfinite(float(inflation_annual))
+            and bool(CONFIG.inflation.enabled)
+        )
+        hazard = self.price_review_hazard(posted_price, shadow, float(inflation_annual) if measured else None)
+        self.price_review_pressure = float(self.price_review_pressure) + hazard
+        if not math.isfinite(self.price_review_pressure):
+            self.price_review_pressure = 1.0
+        review = self.price_review_pressure >= 1.0
+        if review:
+            self.price_review_pressure = 0.0
+
+        plan = dict(flexible)
+        if review:
+            plan["price_next"] = shadow
+            plan["markup_next"] = float(self.markup_shadow)
+        else:
+            # Hold. Do not replace the target with posted/unit_cost - 1.
+            plan["price_next"] = posted_price
+            plan["markup_next"] = posted_markup
+        plan["price_review"] = review
+        plan["price_shadow"] = shadow
+        self.decision_diagnostics["price_review"] = review
+        self.decision_diagnostics["price_shadow"] = shadow
+        self.decision_diagnostics["price_review_hazard"] = hazard
+        self.decision_diagnostics["price_review_inflation_term_active"] = measured
+        self.decision_diagnostics["price_review_inflation_annual"] = (
+            float(inflation_annual) if measured else None
+        )
+        return plan
+
+    def note_posted_price_change(self, tick: int, new_price: float) -> None:
+        """Record a tick on which the pricing plan changed the posted price.
+
+        The weekly cap reads this. Call it from planning only. The Services
+        clearing floor also changes the posted price and must not call this,
+        or a nudge resets the clock and the cap collapses to one week.
+        A review that the cap pins to the current price is not a change, so
+        the allowance keeps compounding.
+        """
+        if not math.isfinite(new_price) or not math.isfinite(float(self.price)):
+            return
+        scale = max(1.0, abs(float(self.price)))
+        if abs(float(new_price) - float(self.price)) > 1e-9 * scale:
+            self.last_posted_price_change_tick = int(tick)
 
     def _markup_for_price(self, price: float) -> float:
         """Markup over unit cost implied by ``price``; the current markup when unit cost is not positive."""

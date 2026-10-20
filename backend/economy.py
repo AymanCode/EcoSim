@@ -38,7 +38,7 @@ from dataclasses import dataclass, fields
 from collections import deque
 from typing import TYPE_CHECKING, Dict, List, Tuple, Optional
 
-from config import CONFIG, get_config, services_target_markup_held
+from config import CONFIG, get_config, services_target_markup_held, sticky_price_cap_compounds
 from fiscal_guards import (
     annualized_debt_to_gdp,
     fiscal_reserve_floor,
@@ -414,9 +414,26 @@ class Economy:
         proposed = max(float(getattr(firm, "min_price", 0.0) or 0.0), float(price_plan.get("price_next", current_price)))
         unit_cost = max(0.0, float(getattr(firm, "unit_cost", 0.0) or 0.0))
         cost_recovery_floor = max(float(getattr(firm, "min_price", 0.0) or 0.0), unit_cost)
+        multiplier = self._price_stabilization_multiplier(level)
+        # Sticky firms review every several weeks. Compounding keeps the
+        # lever's per-tick meaning: over the weeks since the pricing plan
+        # last changed the posted price, the firm may rise by multiplier^weeks.
+        # A Services clearing-floor nudge does not reset that clock. Off, or
+        # when this firm is not sticky, the allowance is one week, as before.
+        if firm.uses_sticky_prices(self.in_warmup) and sticky_price_cap_compounds():
+            anchor = getattr(firm, "last_posted_price_change_tick", None)
+            if anchor is None:
+                weeks = 1
+            else:
+                weeks = max(1, int(self.current_tick) - int(anchor))
+            allowance = multiplier ** weeks if math.isfinite(multiplier) else multiplier
+            if not math.isfinite(allowance):
+                allowance = multiplier
+        else:
+            allowance = multiplier
         max_allowed = max(
             float(getattr(firm, "min_price", 0.0) or 0.0),
-            current_price * self._price_stabilization_multiplier(level),
+            current_price * allowance,
         )
         if bool(getattr(firm, "survival_mode", False)) or float(getattr(firm, "cash_balance", 0.0) or 0.0) <= 0.0:
             max_allowed = max(max_allowed, cost_recovery_floor)
@@ -2234,14 +2251,46 @@ class Economy:
 
             # Plan pricing — pass current profit tax rate so firms inflate gross
             # margins to preserve their targeted after-tax margin.
-            price_plan = firm.plan_pricing(
-                self.last_tick_sell_through_rate.get(firm.firm_id, 0.5),
-                unemployment_rate=unemployment_rate,
-                in_warmup=self.in_warmup,
-                health_snapshot=health_snapshot,
-                profit_tax_rate=float(self.government.profit_tax_rate),
-            )
+            # Sticky firms run that same rule on a shadow price and post it
+            # only at a review. The CPI annual rate is a public statistic
+            # (R06); it is None until 52 post-warm-up weeks exist, and it is
+            # not read when inflation tracking is off.
+            if firm.uses_sticky_prices(self.in_warmup):
+                raw_inflation = self.consumer_prices.annual_rate
+                if (
+                    CONFIG.inflation.enabled
+                    and raw_inflation is not None
+                    and math.isfinite(float(raw_inflation))
+                ):
+                    inflation_annual = float(raw_inflation)
+                else:
+                    inflation_annual = None
+                price_plan = firm.plan_sticky_pricing(
+                    self.current_tick,
+                    inflation_annual,
+                    self.last_tick_sell_through_rate.get(firm.firm_id, 0.5),
+                    unemployment_rate=unemployment_rate,
+                    health_snapshot=health_snapshot,
+                    profit_tax_rate=float(self.government.profit_tax_rate),
+                )
+            else:
+                if (
+                    firm.price_shadow is not None
+                    or firm.markup_shadow is not None
+                    or firm.price_review_pressure != 0.0
+                    or firm.last_posted_price_change_tick is not None
+                ):
+                    firm.clear_sticky_price_state()
+                price_plan = firm.plan_pricing(
+                    self.last_tick_sell_through_rate.get(firm.firm_id, 0.5),
+                    unemployment_rate=unemployment_rate,
+                    in_warmup=self.in_warmup,
+                    health_snapshot=health_snapshot,
+                    profit_tax_rate=float(self.government.profit_tax_rate),
+                )
             self._apply_price_stabilization_to_plan(firm, price_plan)
+            if firm.uses_sticky_prices(self.in_warmup):
+                firm.note_posted_price_change(self.current_tick, float(price_plan["price_next"]))
             tick.firm_price_plans[firm.firm_id] = price_plan
 
             # Inflation model: legacy private Food/Services firms replace the
@@ -4876,6 +4925,11 @@ class Economy:
         firm_market_prices = []
         for firm, available in zip(firms, firm_available):
             effective_price = self._effective_market_price(firm, available)
+            # The floor can raise a Services price above the plan and above the
+            # weekly cap. It does not move the cap clock. That clock is the weeks
+            # since the pricing plan last changed the posted price. A floor nudge
+            # smaller than a recorded price change was resetting it every tick,
+            # so a sticky review was capped at one week.
             if (firm.good_category or "").lower() == "services" and effective_price > float(firm.price):
                 firm.price = effective_price
             firm_market_prices.append(effective_price)

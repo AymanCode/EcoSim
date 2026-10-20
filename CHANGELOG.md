@@ -4,6 +4,12 @@ Notable changes and decisions for EcoSim, newest first. The project does not use
 
 ## Unreleased
 
+### 2026-10-20: Sticky posted prices, flag off
+
+Private Food, Services and Healthcare firms can hold a posted price between reviews (`firms.sticky_prices_enabled`, default off). The existing weekly pricing rule still runs every tick, on a shadow price. At a review the posted price jumps to that shadow, and the markup the rule computed is applied with it. A hold week does not replace the Services target markup with the margin of the held price. The weekly price cap, at a review, allows its per-tick multiplier compounded over the weeks since the pricing plan last changed the posted price. A Services clearing-floor raise does not reset that clock. Baseline firms, Housing and warm-up still reprice every tick. The inflation term in the review hazard is zero until a 52-week CPI rate exists, and whenever inflation tracking is off. Flag off is the previous weekly rule. No new cash flow.
+
+Realized price spells are shorter than the calm intervals when the shadow drifts, and Food change sizes stay larger than the 9.5–11% regular changes in the data. A closed-form target price per category would be a separate change. The seeded panel is in the pull request.
+
 ### 2026-10-20: Services target markup can be held, flag off
 
 The Services boom price treats `markup` as the firm's desired margin, then replaces that field with the margin implied by the smoothed price. The profit-tax gross-up and the one-week utilization surge therefore become next week's target, and the margin compounds while a firm stays busy. A slump writes the clearance margin back the same way, so the next boom does not start from the margin the firm was given. `firms.services_target_markup_held` (default off) keeps the sampled target. Private firms keep their own draw from `markup_range` (0.20 to 0.40). Baseline Services firms keep the 0.3 field default. The posted price for the current tick, including the tax gross-up and the surge, is unchanged. Warm-up, a disabled stabilizer and the weekly price cap no longer write a realized margin back onto that target. Flag off is the previous rule.

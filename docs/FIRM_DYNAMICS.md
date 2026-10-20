@@ -173,6 +173,16 @@ letting different firms react at different speeds.
 - baseline firms during warmup still use their safety-net pricing rules
 - healthcare keeps queue-pressure-aware pricing
 
+### Sticky posted prices
+
+`firms.sticky_prices_enabled` (default off) makes a private Food, Services or Healthcare firm, after warm-up, post a new price only at a review. The weekly rule above still runs every tick, starting from a shadow price rather than the posted one. At a review the posted price and the rule's markup both move to the shadow. A hold week leaves them alone: it does not set the markup from the held price. Housing, baseline firms and warm-up are unchanged.
+
+The calm interval is a per-firm hash draw (Food 15–39 weeks, Services 19–34, Healthcare 34–65). A larger gap between the posted price and the shadow, and annual CPI inflation above 12.5%, bring the review forward. The inflation term is off until the index has a 52-week rate, and whenever inflation tracking is off.
+
+The government price cap still limits the posted price. On a review it allows the per-tick multiplier compounded over the weeks since the pricing plan last changed the posted price, so the lever keeps its per-week meaning. The Services clearing floor can still raise a posted price between reviews, including by more than the cap, and that raise does not reset the cap clock. The shadow is not capped.
+
+Food's weekly rule is a step from the current price, not a target level. The shadow therefore accumulates those steps while the posted price is held, and a review can jump by more than the 9.5–11% regular change in the price data, often in the opposite direction from the previous jump. A one-step reset from the posted price is not a fix for that. It needs a target price for each category. Services already has one before its smoothing; Food does not. That target is not in this change.
+
 ---
 
 ## Labor-Market Signals

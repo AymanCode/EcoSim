@@ -644,6 +644,46 @@ class FirmBehaviorConfig:
     # The posted price, the temporary surge and the tax gross-up are unchanged
     # on the tick they are computed. Owner decision whether to turn it on.
     services_target_markup_held: bool = False
+    # Sticky posted prices. Default off: every firm still posts the weekly
+    # rule. On: after warm-up, a private Food, Services or Healthcare firm
+    # keeps its posted price until a review. The same weekly rule runs every
+    # tick on a shadow price. At a review the posted price becomes that
+    # shadow, and the markup the rule just computed is applied with it. A
+    # hold week does not replace the Services target with the margin of the
+    # held price. Housing is excluded (settlement rewrites rent every tick).
+    # Baseline firms and warm-up keep the weekly rule. Owner decision
+    # whether to turn it on.
+    sticky_prices_enabled: bool = False
+    # Calm weeks between reviews, one hash draw per firm (no RNG draw).
+    # Month durations × 52/12, rounded to the nearest week. 1 <= low <= high.
+    # Food: Nakamura & Steinsson 2008 QJE, regular-price medians, unprocessed
+    # food 3.5 months and processed food 9.0 months.
+    price_review_weeks_food: Tuple[float, float] = (15.0, 39.0)
+    # Services: Bils & Klenow 2004 JPE, all items 4.3 months and services 7.8.
+    price_review_weeks_services: Tuple[float, float] = (19.0, 34.0)
+    # Healthcare: Bils & Klenow 2004, services 7.8 months and medical care 14.9.
+    price_review_weeks_healthcare: Tuple[float, float] = (34.0, 65.0)
+    # Gap |posted/shadow - 1| at which the review clock runs twice as fast.
+    # Golosov & Lucas 2007 mean regular increase 9.5%; Midrigan 2011 mean
+    # regular change 11%. A menu-cost firm reviews when the gap is about the
+    # size of the change it then makes. Must be finite and > 0.
+    price_review_gap_scale: float = 0.10
+    # Gagnon 2009 QJE: price-change frequency is flat below about 10-15%
+    # annual inflation (his regression cutoff is 12.5%), then rises 0.37
+    # points of monthly frequency per point of annual inflation. His
+    # Bils-Klenow basket frequency is 32.5% at 27.9% inflation, so about
+    # 26.8% at the knee; 0.37 / 0.268 = 1.38. Both must be finite and >= 0.
+    # The term is off until a 52-week CPI rate exists, and whenever inflation
+    # tracking is off. Deflation does not speed the clock.
+    price_review_inflation_knee: float = 0.125
+    price_review_inflation_slope: float = 1.38
+    # The weekly price cap, read at a review. True: the posted price may rise
+    # by the per-tick multiplier compounded over the weeks since the pricing
+    # plan last changed it. That is what the lever's "per tick" copy describes.
+    # A Services clearing-floor raise does not reset the clock. False: the
+    # same multiplier binds once per review. Ignored while sticky prices are
+    # off (the cap stays one week, as before).
+    sticky_price_cap_compounds: bool = True
     unit_cost_range: Tuple[float, float] = (4.0, 6.5)
 
     # Personality trait ranges (sampled once per firm at initialization)
@@ -1074,6 +1114,29 @@ class SimulationConfig:
             raise ValueError("services_expansion_min_excess_demand_ratio must be finite and non-negative")
         if type(self.firms.services_target_markup_held) is not bool:
             raise ValueError("services_target_markup_held must be a bool")
+        if type(self.firms.sticky_prices_enabled) is not bool:
+            raise ValueError("sticky_prices_enabled must be a bool")
+        if type(self.firms.sticky_price_cap_compounds) is not bool:
+            raise ValueError("sticky_price_cap_compounds must be a bool")
+        for name in (
+            "price_review_weeks_food",
+            "price_review_weeks_services",
+            "price_review_weeks_healthcare",
+        ):
+            low, high = getattr(self.firms, name)
+            if not (
+                math.isfinite(float(low))
+                and math.isfinite(float(high))
+                and 1.0 <= float(low) <= float(high)
+            ):
+                raise ValueError(f"{name} must be finite and satisfy 1 <= low <= high")
+        gap = self.firms.price_review_gap_scale
+        knee = self.firms.price_review_inflation_knee
+        slope = self.firms.price_review_inflation_slope
+        if not (math.isfinite(float(gap)) and float(gap) > 0.0):
+            raise ValueError("price_review_gap_scale must be finite and positive")
+        if not (math.isfinite(float(knee)) and float(knee) >= 0.0 and math.isfinite(float(slope)) and float(slope) >= 0.0):
+            raise ValueError("price review inflation knee and slope must be finite and non-negative")
 
         # Validate range tuples (low <= high)
         for name, (lo, hi) in [
@@ -1141,6 +1204,26 @@ class _ContextLocalConfig:
 
 
 CONFIG = _ContextLocalConfig()
+
+
+def _require_bool_flag(name: str) -> bool:
+    flag = getattr(get_config().firms, name)
+    if type(flag) is not bool:
+        raise ValueError(f"{name} must be a bool, got {type(flag).__name__}")
+    return flag
+
+
+def sticky_prices_enabled() -> bool:
+    """Whether private Food, Services and Healthcare firms hold a posted price.
+
+    Rejects anything that is not a real bool, including ``1`` and ``0``.
+    """
+    return _require_bool_flag("sticky_prices_enabled")
+
+
+def sticky_price_cap_compounds() -> bool:
+    """Whether a sticky review may use the weekly cap compounded over held weeks."""
+    return _require_bool_flag("sticky_price_cap_compounds")
 
 
 def services_target_markup_held() -> bool:

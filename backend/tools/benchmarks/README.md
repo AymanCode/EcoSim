@@ -60,6 +60,16 @@ python -m backend.tools.benchmarks.run_frontend_bench --households 10000 --ticks
 
 Launches Chrome through the Chrome DevTools Protocol, initializes the simulation through the real React UI, cycles dashboard views, and measures WebSocket payloads, JSON parse time, frame latency, long tasks, LCP, CLS, JS heap, DOM node count, and console errors.
 
+## Sticky-price panel
+
+One process, one arm. Seeded with `regression_snapshot._set_seed`. Both the sticky flag and the Services target-markup flag are set explicitly.
+
+```powershell
+python -m backend.tools.benchmarks.sticky_price_panel --seed 42 --ticks 260 --sticky on --ratchet on --arm sticky --out sticky.json
+```
+
+Writes per-tick rows (the same fields as the Services markup panel, plus the social-program multiplier and the CPI annual rate) and realized price spells for private Food and Services.
+
 ## Outputs
 
 By default, each command writes artifacts under:
