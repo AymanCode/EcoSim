@@ -97,6 +97,17 @@ class HouseholdBehaviorConfig:
     subsistence_min_cash: float = 50.0  # Always spend at least this much if available
     max_spend_fraction: float = 0.9  # Upper bound on discretionary spending fraction
 
+    # healthcare_food_first_reserve (households; re-cut of #47; default off).
+    #   While a household is queued for a healthcare visit, its weekly
+    #   consumption budget holds back the visit's expected out-of-pocket cost
+    #   (government's Economy.expected_healthcare_out_of_pocket_all(), #45),
+    #   after minimum food. Claim order on accessible liquidity, every payment
+    #   sequence: rent and loan installments -> minimum food
+    #   (min_food_per_tick x mean posted Food price) -> the reserve, capped at
+    #   what is left -> the rest of the budget. Covered care reserves $0. No
+    #   money moves; the charge at service is unchanged. No new parameter.
+    healthcare_food_first_reserve: bool = False
+
     # Job acceptance (H1 - no job worse than benefits)
     min_job_premium_over_unemployment: float = 1.05  # Jobs must pay 5% more than unemployment benefits
 

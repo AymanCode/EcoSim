@@ -74,7 +74,7 @@ The authoritative lifecycle is `Economy.step()` in [`backend/economy.py`](../bac
 15. Services firms may expand employee-slot infrastructure; bank-backed service infrastructure loans may be offered.
 16. Housing rental market clears, repairs apply, housing firms consider unit expansion, and bank-backed housing expansion loans may be offered.
 17. Miscellaneous revenue is redistributed through the internal misc firm path.
-18. Healthcare firms process queued visits up to effective capacity; households pay with cash/deposits, subsidies, or medical loans where available.
+18. Healthcare firms process queued visits up to effective capacity; households pay with cash/deposits, subsidies, or medical loans where available. With `CONFIG.households.healthcare_food_first_reserve` on (default off), a queued household's weekly consumption budget holds back the visit's expected out-of-pocket cost (`Economy.expected_healthcare_out_of_pocket_all()`) after minimum food: the claim order is rent and loan installments, minimum food, the visit (capped at what is left), then the rest, on every payment sequence. Nothing is charged before service.
 19. Government assesses firm profit/property taxes from sales. Household tax and benefit totals retain the earlier assessment.
 20. Firms receive sales revenue, pay taxes, and apply price/wage updates.
 21. Bank loan repayments are collected after wages and sales are available.

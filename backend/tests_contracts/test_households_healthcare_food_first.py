@@ -1,0 +1,245 @@
+"""Households: food first, then the queued healthcare visit (re-cut of #47).
+
+With ``CONFIG.households.healthcare_food_first_reserve`` on, the weekly budget
+claims liquidity in this order on every payment sequence: rent and loan
+installments, minimum food, the queued visit's expected out-of-pocket cost
+(government's ``expected_healthcare_out_of_pocket_all``, capped at what food
+leaves), then the rest. Nothing is charged at budget time.
+"""
+
+import contextlib
+import io
+import sys
+from pathlib import Path
+
+import numpy as np
+import pytest
+
+from agents import FirmAgent, GovernmentAgent
+from config import CONFIG, clone_config, use_config
+from economy import Economy
+from tests_contracts.factories import make_household
+
+BACKEND = Path(__file__).resolve().parents[1]
+for _p in (BACKEND / "tools" / "runners", BACKEND / "tools" / "benchmarks"):
+    if str(_p) not in sys.path:
+        sys.path.insert(0, str(_p))
+
+VISIT = 60.0
+FOOD_PRICE = 4.0
+
+
+@pytest.fixture
+def on(monkeypatch):
+    monkeypatch.setattr(CONFIG.households, "healthcare_food_first_reserve", True)
+
+
+def _firm(firm_id, category, price):
+    firm = FirmAgent(
+        firm_id=firm_id, good_name=category, cash_balance=20_000.0, inventory_units=100.0,
+        good_category=category, quality_level=6.0, wage_offer=40.0, price=price,
+        expected_sales_units=100.0, production_capacity_units=500.0,
+        productivity_per_worker=12.0, personality="moderate",
+    )
+    firm.employees = [5001, 5002]
+    firm.healthcare_capacity_per_worker = 1.0
+    return firm
+
+
+def _economy(households, *, subsidy_level=0):
+    clinic, grocer = _firm(900, "Healthcare", VISIT), _firm(901, "Food", FOOD_PRICE)
+    government = GovernmentAgent(cash_balance=1_000_000.0)
+    if subsidy_level:
+        government.set_lever("sector_subsidy_target", "healthcare")
+        government.set_lever("sector_subsidy_level", subsidy_level)
+    economy = Economy(households=list(households), firms=[clinic, grocer], government=government)
+    economy._apply_random_shocks = lambda: None
+    economy.sector_subsidy_remaining_this_tick = 1_000_000.0
+    return economy, clinic
+
+
+def _worker(hid, cash):
+    household = make_household(hid, cash_balance=cash, bank_deposit=0.0)
+    household.employer_id = 77
+    household.wage = 400.0  # income budget far above cash, so the liquidity cap binds
+    return household
+
+
+def _queue(household, clinic):
+    household.queued_healthcare_firm_id = clinic.firm_id
+    household.healthcare_queue_enter_tick = 0
+    clinic.healthcare_queue.append(household.household_id)
+
+
+def _budgets(economy):
+    return economy._household_consumption_budgets(0.05, 30.0)
+
+
+def test_flag_off_by_default_and_no_reserve():
+    assert CONFIG.households.healthcare_food_first_reserve is False
+    queued = _worker(1, 100.0)
+    economy, clinic = _economy([queued])
+    _queue(queued, clinic)
+    assert _budgets(economy)[0] == pytest.approx(100.0)
+
+
+def test_min_food_cost_reads_min_food_and_highest_food_price():
+    h = _worker(1, 100.0)
+    economy, _ = _economy([h])
+    assert economy._min_food_cost()[0] == pytest.approx(h.min_food_per_tick * FOOD_PRICE)
+    economy.firm_lookup[901].price = 0.0
+    assert economy._min_food_cost()[0] == 0.0  # no Food price posted: no food claim
+
+
+@pytest.mark.parametrize("cash", [500.0, 70.0, 10.0, 0.0])
+def test_claim_order_food_then_visit_then_rest(on, cash):
+    queued = _worker(1, cash)
+    economy, clinic = _economy([queued])
+    _queue(queued, clinic)
+    food = float(economy._min_food_cost()[0])
+    oop = economy.expected_healthcare_out_of_pocket(1)
+    assert oop == pytest.approx(VISIT)  # no subsidy: the patient pays all
+    reserve = min(oop, max(0.0, cash - food))
+    assert economy._healthcare_food_first_reserves(np.array([cash]))[0] == pytest.approx(reserve)
+    budget = _budgets(economy)[0]
+    assert budget <= cash - reserve + 1e-9  # the reserve is held back from the cap
+    if cash <= 70.0:
+        assert budget == pytest.approx(cash - reserve)  # liquidity cap binds
+    assert budget >= min(cash, food) - 1e-9  # the visit never takes food money
+
+
+def test_low_cash_household_keeps_its_food_money(on):
+    # The case #47 got wrong: cash below food + visit.
+    queued = _worker(1, 15.0)
+    economy, clinic = _economy([queued])
+    _queue(queued, clinic)
+    food = float(economy._min_food_cost()[0])
+    assert 0 < food < 15.0
+    assert _budgets(economy)[0] == pytest.approx(food)
+
+
+def test_unqueued_household_unaffected_and_subsidy_lowers_reserve(on):
+    queued, free = _worker(1, 200.0), _worker(2, 200.0)
+    economy, clinic = _economy([queued, free], subsidy_level=50)
+    _queue(queued, clinic)
+    budgets = _budgets(economy)
+    assert budgets[1] == pytest.approx(200.0)
+    assert budgets[0] == pytest.approx(200.0 - VISIT * 0.5)
+
+
+def test_rent_and_loans_come_before_food(on, monkeypatch):
+    queued = _worker(1, 80.0)
+    economy, clinic = _economy([queued])
+    _queue(queued, clinic)
+    monkeypatch.setattr(economy, "_legacy_obligations_due", lambda: np.array([50.0]))
+    food = float(economy._min_food_cost()[0])
+    budget = economy._household_consumption_budgets(0.05, 30.0, settled_income=True)[0]
+    left = 80.0 - 50.0
+    reserve = min(VISIT, max(0.0, left - food))
+    assert budget <= left - reserve + 1e-9
+
+
+def test_reserve_lapses_once_served(on):
+    queued = _worker(1, 200.0)
+    economy, clinic = _economy([queued])
+    _queue(queued, clinic)
+    assert _budgets(economy)[0] == pytest.approx(200.0 - VISIT)
+    economy._process_healthcare_services({})
+    assert queued.queued_healthcare_firm_id is None
+    assert _budgets(economy)[0] == pytest.approx(queued.cash_balance)
+
+
+def test_bad_inputs_and_edges(on):
+    h = _worker(1, 100.0)
+    economy, _ = _economy([h])
+    # Not queued: government returns nothing, reserve is 0.
+    assert economy._healthcare_food_first_reserves(np.array([100.0]))[0] == 0.0
+    # Negative liquidity never makes a negative reserve.
+    economy2, clinic2 = _economy([_worker(2, 100.0)])
+    _queue(economy2.households[0], clinic2)
+    assert economy2._healthcare_food_first_reserves(np.array([-5.0]))[0] == 0.0
+    economy2.firm_lookup[901].price = float("nan")
+    assert economy2._min_food_cost()[0] == 0.0  # non-finite Food price ignored
+
+
+def _live(sequence, ticks, flag, *, covered=False, seed=42):
+    from regression_snapshot import _set_seed
+    from run_large_simulation import create_large_economy
+
+    cfg = clone_config()
+    cfg.payment_sequence = sequence
+    cfg.households.healthcare_food_first_reserve = flag
+    if covered:
+        cfg.payment_care_mode = "covered"
+    with use_config(cfg):
+        _set_seed(seed)
+        with contextlib.redirect_stdout(io.StringIO()):
+            economy = create_large_economy(num_households=150, num_firms_per_category=3)
+        seen = []
+        original = economy._healthcare_food_first_reserves
+
+        def watch(liquidity):
+            reserves = original(liquidity)
+            food = economy._min_food_cost()
+            oop = economy.expected_healthcare_out_of_pocket_all()
+            seen.append((np.asarray(liquidity).copy(), food, reserves.copy(),
+                         np.array([oop.get(h.household_id, 0.0) for h in economy.households])))
+            return reserves
+
+        economy._healthcare_food_first_reserves = watch
+        for _ in range(ticks):
+            with contextlib.redirect_stdout(io.StringIO()):
+                economy.step()
+    return economy, seen
+
+
+@pytest.mark.parametrize("sequence", ["legacy", "income_first", "income_late"])
+def test_step_reserve_respects_the_claim_order(sequence):
+    economy, seen = _live(sequence, 40, True)
+    assert seen, "the reserve must run inside Economy.step()"
+    any_reserve = False
+    for liquidity, food, reserves, oop in seen:
+        assert np.all(reserves >= 0.0)
+        assert np.all(reserves <= oop + 1e-9)
+        assert np.all(reserves <= np.maximum(liquidity - food, 0.0) + 1e-9)
+        any_reserve |= bool((reserves > 0).any())
+    assert any_reserve, "some queued household must hold a reserve in 40 live ticks"
+
+
+def test_step_covered_care_is_a_no_op():
+    _economy_on, seen = _live("income_first", 20, True, covered=True)
+    assert all(not (reserves > 0).any() for _l, _f, reserves, _o in seen)
+
+
+def test_step_queued_households_plan_minimum_food_first_on_payment_sequences(monkeypatch):
+    # The payment-sequence planner otherwise splits the budget by preference,
+    # so a budget held at the food cost would still buy too little food.
+    from agents import HouseholdAgent
+
+    calls = []
+    original = HouseholdAgent._plan_category_purchases
+
+    def record(self, budget, *args, **kwargs):
+        calls.append((self.household_id, bool(kwargs.get("min_food_first"))))
+        return original(self, budget, *args, **kwargs)
+
+    monkeypatch.setattr(HouseholdAgent, "_plan_category_purchases", record)
+    economy, seen = _live("income_first", 40, True)
+    flagged = [hid for hid, first in calls if first]
+    assert flagged, "queued households with a visit to pay for must plan food first"
+    assert economy._healthcare_food_first_ids <= {h.household_id for h in economy.households}
+
+
+def test_flag_off_never_plans_food_first_on_payment_sequences(monkeypatch):
+    from agents import HouseholdAgent
+
+    calls = []
+    original = HouseholdAgent._plan_category_purchases
+
+    def record(self, budget, *args, **kwargs):
+        calls.append(bool(kwargs.get("min_food_first")))
+        return original(self, budget, *args, **kwargs)
+
+    monkeypatch.setattr(HouseholdAgent, "_plan_category_purchases", record)
+    _live("income_first", 20, False)
+    assert calls and not any(calls)  # main's payment-sequence planner, unchanged

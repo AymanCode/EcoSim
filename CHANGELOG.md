@@ -4,6 +4,23 @@ Notable changes and decisions for EcoSim, newest first. The project does not use
 
 ## Unreleased
 
+### 2026-10-20: Food first, then the queued doctor's visit (households, flag off; re-cut of #47)
+
+Ayman's decision on #47: the doctor's visit comes after food, on every payment setting. New switch `CONFIG.households.healthcare_food_first_reserve`, default `False`; with it off, runs are identical to #45's head (full-state hash, 3 runs).
+
+- **Claim order** in `Economy._household_consumption_budgets`, on every payment sequence:
+  1. rent and loan installments (`_legacy_obligations_due` on legacy, `planning_inputs` on the payment arms, both as before);
+  2. minimum food, `min_food_per_tick` x the highest posted Food price (`_min_food_cost`);
+  3. the queued visit's expected out-of-pocket cost, capped at what food leaves (`_healthcare_food_first_reserves`);
+  4. the rest of the budget.
+- **Visit cost:** read once per budget pass from government's `Economy.expected_healthcare_out_of_pocket_all()` (#45). That getter returns $0 for covered care and for a household that is not validly queued (missing or non-Healthcare firm, not in the queue).
+- **Planner:** households with a visit to pay for plan minimum food first on every payment sequence (legacy already does this for everyone). Without that, the payment-sequence planner splits a budget held at the food cost by preference: in the first cut, queued households short of minimum food on income_first rose from 10% to 26% in ticks 101-200.
+- **Diagnostics:** on the payment arms, `payment_book.obligation_pressure` gains `healthcare_reserve`, and `estimated_discretionary_liquidity` is net of it.
+- **Unchanged:** nothing is charged or moved before service, and the charge at service is unchanged.
+- **Known limitation (government's, not fixed here):** settlement still charges a stale queue entry that the getter prices at $0.
+
+Evidence: `test_households_healthcare_food_first.py` (17 tests, including live `Economy.step()` runs on all three sequences). By-window panel: 5 seeds x 3 sequences, one process per arm (see PR).
+
 ### 2026-10-20: Read-only estimate of what a queued healthcare visit will cost the household
 
 Households had no way to know what a queued visit would cost them before the charge, so they could not set money aside for it. New read-only getters give that number. No behavior change: per-window metrics hashes equal `main` in 35 paired runs (5 seeds x 7 configurations, 260 ticks; see the PR). Rules revision v1.9 (M03) records the change and its information assumption; it is pending owner approval.
