@@ -7,7 +7,7 @@ runs with ``summarize_household_window_panel.py``.
 
 Usage (from backend/):
     python tools/analysis/run_household_window_panel.py --seed 42 --ticks 260 \
-        --set households.skills_dynamics=True --probe skills --out on_42.json
+        --set households.<flag>=True --probe skills --out on_42.json
 
 ``--set`` takes ``section.field=<python literal>`` and is applied to a private
 config copy (``clone_config``/``use_config``), never to a shared one.
@@ -31,11 +31,7 @@ for _path in (BACKEND_ROOT, BACKEND_ROOT / "tools" / "runners", BACKEND_ROOT / "
         sys.path.insert(0, str(_path))
 
 from config import CONFIG, clone_config, use_config  # noqa: E402
-try:  # households 29a's shared helper, when present
-    from household_liquidity import liquid_wealth  # noqa: E402
-except ImportError:  # same definition as main's wellbeing read (#32)
-    def liquid_wealth(cash: float, deposit: float) -> float:
-        return cash + max(0.0, deposit)
+from household_liquidity import liquid_wealth  # noqa: E402
 from regression_snapshot import _set_seed  # noqa: E402
 from run_large_simulation import create_large_economy  # noqa: E402
 
@@ -67,7 +63,8 @@ class SkillsProbe:
         hired = emp & ~self.prev_emp
         self.prev_emp = emp
         dur = np.array([h.unemployment_duration for h in hh])
-        floors = np.array([h.skill_floor if h.skill_floor is not None else np.nan for h in hh])
+        floors = np.array([getattr(h, "skill_floor", None) for h in hh], dtype=object)
+        floors = np.array([np.nan if f is None else f for f in floors], dtype=np.float64)
         return {
             "skill_mean": float(s.mean()), "skill_min": float(s.min()),
             "skill_unemployed": float(s[~emp].mean()) if (~emp).any() else None,
