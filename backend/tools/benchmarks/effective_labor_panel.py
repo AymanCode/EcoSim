@@ -149,6 +149,8 @@ def _run(args: argparse.Namespace) -> dict:
             value: object
             if isinstance(current, bool):
                 value = raw.lower() in {"1", "true", "yes"}
+            elif isinstance(current, str):
+                value = raw
             else:
                 value = float(raw)
             setattr(CONFIG.firms, name, value)
@@ -248,7 +250,7 @@ def _sign(delta: float) -> str:
 
 
 def _aggregate(directory: Path) -> None:
-    files = sorted(directory.glob("*.json"))
+    files = sorted(directory.glob("off-*.json")) + sorted(directory.glob("on-*.json"))
     by_seed: dict[int, dict[str, dict]] = {}
     for path in files:
         payload = json.loads(path.read_text())
