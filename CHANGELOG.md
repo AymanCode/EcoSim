@@ -4,21 +4,25 @@ Notable changes and decisions for EcoSim, newest first. The project does not use
 
 ## Unreleased
 
-### 2026-10-17: Public debt held by the bank (round 1 G1)
+### 2026-10-20: Public debt held by the bank (round 1 G1), flag off by default
 
 Before: treasury outlays could leave `cash_balance` negative with no lender and no cost, and `public_debt` did not exist, so debt/GDP in metrics and the LLM prompt was always 0.
 
-Now (`government.public_debt_enabled`, default on):
-- After weekly spending, a negative treasury balance is borrowed from the bank, up to `BankAgent.lendable_cash` and only when `can_lend()` is true. The part the bank cannot lend stays as negative cash, which is the flag-off behavior. No bank, no borrowing.
-- Weekly interest = debt x (bank's current lending rate + `public_debt_risk_premium` 0.035 x annualized debt/GDP) / 52, paid to the bank before it pays deposit interest. Nothing moves the bank's rate during a run yet (3%).
-- While debt is owed, cash above `public_debt_cash_buffer_weeks` (1) weeks of last week's government spending repays principal, and the misc bond buy is skipped. With no debt the bond buy is unchanged.
-- New metrics: `gov_debt_rate_annual`, `gov_debt_interest_this_tick`, `gov_debt_borrowed_this_tick`, `gov_debt_repaid_this_tick`, `gov_debt_unfunded_this_tick`. The dashboard's `govDebt` is now `public_debt` plus any negative cash.
+Now, behind `government.public_debt_enabled` (default **off**; off is identical to main):
+- After weekly spending, a negative legacy treasury balance is borrowed from the bank, up to `BankAgent.lendable_cash` and only when `can_lend()`. `public_debt_borrow_target` = `"zero"` (default, borrow back to $0) or `"buffer"` (borrow back to one week of spending, and top up to it while debt is owed). The part the bank cannot lend stays as negative cash. `income_first` and `income_late` ration outlays to free cash, never go negative and never borrow.
+- The loan is on both books: the treasury's `public_debt` and the bank's `public_debt_held`; `BankAgent.loan_book`, `total_assets` and `equity` count it. The thin-loan-book test in `update_deposit_rate` reads `loan_book`, so deposit rates in debt runs differ slightly from a bank with no public debt.
+- Weekly interest = debt x (bank lending rate + `public_debt_risk_premium` 0.035 x annualized debt/GDP) / 52, paid to the bank before deposit interest. The rate reads 0 with no debt. Cash above `public_debt_cash_buffer_weeks` (1) weeks of spending repays principal; the misc bond buy is skipped while debt is owed.
+- Turning the flag off mid-run stops new borrowing only; existing debt keeps paying interest and is repaid. Financing runs with `stabilization_disabled` too.
+- Config and runtime reject NaN, inf and negative debt parameters and unknown borrow targets.
+- Spending gates still read cash (owner decision 2026-10-20: the government may spend while borrowing): the LLM sanitizer's fiscal-stress guard (negative cash or debt/GDP >= 1), the sector-subsidy cap, public-works affordability and the cash-limited programs. Reporting and evaluation read the net position, cash minus public debt: LLM fiscal mode, prompt (interest and rate, borrowing, repayment, unfunded overdraft, 13-week debt trend), policy memory (change in debt and net position), run summaries (`run_llm_government_test.py`, `run_government_control_compare.py`), `deficit_ratio`, warehouse `fiscal_stress_score`, and the dashboard fiscal balance, which no longer counts loan proceeds as revenue; borrowing and repayment have their own lines.
+- New metrics: `government_net_position`, `gov_debt_rate_annual`, `gov_debt_interest_this_tick`, `gov_debt_borrowed_this_tick`, `gov_debt_repaid_this_tick`, `gov_debt_unfunded_this_tick`, `bank_public_debt_held`, `bank_total_assets`, `bank_equity`.
+- Rules: `docs/ECONOMIC_AGENT_RULES.md` v1.7 (M06, Government row, tick-order rows 11 and 11.5), pending Ayman's approval.
 
-Seeded run, 400 households, 104 weeks, seeds 42 and 1-4 (`python tools/benchmarks/run_public_debt_compare.py --seeds 42 1 2 3 4`, from `backend/`):
-- Default levers: no shortfall in any week, so results are identical to main.
-- Stress (crisis benefits, high infrastructure/technology spending until week 52): in debt 39% of weeks, peak debt/GDP 0.031, interest 0.04% of spending; weeks ending with negative cash go from 21-53% (mean 32%) to 0; mean happiness +0.014.
-- Deep (no starting cash, crisis benefits, high infrastructure/technology/social spending all run): in debt every week, debt $320k at week 104, peak debt/GDP 0.19, debt rate 3.48%, interest 1.1% of spending; mean happiness +0.023, unemployment within seed noise.
-- The bank's lending limit never bound in any run (bank reserves stay above $650k).
+Evidence: `python tools/benchmarks/run_public_debt_compare.py --main-backend <main checkout>/backend --households 1000 --ticks 312 --seeds 42 43 44 45 46 --arms main off on_zero on_buffer` (from `backend/`; every arm and seed in its own process, seeded with `_set_seed`; main at `f86f140`). Full report: `docs/evals/2026-10-20-public-debt/report.md`.
+- Flag off vs main: per-tick rows byte-identical (sha256) in all 15 scenario-seed pairs. Default levers: no shortfall, so debt on is identical too.
+- Deep deficit (fixed crisis levers), debt on ("zero") minus main, mean [range] over 5 seeds, ticks 201-312: public debt $4.47M at week 312 [2.46M, 7.05M] and still rising (+$1.09M, +$1.45M, +$1.93M per window); interest $4,293/wk; GDP -$6,271/wk [-16,826, -461]; unemployment +2.8 pts [-0.2, +4.9]; happiness +0.013 [-0.015, +0.077]; poverty share -3.9 pts; median liquid wealth +$204; bank reserves -$2.94M, bank equity +$409k. Probe (seeds 42-43): the bank could lend every week (no credit crowding-out); the interest it keeps is the new drain on household and firm money.
+- Stress (crisis benefits, programs off at week 156; at 1,000 households the treasury is in deficit again after week 200): debt on ends at $0.85M [0.43M, 1.36M]; GDP and price volatility in ticks 201+ rise (price CV +0.028, higher in every seed).
+- Not fixed, open for Ayman: the bank keeps the interest (no owner, dividend or expense; depositors get about 0.2%/yr), and debt does not settle under fixed deficit levers.
 
 ### 2026-10-16: Poverty and wealth-loss terms read liquid wealth
 
