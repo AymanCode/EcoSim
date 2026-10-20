@@ -14,6 +14,17 @@ describe('Finance screen', () => {
     expect(container.textContent).toContain('State capacity')
   })
 
+  test('shows public-debt borrowing and repayment as financing lines', () => {
+    const { container } = renderScreen(Finance, {
+      metrics: { govProfit: -0.005243, govDebt: 1.2, govBorrowed: 0.005, govRepaid: 0 },
+      policyChanges: [],
+    })
+    expect(container.textContent).toContain('Borrowed from bank · this tick')
+    expect(container.textContent).toContain('Repaid to bank · this tick')
+    expect(container.textContent).toContain('Outlays exceed revenue this tick.')
+    expect(container.querySelectorAll('.ledger .lr').length).toBe(5)
+  })
+
   test('no .chart .chart nesting remains so charts fill their panels', () => {
     const { container } = renderScreen(Finance)
     expect(container.querySelectorAll('.chart .chart').length).toBe(0)
