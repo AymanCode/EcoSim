@@ -876,6 +876,10 @@ class MarketMechanicsConfig:
     # Firm Exit/Entry
     bankruptcy_threshold: float = -1000.0
     zero_cash_max_streak: int = 12  # Ticks at zero/negative cash before exit
+    # Legacy payment path: baseline Food/Services firms retire after this many
+    # ticks at zero/negative cash (no cash threshold). Housing and Healthcare
+    # firms never retire; the treasury pays their deficit at the trigger.
+    baseline_zero_cash_max_streak: int = 26
     max_private_competitors: int = 5
     new_firm_demand_threshold: float = 1000.0  # Min household cash
 

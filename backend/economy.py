@@ -319,9 +319,12 @@ class Economy:
         # (owner decision 2026-09-29, rules doc K02).
         self.external_injection_this_tick: float = 0.0
         self.external_injection_total: float = 0.0
-        # Negative cash that legacy firms exited with, borne by the treasury
-        # (cumulative, currency).
-        self.legacy_exit_deficit_total: float = 0.0
+        # Negative cash that legacy firms retired with, by who bore it, and
+        # deficits the treasury paid for failing legacy Housing/Healthcare
+        # firms, which never retire (cumulative, currency).
+        self.legacy_exit_deficit_treasury_total: float = 0.0
+        self.legacy_exit_deficit_bank_total: float = 0.0
+        self.legacy_provider_deficit_cover_total: float = 0.0
         self.misc_firm_beneficiaries: List[int] = []  # household_ids who receive payouts
         self._initialize_misc_firm_beneficiaries()
         self.post_warmup_stimulus_ticks: int = 0
@@ -5785,17 +5788,65 @@ class Economy:
             firm.cash_balance = 0.0
             self._collect_misc_revenue(residual)
 
+    def _settle_legacy_exit_deficit(self, firm: FirmAgent) -> None:
+        """Pay a retiring legacy firm's negative cash so it does not vanish with it.
+
+        Legacy payroll debits the full wage bill whatever the firm's cash, so a
+        failing firm retires overdrawn. That balance is money already paid out;
+        dropping it with the firm would create the same amount. Who pays (owner
+        decision 2026-10-20): the treasury for a baseline firm; for a private
+        firm, its lenders in proportion to what each is still owed (bank-funded
+        loans charge the bank, treasury-funded ones the treasury), or the bank
+        when no lender is owed anything. The bank pays at most its cash
+        reserves and the treasury pays the rest. Call before loan write-offs.
+        """
+        deficit = -firm.cash_balance
+        firm.cash_balance = 0.0
+        bank = self.bank
+        bank_share = 0.0
+        if not self.government.is_baseline_firm(firm.firm_id):
+            bank_owed = 0.0
+            treasury_owed = max(0.0, firm.government_loan_remaining)
+            if bank is not None:
+                for loan in bank.loans_for("firm", firm.firm_id):
+                    owed = max(0.0, float(loan["remaining"]))
+                    if loan["govt_backed"]:
+                        treasury_owed += owed
+                    else:
+                        bank_owed += owed
+            total_owed = bank_owed + treasury_owed
+            bank_share = deficit * bank_owed / total_owed if total_owed > MONEY_EPS else deficit
+        bank_paid = min(bank_share, max(0.0, bank.cash_reserves)) if bank is not None else 0.0
+        if bank_paid > 0.0:
+            bank.cash_reserves -= bank_paid
+            self.legacy_exit_deficit_bank_total += bank_paid
+        self.government.cash_balance -= deficit - bank_paid
+        self.legacy_exit_deficit_treasury_total += deficit - bank_paid
+
+    def _cover_legacy_provider_deficit(self, firm: FirmAgent) -> None:
+        """Treasury pays a failing legacy Housing/Healthcare firm's deficit; it keeps operating."""
+        deficit = max(0.0, -firm.cash_balance)
+        if deficit > 0.0:
+            self.government.cash_balance -= deficit
+            firm.cash_balance = 0.0
+            self.legacy_provider_deficit_cover_total += deficit
+        firm.zero_cash_streak = 0
+
     def _handle_firm_exits(self) -> int:
         """
         Remove bankrupt firms from the economy.
 
         Firms with negative cash below a threshold are removed.
-        Their employees are laid off.
+        Their employees are laid off. On legacy, baseline Food/Services firms
+        retire after a longer zero-cash streak, Housing/Healthcare firms never
+        retire (the treasury pays their deficit), and a retiring firm's
+        negative cash is paid by its loss bearer (``_settle_legacy_exit_deficit``).
 
         Mutates state.
         """
         bankruptcy_threshold = CONFIG.market.bankruptcy_threshold
         zero_cash_max_streak = CONFIG.market.zero_cash_max_streak
+        legacy = self.payment_sequence == "legacy"
         registered_by_firm = {}
         if self.payment_sequence != "legacy" and self.bank is not None:
             for loan in self.bank.active_loans:
@@ -5808,9 +5859,21 @@ class Economy:
 
         firms_to_remove = []
         for firm in self.firms:
-            if firm.cash_balance < bankruptcy_threshold or firm.zero_cash_streak >= zero_cash_max_streak:
-                # Protect government baseline firms at all times
-                if self.government.is_baseline_firm(firm.firm_id):
+            baseline = self.government.is_baseline_firm(firm.firm_id)
+            if legacy and baseline:
+                # Legacy baseline firms retire on a longer zero-cash streak only.
+                streak_limit = CONFIG.market.baseline_zero_cash_max_streak
+                failing = firm.zero_cash_streak >= streak_limit
+            else:
+                streak_limit = zero_cash_max_streak
+                failing = firm.cash_balance < bankruptcy_threshold or firm.zero_cash_streak >= streak_limit
+            if failing:
+                # Protect government baseline firms at all times on the payment arms
+                if baseline and not legacy:
+                    continue
+                if legacy and (firm.good_category or "").lower() in {"housing", "healthcare"}:
+                    # Legacy Housing and Healthcare never retire (owner decision 2026-10-20).
+                    self._cover_legacy_provider_deficit(firm)
                     continue
 
                 if self.payment_sequence != "legacy":
@@ -5844,7 +5907,7 @@ class Economy:
                     entity_type="firm",
                     entity_id=firm.firm_id,
                     sector=firm.good_category,
-                    reason_code="zero_cash_streak" if firm.zero_cash_streak >= zero_cash_max_streak else "cash_threshold",
+                    reason_code="zero_cash_streak" if firm.zero_cash_streak >= streak_limit else "cash_threshold",
                     severity=float(max(abs(firm.cash_balance), firm.zero_cash_streak)),
                     metric_value=float(firm.cash_balance),
                 )
@@ -5898,15 +5961,13 @@ class Economy:
             if firm.firm_id in self.firm_lookup:
                 del self.firm_lookup[firm.firm_id]
 
-            # Legacy payroll debits the full wage bill whatever the firm's cash,
-            # so a failing firm exits overdrawn. The negative balance is money
-            # already paid out; dropping it with the firm would create that
-            # money. The treasury bears the deficit instead.
-            if self.payment_sequence == "legacy" and firm.cash_balance < 0.0:
-                deficit = -firm.cash_balance
-                self.government.cash_balance -= deficit
-                self.legacy_exit_deficit_total += deficit
-                firm.cash_balance = 0.0
+            if legacy:
+                if firm.cash_balance < 0.0:
+                    self._settle_legacy_exit_deficit(firm)
+                registry = self.government.baseline_firm_ids
+                for category, firm_id in list(registry.items()):
+                    if firm_id == firm.firm_id:
+                        del registry[category]
 
             # Write off bank loans on bankruptcy
             if self.bank is not None and self.payment_sequence == "legacy":
