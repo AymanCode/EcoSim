@@ -6516,7 +6516,10 @@ class GovernmentAgent(AgentMixin):
         loss-makers would push the edges toward zero and put small earners
         in the top bands. Equal profits always land in the same band.
         With fewer than four profitable firms the percentiles mean little,
-        so every profitable firm pays the base rate.
+        so every profitable firm pays the base rate (no profitable firm: an
+        empty result). If all profits tie, every edge equals that profit and
+        all firms land in the bottom band. A NaN or infinite profit is not
+        ranked and does not move the edges.
 
         Args:
             firms: Snapshot dicts with ``firm_id`` and ``profit_before_tax``.
@@ -6527,10 +6530,13 @@ class GovernmentAgent(AgentMixin):
             Band names come from ``PROFIT_TAX_BANDS``; ``"base"`` marks the
             fewer-than-four fallback.
         """
+        # Non-finite profits (never produced by the snapshot builder) are left
+        # out so one bad value cannot turn every edge into NaN or inf.
         profitable = {
             f["firm_id"]: float(f.get("profit_before_tax", 0.0))
             for f in firms
-            if float(f.get("profit_before_tax", 0.0)) > 0.0
+            if math.isfinite(float(f.get("profit_before_tax", 0.0)))
+            and float(f.get("profit_before_tax", 0.0)) > 0.0
         }
         if len(profitable) < 4:
             return {firm_id: ("base", self.profit_tax_rate) for firm_id in profitable}

@@ -1,11 +1,11 @@
 # Rules for economic-agent proposal writers
 
-**Version 1.7 — profit-tax brackets rank by profit, 2026-10-20.** Owner decision (Ayman, 2026-10-20, option B: the tax is on earnings). Recorded in the CHANGELOG entry "2026-10-20: Profit-tax brackets rank firms by profit, not cash". Touched sections, with what each said before:
+**Version 1.8 — profit-tax brackets rank by profit, 2026-10-20.** Numbered after the public-debt revision (v1.7, PR #43) and before the healthcare-share revision (v1.9, PR #45); if these merge in a different order, the numbers are reassigned at merge time. Owner decision (Ayman, 2026-10-20, option B: the tax is on earnings). Recorded in the CHANGELOG entry "2026-10-20: Profit-tax brackets rank firms by profit, not cash". Touched sections, with what each said before:
 
 - K01: before "Firm tax snapshots omit cash/property inputs expected by the tax planner."; now the brackets rank by positive taxable profit on every sequence and do not read cash, and the remaining omission is named: legacy snapshots carry no property-tax inputs.
 - M06 note: before "... and every profit-tax bracket is capped at 0.60."; now it also states the profit-percentile cut-points, the fewer-than-four fallback and the sorted bracket rates.
 
-Version 1.6 is otherwise unchanged.
+Version 1.7 (or 1.6, if v1.7 has not merged) is otherwise unchanged.
 
 **Version 1.6 — legacy shopping reserve and minimum food first, 2026-10-02.** Owner-approved changes recorded in the CHANGELOG entry "2026-10-02: Overdraw fix, services expansion loans, two phase 6 flags on". The same entry's Services expansion-loan trigger, `services_slot_cap` diagnostic and two default flags change no rule this document describes. Touched sections, with what each said before:
 

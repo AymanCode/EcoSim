@@ -9,13 +9,18 @@ earnings, so the brackets now rank each tick's positive profits. These tests
 check the rates firms end up paying.
 """
 
+import contextlib
+import io
+import math
 import random
 
+import numpy as np
 import pytest
 
 from agents import GovernmentAgent
-from config import CONFIG
+from config import CONFIG, clone_config, use_config
 from tests_contracts.factories import make_economy, make_firm
+from tools.runners.run_large_simulation import create_large_economy
 
 
 def _rates(plan, firms):
@@ -87,3 +92,80 @@ def test_legacy_snapshots_now_produce_more_than_one_band(monkeypatch):
 
     assert len(set(rates.values())) > 1
     assert rates[8] > rates[1]
+
+
+def test_no_profitable_firm_owes_nothing_and_one_pays_the_base_rate():
+    gov = GovernmentAgent(cash_balance=0.0, profit_tax_rate=0.20)
+    losers = [{"firm_id": i, "profit_before_tax": -10.0 * i} for i in range(1, 6)]
+    assert gov._profit_tax_brackets([]) == {}
+    assert gov._profit_tax_brackets(losers) == {}
+    assert all(v == 0.0 for v in gov.plan_taxes([], losers)["profit_taxes"].values())
+    one = losers + [{"firm_id": 9, "profit_before_tax": 500.0}]
+    assert gov._profit_tax_brackets(one) == {9: ("base", 0.20)}
+
+
+def test_tied_profits_share_one_band():
+    gov = GovernmentAgent(cash_balance=0.0)
+    firms = [{"firm_id": i, "profit_before_tax": 250.0} for i in range(1, 21)]
+    assert {band for band, _rate in gov._profit_tax_brackets(firms).values()} == {"bottom"}
+
+
+def test_non_finite_profit_does_not_move_the_edges():
+    gov = GovernmentAgent(cash_balance=0.0)
+    firms = [{"firm_id": i, "profit_before_tax": float(10 * i)} for i in range(1, 21)]
+    clean = gov._profit_tax_brackets(firms)
+    for bad in (math.nan, math.inf):
+        dirty = gov._profit_tax_brackets(firms + [{"firm_id": 99, "profit_before_tax": bad}])
+        assert 99 not in dirty
+        assert dirty == clean
+
+
+def test_economy_step_on_legacy_collects_profit_ranked_taxes():
+    """Real Economy.step() on legacy: firms' realized profit tax (their cash
+    debit) rises with profit, takes more than one rate, and sums to the
+    treasury's recognized profit tax. Nothing in the tax path is patched; the
+    snapshots are only observed on their way into plan_taxes."""
+    seen = []
+    original = GovernmentAgent.plan_taxes
+
+    def observe(self, households, firms):
+        if len(firms) >= 4:
+            seen.append([dict(f) for f in firms])
+        return original(self, households, firms)
+
+    cfg = clone_config()
+    cfg.payment_sequence = "legacy"
+    cfg.random_seed = 42
+    random.seed(42)
+    np.random.seed(42)
+    with use_config(cfg), contextlib.redirect_stdout(io.StringIO()):
+        economy = create_large_economy(100, 3)
+        GovernmentAgent.plan_taxes = observe
+        try:
+            for _ in range(40):
+                seen.clear()
+                economy.step()
+                snaps = seen[-1] if seen else []
+                profits = {s["firm_id"]: s["profit_before_tax"] for s in snaps
+                           # > 1.0 so a rounding-size profit does not read as a 0 rate
+                           if s["profit_before_tax"] > 1.0 and s.get("price_ceiling_tax", 0.0) == 0.0}
+                if len(profits) >= 8:
+                    break
+        finally:
+            GovernmentAgent.plan_taxes = original
+    assert len(profits) >= 8, "no tick with eight profitable firms in 40 weeks"
+    firms = {f.firm_id: f for f in economy.firms}
+    realized = {}
+    for firm_id, profit in profits.items():
+        firm = firms[firm_id]
+        # apply_sales_and_profit books profit = revenue - taxes paid - costs.
+        realized[firm_id] = firm.last_revenue - firm.last_profit - firm.last_tick_total_costs
+    rates = {fid: round(realized[fid] / profits[fid], 6) for fid in profits}
+    ordered = [rates[fid] for fid in sorted(profits, key=profits.get)]
+    assert ordered == sorted(ordered)
+    assert len(set(ordered)) > 1
+    # Every firm's debit, net of its price-ceiling tax, is what the treasury books as profit tax.
+    debits = sum(firms[s["firm_id"]].last_revenue - firms[s["firm_id"]].last_profit
+                 - firms[s["firm_id"]].last_tick_total_costs - s.get("price_ceiling_tax", 0.0)
+                 for s in snaps if s["firm_id"] in firms)
+    assert economy.last_tick_gov_profit_taxes == pytest.approx(debits, rel=1e-9, abs=1e-6)
