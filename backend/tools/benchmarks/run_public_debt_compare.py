@@ -1,202 +1,284 @@
-"""Before/after and sensitivity runs for public debt (round 1 G1).
+"""Paired, seeded before/after runs for public debt (round 1 G1).
 
-Compare mode runs each scenario with ``public_debt_enabled`` off (main's
-behavior: the treasury goes negative for free) and on, for each seed, and
-prints run-level metrics plus the debt shares. Sensitivity mode re-runs the
-debt-on case with one parameter at -50% and +50%.
+Every (scenario, arm, seed) runs in its own Python process, seeded with
+``tools/benchmarks/regression_snapshot.py``'s ``_set_seed`` after the arm's
+config is set, so no run inherits RNG or config state from another. Results
+are reported by tick window (1-100, 101-200, 201+) with the window mean,
+within-window volatility (std dev and CV of the weekly values) and the paired
+difference against the baseline arm (mean and [min, max] over seeds).
+
+Arms:
+    main       a checkout of main (``--main-backend``), unmodified config.
+    off        this branch with ``public_debt_enabled=False`` (the default);
+               must equal ``main`` exactly (checked per seed).
+    on_zero    debt on, borrow back to $0 of cash (``public_debt_borrow_target="zero"``).
+    on_buffer  debt on, borrow back to the one-week working balance ("buffer").
 
 Scenarios:
     default  levers as configured.
     stress   crisis benefits plus high infrastructure and technology spending
-             until mid-run, so the treasury runs a deficit and then can repay.
-    deep     the treasury starts with no cash and runs crisis benefits plus
-             high infrastructure, technology and social spending all run, so
-             debt builds up and the bank's lending limit can bind.
+             until mid-run, then infrastructure and technology off.
+    deep     the treasury starts with no cash; crisis benefits plus high
+             infrastructure, technology and social spending for the whole run.
 
 Usage (from backend/):
-    python tools/benchmarks/run_public_debt_compare.py --seeds 42 1 2 3 4
-    python tools/benchmarks/run_public_debt_compare.py --sensitivity --seeds 42 1 2
-    python tools/benchmarks/run_public_debt_compare.py --sensitivity --sens-scenario stress --seeds 42 1 2
+    python tools/benchmarks/run_public_debt_compare.py \\
+        --main-backend /path/to/main/backend --households 1000 --ticks 312 \\
+        --seeds 42 43 44 45 46 --scenarios default stress deep \\
+        --arms main off on_zero on_buffer --out /tmp/g1_runs
 """
 
 from __future__ import annotations
 
 import argparse
 import contextlib
+import hashlib
 import io
-import random
+import json
 import statistics
+import subprocess
 import sys
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
-
-import numpy as np
+from typing import Dict, List
 
 BACKEND_ROOT = Path(__file__).resolve().parents[2]
-if str(BACKEND_ROOT) not in sys.path:
-    sys.path.insert(0, str(BACKEND_ROOT))
-
-from config import CONFIG, clone_config, use_config  # noqa: E402
-from tools.runners.run_large_simulation import create_large_economy  # noqa: E402
-
-BURN_IN_TICKS = 13  # skip the first quarter when averaging over the run
 SCENARIOS = ("default", "stress", "deep")
+ARMS = ("main", "off", "on_zero", "on_buffer")
+WINDOWS = (("1-100", 0, 100), ("101-200", 100, 200), ("201+", 200, None))
+DECILES = (10, 20, 30, 40, 50, 60, 70, 80, 90)
 
 
-def run_once(households: int, firms: int, seed: int, ticks: int, debt_on: bool, scenario: str,
-             override: Optional[Tuple[str, float]] = None) -> Dict[str, float]:
-    """Run one seeded economy and return run-level metrics."""
-    with use_config(clone_config()):
-        random.seed(seed)
-        np.random.seed(seed)
-        CONFIG.random_seed = int(seed)
-        CONFIG.government.public_debt_enabled = debt_on
-        if override is not None and override[0] != "bank.base_interest_rate":
-            setattr(CONFIG.government, override[0].split(".", 1)[1], override[1])
+def _worker(backend: str, arm: str, seed: int, scenario: str, ticks: int, households: int, firms: int) -> Dict:
+    """Run one arm/seed/scenario in this process and return per-tick rows."""
+    sys.path.insert(0, backend)
+    import numpy as np  # noqa: E402
+
+    from config import CONFIG  # noqa: E402
+    from tools.benchmarks.regression_snapshot import _set_seed  # noqa: E402
+    from tools.runners.run_large_simulation import create_large_economy  # noqa: E402
+
+    if arm != "main":
+        CONFIG.government.public_debt_enabled = arm.startswith("on_")
+        if arm == "on_buffer":
+            CONFIG.government.public_debt_borrow_target = "buffer"
+    _set_seed(seed)
+    with contextlib.redirect_stdout(io.StringIO()):
+        economy = create_large_economy(households, firms)
+    gov, bank = economy.government, economy.bank
+    if scenario in ("stress", "deep"):
+        gov.set_lever("benefit_level", "crisis")
+        gov.set_lever("infrastructure_spending", "high")
+        gov.set_lever("technology_spending", "high")
+    if scenario == "deep":
+        gov.set_lever("social_spending", "high")
+        gov.cash_balance = 0.0
+    poverty_line = float(CONFIG.households.poverty_threshold)
+
+    rows: List[Dict[str, float]] = []
+    prev_net = gov.cash_balance - float(getattr(gov, "public_debt", 0.0))
+    for tick in range(ticks):
+        if scenario == "stress" and tick == ticks // 2:
+            gov.set_lever("infrastructure_spending", "none")
+            gov.set_lever("technology_spending", "none")
         with contextlib.redirect_stdout(io.StringIO()):
-            economy = create_large_economy(households, firms)
-        gov, bank = economy.government, economy.bank
-        if override is not None and override[0] == "bank.base_interest_rate":
-            bank.base_interest_rate = override[1]
-        if scenario in ("stress", "deep"):
-            gov.set_lever("benefit_level", "crisis")
-            gov.set_lever("infrastructure_spending", "high")
-            gov.set_lever("technology_spending", "high")
-        if scenario == "deep":
-            gov.set_lever("social_spending", "high")
-            gov.cash_balance = 0.0
-
-        unemp: List[float] = []
-        happy: List[float] = []
-        gdp: List[float] = []
-        debt_ticks = 0
-        shortfall_ticks = 0
-        bank_bound_ticks = 0
-        negative_cash_ticks = 0
-        peak_debt_to_gdp = 0.0
-        interest_total = 0.0
-        spending_total = 0.0
-        bond_total = 0.0
-        bank_min = float("inf")
-        for tick in range(ticks):
-            if scenario == "stress" and tick == ticks // 2:
-                gov.set_lever("infrastructure_spending", "none")
-                gov.set_lever("technology_spending", "none")
-            with contextlib.redirect_stdout(io.StringIO()):
-                economy.step()
-            m = economy.get_economic_metrics()
-            if tick >= BURN_IN_TICKS:
-                unemp.append(float(m["unemployment_rate"]))
-                happy.append(float(m["mean_happiness"]))
-                gdp.append(float(m["gdp_this_tick"]))
-            debt_ticks += gov.public_debt > 0.0
-            borrowed, unfunded = gov.last_tick_debt_borrowed, gov.last_tick_debt_unfunded
-            shortfall_ticks += (borrowed + unfunded) > 0.0
-            bank_bound_ticks += unfunded > 0.0
-            negative_cash_ticks += gov.cash_balance < 0.0
-            peak_debt_to_gdp = max(peak_debt_to_gdp, float(m["annualized_debt_to_gdp"]))
-            interest_total += gov.last_tick_debt_interest
-            spending_total += gov.last_tick_spending
-            bond_total += economy.last_tick_gov_bond_purchases
-            if bank is not None:
-                bank_min = min(bank_min, float(bank.cash_reserves))
-        households_money = sum(h.cash_balance + max(0.0, h.bank_deposit) for h in economy.households)
-        return {
-            "unemployment_mean": statistics.fmean(unemp),
-            "happiness_mean": statistics.fmean(happy),
-            "gdp_mean": statistics.fmean(gdp),
-            "gov_cash_end": float(gov.cash_balance),
-            "public_debt_end": float(gov.public_debt),
-            "unfunded_end": max(0.0, -float(gov.cash_balance)),
-            "bond_buys_total": bond_total,
-            "households_money_end": households_money,
-            "bank_reserves_min": bank_min,
-            "debt_rate_end": float(gov.last_tick_debt_rate),
-            "share_ticks_in_debt": debt_ticks / ticks,
-            "peak_debt_to_gdp": peak_debt_to_gdp,
-            "interest_share_of_spending": interest_total / spending_total if spending_total else 0.0,
-            "share_shortfall_ticks_bank_bound": bank_bound_ticks / shortfall_ticks if shortfall_ticks else 0.0,
-            "shortfall_ticks": float(shortfall_ticks),
-            "share_ticks_negative_cash": negative_cash_ticks / ticks,
+            economy.step()
+        m = economy.get_economic_metrics()
+        hs = economy.households
+        # Liquid wealth as in #32: cash + max(0, deposit).
+        liquid = np.array([h.cash_balance + max(0.0, h.bank_deposit) for h in hs])
+        debt = float(getattr(gov, "public_debt", 0.0))
+        net = float(gov.cash_balance) - debt
+        row = {
+            "gdp": float(m["gdp_this_tick"]),
+            "unemployment": float(m["unemployment_rate"]),
+            "mean_price": float(m["mean_price"]),
+            "gov_balance": float(gov.last_tick_revenue - gov.last_tick_spending),
+            "net_change": net - prev_net,
+            "gov_cash": float(gov.cash_balance),
+            "net_position": net,
+            "public_debt": debt,
+            "interest": float(getattr(gov, "last_tick_debt_interest", 0.0)),
+            "borrowed": float(getattr(gov, "last_tick_debt_borrowed", 0.0)),
+            "negative_cash": float(gov.cash_balance < 0.0),
+            "firm_profit": float(sum(f.last_profit for f in economy.firms)),
+            "poverty_share": float(np.mean(liquid < poverty_line)),
+            "food_sufficiency": float(np.mean([h.food_consumed_this_tick >= h.min_food_per_tick for h in hs])),
+            "happiness": float(m["mean_happiness"]),
+            "bank_reserves": float(bank.cash_reserves) if bank is not None else 0.0,
+            "bank_equity": float(
+                bank.cash_reserves + bank.total_loans_outstanding
+                + float(getattr(bank, "public_debt_held", 0.0)) - bank.total_deposits
+            ) if bank is not None else 0.0,
         }
+        for d, v in zip(DECILES, np.percentile(liquid, DECILES)):
+            row[f"liquid_p{d}"] = float(v)
+        rows.append(row)
+        prev_net = net
+    return {"arm": arm, "seed": seed, "scenario": scenario, "rows": rows}
 
 
-ROWS = (
-    ("unemployment_mean", "unemployment, mean wk 13-end", "{:.3f}"),
-    ("happiness_mean", "happiness, mean wk 13-end", "{:.3f}"),
-    ("gdp_mean", "GDP / tick, mean wk 13-end", "{:,.0f}"),
-    ("gov_cash_end", "gov cash at end", "{:,.0f}"),
-    ("public_debt_end", "public debt at end", "{:,.0f}"),
-    ("bond_buys_total", "Misc bond buys, run total", "{:,.0f}"),
-    ("households_money_end", "household cash + deposits at end", "{:,.0f}"),
-    ("bank_reserves_min", "min bank reserves", "{:,.0f}"),
-    ("debt_rate_end", "debt rate at end (annual)", "{:.4f}"),
-    ("share_ticks_in_debt", "share of ticks in debt", "{:.1%}"),
-    ("peak_debt_to_gdp", "peak debt / annual GDP", "{:.3f}"),
-    ("interest_share_of_spending", "interest / government spending", "{:.2%}"),
-    ("shortfall_ticks", "ticks with a shortfall", "{:.0f}"),
-    ("share_shortfall_ticks_bank_bound", "shortfall ticks where the bank could not lend it all", "{:.1%}"),
-    ("share_ticks_negative_cash", "share of ticks ending with negative cash", "{:.1%}"),
+def _summarize(rows: List[Dict[str, float]]) -> Dict[str, Dict[str, float]]:
+    out: Dict[str, Dict[str, float]] = {}
+    for name, lo, hi in WINDOWS:
+        window = rows[lo:hi]
+        if not window:
+            continue
+        stats: Dict[str, float] = {"ticks": float(len(window))}
+        for key in window[0]:
+            values = [r[key] for r in window]
+            mean = statistics.fmean(values)
+            sd = statistics.pstdev(values)
+            stats[key] = mean
+            stats[f"sd_{key}"] = sd
+            stats[f"cv_{key}"] = sd / abs(mean) if abs(mean) > 1e-9 else 0.0
+            stats[f"min_{key}"] = min(values)
+            stats[f"end_{key}"] = values[-1]
+        out[name] = stats
+    return out
+
+
+def _run_one(job) -> Dict:
+    backend, arm, seed, scenario, args = job
+    cmd = [
+        sys.executable, str(Path(__file__).resolve()), "--worker", "--backend", backend, "--arm", arm,
+        "--seed", str(seed), "--scenario", scenario, "--ticks", str(args.ticks),
+        "--households", str(args.households), "--firms-per-category", str(args.firms_per_category),
+    ]
+    proc = subprocess.run(cmd, capture_output=True, text=True, cwd=backend)
+    if proc.returncode != 0:
+        raise RuntimeError(f"{arm} seed {seed} {scenario} failed:\n{proc.stderr[-2000:]}")
+    result = json.loads(proc.stdout.strip().splitlines()[-1])
+    rows = result.pop("rows")
+    result["rows_sha256"] = hashlib.sha256(json.dumps(rows, sort_keys=True).encode()).hexdigest()
+    result["windows"] = _summarize(rows)
+    return result
+
+
+PANEL = (
+    ("gdp", "GDP / wk", "{:,.0f}"), ("unemployment", "unemployment", "{:.4f}"), ("mean_price", "mean price", "{:.3f}"),
+    ("gov_balance", "gov balance (revenue - spending) / wk, mean", "{:,.0f}"),
+    ("min_gov_balance", "gov balance / wk, min", "{:,.0f}"),
+    ("net_position", "treasury net position (cash - debt), mean", "{:,.0f}"),
+    ("min_net_position", "treasury net position, min", "{:,.0f}"),
+    ("negative_cash", "share of weeks with cash < 0", "{:.3f}"),
+    ("firm_profit", "firm profits / wk", "{:,.0f}"), ("poverty_share", "share in poverty (liquid < $200)", "{:.4f}"),
+    ("food_sufficiency", "share eating minimum food", "{:.4f}"),
+    *((f"liquid_p{d}", f"liquid wealth p{d}", "{:,.1f}") for d in DECILES),
+    ("happiness", "happiness", "{:.4f}"),
+    ("public_debt", "public debt, mean", "{:,.0f}"), ("end_public_debt", "public debt, window end", "{:,.0f}"),
+    ("interest", "interest / wk", "{:,.1f}"), ("bank_reserves", "bank reserves", "{:,.0f}"),
+    ("bank_equity", "bank equity (books incl. public debt)", "{:,.0f}"),
 )
-
-SENSITIVITY = (
-    ("government.public_debt_risk_premium", 0.035, 0.0175, 0.0525),
-    ("government.public_debt_cash_buffer_weeks", 1.0, 0.5, 1.5),
-    ("bank.base_interest_rate", 0.03, 0.015, 0.045),
-)
-SENS_KEYS = ("unemployment_mean", "happiness_mean", "gdp_mean", "public_debt_end", "share_ticks_in_debt",
-             "peak_debt_to_gdp", "interest_share_of_spending", "share_shortfall_ticks_bank_bound")
+VOLATILITY = ("gdp", "unemployment", "mean_price", "happiness", "gov_balance", "public_debt", "interest")
 
 
-def compare(args) -> None:
-    for scenario in args.scenarios:
-        per_seed = []
-        for seed in args.seeds:
-            before = run_once(args.households, args.firms_per_category, seed, args.ticks, False, scenario)
-            after = run_once(args.households, args.firms_per_category, seed, args.ticks, True, scenario)
-            per_seed.append((seed, before, after))
-            print(f"\n### {scenario}, seed {seed}: {args.households} households, {args.ticks} ticks\n")
-            print("| metric | debt off (main) | debt on |\n|---|---:|---:|")
-            for key, label, fmt in ROWS:
-                print(f"| {label} | {fmt.format(before[key])} | {fmt.format(after[key])} |", flush=True)
-        if len(per_seed) > 1:
-            print(f"\n### {scenario}: debt on minus debt off over seeds {args.seeds} (mean, sd)\n")
-            print("| metric | mean | sd |\n|---|---:|---:|")
-            for key, label, fmt in ROWS:
-                deltas = [a[key] - b[key] for _, b, a in per_seed]
-                print(f"| {label} | {fmt.format(statistics.fmean(deltas))} | "
-                      f"{fmt.format(statistics.stdev(deltas))} |", flush=True)
+def _fmt_cell(fmt: str, values: List[float]) -> str:
+    return fmt.format(statistics.fmean(values))
 
 
-def sensitivity(args) -> None:
-    scenario = args.sens_scenario
-    print(f"\n### sensitivity, {scenario} scenario, seeds {args.seeds}: (value) minus (default), mean over seeds\n")
-    print("| parameter | value | " + " | ".join(SENS_KEYS) + " |")
-    print("|---|---:|" + "---:|" * len(SENS_KEYS))
-    base = {seed: run_once(args.households, args.firms_per_category, seed, args.ticks, True, scenario)
-            for seed in args.seeds}
-    for key, default, low, high in SENSITIVITY:
-        for value in (low, high):
-            runs = {seed: run_once(args.households, args.firms_per_category, seed, args.ticks, True, scenario,
-                                   override=(key, value)) for seed in args.seeds}
-            cells = [f"{statistics.fmean(runs[s][k] - base[s][k] for s in args.seeds):+.4g}" for k in SENS_KEYS]
-            print(f"| {key} (default {default}) | {value} | " + " | ".join(cells) + " |", flush=True)
+def _report(scenario: str, results: List[Dict], arms: List[str], seeds: List[int]) -> str:
+    by = {(r["arm"], r["seed"]): r for r in results if r["scenario"] == scenario}
+    base = "main" if "main" in arms else "off"
+    others = [a for a in arms if a != base]
+    lines = [f"## Scenario: {scenario}", ""]
+    if "main" in arms and "off" in arms:
+        same = [by[("main", s)]["rows_sha256"] == by[("off", s)]["rows_sha256"] for s in seeds]
+        lines.append(f"Flag off vs main, per-tick rows sha256 identical: {sum(same)}/{len(seeds)} seeds "
+                     f"({', '.join(str(s) for s, ok in zip(seeds, same) if not ok) or 'none differ'})")
+        lines.append("")
+    for name, _, _ in WINDOWS:
+        ticks = int(by[(base, seeds[0])]["windows"][name]["ticks"])
+        header = f"| metric | {base} |" + "".join(f" {a} | {a} - {base} [range] |" for a in others if a != "off")
+        lines += [f"### Ticks {name} ({ticks} ticks)", "", header,
+                  "|---|---|" + "---|---|" * len([a for a in others if a != "off"])]
+        for key, label, fmt in PANEL:
+            base_vals = [by[(base, s)]["windows"][name][key] for s in seeds]
+            cells = [label, _fmt_cell(fmt, base_vals)]
+            for arm in others:
+                if arm == "off":
+                    continue
+                vals = [by[(arm, s)]["windows"][name][key] for s in seeds]
+                diff = [v - b for v, b in zip(vals, base_vals)]
+                cells += [_fmt_cell(fmt, vals),
+                          f"{fmt.format(statistics.fmean(diff))} [{fmt.format(min(diff))}, {fmt.format(max(diff))}]"]
+            lines.append("| " + " | ".join(cells) + " |")
+        lines += ["", f"Volatility, ticks {name}: CV of weekly values (sd / |mean|), mean over seeds; "
+                  f"paired CV difference vs {base} [range]", "",
+                  f"| metric | {base} CV |" + "".join(f" {a} CV | diff [range] |" for a in others if a != "off"),
+                  "|---|---|" + "---|---|" * len([a for a in others if a != "off"])]
+        for key in VOLATILITY:
+            base_vals = [by[(base, s)]["windows"][name][f"cv_{key}"] for s in seeds]
+            cells = [key, f"{statistics.fmean(base_vals):.4f}"]
+            for arm in others:
+                if arm == "off":
+                    continue
+                vals = [by[(arm, s)]["windows"][name][f"cv_{key}"] for s in seeds]
+                diff = [v - b for v, b in zip(vals, base_vals)]
+                cells += [f"{statistics.fmean(vals):.4f}", f"{statistics.fmean(diff):+.4f} [{min(diff):+.4f}, {max(diff):+.4f}]"]
+            lines.append("| " + " | ".join(cells) + " |")
+        lines.append("")
+    lines += ["### Debt trajectory by window (mean over seeds [min, max])", "",
+              "| arm | window | debt at window end | debt change in window | interest / wk | gov balance / wk | weeks cash < 0 |",
+              "|---|---|---|---|---|---|---|"]
+    for arm in [a for a in arms if a != "off"]:
+        for name, _, _ in WINDOWS:
+            w = [by[(arm, s)]["windows"][name] for s in seeds]
+            end = [x["end_public_debt"] for x in w]
+            start_vals = []
+            for s in seeds:
+                ws = by[(arm, s)]["windows"]
+                prev = {"1-100": None, "101-200": "1-100", "201+": "101-200"}[name]
+                start_vals.append(ws[prev]["end_public_debt"] if prev else 0.0)
+            change = [e - b for e, b in zip(end, start_vals)]
+            lines.append(
+                f"| {arm} | {name} | {statistics.fmean(end):,.0f} [{min(end):,.0f}, {max(end):,.0f}] | "
+                f"{statistics.fmean(change):+,.0f} [{min(change):+,.0f}, {max(change):+,.0f}] | "
+                f"{statistics.fmean(x['interest'] for x in w):,.1f} | {statistics.fmean(x['gov_balance'] for x in w):,.0f} | "
+                f"{statistics.fmean(x['negative_cash'] for x in w):.3f} |"
+            )
+    lines.append("")
+    return "\n".join(lines)
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("--households", type=int, default=400)
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument("--worker", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument("--backend", default=str(BACKEND_ROOT), help=argparse.SUPPRESS)
+    parser.add_argument("--arm", default="off", help=argparse.SUPPRESS)
+    parser.add_argument("--seed", type=int, default=42, help=argparse.SUPPRESS)
+    parser.add_argument("--scenario", default="default", help=argparse.SUPPRESS)
+    parser.add_argument("--main-backend", help="backend/ of a main checkout, for the 'main' arm")
+    parser.add_argument("--households", type=int, default=1000)
     parser.add_argument("--firms-per-category", type=int, default=6)
-    parser.add_argument("--seeds", type=int, nargs="+", default=[42])
-    parser.add_argument("--ticks", type=int, default=104)
+    parser.add_argument("--seeds", type=int, nargs="+", default=[42, 43, 44, 45, 46])
+    parser.add_argument("--ticks", type=int, default=312)
     parser.add_argument("--scenarios", nargs="+", default=list(SCENARIOS), choices=SCENARIOS)
-    parser.add_argument("--sensitivity", action="store_true")
-    parser.add_argument("--sens-scenario", default="deep", choices=SCENARIOS)
+    parser.add_argument("--arms", nargs="+", default=["off", "on_zero", "on_buffer"], choices=ARMS)
+    parser.add_argument("--jobs", type=int, default=8)
+    parser.add_argument("--out", type=Path, default=Path("public_debt_runs"))
     args = parser.parse_args()
-    if args.sensitivity:
-        sensitivity(args)
-    else:
-        compare(args)
+
+    if args.worker:
+        print(json.dumps(_worker(args.backend, args.arm, args.seed, args.scenario, args.ticks,
+                                 args.households, args.firms_per_category)))
+        return
+    if "main" in args.arms and not args.main_backend:
+        parser.error("--main-backend is required for the 'main' arm")
+    jobs = []
+    for scenario in args.scenarios:
+        for seed in args.seeds:
+            for arm in args.arms:
+                backend = args.main_backend if arm == "main" else str(BACKEND_ROOT)
+                jobs.append((str(Path(backend).resolve()), arm, seed, scenario, args))
+    with ThreadPoolExecutor(max_workers=max(1, args.jobs)) as pool:
+        results = list(pool.map(_run_one, jobs))
+    args.out.mkdir(parents=True, exist_ok=True)
+    (args.out / "results.json").write_text(json.dumps(results))
+    report = [f"# Public debt paired runs: {args.households} households, {args.ticks} ticks, seeds {args.seeds}", ""]
+    report += [_report(scenario, results, args.arms, args.seeds) for scenario in args.scenarios]
+    (args.out / "report.md").write_text("\n".join(report))
+    print("\n".join(report))
 
 
 if __name__ == "__main__":
