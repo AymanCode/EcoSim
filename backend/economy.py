@@ -38,7 +38,7 @@ from dataclasses import dataclass, fields
 from collections import deque
 from typing import TYPE_CHECKING, Dict, List, Tuple, Optional
 
-from config import CONFIG, get_config
+from config import CONFIG, get_config, services_target_markup_held
 from fiscal_guards import (
     annualized_debt_to_gdp,
     fiscal_reserve_floor,
@@ -423,7 +423,11 @@ class Economy:
         limited = min(proposed, max_allowed)
         if limited + 1e-9 < proposed:
             price_plan["price_next"] = limited
-            price_plan["markup_next"] = max(0.0, (limited / unit_cost) - 1.0) if unit_cost > 0 else 0.0
+            # The cap still limits the posted price. It must not replace a held
+            # Services target with the capped margin, or the boom rule ratchets
+            # off the cap instead of off the smoothed price.
+            if not (category == "services" and services_target_markup_held()):
+                price_plan["markup_next"] = max(0.0, (limited / unit_cost) - 1.0) if unit_cost > 0 else 0.0
             self.price_increase_limited_count += 1
             firm.decision_diagnostics["price_stabilization_limited"] = True
             firm.decision_diagnostics["price_stabilization_level"] = level

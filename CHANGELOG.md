@@ -4,6 +4,12 @@ Notable changes and decisions for EcoSim, newest first. The project does not use
 
 ## Unreleased
 
+### 2026-10-20: Services target markup can be held, flag off
+
+The Services boom price treats `markup` as the firm's desired margin, then replaces that field with the margin implied by the smoothed price. The profit-tax gross-up and the one-week utilization surge therefore become next week's target, and the margin compounds while a firm stays busy. A slump writes the clearance margin back the same way, so the next boom does not start from the margin the firm was given. `firms.services_target_markup_held` (default off) keeps the sampled target. Private firms keep their own draw from `markup_range` (0.20 to 0.40). Baseline Services firms keep the 0.3 field default. The posted price for the current tick, including the tax gross-up and the surge, is unchanged. Warm-up, a disabled stabilizer and the weekly price cap no longer write a realized margin back onto that target. Flag off is the previous rule.
+
+This changes prices only when the flag is on. Whether to turn it on is unsettled: nominal GDP and firm profit fall because Services prices stop compounding, while unemployment, poverty and later happiness move the other way. The seeded panel is in the pull request. No new cash flow.
+
 ### 2026-10-16: Poverty and wealth-loss terms read liquid wealth
 
 Bug fix from the PR7 investigation (item 3). `Economy._batch_update_wellbeing` read `cash_balance` alone for the poverty penalties and the wealth-loss term. The weekly deposit sweep runs after `last_tick_cash_start` is set and before wellbeing, so saving money in the bank counted as a wealth loss. The legacy withdrawal refills cash only to about 160, below the 200 poverty line, so households with savings were also scored as poor.

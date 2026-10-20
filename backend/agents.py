@@ -35,7 +35,7 @@ from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 import numpy as np
 
-from config import CONFIG
+from config import CONFIG, services_target_markup_held
 from policy_schema import ORDERED_LEVERS as POLICY_ORDERED_LEVERS, SIMPLE_ENUM_LEVERS, TAX_LIMITS
 
 
@@ -1909,7 +1909,8 @@ _PLANNER_DIAGNOSTIC_KEYS = frozenset((
     "healthcare_break_even_price", "healthcare_queue_overload_ratio",
     "healthcare_surge_multiplier", "healthcare_target_price",
     "service_break_even_price", "service_capacity_for_pricing", "service_debt_service_for_pricing",
-    "service_markup_next", "service_total_cost_per_unit", "service_utilization",
+    "service_markup_next", "service_realized_markup", "service_target_markup",
+    "service_total_cost_per_unit", "service_utilization",
     "service_utilization_for_wage_recovery", "service_variable_cost_per_unit",
     "service_wage_bill_for_pricing", "service_wage_recovery_cut", "service_weak_demand_streak",
 ))
@@ -4041,6 +4042,19 @@ class FirmAgent(AgentMixin):
         """Markup over unit cost implied by ``price``; the current markup when unit cost is not positive."""
         return (price / self.unit_cost - 1.0) if self.unit_cost > 0 else self.markup
 
+    def _held_services_markup(self) -> Optional[float]:
+        """Sampled Services target when the flag is on; None when it is off.
+
+        None leaves every caller on the existing write-back. A non-finite or
+        negative target is not a price, so the held value is then zero.
+        """
+        if not self._is_generic_services_firm() or not services_target_markup_held():
+            return None
+        held = float(self.markup)
+        if not math.isfinite(held) or held < 0.0:
+            return 0.0
+        return held
+
     def plan_pricing(
         self,
         sell_through_rate: float,
@@ -4076,9 +4090,15 @@ class FirmAgent(AgentMixin):
             # Inflate the 5% markup so the after-tax margin still clears 5%.
             gross_markup = 0.05 / max(1.0 - float(profit_tax_rate), 0.10)
             target_price = labor_cost_per_unit * (1.0 + gross_markup)
+            markup_next = self._markup_for_price(target_price)
+            # Warm-up would otherwise replace a Services target before the
+            # boom rule ever sees it. The posted warm-up price is unchanged.
+            held_markup = self._held_services_markup()
+            if held_markup is not None:
+                markup_next = held_markup
             return {
                 "price_next": target_price,
-                "markup_next": self._markup_for_price(target_price),
+                "markup_next": markup_next,
             }
 
         # Baseline Food post-warmup: tiered liquidation pricing aligned with
@@ -4123,6 +4143,9 @@ class FirmAgent(AgentMixin):
             if not self.is_baseline and not CONFIG.inflation.enabled:
                 price_next = max(self.min_price * 0.5, price_next * 1.02)
             markup_next = self._markup_for_price(price_next)
+            held_markup = self._held_services_markup()
+            if held_markup is not None:
+                markup_next = held_markup
             return {"price_next": price_next, "markup_next": markup_next}
 
         # Housing pricing: monopoly landlord scales rent to cover wage bill +
@@ -4240,15 +4263,25 @@ class FirmAgent(AgentMixin):
 
             utilization = max(0.0, min(1.5, float(sell_through_rate)))
 
+            # The boom branch treats markup as the firm's desired margin. Writing
+            # the smoothed price's margin back into that field folds the tax
+            # gross-up and the one-week surge into next week's target, so the
+            # desired margin compounds. Holding the target leaves this tick's
+            # price formula alone and stops that write-back. Downturn prices
+            # do not read markup; they must not erase it either.
+            held_markup = self._held_services_markup()
             if utilization >= 0.85:
                 # Boom market: full cost recovery + markup + surge premium.
                 # Inflate gross margin so after-tax margin matches the targeted markup + surge.
                 surge = (utilization - 0.85) * 0.5
-                gross_margin = (float(self.markup) + surge) / max(1.0 - float(profit_tax_rate), 0.10)
+                markup_for_target = float(self.markup) if held_markup is None else held_markup
+                gross_margin = (markup_for_target + surge) / max(1.0 - float(profit_tax_rate), 0.10)
                 target_price = total_cost_per_unit * (1.0 + gross_margin)
             else:
                 # Downturn: smooth interpolation between variable and total cost.
                 # 0% utilization -> variable cost only; 85% -> total cost.
+                # This branch does not read markup. The desired margin is what
+                # the next boom uses, not the margin implied by a clearance price.
                 weight = utilization / 0.85
                 target_price = (
                     variable_cost_per_unit * (1.0 - weight)
@@ -4259,7 +4292,15 @@ class FirmAgent(AgentMixin):
             price_next = (self.price * 0.8) + (target_price * 0.2)
             price_next = max(self.min_price, price_next)
 
-            if total_cost_per_unit > 0:
+            if held_markup is not None:
+                markup_next = held_markup
+                if total_cost_per_unit > 0.0 and math.isfinite(price_next):
+                    realized_markup = max(0.0, (price_next / total_cost_per_unit) - 1.0)
+                else:
+                    realized_markup = held_markup
+                self.decision_diagnostics["service_target_markup"] = held_markup
+                self.decision_diagnostics["service_realized_markup"] = realized_markup
+            elif total_cost_per_unit > 0:
                 markup_next = max(0.0, (price_next / total_cost_per_unit) - 1.0)
             else:
                 markup_next = float(self.markup)

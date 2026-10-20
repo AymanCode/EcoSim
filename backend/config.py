@@ -637,6 +637,13 @@ class FirmBehaviorConfig:
     min_price_range: Tuple[float, float] = (3.0, 6.0)
     quality_improvement_per_rd_dollar_range: Tuple[float, float] = (0.0001, 0.0004)
     markup_range: Tuple[float, float] = (0.20, 0.40)
+    # Off (default): the Services boom rule reads markup, then replaces it with
+    # the margin implied by the smoothed price, so the profit-tax gross-up and
+    # the utilization surge compound into the next target. On: markup stays at
+    # the firm's sampled target (baseline firms keep the 0.3 field default).
+    # The posted price, the temporary surge and the tax gross-up are unchanged
+    # on the tick they are computed. Owner decision whether to turn it on.
+    services_target_markup_held: bool = False
     unit_cost_range: Tuple[float, float] = (4.0, 6.5)
 
     # Personality trait ranges (sampled once per firm at initialization)
@@ -1065,6 +1072,8 @@ class SimulationConfig:
         ratio = self.firms.services_expansion_min_excess_demand_ratio
         if not (math.isfinite(ratio) and ratio >= 0.0):
             raise ValueError("services_expansion_min_excess_demand_ratio must be finite and non-negative")
+        if type(self.firms.services_target_markup_held) is not bool:
+            raise ValueError("services_target_markup_held must be a bool")
 
         # Validate range tuples (low <= high)
         for name, (lo, hi) in [
@@ -1132,6 +1141,21 @@ class _ContextLocalConfig:
 
 
 CONFIG = _ContextLocalConfig()
+
+
+def services_target_markup_held() -> bool:
+    """Whether Services firms keep their sampled target markup.
+
+    Rejects anything that is not a real bool, including ``1`` and ``0``, so a
+    bad assignment cannot silently turn the pricing change on.
+    """
+    flag = get_config().firms.services_target_markup_held
+    if type(flag) is not bool:
+        raise ValueError(
+            "services_target_markup_held must be a bool, "
+            f"got {type(flag).__name__}"
+        )
+    return flag
 
 # The historical runtime imports ``config`` from inside ``backend/`` while
 # application entry points use ``backend.config``. Keep both names bound to
