@@ -4,6 +4,14 @@ Notable changes and decisions for EcoSim, newest first. The project does not use
 
 ## Unreleased
 
+### 2026-10-20: Flat profit tax as a switchable option (off by default)
+
+Owner decision (settled 2026-10-20): "Profit tax: progressive by default (ranked by profit), flat as a switchable option, plus a comparison." New key `government.flat_profit_tax_enabled` (bool, default `False`, validated as a bool, read live each tick). On: every firm with positive taxable profit pays `profit_tax_rate` on it; loss-makers pay 0 and nothing carries forward (`GovernmentAgent._profit_tax_brackets` returns one `"flat"` band). Off: the profit-ranked brackets, byte-for-byte: 5 legacy seeds x 300 weeks give identical weekly series and band records with the switch off and on the parent commit. No UI, no LLM lever.
+
+Comparison (legacy, 400 households, seeds 42 and 1-4, 300 weeks, each arm in its own process, `_set_seed`; flat minus progressive, mean and range): profit tax -2.0k/wk in weeks 1-100 and -3.8k/wk in weeks 201-300, Misc bond buy about the same amount lower, firm cash +43k / +220k / +325k by window, GDP -181 / -2,279 / -3,387 per week, households below poverty +10.4 (6.3 to 16.7) and happiness -0.037 (-0.101 to -0.009) in weeks 201-300, household liquid wealth p90 -1.9k / -3.0k / -3.7k. Volatility: in weeks 201-300 flat raises the CV of GDP (+0.009), happiness (+0.013) and gov balance (+0.091) on 5 of 5 seeds and lowers unemployment CV (-0.015, 4 of 5). The macro channel is the K06 surplus-recycling shortcut (treasury surplus -> Misc bond buy -> households), not a real corporate-tax channel.
+
+Evidence: `tests_contracts/test_flat_profit_tax_option.py` (4 tests: default off, non-bool rejected, every profitable firm pays the lever rate with the switch on, and a legacy `Economy.step()` asserting each firm's realized tax debit is `profit_tax_rate` x profit and the debits sum to the treasury's booked profit tax).
+
 ### 2026-10-20: Profit-tax brackets rank firms by profit, not cash
 
 Owner decision (Ayman, option B): the profit tax is on earnings, so its brackets rank firms by earnings. Before: `GovernmentAgent.plan_taxes` cut six brackets at the 25th/50th/75th/90th/99th percentiles of firm `cash_balance`. On the default `legacy` sequence `Economy._build_firm_tax_snapshots` sent no cash, so every firm read 0, fell in the bottom bracket and paid 0.1915 (base 0.20 minus the 0.0085 fixed-seed discount); on `income_first`/`income_late` a cash-rich firm with a small profit paid a top rate. Now:

@@ -6528,7 +6528,9 @@ class GovernmentAgent(AgentMixin):
         Returns:
             ``{firm_id: (band_name, rate)}`` for firms with positive profit.
             Band names come from ``PROFIT_TAX_BANDS``; ``"base"`` marks the
-            fewer-than-four fallback.
+            fewer-than-four fallback and ``"flat"`` every profitable firm when
+            ``CONFIG.government.flat_profit_tax_enabled`` is True (then all pay
+            ``profit_tax_rate``).
         """
         # Non-finite profits (never produced by the snapshot builder) are left
         # out so one bad value cannot turn every edge into NaN or inf.
@@ -6538,6 +6540,9 @@ class GovernmentAgent(AgentMixin):
             if math.isfinite(float(f.get("profit_before_tax", 0.0)))
             and float(f.get("profit_before_tax", 0.0)) > 0.0
         }
+        if CONFIG.government.flat_profit_tax_enabled:
+            # Flat style (switch, off by default): one rate, no ranking.
+            return {firm_id: ("flat", self.profit_tax_rate) for firm_id in profitable}
         if len(profitable) < 4:
             return {firm_id: ("base", self.profit_tax_rate) for firm_id in profitable}
 

@@ -794,6 +794,14 @@ class GovernmentPolicyConfig:
     rent_stabilization_soft_max_increase: float = 1.02
     rent_stabilization_strict_max_increase: float = 1.005
 
+    # Profit-tax style. False (default, owner decision 2026-10-20): progressive
+    # brackets ranked by each tick's positive taxable profit
+    # (GovernmentAgent._profit_tax_brackets). True: every firm with positive
+    # profit pays profit_tax_rate, the lever, on that profit; losses pay 0 and
+    # nothing carries forward. Exists to compare the two styles. Read live each
+    # tick. Must be a bool.
+    flat_profit_tax_enabled: bool = False
+
 
 @dataclass
 class LaborMarketConfig:
@@ -1027,6 +1035,9 @@ class SimulationConfig:
             raise ValueError("ticks_per_year must be positive")
         if self.time.warmup_ticks < 0:
             raise ValueError("warmup_ticks cannot be negative")
+
+        if not isinstance(self.government.flat_profit_tax_enabled, bool):
+            raise ValueError("government.flat_profit_tax_enabled must be a bool")
 
         # Validate the inflation model switch and review assumptions
         inflation = self.inflation
