@@ -305,6 +305,10 @@ def _collect_final_summary(economy, rows: List[Dict[str, object]], decisions: Li
         "final": {
             "tick": int(economy.current_tick),
             "government_cash": float(final.get("government_cash", 0.0) or 0.0),
+            # Public debt (G1): the run is judged on net position, debt and interest.
+            "government_net_position": float(final.get("government_net_position", 0.0) or 0.0),
+            "public_debt": float(final.get("public_debt", 0.0) or 0.0),
+            "debt_interest_paid": sum(float(row.get("gov_debt_interest_this_tick", 0.0) or 0.0) for row in rows),
             "gdp": float(final.get("gdp_this_tick", 0.0) or 0.0),
             "unemployment_rate": float(final.get("unemployment_rate", 0.0) or 0.0),
             "labor_force_unemployment_rate": float(final.get("labor_force_unemployment_rate", 0.0) or 0.0),
@@ -334,12 +338,14 @@ def _collect_final_summary(economy, rows: List[Dict[str, object]], decisions: Li
         },
         "mins": {
             "government_cash": _min(rows, "government_cash"),
+            "government_net_position": _min(rows, "government_net_position"),
             "gdp": _min(rows, "gdp_this_tick"),
             "mean_health": _min(rows, "mean_health"),
             "mean_happiness": _min(rows, "mean_happiness"),
         },
         "maxes": {
             "unemployment_rate": _max(rows, "unemployment_rate"),
+            "public_debt": _max(rows, "public_debt"),
             "jobless_rate_total_population": _max(rows, "jobless_rate_total_population"),
             "cannot_work_rate": _max(rows, "cannot_work_rate"),
             "private_expected_sales": max(
@@ -439,8 +445,8 @@ def write_markdown(path: Path, results: Dict[str, object]) -> None:
         "",
         "## Summary Table",
         "",
-        "| Scenario | Final Gov Cash | Min Gov Cash | Avg GDP | Final GDP | Avg Unemp | Final Unemp | Jobless Pop | Cannot Work | Avg Health | Final Health | Avg Happy | Final Happy | Neg Cash Firms | Neg Net Worth Firms |",
-        "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|",
+        "| Scenario | Final Gov Cash | Min Gov Cash | Final Net Position | Min Net Position | Peak Debt | Debt Interest | Avg GDP | Final GDP | Avg Unemp | Final Unemp | Jobless Pop | Cannot Work | Avg Health | Final Health | Avg Happy | Final Happy | Neg Cash Firms | Neg Net Worth Firms |",
+        "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|",
     ]
     for name in SCENARIOS:
         run = scenarios[name]
@@ -450,6 +456,8 @@ def write_markdown(path: Path, results: Dict[str, object]) -> None:
         neg = run["firm_negative_counts"]
         lines.append(
             f"| {name} | {_money(final['government_cash'])} | {_money(mins['government_cash'])} | "
+            f"{_money(final['government_net_position'])} | {_money(mins['government_net_position'])} | "
+            f"{_money(run['maxes']['public_debt'])} | {_money(final['debt_interest_paid'])} | "
             f"{_money(avg['gdp'])} | {_money(final['gdp'])} | "
             f"{avg['unemployment_rate'] * 100.0:.1f}% | {final['unemployment_rate'] * 100.0:.1f}% | "
             f"{final['jobless_rate_total_population'] * 100.0:.1f}% | {final['cannot_work_rate'] * 100.0:.1f}% | "
