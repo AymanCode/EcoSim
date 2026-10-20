@@ -319,6 +319,9 @@ class Economy:
         # (owner decision 2026-09-29, rules doc K02).
         self.external_injection_this_tick: float = 0.0
         self.external_injection_total: float = 0.0
+        # Negative cash that legacy firms exited with, borne by the treasury
+        # (cumulative, currency).
+        self.legacy_exit_deficit_total: float = 0.0
         self.misc_firm_beneficiaries: List[int] = []  # household_ids who receive payouts
         self._initialize_misc_firm_beneficiaries()
         self.post_warmup_stimulus_ticks: int = 0
@@ -5894,6 +5897,16 @@ class Economy:
             # Clean up firm cache
             if firm.firm_id in self.firm_lookup:
                 del self.firm_lookup[firm.firm_id]
+
+            # Legacy payroll debits the full wage bill whatever the firm's cash,
+            # so a failing firm exits overdrawn. The negative balance is money
+            # already paid out; dropping it with the firm would create that
+            # money. The treasury bears the deficit instead.
+            if self.payment_sequence == "legacy" and firm.cash_balance < 0.0:
+                deficit = -firm.cash_balance
+                self.government.cash_balance -= deficit
+                self.legacy_exit_deficit_total += deficit
+                firm.cash_balance = 0.0
 
             # Write off bank loans on bankruptcy
             if self.bank is not None and self.payment_sequence == "legacy":

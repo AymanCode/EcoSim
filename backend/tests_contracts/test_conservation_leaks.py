@@ -586,3 +586,65 @@ def test_a6_exiting_firm_mortgage_is_written_off(fixed_seed):
     assert housing not in economy.firms
     assert records[0]["remaining"] == 0.0
     assert bank.loan_loss_provision == pytest.approx(provision_before + owed + investment_owed)
+
+
+def _overdrawn_private_firm(economy, firm_id: int = 90):
+    """Add a private Food firm with one worker; the caller overdraws it."""
+    firm = make_firm(firm_id=firm_id, category="Food", is_baseline=False)
+    economy.firms.append(firm)
+    economy.firm_lookup[firm.firm_id] = firm
+    worker = next(h for h in economy.households if h.employer_id is None)
+    worker.employer_id = firm.firm_id
+    worker.wage = firm.wage_offer
+    firm.employees = [worker.household_id]
+    firm.actual_wages = {worker.household_id: firm.wage_offer}
+    firm._invalidate_wage_bill_cache()
+    return firm, worker
+
+
+@pytest.mark.parametrize(
+    ("cash", "zero_cash_streak"),
+    [(-1_500.0, 0), (-98.25, CONFIG.market.zero_cash_max_streak)],
+    ids=["below_bankruptcy_threshold", "zero_cash_streak"],
+)
+def test_legacy_firm_exit_with_negative_cash_conserves_money(fixed_seed, cash, zero_cash_streak):
+    """A legacy firm that exits overdrawn must not take its negative balance with it.
+
+    Legacy payroll debits the full wage bill whatever the firm's cash, so a
+    failing firm keeps paying wages it does not have and exits with negative
+    cash. That balance is money already paid out; deleting it with the firm
+    creates the same amount (every seeded legacy drift jump, 2026-10-20). The
+    treasury bears the deficit, and the exit leaves total money unchanged.
+    """
+    economy = _legacy_economy_with_bank()
+    firm, worker = _overdrawn_private_firm(economy)
+    firm.cash_balance = cash
+    firm.zero_cash_streak = zero_cash_streak
+
+    before = total_money_net_of_injections(economy)
+    treasury_before = economy.government.cash_balance
+    economy._handle_firm_exits()
+
+    assert firm not in economy.firms, "precondition: the overdrawn firm did not exit"
+    assert worker.employer_id is None
+    assert total_money_net_of_injections(economy) == pytest.approx(before, abs=MONEY_TOL), (
+        f"exit created {total_money_net_of_injections(economy) - before:+.6f} "
+        f"(firm left with cash {cash:+.2f})"
+    )
+    assert economy.government.cash_balance == pytest.approx(treasury_before + cash, abs=MONEY_TOL)
+    assert economy.legacy_exit_deficit_total == pytest.approx(-cash, abs=MONEY_TOL)
+
+
+def test_legacy_tick_with_overdrawn_firm_exit_conserves_money(fixed_seed):
+    """Full legacy tick: an overdrawn private firm pays payroll, sells, exits; money is conserved."""
+    economy = _legacy_economy_with_bank()
+    firm, _ = _overdrawn_private_firm(economy)
+    firm.cash_balance = -5_000.0
+
+    before = total_money_net_of_injections(economy)
+    economy.step()
+
+    assert firm not in economy.firms, "precondition: the overdrawn firm did not exit this tick"
+    drift = total_money_net_of_injections(economy) - before
+    assert abs(drift) <= MONEY_TOL, f"tick with an overdrawn exit drifted {drift:+.6f}"
+    assert economy.legacy_exit_deficit_total > 0.0

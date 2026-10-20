@@ -4,6 +4,16 @@ Notable changes and decisions for EcoSim, newest first. The project does not use
 
 ## Unreleased
 
+### 2026-10-20: Overdrawn legacy firms no longer create money when they exit
+
+Money-conservation fix (owner rule: every money flow needs a source and a sink). A seeded drift probe on `main` (seed 42, 1,000 households, 5 firms per category, 260 ticks) showed total money net of recorded injections rising by +6,845.10 in 9 jumps. Each jump was one legacy firm exit, and two exited on the same tick; the jump equals the exiting firm's negative cash to the cent.
+
+- Cause: legacy payroll (`FirmAgent.apply_production_and_costs`) debits the full wage bill whatever the firm's cash. A failing firm keeps paying wages it does not have for 8 to 12 weeks and exits with negative cash (`bankruptcy_threshold` -1,000, or a 12-tick zero-cash streak). `Economy._handle_firm_exits` removed the firm with that balance. The workers had already been paid that money, so dropping the firm's negative balance created the same amount. Rules doc K02 listed this as an unresolved counterparty.
+- Fix (legacy path only): at exit the treasury bears an overdrawn firm's deficit (`government.cash_balance -= deficit`) and the firm's balance is set to 0 before removal. `Economy.legacy_exit_deficit_total` accumulates the amounts. The `firm_bankrupt` regime event still reports the negative balance. The named payment arms fund payroll from actual cash and already settle exit cash, and are unchanged (`income_first`, seed 42, 260 ticks: zero drift and zero exits before and after).
+- Seeded rerun (same setup, seeds 42, 43 and 44): drift net of injections is within 3e-6 of zero on all three (it was +6,845 / +8,783 / +9,586 before), with no jumps. Seed 42's state hash is identical to `main` through tick 88 and first differs at tick 89, the first exit. After that the runs diverge, because the treasury holds less cash. Over the 260 weeks the treasury bears 6,989.93 / 8,658.34 / 8,120.24, and its mean balance falls 2.9% / 1.2% / 5.0%. Mean unemployment after warmup moves +1.5 / +0.1 / +5.2 pp. That spread is path sensitivity, not an effect of the fix: on `main`, a $1 treasury nudge at the first exit moves seed 44 almost as far (+4.7 pp unemployment, +3.9% GDP, against the fix's +5.2 pp and +3.8%).
+
+Evidence: `backend/tests_contracts/test_conservation_leaks.py`, `test_legacy_firm_exit_with_negative_cash_conserves_money` (two exit triggers) and `test_legacy_tick_with_overdrawn_firm_exit_conserves_money`. All three fail on `main` on the conservation assertion: the exit creates +1,500.00, +98.25 and +4,734.05.
+
 ### 2026-10-16: Poverty and wealth-loss terms read liquid wealth
 
 Bug fix from the PR7 investigation (item 3). `Economy._batch_update_wellbeing` read `cash_balance` alone for the poverty penalties and the wealth-loss term. The weekly deposit sweep runs after `last_tick_cash_start` is set and before wellbeing, so saving money in the bank counted as a wealth loss. The legacy withdrawal refills cash only to about 160, below the 200 poverty line, so households with savings were also scored as poor.
