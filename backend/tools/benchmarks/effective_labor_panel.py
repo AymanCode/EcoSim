@@ -252,7 +252,7 @@ def _aggregate(directory: Path) -> None:
     by_seed: dict[int, dict[str, dict]] = {}
     for path in files:
         payload = json.loads(path.read_text())
-        if payload.get("overrides"):
+        if payload.get("overrides") or payload.get("payment_sequence", "legacy") != "legacy":
             continue
         arm = "on" if payload.get("flag") else "off"
         by_seed.setdefault(int(payload["seed"]), {})[arm] = payload
