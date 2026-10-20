@@ -61,6 +61,12 @@ from agents import (
 from utils.category_utils import build_good_category_lookup
 from inflation import ConsumerPriceIndex, WageReview
 from payments import PaymentBook, MONEY_EPS, proportional
+from household_liquidity import (
+    accessible_liquidity as household_accessible_liquidity,
+    accessible_liquidity_array,
+    liquid_wealth as household_liquid_wealth,
+    withdrawable_deposit,
+)
 
 if TYPE_CHECKING:  # typing only; the payment arm imports it lazily at run time
     from payment_sectors import PaymentGoodsMarket
@@ -222,7 +228,9 @@ class Economy:
         if self.payment_sequence != "legacy":
             for household in self.households:
                 if household.renting_from_firm_id is not None:
-                    household.payment_pre_policy_liquidity = max(0.0, household.cash_balance) + 0.9 * max(0.0, household.bank_deposit)
+                    household.payment_pre_policy_liquidity = household_accessible_liquidity(
+                        max(0.0, household.cash_balance), household.bank_deposit
+                    )
         self.queued_firms: List[FirmAgent] = queued_firms or []
         self.target_total_firms = 0
         self._refresh_target_total_firms()
@@ -1063,8 +1071,7 @@ class Economy:
 
         # Accessible liquidity: cash + 90% of bank deposits (can be withdrawn pre-purchase)
         bank_deposits = np.array([h.bank_deposit for h in self.households], dtype=np.float64)
-        deposit_liquidity = 0.90 * np.maximum(bank_deposits, 0.0)
-        accessible_liquidity = np.maximum(cash_balances, 0.0) + deposit_liquidity
+        accessible_liquidity = accessible_liquidity_array(np.maximum(cash_balances, 0.0), bank_deposits)
         if self.payment_sequence != "legacy":
             accessible_liquidity = np.asarray(payment_liquidity, dtype=np.float64)
         elif settled_income:
@@ -1110,7 +1117,7 @@ class Economy:
             provider = firm_lookup.get(household.renting_from_firm_id)
             if provider is not None and provider.good_category == "Housing":
                 income = household.wage if household.employer_id is not None else benefit
-                liquidity = household.cash_balance + 0.90 * max(0.0, household.bank_deposit)
+                liquidity = household_accessible_liquidity(household.cash_balance, household.bank_deposit)
                 rent = self._lease_rent_due(household, provider)
                 if not (rent > self._max_affordable_rent(income, liquidity) or liquidity < rent):
                     amount += rent
@@ -4790,7 +4797,7 @@ class Economy:
             if planned_spend <= current_cash:
                 continue
             needed = planned_spend - current_cash
-            max_withdrawable = 0.90 * max(0.0, household.bank_deposit)
+            max_withdrawable = withdrawable_deposit(household.bank_deposit)
             withdraw = min(needed, max_withdrawable)
             if withdraw <= 0.0:
                 continue
@@ -4805,7 +4812,7 @@ class Economy:
             return
         for hh in self.households:
             needed = max(0.0, float(quotes.get(hh.household_id, 0.0)))
-            amount = min(needed, 0.90 * max(0.0, hh.bank_deposit))
+            amount = min(needed, withdrawable_deposit(hh.bank_deposit))
             if amount <= MONEY_EPS:
                 continue
             actual = self.bank.withdraw(hh.household_id, amount)
@@ -5300,10 +5307,11 @@ class Economy:
         # within the tick, so reading cash alone scored saving as a loss and
         # parked savers below the poverty line (PR7 investigation, item 3).
         liquid_wealth = np.fromiter(
-            (h.cash_balance + max(0.0, h.bank_deposit) for h in households), dtype=np.float64, count=n
+            (household_liquid_wealth(h.cash_balance, h.bank_deposit) for h in households),
+            dtype=np.float64, count=n,
         )
         liquid_prev = np.fromiter(
-            (h.last_tick_cash_start + max(0.0, h.last_tick_deposit_start) for h in households),
+            (household_liquid_wealth(h.last_tick_cash_start, h.last_tick_deposit_start) for h in households),
             dtype=np.float64, count=n,
         )
         housing_met = np.fromiter((h.met_housing_need for h in households), dtype=np.bool_, count=n)
@@ -7378,7 +7386,7 @@ class Economy:
         if self.bank is None or household.bank_deposit <= 0.0:
             return False
         shortfall = amount - household.cash_balance
-        max_withdrawable = 0.90 * max(0.0, household.bank_deposit)
+        max_withdrawable = withdrawable_deposit(household.bank_deposit)
         if max_withdrawable <= 0.0:
             return False
         withdraw = min(shortfall, max_withdrawable)
@@ -7503,7 +7511,7 @@ class Economy:
                 # liquidity (cash + 90% of bank deposits). Households with savings
                 # are not evicted just because their cash buffer dipped low.
                 income = household.wage if household.employer_id is not None else self.government.get_unemployment_benefit_level()
-                accessible_liquidity = household.cash_balance + 0.90 * max(0.0, household.bank_deposit)
+                accessible_liquidity = household_accessible_liquidity(household.cash_balance, household.bank_deposit)
                 max_affordable_rent = self._max_affordable_rent(income, accessible_liquidity)
 
                 if household.monthly_rent > max_affordable_rent or accessible_liquidity < household.monthly_rent:
@@ -7562,7 +7570,7 @@ class Economy:
         for household in homeless_households:
             income = household.wage if household.employer_id is not None else gov_benefit
             income_ceiling = income * rent_share
-            accessible_liquidity = household.cash_balance + 0.90 * max(0.0, household.bank_deposit)
+            accessible_liquidity = household_accessible_liquidity(household.cash_balance, household.bank_deposit)
             cash_ceiling = accessible_liquidity * 0.25
             max_affordable_rent = income_ceiling + cash_ceiling
 
@@ -7994,7 +8002,7 @@ class Economy:
                     # Pay with savings first: withdraw up to 90% of bank deposits
                     # (money-conserving via bank.withdraw) before falling back to a loan.
                     shortfall = household_cost - household.cash_balance
-                    max_withdrawable = 0.90 * max(0.0, household.bank_deposit)
+                    max_withdrawable = withdrawable_deposit(household.bank_deposit)
                     if max_withdrawable > 0.0 and self.bank is not None:
                         withdraw_amount = min(shortfall, max_withdrawable)
                         self._withdraw_deposits_to_cash(household, withdraw_amount)
