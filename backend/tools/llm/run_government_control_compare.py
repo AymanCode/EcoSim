@@ -178,7 +178,11 @@ def _largest_explicit_unmet_sector(unmet_summary: Dict[str, object]) -> str:
 
 def _apply_conservative_policy(economy, metrics: Dict[str, object]) -> Dict[str, object]:
     gov = economy.government
+    # Treasury net position (cash minus public debt, G1): with debt on, borrowing
+    # holds cash near $0, so cash alone would never trigger austerity. With no
+    # public debt this is cash, as on main.
     cash = float(metrics.get("government_cash", gov.cash_balance) or gov.cash_balance)
+    cash -= max(0.0, float(getattr(gov, "public_debt", 0.0) or 0.0))
     unemployment = float(metrics.get("labor_force_unemployment_rate", metrics.get("unemployment_rate", 0.0)) or 0.0)
     gdp = float(metrics.get("gdp_this_tick", 0.0) or 0.0)
     unmet = build_unmet_demand_summary(economy)

@@ -7,7 +7,10 @@ balance, and be judged on them. So:
 - the sanitizer's spending guard still reads cash (it fires for an unfunded
   overdraft, when the bank could not lend, or for debt/GDP >= 1), as on main;
 - fiscal mode, the prompt, policy memory and run summaries read the net
-  position (cash minus public debt), the debt trend and the interest paid.
+  position (cash minus public debt), the debt trend and the interest paid;
+- tax cuts read the net position, so a bank-financed deficit still blocks
+  them as negative cash does on main (owner question 43a, pending);
+- with the flag off and no debt owed, the prompt is main's: no debt lines.
 """
 
 import contextlib
@@ -21,9 +24,13 @@ from fiscal_guards import get_sector_subsidy_cap, public_works_affordable_budget
 from tools.benchmarks.regression_snapshot import _set_seed
 from tools.llm.llm_government import (
     PUBLIC_DEBT_TREND_TICKS,
+    _build_data_seen_snapshot,
     _build_recent_policy_memory,
     _build_system_prompt,
+    _build_user_prompt,
+    _format_fiscal_context,
     _format_public_debt_lines,
+    _format_recent_policy_memory,
     computed_fiscal_mode_from_state,
     sanitize_llm_government_changes,
 )
@@ -131,9 +138,87 @@ def test_prompt_trend_needs_a_quarter_of_history():
 
 
 def test_system_prompt_states_the_debt_rule():
-    prompt = _build_system_prompt("balanced", 100, 10)
+    with use_config(clone_config()):
+        CONFIG.government.public_debt_enabled = True
+        prompt = _build_system_prompt("balanced", 100, 10)
     assert "Spending while borrowing is allowed" in prompt
     assert "borrowed money is not revenue" in prompt
+    assert "tax cuts are not accepted while the net position is negative" in prompt
+
+
+DEBT_MARKERS = ("public debt", "Public Debt Trend", "Net Position", "Net position", "net_position",
+                "borrow", "Debt Service", "Financing this tick")
+
+
+def _prompt_texts(economy):
+    raw = economy.get_economic_metrics()
+    raw["_metrics_history"] = list(economy.metrics_history)
+    memory = _build_recent_policy_memory(
+        [{"tick": 4, "decisions": {"benefit_level": "high"}, "data_seen": _build_data_seen_snapshot(raw)}],
+        economy, target_tick=30, lookback=3, impact_horizon=26,
+    )
+    return {
+        "system": _build_system_prompt("balanced", 100, 10),
+        "user": _build_user_prompt(raw, {}, tick=26, recent_policy_memory=memory),
+        "fiscal": _format_fiscal_context(raw, {}),
+        "memory": _format_recent_policy_memory(memory),
+    }
+
+
+def test_flag_off_prompt_has_no_public_debt_lines(runs):
+    """Flag off, nothing owed: every prompt section reads as on main."""
+    with use_config(clone_config()):
+        CONFIG.government.public_debt_enabled = False
+        texts = _prompt_texts(runs["main"])
+    assert "maintaining a sustainable government cash balance" in texts["system"]
+    for name, text in texts.items():
+        for marker in DEBT_MARKERS:
+            assert marker not in text, (name, marker)
+
+
+def test_flag_on_prompt_shows_public_debt_lines(runs):
+    with use_config(clone_config()):
+        CONFIG.government.public_debt_enabled = True
+        texts = _prompt_texts(runs["debt"])
+    assert "Treasury Net Position (cash minus public debt)" in texts["user"]
+    assert "Public Debt Trend" in texts["user"]
+    assert "Net position (cash minus public debt)" in texts["fiscal"]
+    assert "public_debt=" in texts["memory"] and "net_position=" in texts["memory"]
+
+
+def _review_tax_cut(gov, gdp, economy=None):
+    policy = {"wage_tax_rate": gov.wage_tax_rate, "profit_tax_rate": gov.profit_tax_rate}
+    change = {"wage_tax_rate": round(gov.wage_tax_rate - 0.05, 4)}
+    with use_config(clone_config()):
+        applied, rejected = sanitize_llm_government_changes(change, policy, gov, gdp, 0.1, economy=economy)
+    return applied, [r["reason"] for r in rejected]
+
+
+def test_tax_cut_rejected_while_the_bank_finances_the_deficit():
+    """Cash is positive but the net position is negative: no tax cut (main's rule on the true balance)."""
+    gov = GovernmentAgent(cash_balance=5_000.0)
+    gov.public_debt = 20_000.0
+    applied, reasons = _review_tax_cut(gov, 1e6)
+    assert applied == {} and reasons == ["tax_cut_during_fiscal_stress"]
+    # Spending is still allowed in the same state (Ayman's decision).
+    gov.set_lever("infrastructure_spending", "low")
+    applied, reasons = _review(gov, INFRASTRUCTURE_UP, 1e6)
+    assert reasons == [] and applied == INFRASTRUCTURE_UP
+
+
+def test_tax_cut_allowed_with_positive_net_position():
+    gov = GovernmentAgent(cash_balance=50_000.0)
+    gov.public_debt = 20_000.0
+    applied, reasons = _review_tax_cut(gov, 1e6)
+    assert reasons == [] and "wage_tax_rate" in applied
+
+
+def test_seeded_debt_run_rejects_tax_cut_as_main_does(runs):
+    """After Economy.step() with a bank-financed deficit, a tax cut is rejected in both arms."""
+    for arm in ("main", "debt"):
+        economy = runs[arm]
+        applied, reasons = _review_tax_cut(economy.government, economy.get_economic_metrics()["gdp_this_tick"], economy)
+        assert applied == {} and reasons == ["tax_cut_during_fiscal_stress"], arm
 
 
 def test_policy_memory_reports_debt_and_net_position_change():
@@ -171,3 +256,120 @@ def test_deficit_ratio_metric_is_net_of_debt(runs):
     net = treasury_net_position(economy.government)
     assert metrics["government_net_position"] == pytest.approx(net)
     assert metrics["deficit_ratio"] == pytest.approx(-net / max(metrics["gdp_this_tick"], 1.0))
+
+
+# sha256 of the flag-off prompt bundle below, computed on main at f86f140 with the
+# same code (seed 42, 100 households, 3 firms per category, tick 20). If main's
+# prompt text changes, recompute it on main; it must still equal this branch's flag-off bundle.
+MAIN_FLAG_OFF_PROMPT_SHA256 = "6248c6f80a9995522f167d4f4bb0a63066ea9e53c32d3406fe00cd17189643ad"
+
+
+def test_flag_off_prompt_bundle_matches_main_byte_for_byte():
+    import hashlib
+
+    from tools.llm.llm_government import _format_policy_impact_memory
+
+    with use_config(clone_config()):
+        CONFIG.government.public_debt_enabled = False
+        _set_seed(42)
+        with contextlib.redirect_stdout(io.StringIO()):
+            economy = create_large_economy(100, 3)
+            for _ in range(20):
+                economy.step()
+                economy.append_metrics_snapshot(economy.get_economic_metrics())
+        raw = economy.get_economic_metrics()
+        raw["_metrics_history"] = list(economy.metrics_history)
+        memory = _build_recent_policy_memory(
+            [{"tick": 4, "decisions": {"benefit_level": "high"}, "data_seen": _build_data_seen_snapshot(raw)}],
+            economy, target_tick=20, lookback=3, impact_horizon=13,
+        )
+        text = "\n=====\n".join([
+            _build_system_prompt("balanced", 100, 10),
+            _build_user_prompt(raw, {}, tick=20, recent_policy_memory=memory),
+            _format_fiscal_context(raw, {}),
+            _format_recent_policy_memory(memory),
+            _format_policy_impact_memory(memory),
+        ])
+    assert hashlib.sha256(text.encode()).hexdigest() == MAIN_FLAG_OFF_PROMPT_SHA256
+
+
+def test_interest_moves_money_to_the_bank_without_destroying_it(runs):
+    """Interest is a transfer from treasury cash to bank reserves: total money is unchanged."""
+    import copy
+
+    economy = copy.deepcopy(runs["debt"])
+    gov, bank = economy.government, economy.bank
+    before = gov.cash_balance + bank.cash_reserves
+    with use_config(clone_config()):
+        CONFIG.government.public_debt_enabled = True
+        interest = gov.pay_public_debt_interest(bank, economy.get_economic_metrics()["gdp_this_tick"])
+    assert interest > 0.0
+    assert abs((gov.cash_balance + bank.cash_reserves) - before) < 1e-6
+
+
+def _infrastructure_spent_after_approval(borrow_target, monkeypatch):
+    """Deep deficit, debt on; infrastructure approved at week 40; spend over the next 10 weeks."""
+    spent = []
+    original = GovernmentAgent.invest_in_infrastructure
+
+    def record(self):
+        value = original(self)
+        spent.append(value)
+        return value
+
+    monkeypatch.setattr(GovernmentAgent, "invest_in_infrastructure", record)
+    with use_config(clone_config()):
+        CONFIG.government.public_debt_enabled = True
+        CONFIG.government.public_debt_borrow_target = borrow_target
+        _set_seed(42)
+        with contextlib.redirect_stdout(io.StringIO()):
+            economy = create_large_economy(200, 3)
+            gov = economy.government
+            gov.set_lever("benefit_level", "crisis")
+            gov.set_lever("technology_spending", "high")
+            gov.set_lever("social_spending", "high")
+            gov.cash_balance = 0.0
+            for _ in range(40):
+                economy.step()
+            gov.set_lever("infrastructure_spending", "high")
+            spent.clear()
+            for _ in range(10):
+                economy.step()
+    return spent
+
+
+def test_zero_target_approved_infrastructure_is_never_spent(monkeypatch):
+    """Q2: under 'zero', borrowing returns cash to ~$0 after the cash-gated programs run, so they spend $0."""
+    spent = _infrastructure_spent_after_approval("zero", monkeypatch)
+    assert len(spent) == 10 and sum(spent) == 0.0
+
+
+def test_buffer_target_approved_infrastructure_is_spent(monkeypatch):
+    spent = _infrastructure_spent_after_approval("buffer", monkeypatch)
+    assert sum(spent) > 0.0
+
+
+def _conservative_reason(cash, debt):
+    from tools.llm.run_government_control_compare import _apply_conservative_policy
+
+    with use_config(clone_config()):
+        _set_seed(42)
+        with contextlib.redirect_stdout(io.StringIO()):
+            economy = create_large_economy(100, 3)
+        gov = economy.government
+        gov.cash_balance, gov.public_debt = cash, debt
+        result = _apply_conservative_policy(economy, {"government_cash": cash, "unemployment_rate": 0.05,
+                                                      "gdp_this_tick": 10_000.0})
+    return result["reason"], gov
+
+
+def test_comparison_government_reads_net_position():
+    """Cash $0 with $100k of public debt is a deficit: austerity, not the low-cash tax cap."""
+    reason, gov = _conservative_reason(0.0, 100_000.0)
+    assert reason == "cash_negative_austerity"
+    assert gov.benefit_level == "low"
+
+
+def test_comparison_government_without_debt_is_main():
+    assert _conservative_reason(-5.0, 0.0)[0] == "cash_negative_austerity"
+    assert _conservative_reason(5_000.0, 0.0)[0] == "low_cash_hold"
