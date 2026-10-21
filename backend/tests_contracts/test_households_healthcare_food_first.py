@@ -80,6 +80,10 @@ def _budgets(economy):
     return economy._household_consumption_budgets(0.05, 30.0)
 
 
+def test_on_by_default():
+    assert CONFIG.households.healthcare_food_first_reserve is True
+
+
 def test_flag_off_holds_no_reserve_and_never_reads_the_food_cost(off, monkeypatch):
     queued = _worker(1, 100.0)
     economy, clinic = _economy([queued])
