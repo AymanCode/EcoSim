@@ -4,6 +4,12 @@ Notable changes and decisions for EcoSim, newest first. The project does not use
 
 ## Unreleased
 
+### 2026-10-21: Shared evidence panel for behavior-changing PRs
+
+The bot PRs each brought their own study script, with different household and firm counts, payment sequences, run lengths, seed sets and real-GDP deflators, so reviews kept stalling on numbers that could not be compared or reproduced. `backend/tools/benchmarks/run_evidence_panel.py` is one command that runs every arm on every payment sequence and seed at the dashboard's defaults (1,000 households, 5 firms per category, `income_first` first, seeds 42-46, 260 ticks), one process per run, and writes a paired table by tick window with identity, determinism and money checks. Arms can come from different checkouts, so a PR's flag-off state is compared with `main` directly. Tooling only: no simulation code, config default or flag changes.
+
+Evidence: `backend/tests_contracts/test_evidence_panel.py` (7 tests).
+
 ### 2026-10-20: Effective labour, off by default
 
 Firm capacity counted every worker as one head, so skill and effort were clipped by the headcount cap. `firms.effective_labor_enabled` (default false) builds Food and Services capacity from effective labour: each worker's skill, category experience, and health channel, divided by one fixed reference worker. The hire count uses skill and category experience only. Realized output is the plan clipped by that capacity; it does not pay the old above-plan multiplier. Healthcare visits keep their skill term and, with the flag on, scale by the wellbeing ratio. Flag off is the previous headcount path.
