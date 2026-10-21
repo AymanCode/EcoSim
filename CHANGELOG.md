@@ -4,11 +4,9 @@ Notable changes and decisions for EcoSim, newest first. The project does not use
 
 ## Unreleased
 
-### 2026-10-20: Services target markup can be held, flag off
+### 2026-10-21: Services demand margin, flag off
 
-The Services boom price treats `markup` as the firm's desired margin, then replaces that field with the margin implied by the smoothed price. The profit-tax gross-up and the one-week utilization surge therefore become next week's target, and the margin compounds while a firm stays busy. A slump writes the clearance margin back the same way, so the next boom does not start from the margin the firm was given. `firms.services_target_markup_held` (default off) keeps the sampled target. Private firms keep their own draw from `markup_range` (0.20 to 0.40). Baseline Services firms keep the 0.3 field default. The posted price for the current tick, including the tax gross-up and the surge, is unchanged. Warm-up, a disabled stabilizer and the weekly price cap no longer write a realized margin back onto that target. Flag off is the previous rule.
-
-This changes prices only when the flag is on. Whether to turn it on is unsettled: nominal GDP and firm profit fall because Services prices stop compounding, while unemployment, poverty and later happiness move the other way. The seeded panel is in the pull request. No new cash flow.
+The Services boom price treats `markup` as the firm's desired margin, then replaces that field with the margin implied by the smoothed price. The profit-tax gross-up and the one-week utilization surge therefore become next week's target, and the margin compounds while a firm stays busy. A slump writes the clearance margin back the same way. `firms.services_demand_margin_enabled` (default off) replaces that write-back for a generic Services firm. A private firm steps its stored margin by `services_margin_step` (0.02) inside 0.20 to 1.00: up when sell-through is at least 0.95 and its latest unmet share is above 0.05, down when sell-through is below 0.85, otherwise unchanged, then clamped. The boom price that week is not grossed up by `1/(1 − profit tax)`. The baseline Services firm's target margin is 0 (cost recovery). The switch ships off: with it on, today's firm lending test does not fund Services capacity at those margins, and the on arm of the shared evidence panel collapses. Flag off is the previous rule. No new cash flow. The panel is in the pull request.
 
 ### 2026-10-21: Shared evidence panel for behavior-changing PRs
 

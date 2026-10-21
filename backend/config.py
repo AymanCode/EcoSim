@@ -639,11 +639,14 @@ class FirmBehaviorConfig:
     markup_range: Tuple[float, float] = (0.20, 0.40)
     # Off (default): the Services boom rule reads markup, then replaces it with
     # the margin implied by the smoothed price, so the profit-tax gross-up and
-    # the utilization surge compound into the next target. On: markup stays at
-    # the firm's sampled target (baseline firms keep the 0.3 field default).
-    # The posted price, the temporary surge and the tax gross-up are unchanged
-    # on the tick they are computed. Owner decision whether to turn it on.
-    services_target_markup_held: bool = False
+    # the utilization surge compound into the next target. On: a private
+    # Services firm steps its margin from sell-through and its own unmet
+    # demand, inside [min, max]. The baseline Services firm is held at 0
+    # (cost recovery). The boom's tax gross-up does not apply while this is on.
+    services_demand_margin_enabled: bool = False
+    services_margin_min: float = 0.20
+    services_margin_max: float = 1.00
+    services_margin_step: float = 0.02
     unit_cost_range: Tuple[float, float] = (4.0, 6.5)
 
     # Personality trait ranges (sampled once per firm at initialization)
@@ -1072,8 +1075,22 @@ class SimulationConfig:
         ratio = self.firms.services_expansion_min_excess_demand_ratio
         if not (math.isfinite(ratio) and ratio >= 0.0):
             raise ValueError("services_expansion_min_excess_demand_ratio must be finite and non-negative")
-        if type(self.firms.services_target_markup_held) is not bool:
-            raise ValueError("services_target_markup_held must be a bool")
+        if type(self.firms.services_demand_margin_enabled) is not bool:
+            raise ValueError("services_demand_margin_enabled must be a bool")
+        margin_lo = self.firms.services_margin_min
+        margin_hi = self.firms.services_margin_max
+        margin_step = self.firms.services_margin_step
+        for name, value in (
+            ("services_margin_min", margin_lo),
+            ("services_margin_max", margin_hi),
+            ("services_margin_step", margin_step),
+        ):
+            if type(value) is not float or not math.isfinite(value):
+                raise ValueError(f"{name} must be a finite float")
+        if margin_lo < 0.0 or margin_hi < 0.0 or margin_lo > margin_hi:
+            raise ValueError("services margin bounds must satisfy 0 <= min <= max")
+        if margin_step <= 0.0:
+            raise ValueError("services_margin_step must be > 0")
 
         # Validate range tuples (low <= high)
         for name, (lo, hi) in [
@@ -1143,18 +1160,28 @@ class _ContextLocalConfig:
 CONFIG = _ContextLocalConfig()
 
 
-def services_target_markup_held() -> bool:
-    """Whether Services firms keep their sampled target markup.
+def services_demand_margin_enabled() -> bool:
+    """Whether generic Services firms use the bounded demand-responsive margin.
 
     Rejects anything that is not a real bool, including ``1`` and ``0``, so a
-    bad assignment cannot silently turn the pricing change on.
+    bad assignment cannot silently turn the pricing change on. The min, max
+    and step are checked here too, so a mutated non-finite bound fails closed.
     """
-    flag = get_config().firms.services_target_markup_held
+    firms = get_config().firms
+    flag = firms.services_demand_margin_enabled
     if type(flag) is not bool:
         raise ValueError(
-            "services_target_markup_held must be a bool, "
+            "services_demand_margin_enabled must be a bool, "
             f"got {type(flag).__name__}"
         )
+    for name in ("services_margin_min", "services_margin_max", "services_margin_step"):
+        value = getattr(firms, name)
+        if type(value) is not float or not math.isfinite(value):
+            raise ValueError(f"{name} must be a finite float, got {value!r}")
+    if firms.services_margin_min < 0.0 or firms.services_margin_max < firms.services_margin_min:
+        raise ValueError("services margin bounds must satisfy 0 <= min <= max")
+    if firms.services_margin_step <= 0.0:
+        raise ValueError("services_margin_step must be > 0")
     return flag
 
 # The historical runtime imports ``config`` from inside ``backend/`` while
