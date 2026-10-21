@@ -4104,7 +4104,12 @@ class FirmAgent(AgentMixin):
                 # Services throughput follows staffed slots rather than capital
                 # stock.  A physical capital purchase cannot expand its slots.
                 sellable_gap = 0.0
-            next_capacity = (units * ((K + 1.0) ** config.alpha_k) * (workers ** config.alpha_n)
+            # existing_output is already in labour units when the flag is on.
+            # The next unit of capital has to use that same measure. Flag off
+            # passes the headcount through, which is what this block used before.
+            labor_n = (self._labor_units_for_headcount(float(workers), skill_only=False)
+                       if config.effective_labor_enabled else float(workers))
+            next_capacity = (units * ((K + 1.0) ** config.alpha_k) * (labor_n ** config.alpha_n)
                              if workers > 0 else 0.0)
             incremental_units = min(sellable_gap, max(0.0, next_capacity - existing_output))
             contribution = max(0.0, float(self.price) - max(0.0, float(self.pricing_operating_unit_cost)))

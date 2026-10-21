@@ -3,8 +3,10 @@
 ``CONFIG.firms.effective_labor_enabled`` defaults to false. The flag-off
 production path never calls this module.
 
-A worker's weight is their multiplier divided by the multiplier of one fixed
-reference worker, so a reference worker counts as 1.0 labour unit. Capacity
+A worker's weight is their multiplier divided by the multiplier of the run's
+reference worker, so a reference worker counts as 1.0 labour unit. Tick 1
+uses ``worker_reference_skill``. After tick 1 the economy stores the week-1
+employed Food and Services mean skill and later ticks use that. Capacity
 then uses that sum in place of a headcount. Hiring counts skill and category
 experience only: mood and health are not known at hire (R06). This week's
 output still uses the current roster's health and mood, because those people
@@ -58,7 +60,6 @@ class EffectivenessSpec:
     """One read of the firm config for a tick. Passed into the worker loop."""
 
     health_mode: str
-    per_worker_cap: bool
     effort_range: float
     reference_mood: float
     mood_half_span: float
@@ -216,11 +217,6 @@ def worker_weights(household: object, category: str, spec: EffectivenessSpec) ->
         return (0.0, 0.0)
     observable = max(0.0, observable)
     full = max(0.0, full)
-    if spec.per_worker_cap:
-        # Option D: a worker cannot contribute more than the reference, so a
-        # colleague's surplus does not fill someone else's shortfall.
-        observable = min(observable, 1.0)
-        full = min(full, 1.0)
     return (observable, full)
 
 
@@ -229,7 +225,6 @@ def load_spec(firms: object, households: object) -> EffectivenessSpec:
     mode = str(getattr(firms, "effective_labor_health"))
     spec = EffectivenessSpec(
         health_mode=mode,
-        per_worker_cap=bool(getattr(firms, "effective_labor_per_worker_cap")),
         effort_range=float(getattr(firms, "worker_effort_range")),
         reference_mood=float(getattr(firms, "worker_effort_reference_mood")),
         mood_half_span=float(getattr(firms, "worker_effort_mood_half_span")),
@@ -250,7 +245,6 @@ def load_spec(firms: object, households: object) -> EffectivenessSpec:
     )
     return EffectivenessSpec(
         health_mode=spec.health_mode,
-        per_worker_cap=spec.per_worker_cap,
         effort_range=spec.effort_range,
         reference_mood=spec.reference_mood,
         mood_half_span=spec.mood_half_span,
@@ -280,9 +274,6 @@ def validate_effective_labor_config(firms: object) -> None:
     enabled = getattr(firms, "effective_labor_enabled")
     if not isinstance(enabled, bool):
         raise ValueError("effective_labor_enabled must be a bool")
-    cap = getattr(firms, "effective_labor_per_worker_cap")
-    if not isinstance(cap, bool):
-        raise ValueError("effective_labor_per_worker_cap must be a bool")
     mode = getattr(firms, "effective_labor_health")
     if mode not in HEALTH_MODES:
         raise ValueError(

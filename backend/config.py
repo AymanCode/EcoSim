@@ -692,16 +692,14 @@ class FirmBehaviorConfig:
     unemployment_ma_window: int = 4     # Ticks in short-term unemployment moving average
 
     # Effective labour. Off (the default) keeps headcount capacity, so a run
-    # matches main. On, capacity is the sum of worker weights relative to one
-    # fixed reference worker. See backend/worker_effectiveness.py.
+    # matches main. On, capacity is the sum of worker weights relative to the
+    # run's reference worker. Tick 1 uses worker_reference_skill. The economy
+    # then stores the week-1 employed Food and Services mean skill.
+    # See backend/worker_effectiveness.py.
     effective_labor_enabled: bool = False
     # main_weight keeps main's health slope. absence and presenteeism are
     # the other owner options; they are not the default.
     effective_labor_health: str = "main_weight"
-    # Option D: cap each worker at the reference so a colleague's surplus
-    # cannot fill someone else's shortfall. Off, which is the sum the plan
-    # describes.
-    effective_labor_per_worker_cap: bool = False
     # ±12% effort span. Inactive while health mode is main_weight, because
     # morale and happiness are already inside the performance multiplier.
     worker_effort_range: float = 0.12
@@ -717,7 +715,8 @@ class FirmBehaviorConfig:
     # Stewart et al. 2003 JAMA: reduced performance at work is about 3.3
     # times the absence share of pain-related lost productive time.
     worker_presenteeism_multiple: float = 3.3
-    # Week-1 median skill at 1,000 households. Not the live employed mean.
+    # Tick-1 reference, and the fallback when week 1 has no finite skill.
+    # After tick 1 a flag-on run uses the stored employed mean instead.
     worker_reference_skill: float = REFERENCE_SKILL
 
 
