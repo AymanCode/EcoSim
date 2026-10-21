@@ -4,21 +4,17 @@ Notable changes and decisions for EcoSim, newest first. The project does not use
 
 ## Unreleased
 
-### 2026-10-20: Skills learned on the job wear off out of work, never below week-1 skill (households, flag off)
+### 2026-10-21: Skills learned on the job wear off out of work, never below week-1 skill (households, default on)
 
-This rebuilds #39 from `main`, following Claude's review and Ayman's decision: *"skill loss needs a floor... the floor is where a household starts in week 1: time out of work erodes skill gained on the job, not the starting level."* New switch `CONFIG.households.skills_dynamics`, default `False`. With it off, runs are identical to `main`.
+Rebuild of #39 from `main`, after Claude's round-2 review and the crew charter pass (2026-10-21, Q1-C and Q2-B). Ayman's rule stands: *"skill loss needs a floor... the floor is where a household starts in week 1."*
 
-- **On:** `Economy._batch_update_skills` runs once a tick, after `_sync_firm_employee_rosters`.
-  - Employed households gain `g * (1 - s)`, where `g` is the household's existing `skill_growth_rate` trait. That is the same per-week rate main's yearly grant multiplies by weeks worked, now credited weekly; realized learning is 6.2% of the gap per year against main's 6.3%.
-  - Unemployed households lose only the gain above their week-1 skill `f` (`HouseholdAgent.skill_floor`): `s = f + (s - f) * (1 - d_w)`. Skill approaches `f` smoothly and never goes below it.
-  - Paid education raises `f` by the skill it buys, so schooling is not worn off.
-- **Depreciation `d`:** drawn per household from `skill_gain_depreciation_annual_range = (0.5, 0.9)` per year of the gain. Each household gets its own generator seeded by (run seed, stream 0x5D11, household id), so no module RNG draw changes. The draw is cached in `_household_static_traits` (no `id()` key).
-- **Calibration** (`tools/analysis/run_households_skill_rank_loss.py`, seeds 42/7/1/3/11): the realized one-year rank loss with peers still learning is 4.2 percentile points (3.4-5.4), against 1.8 with the flag off and about 5.5 in Edin & Gustavsson (2008). With −50% it is 3.1; with +50% (capped below 1) it is 4.6. The floor bounds how much can be lost.
-- **Toggle hazard fixed:** while the flag is on, the yearly grant clock is held at the current tick, so switching it off later cannot pay out the on-weeks at once.
-- **Retired config keys (rule R12, one mechanism):** `skill_decay_unemployment_threshold` (was `26`, ticks unemployed before decay), `skill_decay_rate_per_tick` (was `0.002`) and `skill_decay_floor` (was `0.1`). No code read them.
-- **New validation:** `skill_gain_depreciation_annual_range` must be finite with `0 <= lo <= hi < 1`; `skill_growth_rate_range` finite with `0 <= lo <= hi <= 0.01`.
+- **`CONFIG.households.skills_dynamics`, default `True`.** `Economy._batch_update_skills` runs once a tick, after `_sync_firm_employee_rosters`. Unemployed households lose a fixed `skill_loss_per_year_out_of_work = 0.04` skill units per year, applied as `a / 52` a week, never below their week-1 skill `f` (`HouseholdAgent.skill_floor`): `s = max(f, s - a / 52)`. Paid education raises `f` by the skill it buys. With the switch off, runs are identical to `main`.
+- **Learning stays yearly.** Main's 52-tick grant (`skill_growth_rate * (1 - s)` per week worked) is unchanged under `skills_dynamics`. Weekly crediting moves behind its own switch, `CONFIG.households.skills_weekly_learning`, default `False` and read only with `skills_dynamics` on. Round 2 found the weekly change alone produced the low-skill hiring drop.
+- **Fixed loss, not a share of gains.** The round-2 rule lost a share of everything gained, so a year out cost more late in a run (rank loss 3.5 -> 13.5 points by spell start over 624 ticks). A fixed 0.04/yr gives a realized 4.2-5.3 points a year, flat by spell start, against about 5.5 in Edin & Gustavsson (2008). Removes `skill_gain_depreciation_annual_range` and its per-household RNG stream.
+- **Retired config keys (rule R12, one mechanism):** `skill_decay_unemployment_threshold` (was `26`), `skill_decay_rate_per_tick` (was `0.002`) and `skill_decay_floor` (was `0.1`). No code read them.
+- **Validation:** `skill_loss_per_year_out_of_work` finite with `0 <= a <= 1`; both switches must be bools; `skill_growth_rate_range` finite with `0 <= lo <= hi <= 0.01`.
 
-Evidence: `test_households_skills.py` (11 tests, 15 cases, including a 156-tick live `Economy.step()` run asserting realized gains, wear-off, and no household below its floor). By-window panel (`tools/analysis/run_household_window_panel.py` + `summarize_household_window_panel.py`, 1,000 households, 260 ticks, seeds 42/7/1/3/11, one process per arm): see PR.
+Evidence: `test_households_skills.py` (step tests for the yearly grant and the one-year loss, the 2 x 2 switch matrix, a 156-tick live run, validation). Evidence panel (#58), 3 sequences x 5 seeds, arms main / off / on: see the PR.
 
 ### 2026-10-16: Poverty and wealth-loss terms read liquid wealth
 

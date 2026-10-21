@@ -2,7 +2,7 @@
 never below each household's week-1 skill; learning keeps main's yearly grant.
 
 Switches:
-- ``CONFIG.households.skills_dynamics`` (default off in this commit). Off = main.
+- ``CONFIG.households.skills_dynamics`` (default on). Off = main.
 - ``CONFIG.households.skills_weekly_learning`` (default off; read only with
   ``skills_dynamics`` on). On = learning credited weekly instead of yearly.
 - ``CONFIG.households.skill_loss_per_year_out_of_work`` (default 0.04).
@@ -69,7 +69,7 @@ def _drive(economy, household, outcome, tick):
 
 def test_defaults():
     cfg = HouseholdBehaviorConfig()
-    assert cfg.skills_dynamics is False
+    assert cfg.skills_dynamics is True
     assert cfg.skills_weekly_learning is False
     assert cfg.skill_loss_per_year_out_of_work == 0.04
 

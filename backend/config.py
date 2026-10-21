@@ -164,7 +164,7 @@ class HouseholdBehaviorConfig:
     min_cash_aggressive_search_range: Tuple[float, float] = (60.0, 180.0)
     skill_growth_rate_range: Tuple[float, float] = (0.0005, 0.002)
     # --- Skills dynamics (households skills PR), default on -------------------
-    # skills_dynamics: bool, default False. Out of work, a household loses
+    # skills_dynamics: bool, default True. Out of work, a household loses
     #   on-the-job skill at a fixed rate, never below its week-1 skill
     #   (HouseholdAgent.skill_floor): each week Economy._batch_update_skills
     #   sets s = max(f, s - a / 52) when s > f, with a =
@@ -172,7 +172,7 @@ class HouseholdBehaviorConfig:
     #   education raises f by the skill it buys. On-the-job learning keeps
     #   main's yearly grant (skill_growth_rate * (1 - s) per week worked,
     #   credited every 52 ticks). Off: identical to main (skill never falls).
-    skills_dynamics: bool = False
+    skills_dynamics: bool = True
     # skills_weekly_learning: bool, default False. Only read when
     #   skills_dynamics is on. When True, the yearly grant is replaced by a
     #   weekly one, s += g * (1 - s) per week employed (g = the household's
