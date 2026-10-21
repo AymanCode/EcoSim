@@ -11,8 +11,10 @@ target; tests that say otherwise set the flag or the target themselves.
 
 import contextlib
 import dataclasses
+import importlib.util
 import io
 import math
+from pathlib import Path
 
 import pytest
 
@@ -303,3 +305,35 @@ def test_no_bond_buy_while_debt_is_owed_after_each_step(monkeypatch):
             ticks_owing += 1
             assert economy.last_tick_gov_bond_purchases == 0.0
     assert ticks_owing > 0
+
+
+def test_unfunded_week_metric_is_zero_when_borrowing_is_off(monkeypatch):
+    """Flag-off negative cash is main's overdraft, not a week the lending cap bound."""
+    path = Path(__file__).resolve().parents[2] / "benchmarks" / "plugins" / "pr43_public_debt.py"
+    spec = importlib.util.spec_from_file_location("pr43_public_debt_plugin", path)
+    module = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(module)
+
+    class _Gov:
+        cash_balance = -10_000.0
+        public_debt = 0.0
+        last_tick_debt_unfunded = 10_000.0
+        last_tick_debt_interest = 0.0
+        last_tick_debt_borrowed = 0.0
+        last_tick_debt_repaid = 0.0
+
+    class _Economy:
+        government = _Gov()
+        bank = None
+        last_tick_gov_bond_purchases = 0.0
+        last_tick_gov_infrastructure_spending = 0.0
+        last_tick_gov_technology_spending = 0.0
+        last_tick_gov_social_spending = 0.0
+
+    monkeypatch.setattr(CONFIG.government, "public_debt_enabled", False)
+    assert module.extra_metrics(_Economy())["unfunded_week"] == 0.0
+    monkeypatch.setattr(CONFIG.government, "public_debt_enabled", True)
+    assert module.extra_metrics(_Economy())["unfunded_week"] == 1.0
+    _Gov.last_tick_debt_unfunded = 0.0
+    assert module.extra_metrics(_Economy())["unfunded_week"] == 0.0
