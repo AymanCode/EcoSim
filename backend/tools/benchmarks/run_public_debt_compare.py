@@ -13,6 +13,9 @@ Arms:
                must equal ``main`` exactly (checked per seed).
     on_zero    debt on, borrow back to $0 of cash (``public_debt_borrow_target="zero"``).
     on_buffer  debt on, borrow back to the one-week working balance ("buffer").
+    on_noint   decomposition only: ``on_zero`` with the weekly interest payment
+               replaced by $0 in that process, to split the effect of interest
+               from the effect of borrowing. Not a policy option.
 
 Scenarios:
     default  levers as configured.
@@ -21,11 +24,15 @@ Scenarios:
     deep     the treasury starts with no cash; crisis benefits plus high
              infrastructure, technology and social spending for the whole run.
 
-Usage (from backend/):
+Workers run with ``PYTHONHASHSEED=0`` and ``OMP_NUM_THREADS=1``; the report
+opens with the run environment (commit, Python, numpy, pandas, platform,
+households, firms per category, ticks, seeds).
+
+Usage (from backend/), app defaults of 1,000 households and 5 firms per category:
     python tools/benchmarks/run_public_debt_compare.py \\
-        --main-backend /path/to/main/backend --households 1000 --ticks 312 \\
-        --seeds 42 43 44 45 46 --scenarios default stress deep \\
-        --arms main off on_zero on_buffer --out /tmp/g1_runs
+        --main-backend /path/to/main/backend --households 1000 --firms-per-category 5 \\
+        --ticks 312 --seeds 42 43 44 45 46 --scenarios default stress deep \\
+        --arms main off on_zero on_buffer on_noint --out /tmp/g1_runs
 """
 
 from __future__ import annotations
@@ -35,6 +42,8 @@ import contextlib
 import hashlib
 import io
 import json
+import os
+import platform
 import statistics
 import subprocess
 import sys
@@ -44,7 +53,7 @@ from typing import Dict, List
 
 BACKEND_ROOT = Path(__file__).resolve().parents[2]
 SCENARIOS = ("default", "stress", "deep")
-ARMS = ("main", "off", "on_zero", "on_buffer")
+ARMS = ("main", "off", "on_zero", "on_buffer", "on_noint")
 WINDOWS = (("1-100", 0, 100), ("101-200", 100, 200), ("201+", 200, None))
 DECILES = (10, 20, 30, 40, 50, 60, 70, 80, 90)
 
@@ -62,6 +71,15 @@ def _worker(backend: str, arm: str, seed: int, scenario: str, ticks: int, househ
         CONFIG.government.public_debt_enabled = arm.startswith("on_")
         if arm == "on_buffer":
             CONFIG.government.public_debt_borrow_target = "buffer"
+    if arm == "on_noint":
+        from agents import GovernmentAgent  # noqa: E402
+
+        def _no_interest(self, bank, recent_gdp):
+            self.last_tick_debt_interest = 0.0
+            self.last_tick_debt_rate = 0.0
+            return 0.0
+
+        GovernmentAgent.pay_public_debt_interest = _no_interest
     _set_seed(seed)
     with contextlib.redirect_stdout(io.StringIO()):
         economy = create_large_economy(households, firms)
@@ -91,6 +109,8 @@ def _worker(backend: str, arm: str, seed: int, scenario: str, ticks: int, househ
         net = float(gov.cash_balance) - debt
         row = {
             "gdp": float(m["gdp_this_tick"]),
+            # Real GDP: nominal GDP deflated by the mean price (tick-0 price level not rebased).
+            "real_gdp": float(m["gdp_this_tick"]) / float(m["mean_price"]) if float(m["mean_price"]) > 0 else 0.0,
             "unemployment": float(m["unemployment_rate"]),
             "mean_price": float(m["mean_price"]),
             "gov_balance": float(gov.last_tick_revenue - gov.last_tick_spending),
@@ -145,7 +165,8 @@ def _run_one(job) -> Dict:
         "--seed", str(seed), "--scenario", scenario, "--ticks", str(args.ticks),
         "--households", str(args.households), "--firms-per-category", str(args.firms_per_category),
     ]
-    proc = subprocess.run(cmd, capture_output=True, text=True, cwd=backend)
+    env = {**os.environ, "PYTHONHASHSEED": "0", "OMP_NUM_THREADS": "1"}
+    proc = subprocess.run(cmd, capture_output=True, text=True, cwd=backend, env=env)
     if proc.returncode != 0:
         raise RuntimeError(f"{arm} seed {seed} {scenario} failed:\n{proc.stderr[-2000:]}")
     result = json.loads(proc.stdout.strip().splitlines()[-1])
@@ -156,7 +177,8 @@ def _run_one(job) -> Dict:
 
 
 PANEL = (
-    ("gdp", "GDP / wk", "{:,.0f}"), ("unemployment", "unemployment", "{:.4f}"), ("mean_price", "mean price", "{:.3f}"),
+    ("gdp", "GDP / wk", "{:,.0f}"), ("real_gdp", "real GDP / wk (GDP / mean price)", "{:,.0f}"),
+    ("unemployment", "unemployment", "{:.4f}"), ("mean_price", "mean price", "{:.3f}"),
     ("gov_balance", "gov balance (revenue - spending) / wk, mean", "{:,.0f}"),
     ("min_gov_balance", "gov balance / wk, min", "{:,.0f}"),
     ("net_position", "treasury net position (cash - debt), mean", "{:,.0f}"),
@@ -170,7 +192,7 @@ PANEL = (
     ("interest", "interest / wk", "{:,.1f}"), ("bank_reserves", "bank reserves", "{:,.0f}"),
     ("bank_equity", "bank equity (books incl. public debt)", "{:,.0f}"),
 )
-VOLATILITY = ("gdp", "unemployment", "mean_price", "happiness", "gov_balance", "public_debt", "interest")
+VOLATILITY = ("gdp", "real_gdp", "unemployment", "mean_price", "happiness", "gov_balance", "public_debt", "interest")
 
 
 def _fmt_cell(fmt: str, values: List[float]) -> str:
@@ -241,6 +263,40 @@ def _report(scenario: str, results: List[Dict], arms: List[str], seeds: List[int
     return "\n".join(lines)
 
 
+def _git_head(path: str) -> str:
+    """Short commit of the checkout at ``path``, with ``-dirty`` if it has uncommitted changes."""
+    try:
+        head = subprocess.run(["git", "rev-parse", "--short", "HEAD"], capture_output=True, text=True,
+                              cwd=path, check=True).stdout.strip()
+        dirty = subprocess.run(["git", "status", "--porcelain", "--untracked-files=no"], capture_output=True,
+                               text=True, cwd=path, check=True).stdout.strip()
+        return head + ("-dirty" if dirty else "")
+    except (OSError, subprocess.CalledProcessError):
+        return "unknown"
+
+
+def _run_env(args) -> List[str]:
+    import numpy
+
+    try:
+        import pandas
+        pandas_version = pandas.__version__
+    except ImportError:
+        pandas_version = "not installed"
+    lines = ["## Run environment", "",
+             f"- command: `python {' '.join(sys.argv)}`",
+             f"- branch commit: `{_git_head(str(BACKEND_ROOT))}`"]
+    if args.main_backend:
+        lines.append(f"- main commit: `{_git_head(args.main_backend)}`")
+    lines += [f"- Python {platform.python_version()}, numpy {numpy.__version__}, pandas {pandas_version}, "
+              f"{platform.system()} {platform.machine()}",
+              "- workers: one process per (scenario, arm, seed), PYTHONHASHSEED=0, OMP_NUM_THREADS=1, "
+              "`_set_seed(seed)` after the arm's config",
+              f"- {args.households} households, {args.firms_per_category} firms per category, {args.ticks} ticks, "
+              f"seeds {' '.join(str(s) for s in args.seeds)}, arms {' '.join(args.arms)}", ""]
+    return lines
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--worker", action="store_true", help=argparse.SUPPRESS)
@@ -250,7 +306,7 @@ def main() -> None:
     parser.add_argument("--scenario", default="default", help=argparse.SUPPRESS)
     parser.add_argument("--main-backend", help="backend/ of a main checkout, for the 'main' arm")
     parser.add_argument("--households", type=int, default=1000)
-    parser.add_argument("--firms-per-category", type=int, default=6)
+    parser.add_argument("--firms-per-category", type=int, default=5)
     parser.add_argument("--seeds", type=int, nargs="+", default=[42, 43, 44, 45, 46])
     parser.add_argument("--ticks", type=int, default=312)
     parser.add_argument("--scenarios", nargs="+", default=list(SCENARIOS), choices=SCENARIOS)
@@ -276,6 +332,7 @@ def main() -> None:
     args.out.mkdir(parents=True, exist_ok=True)
     (args.out / "results.json").write_text(json.dumps(results))
     report = [f"# Public debt paired runs: {args.households} households, {args.ticks} ticks, seeds {args.seeds}", ""]
+    report += _run_env(args)
     report += [_report(scenario, results, args.arms, args.seeds) for scenario in args.scenarios]
     (args.out / "report.md").write_text("\n".join(report))
     print("\n".join(report))
