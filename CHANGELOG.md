@@ -4,6 +4,26 @@ Notable changes and decisions for EcoSim, newest first. The project does not use
 
 ## Unreleased
 
+### 2026-10-20: The healthcare visit price covers the doctors' payroll
+
+Owner decision (Ayman): the sole care provider should be able to price to profit. Before, `FirmAgent._healthcare_labor_price_targets` priced a visit at wage bill / (doctors x 2.2 slots) x 1.1875, assuming every slot is sold. The doctor roster is fixed (2% of households, seeded by the factory; doctors only work in healthcare and the economy zeroes the clinic's hiring plan), wages are pinned to the 36 minimum, and demand fills about half the slots (21.5 requests a week for 44 slots on seed 42). So the price was 19.43 in every post-warmup week, break-even needed 37 visits a week, and seed 42 lost money in 249 of 250 post-warmup weeks (-73,047 at week 260). Warmup was worse: the generic baseline warmup rule divided a doctor's wage by goods productivity (11.9 units) and floored the visit at 5.00. Care requests have no price input (rules M03), so the price never fed back anyway.
+
+Behind `CONFIG.firms.fix_healthcare_price_covers_payroll` (default on; False restores the old behavior, seed 42 then matches the R&D-only change to the cent):
+
+- The wage bill is spread over expected visits: the smoothed weekly requests (`healthcare_arrivals_ema`, already used for staffing), capped at the slots. The 15% after-tax margin and surge pricing are unchanged. When requests fill every slot, the price is the old one.
+- The price moves at most 15% a week, as housing rent does. Without it the cold request average sends the price from 5 to 155 at week 11.
+- Warmup prices the visit slots (19.43) instead of goods units (5.00).
+- Healthcare buys no capital. Its visit capacity does not use capital, and once profitable the generic rule borrowed 500 a week for it (64,000-70,000 of debt by week 260 in the trial runs).
+
+Seeded runs (1,000 households, 5 firms per category, seeds 42-46, mean over seeds, main -> this change):
+
+- Clinic: price 19.43 -> about 41. Cash at week 520: -144,607 -> +18,289.
+- Households at week 520: total cash + deposits -5.3% (2.03M -> 1.92M, about -108 each), median 529 -> 486, 10th percentile 128 -> 93, share under 100 10.3% -> 13.0%, share with savings 79.7% -> 74.0%. On main the clinic's overdraft paid the doctors' wages that patients did not; patients now pay them.
+- Care: spend over ten years 220 -> 435 per household, 0.5% -> 1.0% of income (bottom fifth by starting wealth: 0.54% -> 1.05%). Visits -0.8%. Refused visits 0.2 -> 75.6 per 1,000 households over ten years (0.7% of visits, 66 of them in years 6-10). Mean health 0.777 -> 0.776; share below 0.5 unchanged (11.4% -> 11.5%). Medical-loan debt stays near zero.
+- Unemployment moves in both directions across seeds (path sensitivity; not an effect claimed here).
+
+Evidence: `test_contracts_healthcare.py` adds 12 test cases: the price over expected visits, the cap at slots, the weekly limit (2 cases), the seed-42 payroll case, warmup slots, no capital (2 cases), and four flag tests (default on; off restores the full-slot price, the goods-unit warmup price and the capital purchase). The 7 behavior cases other than the cap fail on main; the cap test passes on both as a guard. `test_contract_healthcare_price_targets_doctor_labor_cost_plus_margin` now sets requests that fill the slots, so it still pins the old formula for that case.
+
 ### 2026-10-20: Healthcare does no R&D
 
 Owner decision (Ayman). R&D buys quality, and no healthcare decision reads quality: care is left out of the shopping snapshots, provider choice reads queue length and price, and a visit heals the patient's missing health whatever the provider. Before, the generic phase-11.6 rule (`FirmAgent.apply_rd_and_quality_update`) still sent 5-10% of a profitable week's revenue from a Healthcare firm to the miscellaneous pool. It also ignored cash: the baseline clinic's one R&D payment on seed 42 (44.36, week 42) was made at -10,716. Now Healthcare firms return 0 from that step, next to the survival-mode exit. Other categories are unchanged.
