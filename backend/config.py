@@ -163,36 +163,35 @@ class HouseholdBehaviorConfig:
     reservation_markup_range: Tuple[float, float] = (1.02, 1.20)
     min_cash_aggressive_search_range: Tuple[float, float] = (60.0, 180.0)
     skill_growth_rate_range: Tuple[float, float] = (0.0005, 0.002)
-    # --- Skills dynamics (households skills PR), default off ------------------
-    # skills_dynamics: bool, default False. When True,
-    #   Economy._batch_update_skills replaces the yearly on-the-job skill grant
-    #   with a weekly update after roster sync. Employed: s += g * (1 - s),
-    #   where g is the household's own skill_growth_rate trait (the same
-    #   per-tick rate the yearly grant multiplies by weeks worked, so the
-    #   expected yearly gain is unchanged; only the cadence becomes weekly).
-    #   Unemployed: only skill gained above the household's week-1 level
-    #   (HouseholdAgent.skill_floor) wears off, s = f + (s - f) * (1 - d),
-    #   so skill approaches the floor smoothly and never goes below it.
-    #   Off: the yearly grant runs unchanged and skill never falls.
+    # --- Skills dynamics (households skills PR), default on -------------------
+    # skills_dynamics: bool, default False. Out of work, a household loses
+    #   on-the-job skill at a fixed rate, never below its week-1 skill
+    #   (HouseholdAgent.skill_floor): each week Economy._batch_update_skills
+    #   sets s = max(f, s - a / 52) when s > f, with a =
+    #   skill_loss_per_year_out_of_work. At or below f nothing changes. Paid
+    #   education raises f by the skill it buys. On-the-job learning keeps
+    #   main's yearly grant (skill_growth_rate * (1 - s) per week worked,
+    #   credited every 52 ticks). Off: identical to main (skill never falls).
     skills_dynamics: bool = False
-    # skill_gain_depreciation_annual_range: uniform per-household draw of the
-    #   share of the on-the-job gain (s - f) lost per year out of work. Units:
-    #   1/year of the gain, applied weekly as 1 - (1 - d)^(1/52). Valid:
-    #   finite, 0 <= lo <= hi < 1. Calibrated so the sim's realized result
-    #   matches the source's measured result: a year of non-employment moves a
-    #   worker about 5.5 percentile points down the skill distribution (Edin &
-    #   Gustavsson 2008, ILR Review 61(2): 50th -> 44.5th, 25th -> 20.5th),
-    #   measured in-sim with peers still learning, among households that hold
-    #   an on-the-job gain when the spell starts. Seeded check (1,000
-    #   households, 260 ticks, seeds 42/7/1/3/11, spells starting after tick
-    #   60): flag off (peers learning, no loss) 1.8 points; (0.5, 0.9) 4.2
-    #   points (3.4-5.4 across seeds). Since only the gain above the floor can
-    #   be lost, the realized loss saturates below the source's 5.5: -50%
-    #   (0.25, 0.45) gives 3.1, +50% capped below 1 (0.75, 0.99) gives 4.6.
-    #   Edin & Gustavsson's sample is small, so 5.5 is approximate; Cohen,
-    #   Johnston & Lindner (2025, AEJ: Applied 17(3)) find no measurable
-    #   general-skill decline, so the loss is bounded to on-the-job gains.
-    skill_gain_depreciation_annual_range: Tuple[float, float] = (0.5, 0.9)
+    # skills_weekly_learning: bool, default False. Only read when
+    #   skills_dynamics is on. When True, the yearly grant is replaced by a
+    #   weekly one, s += g * (1 - s) per week employed (g = the household's
+    #   skill_growth_rate trait, the same per-week rate the yearly grant
+    #   multiplies by weeks worked). Off by default: no source prefers weekly
+    #   crediting, and on its own it lowered low-skill employment (round-2
+    #   review, pack Q1).
+    skills_weekly_learning: bool = False
+    # skill_loss_per_year_out_of_work: float, skill units (0-1 scale) lost per
+    #   52 weeks unemployed, applied as a / 52 per week and floored at week-1
+    #   skill. Valid: finite, 0 <= a <= 1. Default 0.04: a year out moves a
+    #   worker about 5 percentile points down the skill distribution in-sim
+    #   (realized 4.2-5.3 points, flat by spell start over 624 ticks), against
+    #   about 5.5 in Edin & Gustavsson (2008, ILR Review 61(2)). A fixed amount
+    #   per year, not a share of gains, so a year out costs the same early or
+    #   late in a run (round-2 review). Cohen, Johnston & Lindner (2025, AEJ:
+    #   Applied 17(3)) find no measurable general-skill decline, so the loss is
+    #   bounded to on-the-job gains by the floor.
+    skill_loss_per_year_out_of_work: float = 0.04
     initial_happiness_range: Tuple[float, float] = (0.60, 0.80)
     initial_morale_range: Tuple[float, float] = (0.60, 0.80)
     happiness_decay_rate_range: Tuple[float, float] = (0.0015, 0.0025)
@@ -1099,11 +1098,12 @@ class SimulationConfig:
             raise ValueError("services_expansion_min_excess_demand_ratio must be finite and non-negative")
 
         # Skills dynamics (households skills PR)
-        if not isinstance(self.households.skills_dynamics, bool):
-            raise ValueError("households.skills_dynamics must be a bool")
-        lo, hi = self.households.skill_gain_depreciation_annual_range
-        if not (math.isfinite(lo) and math.isfinite(hi) and 0.0 <= lo <= hi < 1.0):
-            raise ValueError("skill_gain_depreciation_annual_range must be finite with 0 <= lo <= hi < 1")
+        for name in ("skills_dynamics", "skills_weekly_learning"):
+            if not isinstance(getattr(self.households, name), bool):
+                raise ValueError(f"households.{name} must be a bool")
+        loss = self.households.skill_loss_per_year_out_of_work
+        if isinstance(loss, bool) or not isinstance(loss, (int, float)) or not (math.isfinite(loss) and 0.0 <= loss <= 1.0):
+            raise ValueError("skill_loss_per_year_out_of_work must be finite with 0 <= a <= 1")
         lo, hi = self.households.skill_growth_rate_range
         if not (math.isfinite(lo) and math.isfinite(hi) and 0.0 <= lo <= hi <= 0.01):
             raise ValueError("skill_growth_rate_range must be finite with 0 <= lo <= hi <= 0.01")

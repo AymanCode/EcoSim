@@ -1757,15 +1757,19 @@ class HouseholdAgent(AgentMixin):
             # Passive skill growth through work experience (diminishing returns)
             # Only update skills once every 52 ticks (yearly), crediting the
             # ticks actually worked since the last grant (B31).
-            # With CONFIG.households.skills_dynamics, Economy._batch_update_skills
-            # updates skill weekly instead; the grant clock is held at "now" so
-            # switching the flag off later cannot pay out the on-weeks at once.
-            if CONFIG.households.skills_dynamics:
+            # With CONFIG.households.skills_weekly_learning (read only when
+            # skills_dynamics is on), Economy._batch_update_skills credits it
+            # weekly instead; the grant clock is held at "now" so switching
+            # weekly learning off later cannot pay out the on-weeks at once.
+            weekly_learning = bool(
+                CONFIG.households.skills_dynamics and CONFIG.households.skills_weekly_learning
+            )
+            if weekly_learning:
                 self.employed_ticks_since_skill_update = 0
                 self.last_skill_update_tick = current_tick
             else:
                 self.employed_ticks_since_skill_update += 1
-            if not CONFIG.households.skills_dynamics and current_tick - self.last_skill_update_tick >= 52:
+            if not weekly_learning and current_tick - self.last_skill_update_tick >= 52:
                 skill_improvement = self.skill_growth_rate * (1.0 - self.skills_level)
                 total_improvement = skill_improvement * self.employed_ticks_since_skill_update
                 self.skills_level = min(1.0, self.skills_level + total_improvement)
