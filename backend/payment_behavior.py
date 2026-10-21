@@ -9,8 +9,6 @@ from __future__ import annotations
 import math
 from typing import Any
 
-from household_liquidity import accessible_liquidity
-
 
 def _finite(value: Any, label: str) -> float:
     number = float(value)
@@ -94,7 +92,7 @@ def planning_inputs(economy: Any) -> tuple[list[float], list[float], dict[int, d
         deposit = max(0.0, _finite(household.bank_deposit, "deposit"))
         # A negative signed cash balance must first be repaired by any deposit
         # release before the remainder can finance an order.
-        nominal_access = max(0.0, accessible_liquidity(cash, deposit))
+        nominal_access = max(0.0, cash + 0.9 * deposit)
         rent = (
             max(0.0, _finite(household.monthly_rent, "weekly contract rent"))
             if household.renting_from_firm_id is not None else 0.0
