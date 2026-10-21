@@ -111,6 +111,21 @@ def test_panel_pairs_arms_checks_identity_and_reuses_finished_runs(tmp_path, cap
     assert "reusing 14 finished runs" in rerun  # 3 arms x 2 sequences x 2 seeds, plus 2 repeats
     assert not re.search(r"\[panel\] \d+/\d+ ", rerun)  # no run was simulated again
 
+    # Runs record the worker's own runtime with one numeric-library thread.
+    run_path = tmp_path / "runs" / "a-legacy-s1.json"
+    run = json.loads(run_path.read_text(encoding="utf-8"))
+    manifest = json.loads((tmp_path / "panel.json").read_text(encoding="utf-8"))["manifest"]
+    assert run["runtime"]["python"] == manifest["worker_runtime"]["python"]
+    assert run["runtime"]["thread_env"]["OMP_NUM_THREADS"] == "1"
+
+    # A run finished under another interpreter is simulated again, never reused.
+    run["spec"]["runtime"]["python"] = "3.0.0"
+    run_path.write_text(json.dumps(run), encoding="utf-8")
+    assert _main(tmp_path, *arms) == 0
+    rerun = capsys.readouterr().out
+    assert "reusing 13 finished runs" in rerun
+    assert len(re.findall(r"\[panel\] \d+/1 a legacy seed 1:", rerun)) == 1
+
 
 def test_panel_fails_loudly_on_a_misspelled_flag(tmp_path):
     exit_code = _main(tmp_path, "--arm", "base", "--arm", "typo", "--set", "typo", "households.skills_dynamicz=True")

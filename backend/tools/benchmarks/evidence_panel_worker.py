@@ -23,6 +23,8 @@ import hashlib
 import importlib.util
 import io
 import json
+import os
+import platform
 import sys
 import time
 from pathlib import Path
@@ -142,6 +144,16 @@ def run(spec: dict[str, Any]) -> dict[str, Any]:
 
     import numpy as np
 
+    runtime = {
+        "python": platform.python_version(),
+        "implementation": platform.python_implementation(),
+        "numpy": np.__version__,
+    }
+    planned = spec.get("runtime") or {}
+    mismatched = {key: (planned[key], value) for key, value in runtime.items() if key in planned and planned[key] != value}
+    if mismatched:
+        raise RuntimeError(f"Worker runtime differs from the planned run (planned, actual): {mismatched}")
+
     from config import CONFIG, clone_config, use_config
     from tools.runners.run_large_simulation import compute_household_stats, create_large_economy
 
@@ -199,7 +211,7 @@ def run(spec: dict[str, Any]) -> dict[str, Any]:
             "max_abs_drift": max((abs(value) for value in drift), default=None),
         },
         "elapsed_seconds": round(time.perf_counter() - started, 3),
-        "python": sys.version.split()[0],
+        "runtime": {**runtime, "thread_env": {name: os.environ.get(name) for name in planned.get("thread_env") or {}}},
     }
 
 

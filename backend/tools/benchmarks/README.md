@@ -46,7 +46,7 @@ The standard evidence for a behavior-changing PR, so a reviewer reruns one comma
 - `--set ARM section.field=value` overrides a config field before the economy is built (an unknown or mistyped name fails the run). `--set ARM lever.name=value` applies a policy lever after it.
 - `--metrics-plugin FILE` adds the mechanism's own measure: FILE defines `extra_metrics(economy) -> dict[str, float]`.
 - `panel.md` gives, per sequence and window, the baseline level and the paired difference: mean, [min, max] across seeds, and how many seeds went up. `!` marks a mean whose sign flips when one seed is left out. Its checks report how many runs of each arm hash identically to the baseline, whether a repeated baseline run is identical, and unrecorded money drift.
-- Rerunning the same command reuses finished runs whose settings and source are unchanged; changing only `--windows` re-aggregates.
+- Rerunning the same command reuses finished runs only when their settings, simulation source, measuring code, worker Python and numpy versions, `backend/requirements.lock` and thread settings are all unchanged; changing only `--windows` re-aggregates. Workers run with one numeric-library thread each (`OMP_NUM_THREADS=1` and the like) and refuse to start under a different interpreter than the one planned.
 
 One 1,000-household, 260-tick run takes about 50 s on an Apple-silicon laptop, so the default two-arm panel (33 runs with the repeat checks) takes a few minutes with `--jobs` near the core count.
 

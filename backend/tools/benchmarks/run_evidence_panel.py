@@ -18,9 +18,10 @@ against ``main`` (a second checkout, e.g. ``git worktree add ../main origin/main
 
 ``--set ARM section.field=value`` overrides a config field before the economy
 is built; ``--set ARM lever.<name>=value`` applies a policy lever after it, as
-the dashboard's opening policy does. Rerunning the same command reuses finished
-runs whose settings and source are unchanged, so a changed ``--windows`` only
-re-aggregates. ``--metrics-plugin FILE`` adds a mechanism's own measure: FILE
+the dashboard's opening policy does. Rerunning the same command reuses a finished
+run only if its settings, simulation source, measuring code, worker Python and
+numpy versions, dependency lock and thread settings are unchanged, so a changed
+``--windows`` only re-aggregates. ``--metrics-plugin FILE`` adds a mechanism's own measure: FILE
 defines ``extra_metrics(economy) -> dict[str, float]``, called after each tick.
 
 Outputs in the run folder: ``panel.md`` (the table to paste in a PR),
@@ -56,6 +57,16 @@ from .common import BenchmarkPaths, default_results_root, parse_int_list, parse_
 WORKER = Path(__file__).with_name("evidence_panel_worker.py")
 PAYMENT_SEQUENCES = ("income_first", "income_late", "legacy")
 PYTHONHASHSEED = "0"
+# One thread per worker: parallel runs don't oversubscribe the cores, and numeric
+# library threading can't change summation order from one machine to another.
+THREAD_ENV = {
+    name: "1"
+    for name in ("OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS", "VECLIB_MAXIMUM_THREADS", "NUMEXPR_NUM_THREADS")
+}
+RUNTIME_PROBE = (
+    "import json, platform, sys, numpy; print(json.dumps({'python': platform.python_version(), "
+    "'implementation': platform.python_implementation(), 'numpy': numpy.__version__, 'executable': sys.executable}))"
+)
 
 # (key, label, display scale, unit, aggregations). Shares are shown in percent,
 # so their differences read in percentage points.
@@ -174,6 +185,23 @@ def paired_stats(deltas: list[float]) -> dict[str, Any]:
 # --------------------------------------------------------------------------- planning and running
 
 
+def worker_env() -> dict[str, str]:
+    return {**os.environ, "PYTHONHASHSEED": PYTHONHASHSEED, **THREAD_ENV}
+
+
+def probe_runtime(python: str) -> dict[str, str]:
+    """The worker interpreter's own versions, which can differ from the one running this script."""
+    completed = subprocess.run(
+        [python, "-c", RUNTIME_PROBE], env=worker_env(), capture_output=True, text=True, check=True
+    )
+    return json.loads(completed.stdout)
+
+
+def lock_sha256(root: Path) -> str | None:
+    lock = root / "backend" / "requirements.lock"
+    return hashlib.sha256(lock.read_bytes()).hexdigest() if lock.exists() else None
+
+
 def parse_assignments(pairs: list[list[str]], arms: list[str]) -> dict[str, dict[str, dict[str, str]]]:
     """Split ``--set ARM key=value`` into config overrides and policy levers per arm."""
     plan = {arm: {"config_overrides": {}, "levers": {}} for arm in arms}
@@ -193,7 +221,7 @@ def parse_assignments(pairs: list[list[str]], arms: list[str]) -> dict[str, dict
     return plan
 
 
-def plan_runs(args: argparse.Namespace) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+def plan_runs(args: argparse.Namespace, runtime: dict[str, str]) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     arms = list(args.arm)
     if len(set(arms)) != len(arms) or any(slugify(arm) != arm for arm in arms):
         raise ValueError(f"Arm names must be unique and use only lowercase letters, digits, '.', '_' or '-': {arms}")
@@ -236,9 +264,18 @@ def plan_runs(args: argparse.Namespace) -> tuple[list[dict[str, Any]], dict[str,
             # A changed worker measures differently, so its finished runs are not reused.
             "worker_sha256": hashlib.sha256(WORKER.read_bytes()).hexdigest(),
             "pythonhashseed": PYTHONHASHSEED,
+            # Part of the cache key: a finished run is reused only under the same
+            # interpreter, numpy, dependency lock and thread settings.
+            "runtime": {
+                "python": runtime["python"],
+                "implementation": runtime["implementation"],
+                "numpy": runtime["numpy"],
+                "requirements_lock_sha256": lock_sha256(roots[arm]),
+                "thread_env": THREAD_ENV,
+            },
         }
 
-    specs = [spec(arm, sequence, seed) for sequence in sequences for arm in arms for seed in seeds]
+    specs =[spec(arm, sequence, seed) for sequence in sequences for arm in arms for seed in seeds]
     if args.determinism_check:
         specs += [spec(baseline, sequence, seeds[0], repeat=True) for sequence in sequences]
     design = {
@@ -283,7 +320,7 @@ def execute(specs: list[dict[str, Any]], runs_dir: Path, jobs: int, python: str)
             pending.append(spec)
     if results:
         print(f"[panel] reusing {len(results)} finished runs", flush=True)
-    env = {**os.environ, "PYTHONHASHSEED": PYTHONHASHSEED}
+    env = worker_env()
 
     def launch(spec: dict[str, Any]) -> tuple[dict[str, Any], subprocess.CompletedProcess]:
         out = run_file(runs_dir, spec)
@@ -428,6 +465,8 @@ def render_markdown(panel: dict[str, Any]) -> str:
         "",
         f"- **Setup:** {settings['households']:,} households, {settings['firms_per_category']} firms per category, "
         f"{settings['ticks']} ticks, seeds {', '.join(map(str, design['seeds']))} (one process per run, PYTHONHASHSEED={PYTHONHASHSEED}).",
+        f"- **Worker runtime:** Python {panel['manifest']['worker_runtime']['python']}, "
+        f"numpy {panel['manifest']['worker_runtime']['numpy']}, one numeric-library thread per run.",
         f"- **Windows:** {', '.join(label for label in settings['windows'])}. **Baseline:** `{baseline}`.",
     ]
     for arm in design["arms"]:
@@ -540,7 +579,8 @@ def main(argv: list[str] | None = None) -> int:
     argv = list(sys.argv[1:] if argv is None else argv)
     args = build_parser().parse_args(argv)
     windows = parse_windows(args.windows, args.ticks)
-    specs, design = plan_runs(args)
+    runtime = probe_runtime(args.python)
+    specs, design = plan_runs(args, runtime)
     if args.out is not None:
         run_dir = args.out.resolve()
         run_dir.mkdir(parents=True, exist_ok=True)
@@ -557,8 +597,9 @@ def main(argv: list[str] | None = None) -> int:
             "started_at": started,
             "finished_at": dt.datetime.now(dt.timezone.utc).isoformat(),
             "runner_python": sys.version.split()[0],
-            "worker_python": args.python,
+            "worker_runtime": runtime,
             "pythonhashseed": PYTHONHASHSEED,
+            "thread_env": THREAD_ENV,
         },
         "settings": {
             "households": args.households,
