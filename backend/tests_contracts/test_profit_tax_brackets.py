@@ -1,171 +1,302 @@
-"""Profit-tax brackets rank firms by taxable profit, not cash.
+"""Profit-tax schedule (round 3).
 
-Before this change ``GovernmentAgent.plan_taxes`` cut the profit-tax brackets
-at percentiles of firm cash. On the default ``legacy`` payment sequence the
-firm tax snapshot carried no ``cash_balance``, so every firm read cash 0 and
-paid the bottom-band rate (0.1915 at the default 0.20 base); on the payment
-arms a cash-rich firm with a small profit paid a top-band rate. The tax is on
-earnings, so the brackets now rank each tick's positive profits. These tests
-check the rates firms end up paying.
+The default is a UK-style small rate and main rate with marginal relief.
+``legacy_cash_rank`` keeps main's cash-ranked bands. The old percentile-of-profit
+bracket tests that used to live here are replaced by these.
 """
 
 import contextlib
+import hashlib
 import io
-import math
+import json
+import os
 import random
+import subprocess
+import sys
+from pathlib import Path
 
 import numpy as np
 import pytest
 
-from agents import GovernmentAgent
+from agents import FirmAgent, GovernmentAgent
 from config import CONFIG, clone_config, use_config
-from tests_contracts.factories import make_economy, make_firm
 from tools.runners.run_large_simulation import create_large_economy
 
 
-def _rates(plan, firms):
-    # Rounded so tax / profit float noise does not read as a different rate.
-    return {f["firm_id"]: round(plan["profit_taxes"][f["firm_id"]] / f["profit_before_tax"], 10)
-            for f in firms if f["profit_before_tax"] > 0}
+def _style(monkeypatch, style="progressive"):
+    monkeypatch.setattr(CONFIG.government, "profit_tax_style", style)
 
 
-def test_equal_profit_pays_equal_rate_whatever_the_cash():
-    gov = GovernmentAgent(cash_balance=0.0)
-    firms = [{"firm_id": i, "profit_before_tax": 100.0 * (1 + i % 10), "cash_balance": 0.0}
-             for i in range(1, 41)]
-    # Two more firms with the same profit as each other but cash 0 and 10 million.
-    firms += [{"firm_id": 41, "profit_before_tax": 550.0, "cash_balance": 0.0},
-              {"firm_id": 42, "profit_before_tax": 550.0, "cash_balance": 10_000_000.0}]
-
-    rates = _rates(gov.plan_taxes([], firms), firms)
-
-    assert rates[41] == pytest.approx(rates[42])
+def _firms(profits):
+    return [{"firm_id": i + 1, "profit_before_tax": p} for i, p in enumerate(profits)]
 
 
-def test_higher_profit_never_pays_a_lower_rate():
-    rng = random.Random(7)
-    for base in (0.05, 0.10, 0.20, 0.35, 0.50):
-        gov = GovernmentAgent(cash_balance=0.0, profit_tax_rate=base)
-        firms = [{"firm_id": i, "profit_before_tax": rng.lognormvariate(6.0, 1.5),
-                  "cash_balance": rng.uniform(0.0, 1e6)} for i in range(1, 201)]
-        rates = _rates(gov.plan_taxes([], firms), firms)
-        by_profit = sorted(firms, key=lambda f: f["profit_before_tax"])
-        ordered = [rates[f["firm_id"]] for f in by_profit]
-        assert ordered == sorted(ordered), f"rates fall with profit at base {base}"
-        assert max(ordered) <= 0.60 + 1e-12
-
-
-def test_loss_making_firms_pay_nothing_and_do_not_move_the_edges():
-    gov = GovernmentAgent(cash_balance=0.0)
-    earners = [{"firm_id": i, "profit_before_tax": float(10 * i), "cash_balance": 0.0} for i in range(1, 21)]
-    losers = [{"firm_id": 100 + i, "profit_before_tax": -1_000.0, "cash_balance": 0.0} for i in range(30)]
-
-    alone = gov.plan_taxes([], earners)["profit_taxes"]
-    mixed = gov.plan_taxes([], earners + losers)["profit_taxes"]
-
-    assert all(mixed[f["firm_id"]] == 0.0 for f in losers)
-    assert {f["firm_id"]: mixed[f["firm_id"]] for f in earners} == alone
-
-
-def test_fewer_than_four_profitable_firms_pay_the_base_rate():
-    gov = GovernmentAgent(cash_balance=0.0, profit_tax_rate=0.25)
-    firms = [{"firm_id": 1, "profit_before_tax": 10.0}, {"firm_id": 2, "profit_before_tax": 5_000.0},
-             {"firm_id": 3, "profit_before_tax": -50.0}]
-
-    plan = gov.plan_taxes([], firms)["profit_taxes"]
-
-    assert plan == {1: pytest.approx(2.5), 2: pytest.approx(1_250.0), 3: 0.0}
-
-
-def test_legacy_snapshots_now_produce_more_than_one_band(monkeypatch):
-    """On main every legacy firm paid 0.1915 because the snapshot had no cash."""
-    monkeypatch.setattr(CONFIG, "payment_sequence", "legacy")
-    firms = [make_firm(firm_id=i, category="Food", is_baseline=False) for i in range(1, 9)]
-    for firm in firms:
-        firm.employees = []  # no wage bill: profit equals sales revenue
-    economy = make_economy(firms=firms, num_households=0)
-    assert economy.payment_sequence == "legacy"
-    sales = {f.firm_id: {"revenue": 100.0 * f.firm_id, "units_sold": 10.0} for f in firms}
-
-    snapshots = economy._build_firm_tax_snapshots(sales)
-    rates = _rates(economy.government.plan_taxes([], snapshots), snapshots)
-
-    assert len(set(rates.values())) > 1
-    assert rates[8] > rates[1]
-
-
-def test_no_profitable_firm_owes_nothing_and_one_pays_the_base_rate():
+def test_small_rate_below_the_anchor_and_main_rate_above_it(monkeypatch):
+    _style(monkeypatch)
     gov = GovernmentAgent(cash_balance=0.0, profit_tax_rate=0.20)
-    losers = [{"firm_id": i, "profit_before_tax": -10.0 * i} for i in range(1, 6)]
-    assert gov._profit_tax_brackets([]) == {}
-    assert gov._profit_tax_brackets(losers) == {}
-    assert all(v == 0.0 for v in gov.plan_taxes([], losers)["profit_taxes"].values())
-    one = losers + [{"firm_id": 9, "profit_before_tax": 500.0}]
-    assert gov._profit_tax_brackets(one) == {9: ("base", 0.20)}
+    # Seven profits. Median is 400, so L=400 and U=2000. S = 0.76 * 0.20.
+    profits = [100.0, 200.0, 300.0, 400.0, 500.0, 600.0, 5000.0]
+    taxes = gov.plan_taxes([], _firms(profits))["profit_taxes"]
+    assert gov.last_profit_tax_anchor == pytest.approx(400.0)
+    assert gov.last_profit_tax_upper == pytest.approx(2000.0)
+    assert taxes[1] == pytest.approx(100.0 * 0.152)  # below L
+    assert taxes[4] == pytest.approx(400.0 * 0.152)  # at L
+    assert taxes[7] == pytest.approx(5000.0 * 0.20)  # above U
+    # Inside the band: F = (0.20-0.152)*400/1600 = 0.012, rate(800) = 0.182.
+    rate_800 = gov._marginal_relief_rate(800.0, 400.0, 2000.0, 0.152, 0.20)
+    assert rate_800 == pytest.approx(0.182)
+    assert gov._marginal_relief_rate(2000.0, 400.0, 2000.0, 0.152, 0.20) == pytest.approx(0.20)
 
 
-def test_tied_profits_share_one_band():
-    gov = GovernmentAgent(cash_balance=0.0)
-    firms = [{"firm_id": i, "profit_before_tax": 250.0} for i in range(1, 21)]
-    assert {band for band, _rate in gov._profit_tax_brackets(firms).values()} == {"bottom"}
+def test_marginal_relief_is_continuous_at_the_thresholds():
+    gov = GovernmentAgent(cash_balance=0.0, profit_tax_rate=0.25)
+    small, main, lower, upper = 0.19, 0.25, 100.0, 500.0
+    at_lower = gov._marginal_relief_rate(lower, lower, upper, small, main)
+    at_upper = gov._marginal_relief_rate(upper, lower, upper, small, main)
+    assert at_lower == pytest.approx(small)
+    assert at_upper == pytest.approx(main)
+    just_above = gov._marginal_relief_rate(lower + 1e-6, lower, upper, small, main)
+    just_below = gov._marginal_relief_rate(upper - 1e-6, lower, upper, small, main)
+    assert just_above == pytest.approx(small, abs=1e-6)
+    assert just_below == pytest.approx(main, abs=1e-6)
 
 
-def test_non_finite_profit_does_not_move_the_edges():
-    gov = GovernmentAgent(cash_balance=0.0)
-    firms = [{"firm_id": i, "profit_before_tax": float(10 * i)} for i in range(1, 21)]
-    clean = gov._profit_tax_brackets(firms)
-    for bad in (math.nan, math.inf):
-        dirty = gov._profit_tax_brackets(firms + [{"firm_id": 99, "profit_before_tax": bad}])
-        assert 99 not in dirty
-        assert dirty == clean
+def test_after_tax_profit_rises_with_pre_tax_profit(monkeypatch):
+    _style(monkeypatch)
+    rng = random.Random(0)
+    profits = [rng.uniform(0.01, 10_000.0) for _ in range(80)]
+    gov = GovernmentAgent(cash_balance=0.0, profit_tax_rate=0.20)
+    taxes = gov.plan_taxes([], _firms(profits))["profit_taxes"]
+    ordered = sorted(zip(profits, (taxes[i + 1] for i in range(len(profits)))))
+    after = [p - t for p, t in ordered]
+    assert all(after[i] <= after[i + 1] + 1e-8 for i in range(len(after) - 1))
+    rates = [t / p for p, t in ordered]
+    small = 0.76 * 0.20
+    assert all(small - 1e-12 <= r <= 0.20 + 1e-12 for r in rates)
 
 
-def test_economy_step_on_legacy_collects_profit_ranked_taxes():
-    """Real Economy.step() on legacy: firms' realized profit tax (their cash
-    debit) rises with profit, takes more than one rate, and sums to the
-    treasury's recognized profit tax. Nothing in the tax path is patched; the
-    snapshots are only observed on their way into plan_taxes."""
-    seen = []
-    original = GovernmentAgent.plan_taxes
+def test_no_anchor_charges_the_main_rate(monkeypatch):
+    _style(monkeypatch)
+    gov = GovernmentAgent(cash_balance=0.0, profit_tax_rate=0.20)
+    # Fewer than four distinct profitable firms: both pay M, not the small rate.
+    taxes = gov.plan_taxes([], _firms([10.0, 10_000.0, -5.0]))["profit_taxes"]
+    assert taxes[1] == pytest.approx(2.0)
+    assert taxes[2] == pytest.approx(2_000.0)
+    assert taxes[3] == 0.0
+    assert gov.last_profit_tax_anchor == 0.0
 
-    def observe(self, households, firms):
-        if len(firms) >= 4:
-            seen.append([dict(f) for f in firms])
-        return original(self, households, firms)
+    empty = GovernmentAgent(cash_balance=0.0, profit_tax_rate=0.20)
+    losses = empty.plan_taxes([], _firms([-1.0, 0.0, -3.0]))["profit_taxes"]
+    assert losses == {1: 0.0, 2: 0.0, 3: 0.0}
+    assert empty.last_profit_tax_anchor == 0.0
 
-    cfg = clone_config()
-    cfg.payment_sequence = "legacy"
-    cfg.random_seed = 42
-    random.seed(42)
-    np.random.seed(42)
-    with use_config(cfg), contextlib.redirect_stdout(io.StringIO()):
-        economy = create_large_economy(100, 3)
-        GovernmentAgent.plan_taxes = observe
-        try:
-            for _ in range(40):
-                seen.clear()
-                economy.step()
-                snaps = seen[-1] if seen else []
-                profits = {s["firm_id"]: s["profit_before_tax"] for s in snaps
-                           # > 1.0 so a rounding-size profit does not read as a 0 rate
-                           if s["profit_before_tax"] > 1.0 and s.get("price_ceiling_tax", 0.0) == 0.0}
-                if len(profits) >= 8:
-                    break
-        finally:
-            GovernmentAgent.plan_taxes = original
-    assert len(profits) >= 8, "no tick with eight profitable firms in 40 weeks"
-    firms = {f.firm_id: f for f in economy.firms}
-    realized = {}
-    for firm_id, profit in profits.items():
-        firm = firms[firm_id]
-        # apply_sales_and_profit books profit = revenue - taxes paid - costs.
-        realized[firm_id] = firm.last_revenue - firm.last_profit - firm.last_tick_total_costs
-    rates = {fid: round(realized[fid] / profits[fid], 6) for fid in profits}
-    ordered = [rates[fid] for fid in sorted(profits, key=profits.get)]
-    assert ordered == sorted(ordered)
-    assert len(set(ordered)) > 1
-    # Every firm's debit, net of its price-ceiling tax, is what the treasury books as profit tax.
-    debits = sum(firms[s["firm_id"]].last_revenue - firms[s["firm_id"]].last_profit
-                 - firms[s["firm_id"]].last_tick_total_costs - s.get("price_ceiling_tax", 0.0)
-                 for s in snaps if s["firm_id"] in firms)
-    assert economy.last_tick_gov_profit_taxes == pytest.approx(debits, rel=1e-9, abs=1e-6)
+
+def test_nonpositive_anchor_falls_back_to_the_main_rate(monkeypatch):
+    _style(monkeypatch)
+    monkeypatch.setattr("agents.statistics.median", lambda _values: 0.0)
+    gov = GovernmentAgent(cash_balance=0.0, profit_tax_rate=0.20)
+    taxes = gov.plan_taxes([], _firms([100.0, 200.0, 300.0, 400.0]))["profit_taxes"]
+    assert taxes[1] == pytest.approx(20.0)
+    assert gov.last_profit_tax_anchor == 0.0
+
+
+def test_nonfinite_profit_is_excluded_and_owes_nothing(monkeypatch):
+    _style(monkeypatch)
+    gov = GovernmentAgent(cash_balance=0.0, profit_tax_rate=0.20)
+    firms = _firms([100.0, 200.0, 300.0, 400.0, 500.0, 600.0])
+    firms.append({"firm_id": 99, "profit_before_tax": float("nan")})
+    firms.append({"firm_id": 100, "profit_before_tax": float("inf")})
+    taxes = gov.plan_taxes([], firms)["profit_taxes"]
+    assert taxes[99] == 0.0
+    assert taxes[100] == 0.0
+    assert gov.last_profit_tax_nonfinite_excluded == 2
+    # Median of the six finite profits is 350, so the nan firm did not move it.
+    assert gov.last_profit_tax_anchor == pytest.approx(350.0)
+
+
+def test_rate_is_clamped_to_the_small_and_main_rates():
+    gov = GovernmentAgent(cash_balance=0.0, profit_tax_rate=0.20)
+    # small above main: at the lower threshold the raw rate is S, which is
+    # above M, and the clamp returns M. Just inside the band the raw rate
+    # dips under S, and the clamp lifts it back to S.
+    assert gov._marginal_relief_rate(100.0, 100.0, 500.0, 0.30, 0.10) == pytest.approx(0.10)
+    assert gov._marginal_relief_rate(100.1, 100.0, 500.0, 0.30, 0.10) == pytest.approx(0.30)
+    inside = gov._marginal_relief_rate(250.0, 100.0, 500.0, 0.152, 0.20)
+    assert 0.152 <= inside <= 0.20
+
+
+def test_lever_zero_charges_nothing(monkeypatch):
+    _style(monkeypatch)
+    gov = GovernmentAgent(cash_balance=0.0, profit_tax_rate=0.0)
+    taxes = gov.plan_taxes([], _firms([10.0, 100.0, 1_000.0, 10_000.0]))["profit_taxes"]
+    assert all(amount == 0.0 for amount in taxes.values())
+
+
+def test_average_rate_does_not_depend_on_firm_count(monkeypatch):
+    """The same profit list, once and repeated, keeps the same average rate.
+
+    The old percentile bands changed the average between a 400-household and a
+    1,000-household firm count. Scale thresholds do not.
+    """
+    _style(monkeypatch)
+    base = [10.0, 25.0, 40.0, 80.0, 150.0, 400.0, 900.0, 2_000.0]
+
+    def average(profits):
+        gov = GovernmentAgent(cash_balance=0.0, profit_tax_rate=0.20)
+        taxes = gov.plan_taxes([], _firms(profits))["profit_taxes"]
+        return sum(taxes.values()) / sum(profits)
+
+    assert average(base) == pytest.approx(average(base * 8), abs=0.01)
+
+
+def test_anchor_window_drops_profits_older_than_13_weeks(monkeypatch):
+    _style(monkeypatch)
+    gov = GovernmentAgent(cash_balance=0.0, profit_tax_rate=0.20)
+    wide = [10.0, 20.0, 30.0, 40.0, 50.0, 10_000.0]
+    tight = [100.0, 100.0, 100.0, 100.0, 100.0, 100.0]
+    gov.plan_taxes([], _firms(wide))
+    assert gov.last_profit_tax_anchor == pytest.approx(35.0)
+    for _ in range(13):
+        gov.plan_taxes([], _firms(tight))
+    # The opening week has fallen out of the 13-week window.
+    assert gov.last_profit_tax_anchor == pytest.approx(100.0)
+    assert len(gov.profit_tax_profit_window) == 13
+
+
+def test_unknown_profit_tax_style_raises(monkeypatch):
+    monkeypatch.setattr(CONFIG.government, "profit_tax_style", "brackets")
+    gov = GovernmentAgent(cash_balance=0.0, profit_tax_rate=0.20)
+    with pytest.raises(ValueError, match="profit_tax_style"):
+        gov.plan_taxes([], _firms([100.0]))
+
+
+def test_pricing_uses_the_firms_effective_rate_and_falls_back(monkeypatch):
+    monkeypatch.setattr(CONFIG.firms, "price_on_effective_profit_tax", True)
+    firm = FirmAgent(
+        firm_id=1, good_name="Food", cash_balance=1_000.0, inventory_units=10.0,
+        good_category="Food",
+    )
+    # No record yet: the lever.
+    assert firm._gross_up_profit_tax_rate(0.20) == pytest.approx(0.20)
+    firm.record_effective_profit_tax(100.0, 15.2, 0.20, update_pricing_rate=True)
+    assert firm.pricing_profit_tax_rate == pytest.approx(0.152)
+    assert firm._gross_up_profit_tax_rate(0.20) == pytest.approx(0.152)
+    # A loss week keeps the last valid rate.
+    firm.record_effective_profit_tax(0.0, 0.0, 0.20, update_pricing_rate=True)
+    assert firm.pricing_profit_tax_rate == pytest.approx(0.152)
+    assert firm.last_taxable_profit == 0.0
+    # Zero tax on a positive profit records 0.
+    firm.record_effective_profit_tax(80.0, 0.0, 0.20, update_pricing_rate=True)
+    assert firm.pricing_profit_tax_rate == 0.0
+    # Above the cap, the stored rate is 0.60.
+    firm.record_effective_profit_tax(100.0, 90.0, 0.20, update_pricing_rate=True)
+    assert firm.pricing_profit_tax_rate == pytest.approx(0.60)
+    # A non-finite tax falls back and is counted.
+    before = firm.pricing_rate_nonfinite_count
+    firm.pricing_profit_tax_rate_known = False
+    firm.record_effective_profit_tax(100.0, float("nan"), 0.18, update_pricing_rate=True)
+    assert firm.pricing_rate_nonfinite_count == before + 1
+    assert firm._gross_up_profit_tax_rate(0.18) == pytest.approx(0.18)
+
+
+def test_headline_pricing_ignores_the_effective_rate(monkeypatch):
+    monkeypatch.setattr(CONFIG.firms, "price_on_effective_profit_tax", False)
+    firm = FirmAgent(
+        firm_id=1, good_name="Food", cash_balance=1_000.0, inventory_units=10.0,
+        good_category="Food",
+    )
+    firm.record_effective_profit_tax(100.0, 40.0, 0.20, update_pricing_rate=False)
+    assert firm.last_profit_tax_paid == pytest.approx(40.0)
+    assert firm._gross_up_profit_tax_rate(0.20) == pytest.approx(0.20)
+
+
+def test_legacy_cash_rank_effective_rate_differs_from_the_lever(monkeypatch):
+    """Under the cash-ranked bands the effective rate is not the lever, so the
+    pricing switch changes prices. The identity arm turns both off."""
+    _style(monkeypatch, "legacy_cash_rank")
+    gov = GovernmentAgent(cash_balance=0.0, profit_tax_rate=0.20)
+    firms = [
+        {"firm_id": i, "profit_before_tax": 100.0, "cash_balance": float(i)}
+        for i in range(1, 21)
+    ]
+    taxes = gov.plan_taxes([], firms)["profit_taxes"]
+    rates = {i: taxes[i] / 100.0 for i in taxes}
+    assert max(rates.values()) > 0.20 + 1e-9
+    assert min(rates.values()) < 0.20 - 1e-9
+
+
+def _run_hash(sequence, style, price_on_effective, households, firms_per_category, ticks, lever=0.20):
+    seed = 42
+    with use_config(clone_config()), contextlib.redirect_stdout(io.StringIO()):
+        random.seed(seed)
+        np.random.seed(seed)
+        CONFIG.random_seed = seed
+        CONFIG.payment_sequence = sequence
+        CONFIG.government.profit_tax_style = style
+        CONFIG.firms.price_on_effective_profit_tax = price_on_effective
+        economy = create_large_economy(households, firms_per_category)
+        economy.government.profit_tax_rate = lever
+        economy.configure_stabilizers(households=True, firms=True, government=True)
+        hasher = hashlib.sha256()
+        for _ in range(ticks):
+            economy.step()
+            token = {
+                "gov": economy.government.cash_balance,
+                "profit_tax": float(economy.last_tick_gov_profit_taxes),
+                "firms": [
+                    (f.firm_id, f.cash_balance, f.price, len(f.employees), f.inventory_units)
+                    for f in economy.firms
+                ],
+                "households": [
+                    (h.household_id, h.cash_balance, int(h.employer_id or 0))
+                    for h in economy.households
+                ],
+            }
+            hasher.update(json.dumps(token, sort_keys=True).encode())
+    return hasher.hexdigest()
+
+
+def test_flat_effective_pricing_matches_flat_headline_pricing():
+    """Under flat, the effective rate equals the lever whenever profit > 0."""
+    left = _run_hash("income_first", "flat", True, 80, 3, 15)
+    right = _run_hash("income_first", "flat", False, 80, 3, 15)
+    assert left == right
+
+
+# Hashes of 60 ticks, 200 households, 5 firms per category, seed 42, stabilizers
+# on, from origin/main at 82c7cdd (Python 3.11, one numeric thread). The
+# subprocess below reruns this checkout with legacy_cash_rank and headline pricing.
+MAIN_IDENTITY_HASHES = {
+    "income_first": "647c0e36e85f9c8ac578219fc36796dd11a21564f626e61fd55d8e5de8c14fdc",
+    "income_late": "65daaf1d3f4bc78ef942a7762b88dedc6b3f953fb9673c7a774957010af83c5a",
+    "legacy": "20b066a47835cfa7d94b2ba7819ea2b468bcd56451b34ec9e1cd6f7f977bc828",
+}
+
+
+def test_legacy_cash_rank_is_byte_identical_to_main():
+    if "PENDING" in MAIN_IDENTITY_HASHES.values():
+        pytest.fail("main identity hashes were not filled in")
+    env = os.environ.copy()
+    env.update({
+        "PYTHONHASHSEED": "0",
+        "OMP_NUM_THREADS": "1",
+        "OPENBLAS_NUM_THREADS": "1",
+        "MKL_NUM_THREADS": "1",
+        "VECLIB_MAXIMUM_THREADS": "1",
+        "NUMEXPR_NUM_THREADS": "1",
+        "PYTHONPATH": str(Path(__file__).resolve().parents[2] / "backend"),
+    })
+    for sequence, expected in MAIN_IDENTITY_HASHES.items():
+        completed = subprocess.run(
+            [sys.executable, str(Path(__file__).resolve()), sequence],
+            env=env, capture_output=True, text=True, check=False,
+        )
+        assert completed.returncode == 0, completed.stderr[-500:]
+        assert completed.stdout.strip() == expected
+
+
+if __name__ == "__main__":
+    # One sequence, legacy cash-rank, headline pricing. Prints the run hash.
+    sequence = sys.argv[1]
+    os.chdir(Path(__file__).resolve().parents[2])
+    print(_run_hash(sequence, "legacy_cash_rank", False, 200, 5, 60))

@@ -2749,6 +2749,25 @@ class Economy:
             from payment_projects import distribute_payment_project_proceeds
             distribute_payment_project_proceeds(self)
 
+    def _remember_profit_tax(self, firm: FirmAgent, profit_tax: float) -> None:
+        """Store the per-firm tax the metrics plugin and effective-rate pricing read.
+
+        ``legacy_cash_rank`` with headline pricing leaves the fields at their
+        defaults. A main checkout has no such fields, and the plugin then
+        reports zeros; keeping the defaults makes that arm's plugin rows match.
+        """
+        style = CONFIG.government.profit_tax_style
+        price_on_effective = CONFIG.firms.price_on_effective_profit_tax
+        if style == "legacy_cash_rank" and not price_on_effective:
+            return
+        taxable = self.government.last_taxable_profit_by_firm.get(firm.firm_id, 0.0)
+        firm.record_effective_profit_tax(
+            taxable,
+            profit_tax,
+            self.government.profit_tax_rate,
+            update_pricing_rate=bool(price_on_effective),
+        )
+
     def _phase_firm_settlement(self, tick: _TickScratch) -> None:
         """Firms apply sales, profits, taxes, prices and next wage contracts; contracts mirror to workers."""
         per_firm_sales = tick.per_firm_sales
@@ -2779,6 +2798,8 @@ class Economy:
                 price_ceiling_tax_by_firm_id[firm.firm_id] = price_ceiling_tax
             if property_tax > 0:
                 firm.cash_balance -= property_tax
+
+            self._remember_profit_tax(firm, profit_tax)
 
             legacy_rent = 0.0 if payment_arm else self._legacy_rent_revenue(firm.firm_id)
             firm.apply_sales_and_profit({
@@ -5562,9 +5583,10 @@ class Economy:
             per_firm_sales: Sales data from goods market clearing
 
         Returns:
-            List of dicts with firm_id, profit_before_tax, price_ceiling_tax
-            and cash_balance; on the payment arms also the property-tax
-            inputs (good_category, property_tax_rate, max_rental_units, price).
+            List of dicts with firm_id, profit_before_tax, and price_ceiling_tax.
+            The payment arms also send cash and the property-tax inputs.
+            Legacy omits them, as on main, so the legacy cash-rank profit tax
+            still sees every firm at cash 0.
         """
         snapshots = []
         PRICE_CEILING = CONFIG.market.price_ceiling
@@ -5608,12 +5630,8 @@ class Economy:
                 "firm_id": firm.firm_id,
                 "profit_before_tax": profit_before_tax,
                 "price_ceiling_tax": price_ceiling_tax,
-                # Every sequence sends cash; the profit-tax brackets rank by
-                # profit_before_tax and do not read it.
-                "cash_balance": float(firm.cash_balance),
-                # Property-tax inputs go only to the payment arms; legacy has
-                # never sent them (see K01 in docs/ECONOMIC_AGENT_RULES.md).
-                **({"good_category": firm.good_category,
+                **({"cash_balance": float(firm.cash_balance),
+                    "good_category": firm.good_category,
                     "property_tax_rate": float(firm.property_tax_rate),
                     "max_rental_units": int(firm.max_rental_units),
                     "price": float(firm.price)} if self.payment_sequence != "legacy" else {}),
