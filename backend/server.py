@@ -1526,6 +1526,9 @@ class SimulationManager:
         (it lowers cash). With no public debt this is the change in cash, as
         before. ``borrowed`` and ``repaid`` are this tick's financing flows,
         ``debt`` is public debt plus any negative cash the bank did not lend.
+        ``debt_visible`` is True when public debt is enabled for this run or
+        debt is still owed; the dashboard shows the borrowed/repaid lines only
+        then, so a debt-off run's Finance screen is main's.
         Updates the stored net position.
         """
         gov = self.economy.government
@@ -1540,6 +1543,7 @@ class SimulationManager:
             "debt": public_debt + max(0.0, -cash),
             "borrowed": float(getattr(gov, "last_tick_debt_borrowed", 0.0) or 0.0),
             "repaid": float(getattr(gov, "last_tick_debt_repaid", 0.0) or 0.0),
+            "debt_visible": bool(getattr(self.config.government, "public_debt_enabled", False)) or public_debt > 0.0,
         }
 
     def _snapshot_government_levers(self) -> Dict[str, Any]:
@@ -3096,9 +3100,11 @@ class SimulationManager:
                         "unemployment": stats["unemployment_rate"] * 100,
                         "gdp": gdp / 1000000.0,
                         "govDebt": treasury_flow["debt"] / 1000000.0,
-                        "govBorrowed": treasury_flow["borrowed"] / 1000000.0,
-                        "govRepaid": treasury_flow["repaid"] / 1000000.0,
                         "govProfit": fiscal_balance / 1000000.0,
+                        **({
+                            "govBorrowed": treasury_flow["borrowed"] / 1000000.0,
+                            "govRepaid": treasury_flow["repaid"] / 1000000.0,
+                        } if treasury_flow["debt_visible"] else {}),
                         "govRevenue": gov_revenue / 1000000.0,
                         "govTransfers": gov_transfers / 1000000.0,
                         "govInvestments": gov_investments / 1000000.0,

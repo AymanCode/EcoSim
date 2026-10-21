@@ -25,6 +25,15 @@ describe('Finance screen', () => {
     expect(container.querySelectorAll('.ledger .lr').length).toBe(5)
   })
 
+  test('hides the borrowing and repayment lines when the server sends none (public debt off)', () => {
+    const { container } = renderScreen(Finance, {
+      metrics: { govProfit: -0.005243, govDebt: 0 },
+      policyChanges: [],
+    })
+    expect(container.textContent).not.toContain('Borrowed from bank')
+    expect(container.textContent).not.toContain('Repaid to bank')
+  })
+
   test('no .chart .chart nesting remains so charts fill their panels', () => {
     const { container } = renderScreen(Finance)
     expect(container.querySelectorAll('.chart .chart').length).toBe(0)

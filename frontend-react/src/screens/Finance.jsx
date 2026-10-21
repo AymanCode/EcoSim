@@ -26,6 +26,9 @@ export default function Finance({
   const govProfit = Number(metrics.govProfit || 0)
   const govDebt = Number(metrics.govDebt || 0)
   // Public-debt financing this tick: not revenue or spending, so not in the fiscal balance.
+  // The server sends these only when public debt is on (or still owed); otherwise
+  // the panel is main's.
+  const showDebtFinancing = metrics.govBorrowed != null || metrics.govRepaid != null
   const govBorrowed = Number(metrics.govBorrowed || 0)
   const govRepaid = Number(metrics.govRepaid || 0)
   const govRevenue = Number(metrics.govRevenue || 0)
@@ -237,8 +240,12 @@ export default function Finance({
             value={govDebt === 0 ? '$0 · none recorded' : formatMillionsAdaptive(govDebt)}
             tone={govDebt === 0 ? 'good' : 'crit'}
           />
-          <KeyValue label="Borrowed from bank · this tick" value={formatMillionsAdaptive(govBorrowed)} />
-          <KeyValue label="Repaid to bank · this tick" value={formatMillionsAdaptive(govRepaid)} />
+          {showDebtFinancing && (
+            <>
+              <KeyValue label="Borrowed from bank · this tick" value={formatMillionsAdaptive(govBorrowed)} />
+              <KeyValue label="Repaid to bank · this tick" value={formatMillionsAdaptive(govRepaid)} />
+            </>
+          )}
         </Panel>
       </div>
     </div>
