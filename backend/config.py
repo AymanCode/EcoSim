@@ -103,8 +103,10 @@ class HouseholdBehaviorConfig:
     #   (government's Economy.expected_healthcare_out_of_pocket_all(), #45),
     #   after minimum food. Claim order on accessible liquidity, every payment
     #   sequence: rent and loan installments -> minimum food
-    #   (min_food_per_tick x mean posted Food price) -> the reserve, capped at
-    #   what is left -> the rest of the budget. Covered care reserves $0. No
+    #   (min_food_per_tick x the highest posted price among Food sellers with
+    #   stock) -> the reserve, capped at
+    #   what is left -> the rest of the budget; the budget is the flag-off
+    #   budget capped at liquidity less the reserve. Covered care reserves $0. No
     #   money moves; the charge at service is unchanged. No new parameter.
     healthcare_food_first_reserve: bool = False
 

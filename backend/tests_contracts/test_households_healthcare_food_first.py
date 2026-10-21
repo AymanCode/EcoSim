@@ -1,6 +1,6 @@
 """Households: food first, then the queued healthcare visit (re-cut of #47).
 
-With ``CONFIG.households.healthcare_food_first_reserve`` on, the weekly budget
+With ``CONFIG.households.healthcare_food_first_reserve`` on (the default), the weekly budget
 claims liquidity in this order on every payment sequence: rent and loan
 installments, minimum food, the queued visit's expected out-of-pocket cost
 (government's ``expected_healthcare_out_of_pocket_all``, capped at what food
@@ -34,6 +34,11 @@ def on(monkeypatch):
     monkeypatch.setattr(CONFIG.households, "healthcare_food_first_reserve", True)
 
 
+@pytest.fixture
+def off(monkeypatch):
+    monkeypatch.setattr(CONFIG.households, "healthcare_food_first_reserve", False)
+
+
 def _firm(firm_id, category, price):
     firm = FirmAgent(
         firm_id=firm_id, good_name=category, cash_balance=20_000.0, inventory_units=100.0,
@@ -46,13 +51,13 @@ def _firm(firm_id, category, price):
     return firm
 
 
-def _economy(households, *, subsidy_level=0):
+def _economy(households, *, subsidy_level=0, extra_firms=()):
     clinic, grocer = _firm(900, "Healthcare", VISIT), _firm(901, "Food", FOOD_PRICE)
     government = GovernmentAgent(cash_balance=1_000_000.0)
     if subsidy_level:
         government.set_lever("sector_subsidy_target", "healthcare")
         government.set_lever("sector_subsidy_level", subsidy_level)
-    economy = Economy(households=list(households), firms=[clinic, grocer], government=government)
+    economy = Economy(households=list(households), firms=[clinic, grocer, *extra_firms], government=government)
     economy._apply_random_shocks = lambda: None
     economy.sector_subsidy_remaining_this_tick = 1_000_000.0
     return economy, clinic
@@ -75,11 +80,12 @@ def _budgets(economy):
     return economy._household_consumption_budgets(0.05, 30.0)
 
 
-def test_flag_off_by_default_and_no_reserve():
-    assert CONFIG.households.healthcare_food_first_reserve is False
+def test_flag_off_holds_no_reserve_and_never_reads_the_food_cost(off, monkeypatch):
     queued = _worker(1, 100.0)
     economy, clinic = _economy([queued])
     _queue(queued, clinic)
+    monkeypatch.setattr(economy, "_min_food_cost", lambda: pytest.fail("read with the flag off"))
+    monkeypatch.setattr(economy, "_healthcare_food_first_reserves", lambda _l: pytest.fail("called with the flag off"))
     assert _budgets(economy)[0] == pytest.approx(100.0)
 
 
@@ -89,6 +95,36 @@ def test_min_food_cost_reads_min_food_and_highest_food_price():
     assert economy._min_food_cost()[0] == pytest.approx(h.min_food_per_tick * FOOD_PRICE)
     economy.firm_lookup[901].price = 0.0
     assert economy._min_food_cost()[0] == 0.0  # no Food price posted: no food claim
+
+
+def test_stock_less_seller_does_not_set_the_food_cost():
+    # Round-2 review 54.2: one $40 seller with no stock raised the claim 6 -> 61.
+    h = _worker(1, 100.0)
+    empty = _firm(902, "Food", 40.0)
+    empty.inventory_units = 0.0
+    economy, _ = _economy([h], extra_firms=[empty])
+    assert economy._min_food_cost()[0] == pytest.approx(h.min_food_per_tick * FOOD_PRICE)
+
+
+def test_all_food_sellers_out_of_stock_gives_zero_not_nan():
+    h = _worker(1, 100.0)
+    empty = _firm(902, "Food", 40.0)
+    empty.inventory_units = 0.0
+    economy, _ = _economy([h], extra_firms=[empty])
+    economy.firm_lookup[901].inventory_units = 0.0
+    cost = economy._min_food_cost()
+    assert cost[0] == 0.0 and np.all(np.isfinite(cost))
+
+
+def test_one_high_price_seller_with_one_unit_sets_the_food_cost():
+    # Business review: the max over in-stock sellers lets one high-price seller
+    # with a single unit set every household's food claim. Recorded here as the
+    # current rule (Q6-B); hardening it (option D) is a follow-up.
+    h = _worker(1, 100.0)
+    pricey = _firm(902, "Food", 12.0)
+    pricey.inventory_units = 1.0
+    economy, _ = _economy([h], extra_firms=[pricey])
+    assert economy._min_food_cost()[0] == pytest.approx(h.min_food_per_tick * 12.0)
 
 
 @pytest.mark.parametrize("cash", [500.0, 70.0, 10.0, 0.0])
@@ -116,6 +152,50 @@ def test_low_cash_household_keeps_its_food_money(on):
     food = float(economy._min_food_cost()[0])
     assert 0 < food < 15.0
     assert _budgets(economy)[0] == pytest.approx(food)
+
+
+def _budget_with_flag(economy, flag, monkeypatch, **kwargs):
+    monkeypatch.setattr(CONFIG.households, "healthcare_food_first_reserve", flag)
+    return economy._household_consumption_budgets(0.05, 30.0, **kwargs)
+
+
+def test_drawdown_is_computed_before_the_reserve(monkeypatch):
+    # Round-2 review 54.1: a queued household whose income budget is below its
+    # food cost, with liquidity just above food + visit. The savings drawdown
+    # must come from its full liquidity, so its budget is not pushed below food.
+    queued = _worker(1, 0.0)
+    queued.employer_id, queued.wage = None, 0.0
+    economy, clinic = _economy([queued])
+    _queue(queued, clinic)
+    food = float(economy._min_food_cost()[0])
+    queued.cash_balance = food + VISIT + 1.0
+    off_budget = _budget_with_flag(economy, False, monkeypatch)[0]
+    on_budget = _budget_with_flag(economy, True, monkeypatch)[0]
+    reserve = min(VISIT, queued.cash_balance - food)
+    assert on_budget == pytest.approx(min(off_budget, queued.cash_balance - reserve))
+    assert on_budget >= min(off_budget, food) - 1e-9
+
+
+def test_property_budget_is_flag_off_budget_capped_at_liquidity_less_reserve(monkeypatch):
+    rng = np.random.default_rng(54)
+    for _ in range(200):
+        cash = float(rng.uniform(0.0, 300.0))
+        employed = bool(rng.integers(0, 2))
+        queued = _worker(1, cash)
+        queued.employer_id = 77 if employed else None
+        queued.wage = float(rng.uniform(0.0, 120.0)) if employed else 0.0
+        economy, clinic = _economy([queued])
+        economy.firm_lookup[900].price = float(rng.uniform(0.0, 150.0))
+        economy.firm_lookup[901].price = float(rng.uniform(0.5, 10.0))
+        _queue(queued, clinic)
+        food = float(economy._min_food_cost()[0])
+        oop = economy.expected_healthcare_out_of_pocket(1)
+        off_budget = _budget_with_flag(economy, False, monkeypatch)[0]
+        on_budget = _budget_with_flag(economy, True, monkeypatch)[0]
+        reserve = min(oop, max(0.0, cash - food))
+        assert on_budget == pytest.approx(min(off_budget, cash - reserve), abs=1e-9)
+        assert on_budget >= min(off_budget, food) - 1e-9
+        assert on_budget <= off_budget + 1e-12
 
 
 def test_unqueued_household_unaffected_and_subsidy_lowers_reserve(on):

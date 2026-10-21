@@ -1091,8 +1091,11 @@ class Economy:
             # Claim order on what is left after rent and loan installments:
             # minimum food first, then the queued visit's expected cost
             # (capped at what food leaves), then everything else.
+            # The reserve caps the budget at the end; it does not shrink the
+            # liquidity the drawdown below is computed on, so a low-income
+            # household's drawdown (and its food) is what it is with the flag
+            # off, up to the cap (round-2 review 54.1).
             reserves = self._healthcare_food_first_reserves(accessible_liquidity)
-            accessible_liquidity = accessible_liquidity - reserves
             if self.payment_sequence != "legacy":
                 # Diagnostics only: the planner's discretionary estimate shows the hold-back.
                 for household, reserve in zip(self.households, reserves.tolist()):
@@ -1117,21 +1120,32 @@ class Economy:
         )
         drawdown = np.where(in_desperation, np.maximum(drawdown, desperation_drawdown), drawdown)
 
-        return np.minimum(base_budget + drawdown, accessible_liquidity)
+        budget = np.minimum(base_budget + drawdown, accessible_liquidity)
+        if cfg.healthcare_food_first_reserve:
+            # Flag-off budget on the pre-reserve liquidity L, then capped at
+            # L - reserve. reserve <= max(0, L - min food), so the budget never
+            # drops below min(flag-off budget, min-food cost).
+            budget = np.minimum(budget, accessible_liquidity - reserves)
+        return budget
 
     def _min_food_cost(self) -> np.ndarray:
         """Each household's minimum-food cost this tick, in self.households order.
 
-        ``min_food_per_tick`` x the highest posted price among Food firms with
-        a positive finite price. The highest price, not the mean the planner's
-        set-aside uses, because the household buys from the seller its
-        purchase style picks: at the mean price, a budget held to the food
-        cost bought only about 91% of minimum food on income_first (seed 42).
-        All zeros when no Food firm posts a positive price.
+        ``min_food_per_tick`` x the highest posted price among Food firms that
+        have stock (``inventory_units > 0``) and a positive finite price. The
+        highest price, not the mean the planner's set-aside uses, because the
+        household buys from the seller its purchase style picks: at the mean
+        price, a budget held to the food cost bought only about 91% of minimum
+        food on income_first (seed 42). Sellers with no stock are left out:
+        nobody can buy from them, and one stock-less $40 seller raised the
+        food claim from 6 to 61 (round-2 review 54.2). All zeros when no Food
+        firm with stock posts a positive price.
         """
         prices = [
             float(f.price) for f in self.firms
-            if (f.good_category or "").lower() == "food" and math.isfinite(float(f.price)) and f.price > 0
+            if (f.good_category or "").lower() == "food"
+            and math.isfinite(float(f.price)) and f.price > 0
+            and float(f.inventory_units) > 0.0
         ]
         if not prices:
             return np.zeros(len(self.households), dtype=np.float64)
