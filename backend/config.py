@@ -586,6 +586,13 @@ class FirmBehaviorConfig:
     healthcare_price_decrease_rate: float = 0.03
     healthcare_price_ceiling_multiplier: float = 6.0
     healthcare_target_profit_margin: float = 0.15
+    # Owner decision 2026-10-20 (False restores the old behavior): the visit price
+    # spreads the doctors' wage bill over expected visits (smoothed requests,
+    # capped at the visit slots) instead of every slot, moves at most 15% a week,
+    # warmup prices visit slots instead of goods units, and Healthcare buys no
+    # capital. With a fixed doctor roster and half-used slots, the old price
+    # never covered the wage bill.
+    fix_healthcare_price_covers_payroll: bool = True
     healthcare_staff_population_ratio: float = 0.02   # 2% of households are doctors (economy-wide)
     healthcare_training_enrollment_interval_ticks: int = 52
     healthcare_training_enrollment_interval_after_cap_ticks: int = 104

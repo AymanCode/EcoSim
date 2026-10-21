@@ -187,23 +187,147 @@ def test_contract_affordability_rejects_visit_without_subsidy(fixed_seed):
     assert economy.last_healthcare_events[-1]["event_type"] == "visit_denied_affordability"
 
 
-def test_contract_healthcare_price_targets_doctor_labor_cost_plus_margin(fixed_seed):
-    firm = _new_healthcare_firm(price=9.0)
+def _two_doctor_clinic(price: float, expected_visits: float) -> FirmAgent:
+    """Two doctors at the 40 wage offer, 2 visits each: 4 slots, an 80/week wage bill."""
+    firm = _new_healthcare_firm(price=price)
     firm.healthcare_capacity_per_worker = 2.0
     firm.employees = [1, 2]
     firm.actual_wages = {1: 80.0, 2: 100.0}
     firm.unit_cost = 45.0
     firm.min_price = 1.0
+    firm.healthcare_arrivals_ema = expected_visits
+    return firm
+
+
+def test_contract_healthcare_price_targets_doctor_labor_cost_plus_margin(fixed_seed):
+    """When requests fill every slot, the price is the wage bill per slot plus 15%."""
+    firm = _two_doctor_clinic(price=22.0, expected_visits=4.0)
 
     price_plan = firm.plan_pricing(sell_through_rate=0.0, unemployment_rate=0.5)
 
-    effective_wage = max(firm.wage_offer, CONFIG.firms.minimum_wage_floor)
-    break_even = (effective_wage * len(firm.employees)) / 4.0
-    expected_price = break_even * (1.0 + CONFIG.firms.healthcare_target_profit_margin)
-    assert price_plan["price_next"] == pytest.approx(expected_price)
+    # 80 / 4 slots = 20; 20 * 1.15 = 23 (no profit tax).
+    assert price_plan["price_next"] == pytest.approx(23.0)
     assert price_plan["pricing_reason"] == "healthcare_labor_margin_target"
-    assert firm.decision_diagnostics["healthcare_break_even_price"] == pytest.approx(break_even)
+    assert firm.decision_diagnostics["healthcare_break_even_price"] == pytest.approx(20.0)
     assert firm.decision_diagnostics["healthcare_target_margin"] == pytest.approx(0.15)
+
+
+def test_contract_healthcare_price_spreads_wages_over_expected_visits(fixed_seed):
+    """Half-used slots: the wage bill is spread over the visits patients ask for, not idle slots."""
+    firm = _two_doctor_clinic(price=45.0, expected_visits=2.0)
+
+    price_plan = firm.plan_pricing(sell_through_rate=0.0, unemployment_rate=0.5)
+
+    # 80 / 2 expected visits = 40; 40 * 1.15 = 46.
+    assert firm.decision_diagnostics["healthcare_break_even_price"] == pytest.approx(40.0)
+    assert price_plan["price_next"] == pytest.approx(46.0)
+
+
+def test_contract_healthcare_expected_visits_are_capped_at_slots(fixed_seed):
+    """More requests than slots does not lower the price below the full-slot cost."""
+    firm = _two_doctor_clinic(price=22.0, expected_visits=10.0)
+
+    price_plan = firm.plan_pricing(sell_through_rate=0.0, unemployment_rate=0.5)
+
+    assert firm.decision_diagnostics["healthcare_break_even_price"] == pytest.approx(20.0)
+    assert price_plan["price_next"] == pytest.approx(23.0)
+
+
+@pytest.mark.parametrize("price, expected_next", [(9.0, 10.35), (40.0, 34.0)])
+def test_contract_healthcare_price_moves_at_most_15_percent_a_week(fixed_seed, price, expected_next):
+    """Target 23: from 9 the price rises to 9 * 1.15; from 40 it falls to 40 * 0.85."""
+    firm = _two_doctor_clinic(price=price, expected_visits=4.0)
+
+    price_plan = firm.plan_pricing(sell_through_rate=0.0, unemployment_rate=0.5)
+
+    assert price_plan["price_next"] == pytest.approx(expected_next)
+
+
+def _baseline_clinic(price: float) -> FirmAgent:
+    """The default 1,000-household economy's clinic (seed 42): 20 doctors at the 36 minimum wage."""
+    firm = _new_healthcare_firm(firm_id=4, price=price)
+    firm.is_baseline = True
+    firm.productivity_per_worker = 11.9  # goods units per worker; a doctor delivers 2.2 visits
+    firm.healthcare_capacity_per_worker = 2.2
+    firm.policy_minimum_wage = 36.0
+    firm.wage_offer = 36.0
+    firm.employees = list(range(1, 21))
+    firm.actual_wages = {i: 36.0 for i in firm.employees}
+    firm.min_price = 5.0
+    return firm
+
+
+def test_contract_baseline_healthcare_price_covers_payroll_at_observed_visits(fixed_seed):
+    """Seed 42 on main: 21 requests a week for 44 slots, price fixed at 19.43, a loss every week."""
+    firm = _baseline_clinic(price=19.43)
+    firm.healthcare_arrivals_ema = 21.0
+
+    for _ in range(12):  # weekly pricing rounds; the price moves at most 15% a week
+        plan = firm.plan_pricing(sell_through_rate=0.0, unemployment_rate=0.1, profit_tax_rate=0.2)
+        firm.apply_price_and_wage_updates(plan, {"wage_offer_next": 36.0})
+
+    assert firm.price * 21.0 >= 36.0 * 20
+
+
+def test_contract_baseline_healthcare_warmup_prices_from_visit_slots(fixed_seed):
+    """Warmup uses the doctors' visit slots, not goods productivity (36 / 11.9 gave the 5 floor)."""
+    firm = _baseline_clinic(price=19.0)
+    firm.healthcare_arrivals_ema = 5.0  # warmup demand is not used for the price
+
+    plan = firm.plan_pricing(sell_through_rate=0.0, unemployment_rate=0.1, in_warmup=True, profit_tax_rate=0.2)
+
+    # 36 / 2.2 = 16.364 per slot; * (1 + 0.15 / 0.8) = 19.432.
+    assert plan["price_next"] == pytest.approx(19.4318, abs=1e-4)
+
+
+@pytest.mark.parametrize("cash", [0.0, 1_000_000.0])
+def test_contract_healthcare_buys_no_capital(fixed_seed, cash):
+    """Visit capacity is doctors x visits; a capital unit adds none, so a profitable clinic buys none."""
+    firm = _baseline_clinic(price=45.0)
+    firm.cash_balance = cash
+    firm.smoothed_profit_margin = 0.15
+    capital_before = firm.capital_stock
+
+    firm.plan_capital_investment(bank=None)
+
+    assert not firm.needs_investment_loan
+    assert firm.capital_stock == pytest.approx(capital_before)
+    assert firm.cash_balance == pytest.approx(cash)
+
+
+def test_contract_healthcare_price_fix_flag_is_on_by_default():
+    assert CONFIG.firms.fix_healthcare_price_covers_payroll is True
+
+
+def test_contract_healthcare_flag_off_restores_full_slot_price(fixed_seed, monkeypatch):
+    """Flag off: 80 / 4 slots * 1.15 = 23 in one step, whatever the requests."""
+    monkeypatch.setattr(CONFIG.firms, "fix_healthcare_price_covers_payroll", False)
+    firm = _two_doctor_clinic(price=9.0, expected_visits=2.0)
+
+    price_plan = firm.plan_pricing(sell_through_rate=0.0, unemployment_rate=0.5)
+
+    assert price_plan["price_next"] == pytest.approx(23.0)
+
+
+def test_contract_healthcare_flag_off_restores_goods_unit_warmup_price(fixed_seed, monkeypatch):
+    """Flag off: the generic baseline warmup rule, 36 / 11.9 * (1 + 0.05 / 0.8) = 3.214."""
+    monkeypatch.setattr(CONFIG.firms, "fix_healthcare_price_covers_payroll", False)
+    firm = _baseline_clinic(price=19.0)
+
+    plan = firm.plan_pricing(sell_through_rate=0.0, unemployment_rate=0.1, in_warmup=True, profit_tax_rate=0.2)
+
+    assert plan["price_next"] == pytest.approx(3.2143, abs=1e-4)
+
+
+def test_contract_healthcare_flag_off_restores_capital_purchase(fixed_seed, monkeypatch):
+    monkeypatch.setattr(CONFIG.firms, "fix_healthcare_price_covers_payroll", False)
+    firm = _baseline_clinic(price=45.0)
+    firm.cash_balance = 0.0
+    firm.smoothed_profit_margin = 0.15
+
+    firm.plan_capital_investment(bank=None)
+
+    assert firm.needs_investment_loan
 
 
 def test_contract_healthcare_excess_margin_is_shifted_to_doctor_bonus(fixed_seed):

@@ -2722,10 +2722,16 @@ class FirmAgent(AgentMixin):
             self.decision_diagnostics[f"survival_turnaround_{key}"] = value
         return allowed, payload
 
-    def _healthcare_labor_price_targets(self, profit_tax_rate: float = 0.0) -> Dict[str, float]:
+    def _healthcare_labor_price_targets(
+        self, profit_tax_rate: float = 0.0, in_warmup: bool = False
+    ) -> Dict[str, float]:
         """Return healthcare break-even and target visit price from labor costs.
 
-        Strict (total_wage / capacity) * 1.15 formula. Effective per-doctor wage
+        (total_wage / expected visits) * 1.15 formula. Expected visits are the
+        smoothed weekly requests (``healthcare_arrivals_ema``), capped at the
+        doctors' visit slots; in warmup they are the full slots. The doctor
+        roster is fixed, so spreading the wage bill over idle slots left the
+        price below cost whenever demand was under capacity. Effective per-doctor wage
         is floored at the higher of the config floor and the policy minimum
         (``_minimum_wage``) so wage_offer drift below minimum cannot underprice
         the visit. Gross margin is inflated by the
@@ -2736,6 +2742,10 @@ class FirmAgent(AgentMixin):
 
         firm_config = self._firm_config()
         capacity = max(1.0, len(self.employees) * max(self.healthcare_capacity_per_worker, 0.1))
+        if in_warmup or not firm_config.fix_healthcare_price_covers_payroll:
+            expected_visits = capacity
+        else:
+            expected_visits = min(capacity, max(1.0, float(self.healthcare_arrivals_ema)))
 
         # Enforce the minimum wage on the per-worker wage used for pricing.
         min_wage_floor = self._minimum_wage()
@@ -2744,7 +2754,7 @@ class FirmAgent(AgentMixin):
 
         # Flat 15% after-tax margin over labor cost. Inflate gross margin so that
         # after profit_tax_rate is applied, the realised net margin matches 15%.
-        break_even = wage_bill / capacity
+        break_even = wage_bill / expected_visits
         target_after_tax_margin = 0.15
         gross_margin = target_after_tax_margin / max(1.0 - float(profit_tax_rate), 0.10)
         target = break_even * (1.0 + gross_margin)
@@ -2754,6 +2764,7 @@ class FirmAgent(AgentMixin):
             "break_even_price": break_even,
             "target_price": target,
             "current_margin": current_margin,
+            "expected_visits": expected_visits,
         }
 
     def _profit_ema_alpha(self) -> float:
@@ -3968,6 +3979,10 @@ class FirmAgent(AgentMixin):
         self.needs_investment_loan = False
         self.investment_loan_amount = 0.0
 
+        # Healthcare visit capacity is doctors x visits; capital adds none.
+        if self.good_category.lower() == "healthcare" and config.fix_healthcare_price_covers_payroll:
+            return
+
         if CONFIG.payment_sequence != "legacy" and self.payment_wage_arrears > 1e-6:
             self.decision_diagnostics["capital_denial_reason"] = "worker_arrears"
             return
@@ -4071,7 +4086,13 @@ class FirmAgent(AgentMixin):
                 sell_through_rate=sell_through_rate,
                 category_wage_anchor_p75=self.wage_offer,
             )
-        if self.is_baseline and in_warmup:
+        # Healthcare prices visits in its own branch below; productivity_per_worker
+        # counts goods units, so this branch set a 36/week doctor's visit at 3.21.
+        healthcare_price_fix = (
+            self.good_category.lower() == "healthcare"
+            and firm_config.fix_healthcare_price_covers_payroll
+        )
+        if self.is_baseline and in_warmup and not healthcare_price_fix:
             labor_cost_per_unit = self.wage_offer / max(self.productivity_per_worker, 1.0)
             # Inflate the 5% markup so the after-tax margin still clears 5%.
             gross_markup = 0.05 / max(1.0 - float(profit_tax_rate), 0.10)
@@ -4172,7 +4193,9 @@ class FirmAgent(AgentMixin):
             }
 
         if self.good_category.lower() == "healthcare":
-            price_targets = self._healthcare_labor_price_targets(profit_tax_rate=profit_tax_rate)
+            price_targets = self._healthcare_labor_price_targets(
+                profit_tax_rate=profit_tax_rate, in_warmup=in_warmup
+            )
             break_even_price = price_targets["break_even_price"]
             target_price = max(self.min_price, price_targets["target_price"])
 
@@ -4191,6 +4214,7 @@ class FirmAgent(AgentMixin):
                 target_price = max(self.min_price, target_price * surge_multiplier)
 
             self.decision_diagnostics["healthcare_break_even_price"] = break_even_price
+            self.decision_diagnostics["healthcare_expected_visits"] = price_targets["expected_visits"]
             self.decision_diagnostics["healthcare_target_margin"] = firm_config.healthcare_target_profit_margin
             self.decision_diagnostics["healthcare_target_price"] = target_price
             self.decision_diagnostics["healthcare_current_profit_margin"] = price_targets["current_margin"]
@@ -4201,7 +4225,14 @@ class FirmAgent(AgentMixin):
                 else "healthcare_labor_margin_target"
             )
 
+            # Move at most 15% a week toward the target, as housing rent does.
+            # Expected visits start at zero, so the first weeks' target is high.
             price_next = target_price
+            if healthcare_price_fix:
+                price_next = max(
+                    self.min_price,
+                    min(self.price * 1.15, max(self.price * 0.85, target_price)),
+                )
             markup_next = self._markup_for_price(price_next)
             return {
                 "price_next": price_next,
