@@ -4,6 +4,12 @@ Notable changes and decisions for EcoSim, newest first. The project does not use
 
 ## Unreleased
 
+### 2026-10-21: Shared evidence panel for behavior-changing PRs
+
+The bot PRs each brought their own study script, with different household and firm counts, payment sequences, run lengths, seed sets and real-GDP deflators, so reviews kept stalling on numbers that could not be compared or reproduced. `backend/tools/benchmarks/run_evidence_panel.py` is one command that runs every arm on every payment sequence and seed at the dashboard's defaults (1,000 households, 5 firms per category, `income_first` first, seeds 42-46, 260 ticks), one process per run, and writes a paired table by tick window with identity, determinism and money checks. Arms can come from different checkouts, so a PR's flag-off state is compared with `main` directly. Tooling only: no simulation code, config default or flag changes.
+
+Evidence: `backend/tests_contracts/test_evidence_panel.py` (7 tests).
+
 ### 2026-10-16: Poverty and wealth-loss terms read liquid wealth
 
 Bug fix from the PR7 investigation (item 3). `Economy._batch_update_wellbeing` read `cash_balance` alone for the poverty penalties and the wealth-loss term. The weekly deposit sweep runs after `last_tick_cash_start` is set and before wellbeing, so saving money in the bank counted as a wealth loss. The legacy withdrawal refills cash only to about 160, below the 200 poverty line, so households with savings were also scored as poor.

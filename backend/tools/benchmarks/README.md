@@ -34,6 +34,22 @@ python -m backend.tools.benchmarks.run_policy_sweep --seeds 42,43,44 --policies 
 
 Runs non-LLM policy grids and reports average outcomes plus 95% confidence intervals across seeds.
 
+## Evidence Panel (PRs that change economic behavior)
+
+```powershell
+python -m backend.tools.benchmarks.run_evidence_panel --arm main --root main ../main --arm off --arm on --set on households.skills_dynamics=True --baseline main --out benchmarks/results/pr51-panel
+```
+
+The standard evidence for a behavior-changing PR, so a reviewer reruns one command instead of rebuilding a study. Defaults match the dashboard: 1,000 households, 5 firms per category, all three payment sequences (`income_first` first), seeds 42-46, 260 ticks, windows 1-100 / 101-200 / 201-260. Each arm, sequence and seed runs in its own process (`evidence_panel_worker.py`), built and seeded as a dashboard SETUP and observed each tick with the dashboard's own metric calls.
+
+- `--arm NAME` declares an arm; the first is the baseline unless `--baseline`. `--root ARM PATH` runs an arm from another checkout, such as `main` without the PR's flag.
+- `--set ARM section.field=value` overrides a config field before the economy is built (an unknown or mistyped name fails the run). `--set ARM lever.name=value` applies a policy lever after it.
+- `--metrics-plugin FILE` adds the mechanism's own measure: FILE defines `extra_metrics(economy) -> dict[str, float]`.
+- `panel.md` gives, per sequence and window, the baseline level and the paired difference: mean, [min, max] across seeds, and how many seeds went up. `!` marks a mean whose sign flips when one seed is left out. Its checks report how many runs of each arm hash identically to the baseline, whether a repeated baseline run is identical, and unrecorded money drift.
+- Rerunning the same command reuses finished runs whose settings and source are unchanged; changing only `--windows` re-aggregates.
+
+One 1,000-household, 260-tick run takes about 50 s on an Apple-silicon laptop, so the default two-arm panel (33 runs with the repeat checks) takes a few minutes with `--jobs` near the core count.
+
 ## Dashboard Probe
 
 Start the backend first:
