@@ -4,6 +4,15 @@ Notable changes and decisions for EcoSim, newest first. The project does not use
 
 ## Unreleased
 
+### 2026-10-21: AI government objective uses the long-run unemployment band
+
+The AI government's system prompt told the model to keep unemployment low. The charter (2026-10-21) treats long-run unemployment of about 10-40% as healthy, above 40% as a red flag, and well under 10% as off-target. The objective line now says that range, and both the system prompt and the user prompt say to choose `reduce_unemployment` only when unemployment is above about 40%. The goal label is unchanged, so the dashboard headline that maps it is unchanged. Rule-based simulation does not read this text. Historical AI-government scores in `docs/experiments/AI_GOVERNMENT_EXPERIMENT.md` were made under the old objective; that page no longer says lower unemployment is better.
+
+- Before: `OBJECTIVE: Maximize GDP and mean happiness while keeping unemployment low and maintaining a sustainable government cash balance.`
+- After: `OBJECTIVE: Maximize GDP and mean happiness while keeping long-run unemployment within a healthy range (about 10-40%) and maintaining a sustainable government cash balance.`
+
+Evidence: `test_contract_government_objective_uses_long_run_unemployment_band`.
+
 ### 2026-10-21: Shared evidence panel for behavior-changing PRs
 
 The bot PRs each brought their own study script, with different household and firm counts, payment sequences, run lengths, seed sets and real-GDP deflators, so reviews kept stalling on numbers that could not be compared or reproduced. `backend/tools/benchmarks/run_evidence_panel.py` is one command that runs every arm on every payment sequence and seed at the dashboard's defaults (1,000 households, 5 firms per category, `income_first` first, seeds 42-46, 260 ticks), one process per run, and writes a paired table by tick window with identity, determinism and money checks. Arms can come from different checkouts, so a PR's flag-off state is compared with `main` directly. Tooling only: no simulation code, config default or flag changes.

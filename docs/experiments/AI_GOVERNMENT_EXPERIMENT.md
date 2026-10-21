@@ -93,7 +93,7 @@ The LLM sees a compact economic report and chooses from a fixed policy schema. E
 
 ## Results
 
-Higher is better for GDP, happiness, health, and government cash. Lower is better for unemployment. "Last 26" is the trailing average at the end of the run, which shows the final operating state better than the lifetime mean.
+Higher is better for GDP, happiness, health, and government cash. For unemployment, the target is a range rather than a direction: about 10-40% in the long run (weeks 201+) is healthy. Above 40% is a red flag, and well under 10% is off-target. The results below were scored before this target was set, so they read lower as better. "Last 26" is the trailing average at the end of the run, which shows the final operating state better than the lifetime mean.
 
 | Metric | Baseline | Granite 8B | Gemma 26B | Llama 70B | GPT-OSS 120B | Ring 1T |
 |---|---:|---:|---:|---:|---:|---:|

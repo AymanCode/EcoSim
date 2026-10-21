@@ -13,6 +13,7 @@ from tools.llm.llm_government import (
     _audit_evidence,
     _build_recent_policy_memory,
     _build_system_prompt,
+    _build_user_prompt,
     _enforce_cross_lever_consistency,
     apply_info_constraints_node,
     build_allowed_government_actions,
@@ -321,6 +322,29 @@ def test_contract_prompt_has_no_policy_playbook_advice():
     forbidden = ("Use when", "Avoid when", "Usually choose", "usually choose", "SECTOR PRIORITY", "POLICY PLAYBOOK")
     for phrase in forbidden:
         assert phrase not in prompt
+
+
+_UNEMPLOYMENT_BAND_LINE = (
+    "Choose reduce_unemployment only when unemployment is above about 40%; "
+    "unemployment between about 10% and 40% is normal for this economy."
+)
+_UNEMPLOYMENT_OBJECTIVE = (
+    "OBJECTIVE: Maximize GDP and mean happiness while keeping long-run unemployment "
+    "within a healthy range (about 10-40%) and maintaining a sustainable government cash balance."
+)
+
+
+def test_contract_government_objective_uses_long_run_unemployment_band():
+    prompt = _build_system_prompt("balanced", num_households=20, num_firms=4)
+    assert _UNEMPLOYMENT_OBJECTIVE in prompt
+    assert "about 10-40%" in prompt
+    assert "keeping unemployment low" not in prompt
+    assert _UNEMPLOYMENT_BAND_LINE in prompt
+    assert "reduce_unemployment" in prompt
+
+    user = _build_user_prompt({}, {})
+    assert _UNEMPLOYMENT_BAND_LINE in user
+    assert "reduce_unemployment" in user
 
 
 def test_contract_llm_parse_failure_falls_back_to_no_change(tiny_economy_factory, monkeypatch):

@@ -367,7 +367,7 @@ def _build_system_prompt(philosophy: str, num_households: int, num_firms: int) -
 
     return f"""ROLE: You are the AI Central Government of a simulated economy.
 PHILOSOPHY: {philosophy_label}
-OBJECTIVE: Maximize GDP and mean happiness while keeping unemployment low and maintaining a sustainable government cash balance.
+OBJECTIVE: Maximize GDP and mean happiness while keeping long-run unemployment within a healthy range (about 10-40%) and maintaining a sustainable government cash balance.
 
 CRITICAL SIMULATION RULES:
 1. ONE-STEP LIMIT: You may only change a qualitative ordered lever by one step per decision cycle.
@@ -408,6 +408,7 @@ RESPONSE FORMAT:
 {{
   "fiscal_mode": "CASH_CRISIS|LOW_CASH|NORMAL|STRONG_SURPLUS",
   "primary_goal": "hold|stabilize_cash|essential_sector_support|reduce_unemployment|support_growth|unwind_spending",
+Choose reduce_unemployment only when unemployment is above about 40%; unemployment between about 10% and 40% is normal for this economy.
   "rationale": "Short public explanation grounded in supplied data; do not include hidden chain-of-thought.",
   "evidence": ["2-5 exact metric_name=value references copied from the prompt"],
   "changes": {{
@@ -1331,6 +1332,7 @@ Do not include markdown, <think>, hidden chain-of-thought, or keys other than fi
 {{
   "fiscal_mode": "CASH_CRISIS|LOW_CASH|NORMAL|STRONG_SURPLUS",
   "primary_goal": "hold|stabilize_cash|essential_sector_support|reduce_unemployment|support_growth|unwind_spending",
+Choose reduce_unemployment only when unemployment is above about 40%; unemployment between about 10% and 40% is normal for this economy.
   "rationale": "Concise public explanation grounded in the data shown above.",
   "evidence": ["2-5 exact metric_name=value references copied from the prompt"],
   "changes": {{}}
