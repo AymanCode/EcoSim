@@ -44,6 +44,7 @@ from experiments import ExperimentError, ExperimentRegistry  # noqa: F401
 from frame_events import TickEventCollector
 from frame_projection import build_curated_metrics, build_firm_list
 from utils.category_utils import get_good_category_capitalized
+from sim_setup import build_economy_from_setup
 from tools.runners.run_large_simulation import (
     create_large_economy,
     compute_firm_snapshot_rows,
@@ -2258,47 +2259,12 @@ class SimulationManager:
         self._reset_random_state(seed)
         random.setstate(self._python_random_state)
         np.random.set_state(self._numpy_random_state)
-        
+
         logger.info(f"Initializing economy with {num_households} households and {num_firms} firms/cat...")
-        self.economy = create_large_economy(
-            num_households=num_households, 
-            num_firms_per_category=num_firms
-        )
-        self.economy.payment_config_snapshot = {
-            name: getattr(self.config, name)
-            for name in SetupConfig.model_fields if name.startswith("payment_")
-        }
-
-        disabled_agents: List[str] = []
-        if validated.disable_stabilizers:
-            disabled_agents = validated.disabled_agents
-            if not disabled_agents:
-                disabled_agents = ["households", "firms", "government"]
-        elif validated.disabled_agents:
-            disabled_agents = validated.disabled_agents
-
-        if disabled_agents:
-            self.economy.apply_stabilization_overrides(disabled_agents)
-            households = not ("all" in disabled_agents or "households" in disabled_agents)
-            firms = not ("all" in disabled_agents or "firms" in disabled_agents)
-            government = not ("all" in disabled_agents or "government" in disabled_agents)
-            self.stabilizer_state = self._build_stabilizer_state_dict(households, firms, government)
-        else:
-            self.economy.configure_stabilizers(
-                households=True,
-                firms=True,
-                government=True
-            )
-            self.stabilizer_state = self._build_stabilizer_state_dict(True, True, True)
-        
-        # Validated initial policy vector: presets, custom arms and the legacy tax keys all start here.
-        for lever, value in (validated.initial_policy or {}).items():
-            self.economy.government.set_lever(lever, value)
-        if "minimum_wage_policy" in (validated.initial_policy or {}):
-            min_wage = float(self.economy.government.get_minimum_wage())
-            for firm in self.economy.firms:
-                if firm.wage_offer < min_wage:
-                    firm.wage_offer = min_wage
+        # Same construction the evidence-panel worker uses. Seeding above is what
+        # the session scope restores; the helper seeds again and then builds.
+        self.economy, stabilizer_flags = build_economy_from_setup(validated, seed, factory=create_large_economy)
+        self.stabilizer_state = self._build_stabilizer_state_dict(*stabilizer_flags)
         self.setup_config["applied_policy"] = self._snapshot_government_levers()
         self.pending_config_updates = []
         self.policy_changes = []

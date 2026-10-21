@@ -1,13 +1,24 @@
 """Contracts for the shared evidence panel (tools/benchmarks/run_evidence_panel.py)."""
 
 import json
+import random
 import re
+import sys
+from pathlib import Path
 
+import numpy as np
 import pytest
 
 from config import CONFIG, clone_config, use_config
+from tools.benchmarks import panel_summary
 from tools.benchmarks import run_evidence_panel as panel
-from tools.benchmarks.evidence_panel_worker import apply_config_overrides
+from tools.benchmarks.evidence_panel_worker import (
+    apply_config_overrides,
+    install_hooks,
+    panel_row,
+    rows_fingerprint,
+    state_components,
+)
 
 
 def test_windows_cover_inclusive_ranges_and_an_open_end():
@@ -55,8 +66,10 @@ def test_assignments_split_levers_from_config_and_refuse_the_sequence():
     plan = panel.parse_assignments(
         [["on", "households.poverty_threshold=250"], ["on", "lever.wage_tax_rate=0.3"]], ["off", "on"]
     )
-    assert plan["on"] == {"config_overrides": {"households.poverty_threshold": "250"}, "levers": {"wage_tax_rate": "0.3"}}
-    assert plan["off"] == {"config_overrides": {}, "levers": {}}
+    assert plan["on"]["config_overrides"] == {"households.poverty_threshold": "250"}
+    assert plan["on"]["levers"] == {"wage_tax_rate": "0.3"}
+    assert plan["on"]["timed_levers"] == []
+    assert plan["off"] == {"config_overrides": {}, "levers": {}, "timed_levers": []}
 
     with pytest.raises(ValueError, match="panel dimension"):
         panel.parse_assignments([["on", "payment_sequence=legacy"]], ["on"])
@@ -134,3 +147,242 @@ def test_panel_fails_loudly_on_a_misspelled_flag(tmp_path):
     failures = json.loads((tmp_path / "panel.json").read_text(encoding="utf-8"))["failures"]
     assert failures and all("skills_dynamicz" in "\n".join(f["stderr_tail"]) for f in failures)
     assert not (tmp_path / "panel.md").exists()
+
+
+def test_default_windows_are_312_and_weeks_260_still_runs():
+    assert panel.resolve_windows(panel.DEFAULT_WINDOWS, 312) == [
+        ("1-100", 1, 100),
+        ("101-200", 101, 200),
+        ("201-312", 201, 312),
+        ("261-312", 261, 312),
+    ]
+    assert panel.resolve_windows(panel.DEFAULT_WINDOWS, 260) == [
+        ("1-100", 1, 100),
+        ("101-200", 101, 200),
+        ("201-260", 201, 260),
+    ]
+    args = panel.build_parser().parse_args(["--arm", "a", "--weeks", "260"])
+    assert args.ticks == 260
+    assert panel.window_role(1) == "reported, not judged"
+    assert panel.window_role(201) == "judged"
+
+
+def test_timed_lever_sweep_and_interact_expand_like_handwritten_sets():
+    timed = panel.parse_assignments([["on", "lever.wage_tax_rate=0.45@2..3"]], ["on"])
+    assert timed["on"]["levers"] == {}
+    assert timed["on"]["timed_levers"] == [{"name": "wage_tax_rate", "value": "0.45", "start": 2, "end": 3}]
+
+    args = panel.build_parser().parse_args([
+        "--arm", "base",
+        "--sweep", "base", "households.poverty_threshold",
+        "--interact", "a:households.fix_category_price_beliefs=True", "b:lever.wage_tax_rate=0.2",
+        "--off-set", "households.fix_category_price_beliefs=False",
+    ])
+    panel.expand_shorthand(args)
+    plan = panel.parse_assignments(args.set, args.arm)
+    assert plan["base-x0.5"]["config_overrides"]["households.poverty_threshold"] == "100"
+    assert plan["base-x1"]["config_overrides"]["households.poverty_threshold"] == "200"
+    assert plan["base-x1.5"]["config_overrides"]["households.poverty_threshold"] == "300"
+    assert plan["a+b"]["config_overrides"]["households.fix_category_price_beliefs"] == "True"
+    assert plan["a+b"]["levers"]["wage_tax_rate"] == "0.2"
+    assert plan["off"]["config_overrides"]["households.fix_category_price_beliefs"] == "False"
+
+
+def test_band_distance_real_gdp_fragility_and_planted_money_leak():
+    assert panel_summary.band_distance_points(0.25) == 0.0
+    assert panel_summary.band_distance_points(0.008) == pytest.approx(9.2)
+    assert panel_summary.band_distance_points(0.50) == pytest.approx(10.0)
+
+    base_rows = [{"tick": tick, "units__Food": 2.0, "rev__Food": 6.0} for tick in range(11, 63)]
+    prices, label = panel_summary.base_paid_prices(base_rows)
+    assert label == "11-62"
+    assert prices["Food"] == pytest.approx(3.0)
+    assert panel_summary.paid_real_gdp({"tick": 80, "units__Food": 4.0}, prices) == pytest.approx(12.0)
+    short, short_label = panel_summary.base_paid_prices([{"tick": 1, "units__Food": 2.0, "rev__Food": 2.0}])
+    assert short_label == "all simulated weeks" and short["Food"] == pytest.approx(1.0)
+
+    assert panel_summary.is_fragile(panel.paired_stats([1.0, 1.0, 1.0, -1.0, -1.0]))
+    assert panel_summary.is_fragile(panel.paired_stats([1.0, 1.0, 1.0, 1.0, -10.0]))
+    assert panel_summary.is_fragile(panel.paired_stats([5.0, 1.0, 1.0, 1.0, 1.0]))
+    assert not panel_summary.is_fragile(panel.paired_stats([1.0, 1.0, 1.0, 1.0, 1.0]))
+
+    design = {"arms": ["main", "on"], "baseline": "main", "sequences": ["income_first"], "seeds": [1]}
+
+    def _run(arm, drift):
+        return {"spec": {"arm": arm, "payment_sequence": "income_first", "seed": 1, "repeat": False}, "money": {"final_drift": drift}}
+
+    assert panel_summary.MONEY_CHECK_MODE == "relative"
+    leaked = panel_summary.evaluate_money([_run("main", 2.0), _run("on", 9.0)], design)
+    assert leaked["passed"] is False
+    matched = panel_summary.evaluate_money([_run("main", 2.0), _run("on", 2.0)], design)
+    assert matched["passed"] is True
+    assert panel_summary.row_violations({"tick": 3, "happiness": float("nan"), "labor_force_unemployment_rate": 0.2})
+    assert panel_summary.row_violations({
+        "tick": 3, "happiness": 0.4, "health": 0.5, "labor_force_unemployment_rate": 0.2,
+        "unemployment_rate": 0.3, "poverty_share": 0.1, "mean_price": 2.0, "consumer_price_index": 100.0,
+    }) == []
+
+
+def test_reference_env_refuses_a_non_311_interpreter_and_stamps_the_override():
+    refused = panel_summary.reference_decision(False, {"ok_packages": True, "missing": [], "mismatched": [], "pins": 3})
+    assert refused["ok"] is False
+    assert "not comparable" in panel_summary.format_reference_error(refused, "3.13.0", "CPython")
+    mismatch = panel_summary.compare_lock({"numpy": "2.4.6"}, {"numpy": "1.26.4"})
+    assert mismatch["ok_packages"] is False and mismatch["mismatched"][0]["name"] == "numpy"
+
+
+def test_state_digest_catches_an_unobserved_change_the_row_hash_misses():
+    stats = {"unemployment_rate": 0.0, "mean_happiness": 0.4, "mean_health": 0.8, "food_insecure_share": 0.0}
+    metrics = {
+        "gdp_this_tick": 1.0, "consumer_price_index": 100.0, "labor_force_unemployment_rate": 0.0,
+        "mean_price": 1.0, "gov_revenue_this_tick": 0.0, "gov_spending_this_tick": 0.0,
+        "gov_bond_purchases_this_tick": 0.0,
+    }
+    with use_config(clone_config()):
+        random.seed(1)
+        np.random.seed(1)
+        CONFIG.random_seed = 1
+        from tools.runners.run_large_simulation import create_large_economy
+
+        economy = create_large_economy(20, 1)
+        before = state_components(economy)
+        row_before = panel_row(economy, metrics, stats, CONFIG, np)
+        from tools.benchmarks.panel_plugins import households as households_plugin
+
+        households_plugin.extra_metrics(economy)
+        assert state_components(economy) == before
+        economy.households[0].skills_level = float(getattr(economy.households[0], "skills_level", 0.5) or 0.5) + 0.013
+        after = state_components(economy)
+        row_after = panel_row(economy, metrics, stats, CONFIG, np)
+    assert before["households"] != after["households"]
+    assert before["firms"] == after["firms"]
+    assert rows_fingerprint([row_before]) == rows_fingerprint([row_after])
+
+
+def test_server_and_worker_build_the_same_economy():
+    import server
+    from sim_setup import build_economy_from_setup
+
+    setup = server.SetupConfig(num_households=20, num_firms=1, seed=7, payment_sequence="income_first")
+    with use_config(clone_config()):
+        economy, _flags = build_economy_from_setup(setup, 7)
+        direct = state_components(economy)
+    with use_config(clone_config()):
+        manager = server.SimulationManager(session_id="panel-build")
+        manager.initialize({"num_households": 20, "num_firms": 1, "seed": 7, "payment_sequence": "income_first"})
+        via_server = state_components(manager.economy)
+    assert direct == via_server
+
+
+def test_lever_at_a_fixed_week_fires_and_reverts_and_the_hold_pool_keeps_the_stock():
+    from types import SimpleNamespace
+
+    from tools.benchmarks.evidence_panel_worker import apply_timed_levers, run
+
+    class Government:
+        def __init__(self):
+            self.wage_tax_rate = 0.15
+
+        def set_lever(self, name, value):
+            self.wage_tax_rate = float(value)
+
+    class Economy:
+        def __init__(self):
+            self.government = Government()
+
+    economy = Economy()
+    saved: dict = {}
+    timed = [{"name": "wage_tax_rate", "value": "0.45", "start": 2, "end": 3}]
+    apply_timed_levers(economy, timed, saved, 1)
+    assert economy.government.wage_tax_rate == pytest.approx(0.15)
+    apply_timed_levers(economy, timed, saved, 2)
+    assert economy.government.wage_tax_rate == pytest.approx(0.45)
+    apply_timed_levers(economy, timed, saved, 4)
+    assert economy.government.wage_tax_rate == pytest.approx(0.15)
+
+    held = SimpleNamespace(misc_firm_revenue=25.0)
+
+    def pay_out(self):
+        self.misc_firm_revenue = 0.0
+
+    held._misc_firm_redistribute_revenue = pay_out.__get__(held, type(held))
+    install_hooks(held, ["k06_hold_pool"])
+    held._misc_firm_redistribute_revenue()
+    assert held.misc_firm_revenue == 25.0
+
+    root = str(Path(__file__).resolve().parents[2])
+    spec = {
+        "arm": "hold", "repeat": False, "root": root, "source_sha256": "test",
+        "payment_sequence": "legacy", "seed": 1, "households": 24, "firms_per_category": 1, "ticks": 3,
+        "config_overrides": {}, "levers": {}, "timed_levers": [], "hooks": ["k06_hold_pool"],
+        "metrics_plugins": [], "runtime": {},
+    }
+    hold = run(spec)
+    plain = run({**spec, "arm": "plain", "hooks": []})
+    assert hold["final"]["misc_firm_revenue"] >= plain["final"]["misc_firm_revenue"]
+    assert hold["money"]["final_drift"] is not None and plain["money"]["final_drift"] is not None
+    assert abs(float(hold["money"]["final_drift"]) - float(plain["money"]["final_drift"])) < 1.0
+
+
+def test_repeatable_plugins_keep_their_aggregations(tmp_path):
+    first = tmp_path / "one.py"
+    second = tmp_path / "two.py"
+    first.write_text(
+        "def extra_metrics(economy):\n    return {'alpha': 1.0}\n"
+        "METRICS = {'alpha': ('Alpha', 'widgets', ('mean', 'min'), None)}\n"
+        "def summarize(runs):\n    return {'n': len(runs)}\n",
+        encoding="utf-8",
+    )
+    second.write_text(
+        "def extra_metrics(economy):\n    return {'beta': 2.0}\n"
+        "METRICS = {'beta': ('Beta', '%', ('mean',), (0.0, 1.0))}\n",
+        encoding="utf-8",
+    )
+    rows, bounds = panel_summary.plugin_display([str(first), str(second)])
+    assert [item[0] for item in rows] == ["x_alpha", "x_beta"]
+    assert rows[0][4] == ("mean", "min")
+    assert bounds["x_beta"] == (0.0, 1.0)
+    summary = panel_summary.plugin_summaries([str(first)], [{}, {}])
+    assert summary["one.py"]["n"] == 2
+
+
+def test_mutation_check_requires_the_reverted_line_to_fail_a_test(tmp_path):
+    def plant(root: Path, body: str):
+        root.mkdir()
+        (root / "answer.py").write_text("def answer():\n    " + body + "\n", encoding="utf-8")
+        (root / "test_answer.py").write_text(
+            "from answer import answer\n\ndef test_answer():\n    assert answer() == 1\n",
+            encoding="utf-8",
+        )
+
+    candidate = tmp_path / "candidate"
+    baseline = tmp_path / "baseline"
+    plant(candidate, "return 1")
+    plant(baseline, "return 0")
+    failed = panel_summary.mutation_check(
+        candidate_root=candidate, main_root=baseline, file_spec="answer.py:2-2",
+        tests=["test_answer.py"], python=sys.executable,
+    )
+    assert failed["ok"] is True
+
+    same = tmp_path / "same-main"
+    plant(same, "return 1")
+    still_passes = panel_summary.mutation_check(
+        candidate_root=candidate, main_root=same, file_spec="answer.py:2-2",
+        tests=["test_answer.py"], python=sys.executable,
+    )
+    assert still_passes["ok"] is False
+
+
+def test_allow_nonref_stamps_the_panel(tmp_path):
+    code = panel.main([
+        "--arm", "a", "--households", "16", "--firms-per-category", "1", "--ticks", "2",
+        "--seeds", "1", "--sequences", "legacy", "--windows", "1-2", "--jobs", "1",
+        "--no-determinism-check", "--no-escalate", "--allow-nonref", "--out", str(tmp_path),
+    ])
+    report = (tmp_path / "panel.md").read_text(encoding="utf-8")
+    evaluator = json.loads((tmp_path / "evaluator.json").read_text(encoding="utf-8"))
+    assert "NON-REFERENCE ENV, not comparable" in report
+    assert evaluator["comparability"] == "NON-REFERENCE ENV, not comparable"
+    assert "requirements_lock_sha256" in evaluator["env"]
+    assert code == 0

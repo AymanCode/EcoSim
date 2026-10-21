@@ -6,11 +6,10 @@ sequence and seed. The process imports the simulator from the arm's checkout
 when ``main`` lacks the PR's flag. Nothing from the simulator is imported at
 module level for that reason.
 
-Construction mirrors a dashboard SETUP (``server.SimulationManager``): seed the
-Python, NumPy and config RNGs, build with ``create_large_economy``, switch the
-three stabilizer groups on, then apply any requested policy levers. Each tick
-calls ``economy.step()`` and then the same two observations the dashboard makes
-every tick, ``economy.get_economic_metrics()`` and ``compute_household_stats``.
+Construction uses ``sim_setup.build_economy_from_setup`` when the arm has it
+(the same call ``SimulationManager`` makes) and the historical inline setup
+otherwise. Each tick calls ``economy.step()`` and then the dashboard's
+``get_economic_metrics`` and ``compute_household_stats``.
 
     python backend/tools/benchmarks/evidence_panel_worker.py SPEC.json OUT.json
 """
@@ -25,12 +24,36 @@ import io
 import json
 import os
 import platform
+import re
 import sys
 import time
 from pathlib import Path
 from typing import Any
 
 PANEL_CATEGORIES = ("Food", "Services")
+WEEKS_PER_MONTH = 52.0 / 12.0
+_CATEGORY_SAFE = re.compile(r"[^A-Za-z0-9]+")
+
+# Lever name -> government attribute, so a timed lever can be put back.
+LEVER_FIELDS = {
+    "wage_tax_rate": "wage_tax_rate",
+    "profit_tax_rate": "profit_tax_rate",
+    "investment_tax_rate": "investment_tax_rate",
+    "benefit_level": "benefit_level",
+    "public_works": "public_works_toggle",
+    "minimum_wage_policy": "minimum_wage_policy",
+    "sector_subsidy_target": "sector_subsidy_target",
+    "sector_subsidy_level": "sector_subsidy_level",
+    "infrastructure_spending": "infrastructure_spending",
+    "technology_spending": "technology_spending",
+    "social_spending": "social_spending",
+    "price_stabilization_target": "price_stabilization_target",
+    "price_stabilization_level": "price_stabilization_level",
+    "rent_stabilization_level": "rent_stabilization_level",
+    "bailout_policy": "bailout_policy",
+    "bailout_target": "bailout_target",
+    "bailout_budget": "bailout_budget",
+}
 
 
 def parse_override_value(raw: str) -> Any:
@@ -79,29 +102,157 @@ def rows_fingerprint(rows: list[dict[str, Any]]) -> str:
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
-def _load_plugin(path: str | None):
-    if not path:
+def _digest(payload: Any) -> str:
+    blob = json.dumps(payload, sort_keys=True, separators=(",", ":"), allow_nan=True)
+    return hashlib.sha256(blob.encode("utf-8")).hexdigest()
+
+
+def _num(value: Any) -> float | None:
+    if value is None or isinstance(value, bool):
         return None
-    spec = importlib.util.spec_from_file_location("evidence_panel_plugin", path)
-    if spec is None or spec.loader is None:
-        raise ValueError(f"Cannot load metrics plugin {path!r}")
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    if not callable(getattr(module, "extra_metrics", None)):
-        raise ValueError(f"Metrics plugin {path!r} must define extra_metrics(economy) -> dict")
-    return module.extra_metrics
+    if isinstance(value, (int, float)):
+        return float(value)
+    return None
 
 
-def panel_row(economy: Any, metrics: dict[str, Any], stats: dict[str, Any], config: Any, np: Any) -> dict[str, Any]:
+def state_components(economy: Any) -> dict[str, str]:
+    """Hash households, firms, government and the bank. Panel rows are not an input.
+
+    A change in a field the table does not report (skill, for example) still
+    changes the household component, which is what the identity check reads.
+    """
+    households = []
+    for household in economy.households:
+        inventory = getattr(household, "goods_inventory", {}) or {}
+        households.append([
+            int(household.household_id),
+            _num(household.cash_balance),
+            _num(getattr(household, "bank_deposit", 0.0)),
+            None if household.employer_id is None else int(household.employer_id),
+            _num(getattr(household, "wage", 0.0)),
+            _num(getattr(household, "happiness", 0.0)),
+            _num(getattr(household, "health", 0.0)),
+            _num(getattr(household, "skills_level", 0.0)),
+            _num(getattr(household, "expected_wage", 0.0)),
+            _num(getattr(household, "morale", 0.0)),
+            _num(getattr(household, "unemployment_duration", 0.0)),
+            _num(getattr(household, "consumption_loan_remaining", 0.0)),
+            sorted((str(key), _num(amount)) for key, amount in inventory.items()),
+        ])
+    households.sort(key=lambda item: item[0])
+
+    def firm_payload(firm: Any, queued: bool) -> list[Any]:
+        employees = tuple(sorted(int(employee) for employee in (getattr(firm, "employees", []) or [])))
+        return [
+            int(firm.firm_id),
+            queued,
+            bool(getattr(firm, "is_baseline", False)),
+            str(getattr(firm, "good_category", "") or ""),
+            _num(firm.cash_balance),
+            _num(getattr(firm, "price", 0.0)),
+            _num(getattr(firm, "inventory_units", 0.0)),
+            _num(getattr(firm, "last_profit", 0.0)),
+            _num(getattr(firm, "last_units_sold", 0.0)),
+            _num(getattr(firm, "last_revenue", 0.0)),
+            _num(getattr(firm, "wage_offer", 0.0)),
+            employees,
+        ]
+
+    firms = [firm_payload(firm, False) for firm in economy.firms]
+    firms.extend(firm_payload(firm, True) for firm in (getattr(economy, "queued_firms", []) or []))
+    firms.sort(key=lambda item: (item[1], item[0]))
+
+    government = economy.government
+    government_payload = [
+        _num(government.cash_balance),
+        _num(government.wage_tax_rate),
+        _num(government.profit_tax_rate),
+        _num(getattr(government, "investment_tax_rate", 0.0)),
+        _num(getattr(government, "unemployment_benefit_level", 0.0)),
+        str(getattr(government, "benefit_level", "")),
+        _num(getattr(government, "transfer_budget", 0.0)),
+        _num(getattr(government, "fiscal_pressure", 0.0)),
+        _num(getattr(government, "last_tick_revenue", 0.0)),
+        _num(getattr(government, "last_tick_spending", 0.0)),
+        _num(getattr(economy, "misc_firm_revenue", 0.0)),
+        _num(getattr(economy, "external_injection_total", 0.0)),
+    ]
+
+    bank = getattr(economy, "bank", None)
+    if bank is None:
+        bank_payload: Any = None
+    else:
+        loans = getattr(bank, "active_loans", []) or []
+        principals = []
+        for loan in loans:
+            if isinstance(loan, dict):
+                principals.append(_num(loan.get("principal", loan.get("remaining", 0.0))))
+        bank_payload = [
+            _num(getattr(bank, "cash_reserves", 0.0)),
+            _num(getattr(bank, "total_deposits", 0.0)),
+            len(loans),
+            principals,
+        ]
+    components = {
+        "households": _digest(households),
+        "firms": _digest(firms),
+        "government": _digest(government_payload),
+        "bank": _digest(bank_payload),
+    }
+    components["combined"] = _digest([components[name] for name in ("households", "firms", "government", "bank")])
+    return components
+
+
+def _load_plugins(spec: dict[str, Any]):
+    paths = list(spec.get("metrics_plugins") or [])
+    single = spec.get("metrics_plugin")
+    if single and single not in paths:
+        paths.append(single)
+    functions = []
+    for path in paths:
+        if not path:
+            continue
+        loaded = importlib.util.spec_from_file_location(f"evidence_panel_plugin_{len(functions)}", path)
+        if loaded is None or loaded.loader is None:
+            raise ValueError(f"Cannot load metrics plugin {path!r}")
+        module = importlib.util.module_from_spec(loaded)
+        loaded.loader.exec_module(module)
+        extra = getattr(module, "extra_metrics", None)
+        if not callable(extra):
+            raise ValueError(f"Metrics plugin {path!r} must define extra_metrics(economy) -> dict")
+        functions.append(extra)
+    return functions
+
+
+def _category_key(category: Any) -> str:
+    return _CATEGORY_SAFE.sub("", str(category or "Other")) or "Other"
+
+
+def _labour_force_unemployed(economy: Any) -> set[int]:
+    return {
+        int(household.household_id)
+        for household in economy.households
+        if household.can_work and not household.is_employed
+    }
+
+
+def _legacy_ids(economy: Any) -> set[int]:
+    return {int(firm.firm_id) for firm in economy.firms if bool(getattr(firm, "is_baseline", False))}
+
+
+def panel_row(economy: Any, metrics: dict[str, Any], stats: dict[str, Any], config: Any, np: Any, flows: dict[str, Any] | None = None) -> dict[str, Any]:
     """The standard measures for one tick, read from state the engine already holds."""
     households = economy.households
     liquid = np.fromiter(
         (h.cash_balance + max(0.0, h.bank_deposit) for h in households), dtype=np.float64, count=len(households)
     )
+    happiness = np.fromiter((h.happiness for h in households), dtype=np.float64, count=len(households))
     gdp = float(metrics.get("gdp_this_tick", 0.0))
     cpi = float(metrics.get("consumer_price_index", 100.0) or 100.0)
     firms = economy.firms
-    private = [f for f in firms if not getattr(f, "is_baseline", False)]
+    private = [firm for firm in firms if not getattr(firm, "is_baseline", False)]
+    legacy = [firm for firm in firms if getattr(firm, "is_baseline", False)]
+    flows = flows or {}
     row = {
         "tick": int(economy.current_tick),
         "labor_force_unemployment_rate": float(metrics.get("labor_force_unemployment_rate", 0.0)),
@@ -110,14 +261,22 @@ def panel_row(economy: Any, metrics: dict[str, Any], stats: dict[str, Any], conf
         "consumer_price_index": cpi,
         "real_gdp": gdp * 100.0 / cpi,
         "food_services_units_sold": float(
-            sum(float(getattr(f, "last_units_sold", 0.0)) for f in firms if f.good_category in PANEL_CATEGORIES)
+            sum(float(getattr(firm, "last_units_sold", 0.0)) for firm in firms if firm.good_category in PANEL_CATEGORIES)
         ),
         "mean_price": float(metrics.get("mean_price", 0.0)),
         "fiscal_balance": float(metrics.get("gov_revenue_this_tick", 0.0)) - float(metrics.get("gov_spending_this_tick", 0.0)),
         "government_cash": float(economy.government.cash_balance),
         "bond_buy": float(metrics.get("gov_bond_purchases_this_tick", 0.0)),
-        "private_profit": float(sum(float(getattr(f, "last_profit", 0.0)) for f in private)),
+        "private_profit": float(sum(float(getattr(firm, "last_profit", 0.0)) for firm in private)),
         "private_firms": float(len(private)),
+        "private_headcount": float(sum(len(getattr(firm, "employees", []) or []) for firm in private)),
+        "legacy_firms": float(len(legacy)),
+        "legacy_headcount": float(sum(len(getattr(firm, "employees", []) or []) for firm in legacy)),
+        "legacy_profit": float(sum(float(getattr(firm, "last_profit", 0.0)) for firm in legacy)),
+        "legacy_exits": float(flows.get("legacy_exits") or 0.0),
+        "job_finding_rate": flows.get("job_finding_rate"),
+        "layoffs_per_month": flows.get("layoffs_per_month"),
+        "openings_per_unemployed": flows.get("openings_per_unemployed"),
         "poverty_share": float((liquid < float(config.households.poverty_threshold)).mean()) if liquid.size else 0.0,
         "extreme_poverty_share": float((liquid < float(config.households.extreme_poverty_threshold)).mean())
         if liquid.size
@@ -128,14 +287,138 @@ def panel_row(economy: Any, metrics: dict[str, Any], stats: dict[str, Any], conf
         "food_unmet_demand": float(getattr(economy, "food_unmet_demand", 0.0)),
         "services_unmet_demand": float(getattr(economy, "services_unmet_demand", 0.0)),
     }
+    if happiness.size:
+        row["happiness_median"] = float(np.median(happiness))
+        row["happiness_p10"] = float(np.percentile(happiness, 10))
+        row["happiness_p90"] = float(np.percentile(happiness, 90))
+        row["happiness_le_005"] = float((happiness <= 0.05).mean())
+        row["happiness_ge_095"] = float((happiness >= 0.95).mean())
     if liquid.size:
         for pct, value in zip(range(10, 100, 10), np.percentile(liquid, list(range(10, 100, 10)))):
             row[f"liquid_wealth_p{pct}"] = float(value)
+    units: dict[str, float] = {}
+    revenue: dict[str, float] = {}
+    for firm in firms:
+        category = _category_key(getattr(firm, "good_category", ""))
+        units[category] = units.get(category, 0.0) + float(getattr(firm, "last_units_sold", 0.0) or 0.0)
+        revenue[category] = revenue.get(category, 0.0) + float(getattr(firm, "last_revenue", 0.0) or 0.0)
+    for category, sold in units.items():
+        row[f"units__{category}"] = sold
+        row[f"rev__{category}"] = revenue.get(category, 0.0)
     return row
 
 
+def _k06_hold_pool(_self: Any) -> None:
+    """Keep the misc pool on the money stock. The payout to households does not run."""
+    return None
+
+
+def install_hooks(economy: Any, hooks: list[str] | None) -> None:
+    for name in hooks or []:
+        if name != "k06_hold_pool":
+            raise ValueError(f"Unknown arm hook {name!r}. Known hooks: k06_hold_pool")
+        economy._misc_firm_redistribute_revenue = _k06_hold_pool.__get__(economy, type(economy))
+
+
+def _lever_value(government: Any, name: str) -> Any:
+    return getattr(government, LEVER_FIELDS.get(name, name))
+
+
+def _lift_minimum_wages(economy: Any) -> None:
+    min_wage = float(economy.government.get_minimum_wage())
+    for firm in economy.firms:
+        if firm.wage_offer < min_wage:
+            firm.wage_offer = min_wage
+
+
+def apply_timed_levers(economy: Any, timed: list[dict[str, Any]], saved: dict[str, Any], week: int) -> None:
+    """Apply a lever at ``start`` and put the previous value back after ``end``."""
+    for item in timed:
+        name = str(item["name"])
+        start = int(item["start"])
+        end = item.get("end")
+        if start == week:
+            saved.setdefault(name, _lever_value(economy.government, name))
+            economy.government.set_lever(name, parse_override_value(str(item["value"])))
+            if name == "minimum_wage_policy":
+                _lift_minimum_wages(economy)
+        if end is not None and week == int(end) + 1:
+            if name not in saved:
+                raise ValueError(f"Timed lever {name!r} ends at week {end} without a saved value")
+            economy.government.set_lever(name, saved[name])
+
+
+def _labour_flows(economy: Any, previous_unemployed: set[int]) -> dict[str, Any]:
+    employed_now = {int(household.household_id) for household in economy.households if household.is_employed}
+    found = len(previous_unemployed & employed_now)
+    job_finding = (found / len(previous_unemployed)) if previous_unemployed else None
+    layoffs = 0
+    openings = 0
+    for firm in list(economy.firms) + list(getattr(economy, "queued_firms", []) or []):
+        layoffs += len(getattr(firm, "planned_layoffs_ids", []) or [])
+        openings += max(0, int(getattr(firm, "planned_hires_count", 0) or 0))
+    unemployed_now = _labour_force_unemployed(economy)
+    return {
+        "job_finding_rate": job_finding,
+        "layoffs_per_month": layoffs * WEEKS_PER_MONTH,
+        "openings_per_unemployed": (openings / len(unemployed_now)) if unemployed_now else None,
+    }
+
+
+def _try_sim_setup():
+    """The arm's shared builder, or None when this checkout is older than the helper."""
+    try:
+        import sim_setup
+    except ImportError:
+        return None
+    return sim_setup if hasattr(sim_setup, "build_economy_from_setup") else None
+
+
+def _construct(spec: dict[str, Any], seed: int):
+    """Build the economy. Prefer the server's builder; fall back for an older ``main``."""
+    from types import SimpleNamespace
+
+    from config import CONFIG
+
+    overrides = dict(spec.get("config_overrides") or {})
+    builder = _try_sim_setup()
+    if builder is not None:
+        setup = SimpleNamespace(
+            num_households=int(spec["households"]),
+            num_firms=int(spec["firms_per_category"]),
+            payment_sequence=spec["payment_sequence"],
+            enable_llm_government=False,
+            disable_stabilizers=False,
+            disabled_agents=[],
+            initial_policy={},
+        )
+        economy, _flags = builder.build_economy_from_setup(
+            setup, seed, config_overrides=overrides, extra_levers=spec.get("levers") or {},
+        )
+        return economy
+
+    apply_config_overrides(CONFIG, overrides)
+    CONFIG.random_seed = seed
+    CONFIG.payment_sequence = spec["payment_sequence"]
+    import random
+
+    import numpy as np
+
+    random.seed(seed)
+    np.random.seed(seed)
+    from tools.runners.run_large_simulation import create_large_economy
+
+    economy = create_large_economy(int(spec["households"]), int(spec["firms_per_category"]))
+    economy.configure_stabilizers(households=True, firms=True, government=True)
+    for lever, raw in sorted((spec.get("levers") or {}).items()):
+        economy.government.set_lever(lever, parse_override_value(raw))
+    if "minimum_wage_policy" in (spec.get("levers") or {}):
+        _lift_minimum_wages(economy)
+    return economy
+
+
 def run(spec: dict[str, Any]) -> dict[str, Any]:
-    """Run one seeded economy and return its rows, fingerprint and money check."""
+    """Run one seeded economy and return its rows, state digest and money check."""
     backend = str(Path(spec["root"]).resolve() / "backend")
     if sys.path[0] != backend:
         sys.path.insert(0, backend)
@@ -155,55 +438,70 @@ def run(spec: dict[str, Any]) -> dict[str, Any]:
         raise RuntimeError(f"Worker runtime differs from the planned run (planned, actual): {mismatched}")
 
     from config import CONFIG, clone_config, use_config
-    from tools.runners.run_large_simulation import compute_household_stats, create_large_economy
+    from tools.runners.run_large_simulation import compute_household_stats
 
     try:
         from tests_contracts.conftest import total_money_net_of_injections
     except ImportError:  # An older checkout without the shared money helper.
         total_money_net_of_injections = None
 
-    extra_metrics = _load_plugin(spec.get("metrics_plugin"))
+    plugins = _load_plugins(spec)
     seed = int(spec["seed"])
     rows: list[dict[str, Any]] = []
+    digests: list[dict[str, Any]] = []
     money: list[float] = []
     started = time.perf_counter()
     with use_config(clone_config()), contextlib.redirect_stdout(io.StringIO()):
-        # Same seeding as regression_snapshot._set_seed and a dashboard SETUP.
         random.seed(seed)
         np.random.seed(seed)
         CONFIG.random_seed = seed
-        CONFIG.payment_sequence = spec["payment_sequence"]
-        apply_config_overrides(CONFIG, spec.get("config_overrides") or {})
-        economy = create_large_economy(int(spec["households"]), int(spec["firms_per_category"]))
-        economy.configure_stabilizers(households=True, firms=True, government=True)
-        levers = spec.get("levers") or {}
-        for lever, raw in sorted(levers.items()):
-            economy.government.set_lever(lever, parse_override_value(raw))
-        if "minimum_wage_policy" in levers:
-            min_wage = float(economy.government.get_minimum_wage())
-            for firm in economy.firms:
-                if firm.wage_offer < min_wage:
-                    firm.wage_offer = min_wage
+        economy = _construct(spec, seed)
+        install_hooks(economy, spec.get("hooks") or [])
+        saved_levers: dict[str, Any] = {}
+        timed = list(spec.get("timed_levers") or [])
+        previous_unemployed = _labour_force_unemployed(economy)
+        previous_legacy = _legacy_ids(economy)
         if total_money_net_of_injections is not None:
             money.append(float(total_money_net_of_injections(economy)))
 
-        for _ in range(int(spec["ticks"])):
+        for week in range(1, int(spec["ticks"]) + 1):
+            apply_timed_levers(economy, timed, saved_levers, week)
             economy.step()
             metrics = economy.get_economic_metrics()
             stats = compute_household_stats(economy.households)
-            row = panel_row(economy, metrics, stats, CONFIG, np)
-            if extra_metrics is not None:
+            flows = _labour_flows(economy, previous_unemployed)
+            legacy_now = _legacy_ids(economy)
+            flows["legacy_exits"] = len(previous_legacy - legacy_now)
+            row = panel_row(economy, metrics, stats, CONFIG, np, flows)
+            seen: set[str] = set()
+            for extra_metrics in plugins:
                 for key, value in (extra_metrics(economy) or {}).items():
+                    if key in seen:
+                        raise ValueError(f"Plugin metric {key!r} is defined more than once")
+                    seen.add(key)
                     row[f"x_{key}"] = None if value is None else float(value)
             rows.append(row)
+            component = state_components(economy)
+            component["tick"] = int(economy.current_tick)
+            digests.append(component)
+            previous_unemployed = _labour_force_unemployed(economy)
+            previous_legacy = legacy_now
             if total_money_net_of_injections is not None:
                 money.append(float(total_money_net_of_injections(economy)))
+        final = {
+            "misc_firm_revenue": float(getattr(economy, "misc_firm_revenue", 0.0) or 0.0),
+            "wage_tax_rate": float(economy.government.wage_tax_rate),
+        }
 
     drift = [value - money[0] for value in money] if money else []
+    fingerprint = _digest([item["combined"] for item in digests])
     return {
         "spec": spec,
         "rows": rows,
-        "fingerprint": rows_fingerprint(rows),
+        "state_digests": digests,
+        "fingerprint": fingerprint,
+        "row_fingerprint": rows_fingerprint(rows),
+        "final": final,
         "money": {
             "definition": "tests_contracts.conftest.total_money_net_of_injections, change since construction",
             "available": bool(money),
