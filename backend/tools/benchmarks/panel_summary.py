@@ -21,7 +21,12 @@ from typing import Any
 
 # One line. "relative" until money-identity PR #57 merges, then "absolute".
 MONEY_CHECK_MODE = "relative"
+# Absolute mode: |drift| must be under this.
 MONEY_TOLERANCE = 1e-6
+# Relative mode: two drifts are the same leak when they differ by less than this.
+# A conserved stock picks up about 1e-5 dollars of float dust over 312 weeks
+# (measured on the O9 run). A one-cent gap still fails.
+RELATIVE_MONEY_TOLERANCE = 1e-4
 
 UNEMPLOYMENT_BAND = (10.0, 40.0)
 REAL_GDP_BASE_WEEKS = (11, 62)
@@ -306,6 +311,7 @@ def evaluate_money(results: list[dict[str, Any]], design: dict[str, Any]) -> dic
     within ``MONEY_TOLERANCE`` of zero.
     """
     mode = MONEY_CHECK_MODE
+    tolerance = MONEY_TOLERANCE if mode == "absolute" else RELATIVE_MONEY_TOLERANCE
     runs = {
         (run["spec"]["arm"], run["spec"]["payment_sequence"], run["spec"]["seed"]): run
         for run in results
@@ -320,7 +326,7 @@ def evaluate_money(results: list[dict[str, Any]], design: dict[str, Any]) -> dic
                     continue
                 drift = (run.get("money") or {}).get("final_drift")
                 if mode == "absolute":
-                    if drift is None or abs(float(drift)) > MONEY_TOLERANCE:
+                    if drift is None or abs(float(drift)) > tolerance:
                         failures.append({
                             "arm": arm, "payment_sequence": sequence, "seed": seed,
                             "drift": drift, "baseline_drift": 0.0, "mode": mode,
@@ -330,12 +336,12 @@ def evaluate_money(results: list[dict[str, Any]], design: dict[str, Any]) -> dic
                     continue
                 base = runs.get((design["baseline"], sequence, seed))
                 base_drift = None if base is None else (base.get("money") or {}).get("final_drift")
-                if drift is None or base_drift is None or abs(float(drift) - float(base_drift)) > MONEY_TOLERANCE:
+                if drift is None or base_drift is None or abs(float(drift) - float(base_drift)) > tolerance:
                     failures.append({
                         "arm": arm, "payment_sequence": sequence, "seed": seed,
                         "drift": drift, "baseline_drift": base_drift, "mode": mode,
                     })
-    return {"mode": mode, "tolerance": MONEY_TOLERANCE, "passed": not failures, "failures": failures}
+    return {"mode": mode, "tolerance": tolerance, "passed": not failures, "failures": failures}
 
 
 def _finite(value: Any) -> bool:

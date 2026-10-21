@@ -818,7 +818,7 @@ def render_markdown(panel: dict[str, Any], windows: list[tuple[str, int, int]]) 
         "- **Bond buy (K06):** the treasury's weekly bond purchase paid out through the misc pool. `--hook k06_hold_pool` leaves that pool on the money stock.",
         "- **Unrecorded money drift:** change in total money net of recorded outside money (`total_money_net_of_injections`) from construction to the last tick.",
         "- **Runs identical:** per-week state digests (households, firms, government, bank) match. The row fingerprint is kept beside them and is not the identity check.",
-        "- **Money check:** relative mode requires each arm's final drift to equal the baseline's drift for the same seed and sequence. Absolute mode requires the drift itself to be within 1e-6 of zero.",
+        "- **Money check:** relative mode requires each arm's final drift to match the baseline's drift for the same seed and sequence, within 0.0001 dollars (float dust on a conserved stock). Absolute mode requires the drift itself to be within 1e-6 of zero.",
     ]
     return "\n".join(lines) + "\n"
 

@@ -216,6 +216,10 @@ def test_band_distance_real_gdp_fragility_and_planted_money_leak():
     assert leaked["passed"] is False
     matched = panel_summary.evaluate_money([_run("main", 2.0), _run("on", 2.0)], design)
     assert matched["passed"] is True
+    dust = panel_summary.evaluate_money([_run("main", 1e-6), _run("on", 8e-6)], design)
+    assert dust["passed"] is True
+    cents = panel_summary.evaluate_money([_run("main", 6713.79), _run("on", 6712.00)], design)
+    assert cents["passed"] is False
     assert panel_summary.row_violations({"tick": 3, "happiness": float("nan"), "labor_force_unemployment_rate": 0.2})
     assert panel_summary.row_violations({
         "tick": 3, "happiness": 0.4, "health": 0.5, "labor_force_unemployment_rate": 0.2,
