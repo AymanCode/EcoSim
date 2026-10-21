@@ -390,8 +390,9 @@ class HouseholdBehaviorConfig:
     price_alpha_up: float = 0.4  # Fast adjustment to price increases (loss aversion)
     price_alpha_down: float = 0.1  # Slow adjustment to price decreases
 
-    # Deposit liquidity: fraction of bank_deposit treated as accessible for consumption planning
-    household_deposit_access_rate: float = 0.90
+    # household_deposit_access_rate (0.90) was retired 2026-10-21 (households
+    # 29a, folded into #54): no code read it. The accessible share of a deposit
+    # is household_liquidity.DEPOSIT_ACCESS_SHARE (0.90), the one definition.
 
     # Safety Checks
     extreme_negative_cash_threshold: float = -1e6
