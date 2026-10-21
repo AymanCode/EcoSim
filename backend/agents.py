@@ -5955,6 +5955,9 @@ class GovernmentAgent(AgentMixin):
     # Principal owed to the bank ($). Negative treasury cash the bank could
     # not lend stays in cash_balance, as before G1.
     public_debt: float = 0.0
+    # True once this run has borrowed. The dashboard's borrowed/repaid lines
+    # stay available after the debt is repaid; default levers never set it.
+    public_debt_ever_borrowed: bool = False
     last_tick_debt_rate: float = 0.0        # annual rate charged this tick
     last_tick_debt_interest: float = 0.0    # $ interest paid this tick
     last_tick_debt_borrowed: float = 0.0    # $ lent by the bank this tick
@@ -6925,6 +6928,8 @@ class GovernmentAgent(AgentMixin):
                 bank.cash_reserves += repaid
                 bank.public_debt_held = max(0.0, bank.public_debt_held - repaid)
 
+        if borrowed > 0.0:
+            self.public_debt_ever_borrowed = True
         self.last_tick_debt_borrowed = result["borrowed"] = borrowed
         self.last_tick_debt_repaid = result["repaid"] = repaid
         self.last_tick_debt_unfunded = result["unfunded"] = unfunded
@@ -6942,8 +6947,10 @@ class GovernmentAgent(AgentMixin):
         The purchase amount is 12% of the surplus (cash_balance - baseline_reserve),
         capped at the available surplus.
 
-        With ``public_debt_enabled``, nothing is bought while public debt is
-        owed: ``settle_public_debt`` has already used the surplus to repay it.
+        Nothing is bought while public debt is owed: ``settle_public_debt``
+        runs first and has already used surplus cash to repay it. A later
+        payout change (K06-1, pro rata) must keep this guard ahead of the
+        surplus calculation.
 
         Returns:
             Dict with "bonds" key containing amount spent on bond purchases

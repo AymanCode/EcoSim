@@ -9,10 +9,10 @@ difference against the baseline arm (mean and [min, max] over seeds).
 
 Arms:
     main       a checkout of main (``--main-backend``), unmodified config.
-    off        this branch with ``public_debt_enabled=False`` (the default);
+    off        this branch with ``public_debt_enabled=False`` (not the default);
                must equal ``main`` exactly (checked per seed).
     on_zero    debt on, borrow back to $0 of cash (``public_debt_borrow_target="zero"``).
-    on_buffer  debt on, borrow back to the one-week working balance ("buffer").
+    on_buffer  debt on, borrow back to the one-week working balance ("buffer", the default).
     on_noint   decomposition only: ``on_zero`` with the weekly interest payment
                replaced by $0 in that process, to split the effect of interest
                from the effect of borrowing. Not a policy option.
@@ -69,8 +69,12 @@ def _worker(backend: str, arm: str, seed: int, scenario: str, ticks: int, househ
 
     if arm != "main":
         CONFIG.government.public_debt_enabled = arm.startswith("on_")
+        # The config default is "buffer". Name the target on every debt arm so
+        # on_zero stays a borrow-back-to-$0 run after that default change.
         if arm == "on_buffer":
             CONFIG.government.public_debt_borrow_target = "buffer"
+        elif arm in ("on_zero", "on_noint"):
+            CONFIG.government.public_debt_borrow_target = "zero"
     if arm == "on_noint":
         from agents import GovernmentAgent  # noqa: E402
 

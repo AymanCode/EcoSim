@@ -2920,7 +2920,8 @@ class Economy:
             self._collect_misc_revenue(social_spent)
 
         # Public debt (G1): borrow the shortfall from the bank or repay from
-        # surplus. Runs before the bond buy, which is skipped while debt is owed.
+        # surplus. Runs before the bond buy, which is skipped while debt is
+        # owed. A K06-1 payout change must keep that guard ahead of the surplus.
         self.government.settle_public_debt(self.bank)
 
         # Bond purchases with surplus — redirect to Misc firm

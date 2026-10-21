@@ -4,6 +4,16 @@ Notable changes and decisions for EcoSim, newest first. The project does not use
 
 ## Unreleased
 
+### 2026-10-21: Public debt on by default (round 3)
+
+Charter pass on the public-debt switch. The field stays; off is still main's behavior.
+
+- `government.public_debt_enabled` now defaults to on. `public_debt_borrow_target` defaults to `"buffer"` (one week of outflows). `"zero"` remains valid.
+- The LLM sanitizer allows tax cuts while borrowing under the same guard as spending increases: an unfunded overdraft, or debt/GDP >= 1. With the flag off that guard is cash below zero, as on main. Rule 7 of the debt-visible prompt says spending increases and tax cuts while borrowing are both allowed, and that the AI is judged on net position, debt trend and interest. The debt-off prompt is unchanged.
+- The server sends `govBorrowed` and `govRepaid` only while debt is owed, or after the treasury has borrowed at least once this session (`public_debt_ever_borrowed`). Default levers never borrow, so those frames match main. No frontend change.
+- No bond buy while debt is owed. `settle_public_debt` still runs before the bond buy.
+- Rules: `docs/ECONOMIC_AGENT_RULES.md` v1.13 (M06 and the Government row). v1.7 stays the original record.
+
 ### 2026-10-21: Shared evidence panel for behavior-changing PRs
 
 The bot PRs each brought their own study script, with different household and firm counts, payment sequences, run lengths, seed sets and real-GDP deflators, so reviews kept stalling on numbers that could not be compared or reproduced. `backend/tools/benchmarks/run_evidence_panel.py` is one command that runs every arm on every payment sequence and seed at the dashboard's defaults (1,000 households, 5 firms per category, `income_first` first, seeds 42-46, 260 ticks), one process per run, and writes a paired table by tick window with identity, determinism and money checks. Arms can come from different checkouts, so a PR's flag-off state is compared with `main` directly. Tooling only: no simulation code, config default or flag changes.

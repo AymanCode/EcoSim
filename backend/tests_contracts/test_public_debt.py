@@ -4,10 +4,14 @@ The treasury borrows its end-of-spending shortfall from the bank when the
 bank can lend, pays weekly interest at the bank's rate plus a debt/GDP
 premium, and repays from cash above a one-week working balance. When the
 bank cannot lend, the shortfall stays as negative treasury cash, as on main.
-The flag is off by default; these tests turn it on unless they say otherwise.
+The flag is on by default and the borrow target defaults to "buffer". The
+fixture below pins the target at "zero" so the shortfall tests stay on that
+target; tests that say otherwise set the flag or the target themselves.
 """
 
+import contextlib
 import dataclasses
+import io
 import math
 
 import pytest
@@ -15,6 +19,8 @@ import pytest
 from agents import BankAgent, GovernmentAgent
 from config import CONFIG, SimulationConfig
 from tests_contracts.factories import make_economy
+from tools.benchmarks.regression_snapshot import _set_seed
+from tools.runners.run_large_simulation import create_large_economy
 
 
 @pytest.fixture(autouse=True)
@@ -35,6 +41,7 @@ def test_shortfall_is_borrowed_and_money_is_conserved():
     assert result["borrowed"] == pytest.approx(10_000.0)
     assert gov.cash_balance == pytest.approx(0.0)
     assert gov.public_debt == pytest.approx(10_000.0)
+    assert gov.public_debt_ever_borrowed is True
     assert _money(gov, bank) == pytest.approx(before)
 
 
@@ -110,9 +117,9 @@ def test_no_bond_buy_while_debt_is_owed_and_main_bond_buy_without_debt():
     assert gov.make_investments()["bonds"] == pytest.approx(0.12 * 150_000.0)
 
 
-def test_default_is_off():
-    assert SimulationConfig().government.public_debt_enabled is False
-    assert SimulationConfig().government.public_debt_borrow_target == "zero"
+def test_default_is_on_with_buffer_target():
+    assert SimulationConfig().government.public_debt_enabled is True
+    assert SimulationConfig().government.public_debt_borrow_target == "buffer"
 
 
 def test_flag_off_is_main_behavior(monkeypatch):
@@ -272,3 +279,27 @@ def test_seeded_run_keeps_bank_and_treasury_books_in_step():
     metrics = economy.get_economic_metrics()
     assert metrics["bank_public_debt_held"] == pytest.approx(economy.government.public_debt)
     assert metrics["bank_equity"] == pytest.approx(economy.bank.equity)
+
+
+def test_no_bond_buy_while_debt_is_owed_after_each_step(monkeypatch):
+    """Stress levers, debt on, buffer target: no bond buy on a tick that still owes debt.
+
+    300 households, 5 firms per category, 120 ticks, seed 44. ``settle_public_debt``
+    runs before ``make_investments``. A K06-1 payout change must keep that order.
+    """
+    monkeypatch.setattr(CONFIG.government, "public_debt_enabled", True)
+    monkeypatch.setattr(CONFIG.government, "public_debt_borrow_target", "buffer")
+    _set_seed(44)
+    with contextlib.redirect_stdout(io.StringIO()):
+        economy = create_large_economy(300, 5)
+    gov = economy.government
+    gov.set_lever("benefit_level", "crisis")
+    gov.set_lever("infrastructure_spending", "high")
+    gov.set_lever("technology_spending", "high")
+    ticks_owing = 0
+    for _ in range(120):
+        economy.step()
+        if gov.public_debt > 0.0:
+            ticks_owing += 1
+            assert economy.last_tick_gov_bond_purchases == 0.0
+    assert ticks_owing > 0

@@ -389,9 +389,9 @@ def _build_system_prompt(philosophy: str, num_households: int, num_firms: int) -
         )
         debt_rule = (
             "7. PUBLIC DEBT: When treasury cash runs out, the bank may lend the shortfall (public debt) "
-            "and charges weekly interest. Spending while borrowing is allowed; tax cuts are not accepted "
-            "while the net position is negative. You are judged on the net position (cash minus public "
-            "debt), the debt trend and the interest paid, not on cash alone; borrowed money is not revenue.\n"
+            "and charges weekly interest. Spending increases and tax cuts while borrowing are both allowed. "
+            "You are judged on the net position (cash minus public debt), the debt trend and the interest "
+            "paid, not on cash alone; borrowed money is not revenue.\n"
         )
         output_rule_number = 8
     else:
@@ -1995,8 +1995,9 @@ def _validate_one_lever_value(
     """Validate one raw lever value without applying cross-lever invariants.
 
     ``fiscal_stress`` gates spending increases. ``tax_cut_stress`` gates tax
-    cuts and defaults to ``fiscal_stress``; the two differ only while public
-    debt finances a deficit (see ``sanitize_llm_government_changes_detailed``).
+    cuts and defaults to ``fiscal_stress``. Callers set them equal: both fire
+    for an unfunded overdraft or debt/GDP >= 1 (see
+    ``sanitize_llm_government_changes_detailed``).
     """
     if tax_cut_stress is None:
         tax_cut_stress = fiscal_stress
@@ -2141,18 +2142,14 @@ def sanitize_llm_government_changes_detailed(
 
     recent_gdp = max(float(gdp or 0.0), 1.0)
     debt_to_gdp = annualized_debt_to_gdp(government, recent_gdp)
-    # Cash, not net position (Ayman, 2026-10-20): the government may spend
-    # while the bank finances its deficit. With public debt on, this fires
-    # only for an unfunded overdraft (the bank had no lendable reserves) or
-    # debt/GDP >= 1. Debt and interest reach the model through the prompt,
-    # fiscal mode and policy memory instead of a hard brake.
+    # Shared guard (charter, 2026-10-21): spending increases and tax cuts
+    # while borrowing are both allowed. The guard fires for an unfunded
+    # overdraft (cash below zero after this tick's financing) or debt/GDP >= 1.
+    # With public debt off, debt/GDP is 0 unless debt is already owed, so this
+    # is main's cash check. Debt and interest reach the model through the
+    # prompt, fiscal mode and policy memory instead of a harder brake.
     fiscal_stress = float(getattr(government, "cash_balance", 0.0) or 0.0) < 0.0 or debt_to_gdp >= 1.0
-    # Tax cuts read the net position (cash minus public debt), so a deficit the
-    # bank is financing still blocks them, as negative cash does on main.
-    # Ayman's 2026-10-20 decision covered spending only; tax cuts while
-    # borrowing stay blocked pending his answer (owner question). With no
-    # public debt this is exactly main's check.
-    tax_cut_stress = float(treasury_net_position(government)) < 0.0 or debt_to_gdp >= 1.0
+    tax_cut_stress = fiscal_stress
     firms = getattr(economy, "firms", []) if economy is not None else []
 
     for group, raw_group in _group_raw_changes(raw_changes or {}):

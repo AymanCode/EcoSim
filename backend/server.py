@@ -1526,9 +1526,10 @@ class SimulationManager:
         (it lowers cash). With no public debt this is the change in cash, as
         before. ``borrowed`` and ``repaid`` are this tick's financing flows,
         ``debt`` is public debt plus any negative cash the bank did not lend.
-        ``debt_visible`` is True when public debt is enabled for this run or
-        debt is still owed; the dashboard shows the borrowed/repaid lines only
-        then, so a debt-off run's Finance screen is main's.
+        ``debt_visible`` is True when debt is owed now, or the treasury has
+        borrowed at least once this session. Default levers never borrow, so
+        those frames omit ``govBorrowed`` and ``govRepaid`` and the Finance
+        screen looks like main. The flag alone does not show the lines.
         Updates the stored net position.
         """
         gov = self.economy.government
@@ -1543,7 +1544,7 @@ class SimulationManager:
             "debt": public_debt + max(0.0, -cash),
             "borrowed": float(getattr(gov, "last_tick_debt_borrowed", 0.0) or 0.0),
             "repaid": float(getattr(gov, "last_tick_debt_repaid", 0.0) or 0.0),
-            "debt_visible": bool(getattr(self.config.government, "public_debt_enabled", False)) or public_debt > 0.0,
+            "debt_visible": public_debt > 0.0 or bool(getattr(gov, "public_debt_ever_borrowed", False)),
         }
 
     def _snapshot_government_levers(self) -> Dict[str, Any]:

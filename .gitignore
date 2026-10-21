@@ -93,6 +93,9 @@ data/
 .claude/
 .agents/
 plugins/
+# Evidence-panel metric plugins are part of the PR, not local IDE settings.
+!benchmarks/plugins/
+!benchmarks/plugins/**
 
 # LLM test runs and scratch status dumps
 experiments/**/*.json

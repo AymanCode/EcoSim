@@ -8,8 +8,8 @@ balance, and be judged on them. So:
   overdraft, when the bank could not lend, or for debt/GDP >= 1), as on main;
 - fiscal mode, the prompt, policy memory and run summaries read the net
   position (cash minus public debt), the debt trend and the interest paid;
-- tax cuts read the net position, so a bank-financed deficit still blocks
-  them as negative cash does on main (owner question 43a, pending);
+- tax cuts use the same guard as spending (an unfunded overdraft, or
+  debt/GDP >= 1), so a funded borrow does not block them;
 - with the flag off and no debt owed, the prompt is main's: no debt lines.
 """
 
@@ -19,7 +19,7 @@ import io
 import pytest
 
 from agents import GovernmentAgent
-from config import CONFIG, clone_config, use_config
+from config import CONFIG, SimulationConfig, clone_config, use_config
 from fiscal_guards import get_sector_subsidy_cap, public_works_affordable_budget, treasury_net_position
 from tools.benchmarks.regression_snapshot import _set_seed
 from tools.llm.llm_government import (
@@ -141,9 +141,12 @@ def test_system_prompt_states_the_debt_rule():
     with use_config(clone_config()):
         CONFIG.government.public_debt_enabled = True
         prompt = _build_system_prompt("balanced", 100, 10)
-    assert "Spending while borrowing is allowed" in prompt
+    assert "Spending increases and tax cuts while borrowing are both allowed" in prompt
+    assert "judged on the net position" in prompt
+    assert "debt trend" in prompt
+    assert "interest paid" in prompt
     assert "borrowed money is not revenue" in prompt
-    assert "tax cuts are not accepted while the net position is negative" in prompt
+    assert "tax cuts are not accepted" not in prompt
 
 
 DEBT_MARKERS = ("public debt", "Public Debt Trend", "Net Position", "Net position", "net_position",
@@ -194,16 +197,49 @@ def _review_tax_cut(gov, gdp, economy=None):
     return applied, [r["reason"] for r in rejected]
 
 
-def test_tax_cut_rejected_while_the_bank_finances_the_deficit():
-    """Cash is positive but the net position is negative: no tax cut (main's rule on the true balance)."""
-    gov = GovernmentAgent(cash_balance=5_000.0)
-    gov.public_debt = 20_000.0
-    applied, reasons = _review_tax_cut(gov, 1e6)
-    assert applied == {} and reasons == ["tax_cut_during_fiscal_stress"]
-    # Spending is still allowed in the same state (Ayman's decision).
+def _review_profit_tax_cut(gov, gdp):
+    policy = {"wage_tax_rate": gov.wage_tax_rate, "profit_tax_rate": gov.profit_tax_rate}
+    change = {"profit_tax_rate": round(gov.profit_tax_rate - 0.05, 4)}
+    with use_config(clone_config()):
+        CONFIG.government.public_debt_enabled = True
+        applied, rejected = sanitize_llm_government_changes(change, policy, gov, gdp, 0.1)
+    return applied, [r["reason"] for r in rejected]
+
+
+def _three_moves(gov, gdp):
+    """A 0.05 wage-tax cut, a 0.05 profit-tax cut, and an infrastructure step up."""
     gov.set_lever("infrastructure_spending", "low")
-    applied, reasons = _review(gov, INFRASTRUCTURE_UP, 1e6)
-    assert reasons == [] and applied == INFRASTRUCTURE_UP
+    wage, wage_reasons = _review_tax_cut(gov, gdp)
+    profit, profit_reasons = _review_profit_tax_cut(gov, gdp)
+    spending, spending_reasons = _review(gov, INFRASTRUCTURE_UP, gdp)
+    return (wage, wage_reasons), (profit, profit_reasons), (spending, spending_reasons)
+
+
+def test_funded_borrowing_accepts_tax_cuts_and_infrastructure():
+    """Cash 0 after financing, debt $178k, debt/GDP < 1: all three are accepted."""
+    gov = GovernmentAgent(cash_balance=0.0)
+    gov.public_debt = 178_000.0
+    gdp = 1_000_000.0  # annualized debt/GDP is about 0.003
+    (wage, wage_reasons), (profit, profit_reasons), (spending, spending_reasons) = _three_moves(gov, gdp)
+    assert wage_reasons == [] and wage["wage_tax_rate"] == pytest.approx(gov.wage_tax_rate - 0.05)
+    assert profit_reasons == [] and profit["profit_tax_rate"] == pytest.approx(gov.profit_tax_rate - 0.05)
+    assert spending_reasons == [] and spending == INFRASTRUCTURE_UP
+
+
+@pytest.mark.parametrize(
+    "cash,debt,gdp",
+    [
+        (-1.0, 178_000.0, 1_000_000.0),  # unfunded overdraft
+        (0.0, 52 * 10_000.0, 10_000.0),  # debt/GDP = 1
+    ],
+)
+def test_unfunded_or_high_debt_rejects_tax_cuts_and_infrastructure(cash, debt, gdp):
+    gov = GovernmentAgent(cash_balance=cash)
+    gov.public_debt = debt
+    (wage, wage_reasons), (profit, profit_reasons), (spending, spending_reasons) = _three_moves(gov, gdp)
+    assert wage == {} and wage_reasons == ["tax_cut_during_fiscal_stress"]
+    assert profit == {} and profit_reasons == ["tax_cut_during_fiscal_stress"]
+    assert spending == {} and spending_reasons == ["spending_increase_during_fiscal_stress"]
 
 
 def test_tax_cut_allowed_with_positive_net_position():
@@ -213,12 +249,12 @@ def test_tax_cut_allowed_with_positive_net_position():
     assert reasons == [] and "wage_tax_rate" in applied
 
 
-def test_seeded_debt_run_rejects_tax_cut_as_main_does(runs):
-    """After Economy.step() with a bank-financed deficit, a tax cut is rejected in both arms."""
-    for arm in ("main", "debt"):
-        economy = runs[arm]
-        applied, reasons = _review_tax_cut(economy.government, economy.get_economic_metrics()["gdp_this_tick"], economy)
-        assert applied == {} and reasons == ["tax_cut_during_fiscal_stress"], arm
+def test_flag_off_seeded_run_rejects_tax_cut_as_main_does(runs):
+    """Flag off leaves the guard on cash, so a negative-cash run still rejects a tax cut."""
+    economy = runs["main"]
+    applied, reasons = _review_tax_cut(economy.government, economy.get_economic_metrics()["gdp_this_tick"], economy)
+    assert economy.government.cash_balance < 0.0
+    assert applied == {} and reasons == ["tax_cut_during_fiscal_stress"]
 
 
 def test_policy_memory_reports_debt_and_net_position_change():
@@ -347,6 +383,41 @@ def test_zero_target_approved_infrastructure_is_never_spent(monkeypatch):
 def test_buffer_target_approved_infrastructure_is_spent(monkeypatch):
     spent = _infrastructure_spent_after_approval("buffer", monkeypatch)
     assert sum(spent) > 0.0
+
+
+def test_default_buffer_approved_infrastructure_spends_within_10_ticks(monkeypatch):
+    """Cash 0 and crisis levers, borrow target left at the default: spend within 10 ticks of approval.
+
+    50 ticks to establish a deficit, then infrastructure is approved, then 10 ticks (60 in all).
+    """
+    assert SimulationConfig().government.public_debt_borrow_target == "buffer"
+    spent = []
+    original = GovernmentAgent.invest_in_infrastructure
+
+    def record(self):
+        value = original(self)
+        spent.append(value)
+        return value
+
+    monkeypatch.setattr(GovernmentAgent, "invest_in_infrastructure", record)
+    with use_config(clone_config()):
+        assert CONFIG.government.public_debt_enabled is True
+        assert CONFIG.government.public_debt_borrow_target == "buffer"
+        _set_seed(42)
+        with contextlib.redirect_stdout(io.StringIO()):
+            economy = create_large_economy(200, 3)
+            gov = economy.government
+            gov.set_lever("benefit_level", "crisis")
+            gov.set_lever("technology_spending", "high")
+            gov.set_lever("social_spending", "high")
+            gov.cash_balance = 0.0
+            for _ in range(50):
+                economy.step()
+            gov.set_lever("infrastructure_spending", "high")
+            spent.clear()
+            for _ in range(10):
+                economy.step()
+    assert len(spent) == 10 and sum(spent) > 0.0
 
 
 def _conservative_reason(cash, debt):
