@@ -4,6 +4,12 @@ Notable changes and decisions for EcoSim, newest first. The project does not use
 
 ## Unreleased
 
+### 2026-10-21: Shared evidence panel for behavior-changing PRs
+
+The bot PRs each brought their own study script, with different household and firm counts, payment sequences, run lengths, seed sets and real-GDP deflators, so reviews kept stalling on numbers that could not be compared or reproduced. `backend/tools/benchmarks/run_evidence_panel.py` is one command that runs every arm on every payment sequence and seed at the dashboard's defaults (1,000 households, 5 firms per category, `income_first` first, seeds 42-46, 260 ticks), one process per run, and writes a paired table by tick window with identity, determinism and money checks. Arms can come from different checkouts, so a PR's flag-off state is compared with `main` directly. Tooling only: no simulation code, config default or flag changes.
+
+Evidence: `backend/tests_contracts/test_evidence_panel.py` (7 tests).
+
 ### 2026-10-20: Profit-tax brackets rank firms by profit, not cash
 
 Owner decision (Ayman, option B): the profit tax is on earnings, so its brackets rank firms by earnings. Before: `GovernmentAgent.plan_taxes` cut six brackets at the 25th/50th/75th/90th/99th percentiles of firm `cash_balance`. On the default `legacy` sequence `Economy._build_firm_tax_snapshots` sent no cash, so every firm read 0, fell in the bottom bracket and paid 0.1915 (base 0.20 minus the 0.0085 fixed-seed discount); on `income_first`/`income_late` a cash-rich firm with a small profit paid a top rate. Now:
