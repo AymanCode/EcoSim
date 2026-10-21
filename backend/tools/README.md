@@ -7,7 +7,7 @@ Supplementary utilities for analysis, benchmarks, diagnostics, LLM experiments, 
 | Directory | Purpose |
 |---|---|
 | `analysis/` | Audit digests, sample-data generation, training-data generation, LLM run analysis |
-| `benchmarks/` | Simulation, dashboard, policy-sweep, and warehouse benchmark CLIs |
+| `benchmarks/` | Simulation, dashboard, policy-sweep, and warehouse benchmark CLIs, plus the standard PR evidence panel (`run_evidence_panel`) |
 | `checks/` | Standalone behavior checks and diagnostic scripts |
 | `llm/` | LLM provider abstractions, government runner, firm runner, household tester, comparison tools |
 | `runners/` | Headless simulation runners and audit/diagnostic execution scripts |
