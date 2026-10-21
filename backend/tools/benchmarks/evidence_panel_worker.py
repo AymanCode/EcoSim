@@ -183,15 +183,23 @@ def state_components(economy: Any) -> dict[str, str]:
         bank_payload: Any = None
     else:
         loans = getattr(bank, "active_loans", []) or []
-        principals = []
+        loan_rows = []
         for loan in loans:
             if isinstance(loan, dict):
-                principals.append(_num(loan.get("principal", loan.get("remaining", 0.0))))
+                loan_rows.append([
+                    _num(loan.get("principal")),
+                    _num(loan.get("remaining")),
+                ])
+            else:
+                loan_rows.append([
+                    _num(getattr(loan, "principal", None)),
+                    _num(getattr(loan, "remaining", None)),
+                ])
         bank_payload = [
             _num(getattr(bank, "cash_reserves", 0.0)),
             _num(getattr(bank, "total_deposits", 0.0)),
             len(loans),
-            principals,
+            loan_rows,
         ]
     components = {
         "households": _digest(households),

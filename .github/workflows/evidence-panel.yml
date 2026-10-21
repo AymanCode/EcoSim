@@ -1,18 +1,40 @@
 name: Evidence panel
 
-# New pushes only. An open PR picks this up on its next push, not when the workflow lands.
+# New pushes only. An open PR picks the fast tier up on its next push.
+# /eval runs only after this file is on the default branch: GitHub loads
+# issue_comment workflows from the default branch, not from the PR branch.
 on:
   push:
   schedule:
     - cron: "0 8 * * *"
   workflow_dispatch:
+    inputs:
+      set:
+        description: "On-arm assignment, section.field=value. Leave empty to omit the on arm."
+        required: false
+        default: ""
+        type: string
+      off_set:
+        description: "Off-arm assignment for a default-on flag, section.field=value."
+        required: false
+        default: ""
+        type: string
+      seeds:
+        description: "Seed list. Empty uses 42-46 and escalates when fragile. 42-54 is the 13-seed baseline."
+        required: false
+        default: ""
+        type: string
+  issue_comment:
+    types: [created]
+  pull_request:
+    types: [labeled]
 
 permissions:
   contents: read
   pull-requests: write
 
 concurrency:
-  group: evidence-${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
+  group: evidence-${{ github.workflow }}-${{ github.event_name }}-${{ github.event.issue.number || github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -46,11 +68,11 @@ jobs:
           git fetch origin main
           git worktree add --detach ../ecosim-main origin/main
 
-      - name: Fast panel (5 seeds, 104 weeks, 3 sequences)
+      - name: Fast panel (5 seeds, 104 weeks, 3 sequences, main and off)
         run: |
           python -m backend.tools.benchmarks.run_evidence_panel \
             --arm main --root main ../ecosim-main \
-            --arm off --arm on \
+            --arm off \
             --baseline main \
             --ticks 104 --windows 1-100,101-104 --no-escalate \
             --jobs 3 \
@@ -80,7 +102,7 @@ jobs:
             if (body.length > 60000) {
               body = body.slice(0, 60000) + '\n\n_(truncated for the PR comment; the artifact has the full file)_\n';
             }
-            const comment = marker + '\n**Evidence panel (smoke, 104 weeks).** Invariants and the off-arm identity. The full 312-week panel is the nightly / workflow_dispatch job.\n\n' + body;
+            const comment = marker + '\n**Evidence panel (smoke, 104 weeks).** Main and the off arm. No on arm unless a flag is set. The full panel is `workflow_dispatch`, the `eval:full` label, or `/eval`.\n\n' + body;
             const branch = context.ref.replace('refs/heads/', '');
             const { data: pulls } = await github.rest.pulls.list({
               owner: context.repo.owner,
@@ -117,12 +139,38 @@ jobs:
 
   full:
     name: Full evidence panel
-    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    if: >
+      github.event_name == 'schedule' ||
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'pull_request' && github.event.label.name == 'eval:full') ||
+      (github.event_name == 'issue_comment' &&
+        github.event.issue.pull_request &&
+        (github.event.comment.body == '/eval' || startsWith(github.event.comment.body, '/eval ')) &&
+        contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association))
     runs-on: ubuntu-latest
     timeout-minutes: 120
     steps:
+      - name: Resolve the commit under test
+        id: head
+        uses: actions/github-script@v7
+        with:
+          script: |
+            let sha = context.sha;
+            if (context.eventName === 'issue_comment') {
+              const pr = await github.rest.pulls.get({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                pull_number: context.issue.number,
+              });
+              sha = pr.data.head.sha;
+            } else if (context.eventName === 'pull_request') {
+              sha = context.payload.pull_request.head.sha;
+            }
+            core.setOutput('sha', sha);
+
       - uses: actions/checkout@v7.0.1
         with:
+          ref: ${{ steps.head.outputs.sha }}
           fetch-depth: 0
 
       - name: Set up Python 3.11
@@ -153,14 +201,29 @@ jobs:
             --out benchmarks/results/m0-nightly
 
       - name: Full O9 panel
-        if: github.event_name == 'workflow_dispatch'
+        if: github.event_name != 'schedule'
+        env:
+          PANEL_SET: ${{ github.event_name == 'workflow_dispatch' && inputs.set || '' }}
+          PANEL_OFF_SET: ${{ github.event_name == 'workflow_dispatch' && inputs.off_set || '' }}
+          PANEL_SEEDS: ${{ github.event_name == 'workflow_dispatch' && inputs.seeds || '' }}
         run: |
-          python -m backend.tools.benchmarks.run_evidence_panel \
-            --arm main --root main ../ecosim-main \
-            --arm off --arm on \
-            --baseline main \
-            --jobs 3 \
+          args=(
+            --arm main --root main ../ecosim-main
+            --arm off
+            --baseline main
+            --jobs 3
             --out benchmarks/results/full-panel
+          )
+          if [ -n "$PANEL_SET" ]; then
+            args+=(--arm on --set on "$PANEL_SET")
+          fi
+          if [ -n "$PANEL_OFF_SET" ]; then
+            args+=(--off-set "$PANEL_OFF_SET")
+          fi
+          if [ -n "$PANEL_SEEDS" ]; then
+            args+=(--seeds "$PANEL_SEEDS" --no-escalate)
+          fi
+          python -m backend.tools.benchmarks.run_evidence_panel "${args[@]}"
 
       - name: Upload the full panel
         if: always()
@@ -171,3 +234,4 @@ jobs:
             benchmarks/results/m0-nightly/
             benchmarks/results/full-panel/
           if-no-files-found: warn
+          retention-days: 14

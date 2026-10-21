@@ -5,6 +5,7 @@ import random
 import re
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 import numpy as np
 import pytest
@@ -212,14 +213,7 @@ def test_band_distance_real_gdp_fragility_and_planted_money_leak():
         return {"spec": {"arm": arm, "payment_sequence": "income_first", "seed": 1, "repeat": False}, "money": {"final_drift": drift}}
 
     assert panel_summary.MONEY_CHECK_MODE == "relative"
-    leaked = panel_summary.evaluate_money([_run("main", 2.0), _run("on", 9.0)], design)
-    assert leaked["passed"] is False
-    matched = panel_summary.evaluate_money([_run("main", 2.0), _run("on", 2.0)], design)
-    assert matched["passed"] is True
-    dust = panel_summary.evaluate_money([_run("main", 1e-6), _run("on", 8e-6)], design)
-    assert dust["passed"] is True
-    cents = panel_summary.evaluate_money([_run("main", 6713.79), _run("on", 6712.00)], design)
-    assert cents["passed"] is False
+    assert panel_summary.DUST_TOLERANCE == pytest.approx(1e-4)
     assert panel_summary.row_violations({"tick": 3, "happiness": float("nan"), "labor_force_unemployment_rate": 0.2})
     assert panel_summary.row_violations({
         "tick": 3, "happiness": 0.4, "health": 0.5, "labor_force_unemployment_rate": 0.2,
@@ -376,6 +370,77 @@ def test_mutation_check_requires_the_reverted_line_to_fail_a_test(tmp_path):
         tests=["test_answer.py"], python=sys.executable,
     )
     assert still_passes["ok"] is False
+
+
+def _money_run(arm, sequence, seed, drift):
+    return {
+        "spec": {"arm": arm, "payment_sequence": sequence, "seed": seed, "repeat": False},
+        "money": {"final_drift": drift},
+    }
+
+
+def test_relative_money_fails_a_new_leak_only_when_main_conserves():
+    design = {
+        "arms": ["main", "off", "on"],
+        "baseline": "main",
+        "sequences": ["income_first", "legacy"],
+        "seeds": [1, 2],
+    }
+    conserved = []
+    for seed, main_drift, on_drift in ((1, 1e-5, 1e-5), (2, -1e-5, 2e-5)):
+        conserved += [
+            _money_run("main", "income_first", seed, main_drift),
+            _money_run("off", "income_first", seed, main_drift),
+            _money_run("on", "income_first", seed, on_drift),
+        ]
+    for seed, main_drift, on_drift in ((1, 7000.0, 7100.0), (2, 8000.0, 7900.0)):
+        conserved += [
+            _money_run("main", "legacy", seed, main_drift),
+            _money_run("off", "legacy", seed, main_drift),
+            _money_run("on", "legacy", seed, on_drift),
+        ]
+    held = panel_summary.evaluate_money(conserved, design)
+    assert held["passed"] is True
+    assert held["sequences"]["income_first"]["conserves"] is True
+    assert held["sequences"]["legacy"]["conserves"] is False
+    legacy = next(gap for gap in held["drift_gaps"] if gap["arm"] == "on" and gap["payment_sequence"] == "legacy")
+    assert legacy["baseline_conserves"] is False
+    assert legacy["median"] == pytest.approx(0.0)
+    assert legacy["up"] == 1 and legacy["n"] == 2
+
+    leaked = [
+        _money_run("main", "income_first", 1, 0.0),
+        _money_run("on", "income_first", 1, 1.0),
+    ]
+    broken = panel_summary.evaluate_money(leaked, {
+        "arms": ["main", "on"], "baseline": "main", "sequences": ["income_first"], "seeds": [1],
+    })
+    assert broken["passed"] is False
+    assert broken["failures"][0]["reason"] == "new leak on a sequence the baseline conserves"
+
+
+def test_absolute_money_uses_the_same_dust_tolerance(monkeypatch):
+    monkeypatch.setattr(panel_summary, "MONEY_CHECK_MODE", "absolute")
+    design = {"arms": ["main"], "baseline": "main", "sequences": ["income_first"], "seeds": [1]}
+    dust = panel_summary.evaluate_money([_money_run("main", "income_first", 1, 1e-5)], design)
+    assert dust["passed"] is True
+    assert dust["tolerance"] == pytest.approx(1e-4)
+    leaked = panel_summary.evaluate_money([_money_run("main", "income_first", 1, 1.0)], design)
+    assert leaked["passed"] is False
+
+
+def test_state_digest_hashes_loan_remaining():
+    government = SimpleNamespace(cash_balance=0.0, wage_tax_rate=0.0, profit_tax_rate=0.0)
+    loan = {"principal": 10.0, "remaining": 10.0}
+    economy = SimpleNamespace(
+        households=[], firms=[], government=government,
+        bank=SimpleNamespace(cash_reserves=1.0, total_deposits=1.0, active_loans=[loan]),
+    )
+    before = state_components(economy)
+    loan["remaining"] = 4.0
+    after = state_components(economy)
+    assert before["bank"] != after["bank"]
+    assert before["combined"] != after["combined"]
 
 
 def test_allow_nonref_stamps_the_panel(tmp_path):

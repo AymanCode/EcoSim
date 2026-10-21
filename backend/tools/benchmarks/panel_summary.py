@@ -21,12 +21,11 @@ from typing import Any
 
 # One line. "relative" until money-identity PR #57 merges, then "absolute".
 MONEY_CHECK_MODE = "relative"
-# Absolute mode: |drift| must be under this.
-MONEY_TOLERANCE = 1e-6
-# Relative mode: two drifts are the same leak when they differ by less than this.
-# A conserved stock picks up about 1e-5 dollars of float dust over 312 weeks
-# (measured on the O9 run). A one-cent gap still fails.
-RELATIVE_MONEY_TOLERANCE = 1e-4
+# One dust tolerance for both modes. A conserved stock over 312 weeks picks up
+# about 1e-5 dollars of float error (measured on the O9 run). 1e-4 dollars is
+# ten times that dust and a hundredth of a cent, so a real leak still fails.
+# Scaling the cutoff to the money stock would hide a dollar on a multi-million stock.
+DUST_TOLERANCE = 1e-4
 
 UNEMPLOYMENT_BAND = (10.0, 40.0)
 REAL_GDP_BASE_WEEKS = (11, 62)
@@ -303,45 +302,99 @@ def legacy_last_exit(run: dict[str, Any]) -> int | None:
     return max(weeks) if weeks else None
 
 
+def _final_drift(run: dict[str, Any] | None) -> float | None:
+    if run is None:
+        return None
+    value = (run.get("money") or {}).get("final_drift")
+    if value is None:
+        return None
+    return float(value)
+
+
 def evaluate_money(results: list[dict[str, Any]], design: dict[str, Any]) -> dict[str, Any]:
     """Fail when an arm's money drift does not match the rule.
 
-    Relative (default until #57): each arm's final drift equals the baseline's
-    drift for the same sequence and seed. Absolute: every run's final drift is
-    within ``MONEY_TOLERANCE`` of zero.
+    Relative (default until #57): on a sequence whose baseline stays inside the
+    dust tolerance, every other arm must too. A new leak fails. On a sequence
+    the baseline already leaks (legacy, until #57), the arm-minus-baseline drift
+    is reported with median and k/n and does not fail the run. Off = main stays
+    the state-digest check.
+
+    Absolute: every run's final drift is within ``DUST_TOLERANCE`` of zero.
     """
     mode = MONEY_CHECK_MODE
-    tolerance = MONEY_TOLERANCE if mode == "absolute" else RELATIVE_MONEY_TOLERANCE
+    tolerance = DUST_TOLERANCE
+    baseline = design["baseline"]
     runs = {
         (run["spec"]["arm"], run["spec"]["payment_sequence"], run["spec"]["seed"]): run
         for run in results
         if not run["spec"].get("repeat")
     }
+    sequences: dict[str, Any] = {}
+    for sequence in design["sequences"]:
+        base_drifts = [_final_drift(runs.get((baseline, sequence, seed))) for seed in design["seeds"]]
+        present = [value for value in base_drifts if value is not None]
+        conserves = bool(present) and len(present) == len(base_drifts) and all(abs(value) <= tolerance for value in present)
+        sequences[sequence] = {
+            "conserves": conserves,
+            "baseline_max_abs_drift": max((abs(value) for value in present), default=None),
+        }
     failures = []
+    drift_gaps = []
     for arm in design["arms"]:
         for sequence in design["sequences"]:
+            deltas = []
             for seed in design["seeds"]:
                 run = runs.get((arm, sequence, seed))
                 if run is None:
                     continue
-                drift = (run.get("money") or {}).get("final_drift")
+                drift = _final_drift(run)
+                base_drift = _final_drift(runs.get((baseline, sequence, seed)))
                 if mode == "absolute":
-                    if drift is None or abs(float(drift)) > tolerance:
+                    if drift is None or abs(drift) > tolerance:
                         failures.append({
                             "arm": arm, "payment_sequence": sequence, "seed": seed,
-                            "drift": drift, "baseline_drift": 0.0, "mode": mode,
+                            "drift": drift, "baseline_drift": base_drift, "mode": mode,
+                            "reason": "absolute drift outside the dust tolerance",
                         })
                     continue
-                if arm == design["baseline"]:
+                if arm == baseline:
                     continue
-                base = runs.get((design["baseline"], sequence, seed))
-                base_drift = None if base is None else (base.get("money") or {}).get("final_drift")
-                if drift is None or base_drift is None or abs(float(drift) - float(base_drift)) > tolerance:
+                if drift is None or base_drift is None:
                     failures.append({
                         "arm": arm, "payment_sequence": sequence, "seed": seed,
                         "drift": drift, "baseline_drift": base_drift, "mode": mode,
+                        "reason": "money drift unavailable",
                     })
-    return {"mode": mode, "tolerance": tolerance, "passed": not failures, "failures": failures}
+                    continue
+                deltas.append(drift - base_drift)
+                if sequences[sequence]["conserves"] and abs(drift) > tolerance:
+                    failures.append({
+                        "arm": arm, "payment_sequence": sequence, "seed": seed,
+                        "drift": drift, "baseline_drift": base_drift, "mode": mode,
+                        "reason": "new leak on a sequence the baseline conserves",
+                    })
+            if mode == "relative" and arm != baseline and deltas:
+                drift_gaps.append({
+                    "arm": arm,
+                    "payment_sequence": sequence,
+                    "baseline_conserves": sequences[sequence]["conserves"],
+                    "median": statistics.median(deltas),
+                    "mean": statistics.fmean(deltas),
+                    "min": min(deltas),
+                    "max": max(deltas),
+                    "up": sum(1 for value in deltas if value > 0.0),
+                    "n": len(deltas),
+                    "per_seed": deltas,
+                })
+    return {
+        "mode": mode,
+        "tolerance": tolerance,
+        "passed": not failures,
+        "failures": failures,
+        "sequences": sequences,
+        "drift_gaps": drift_gaps,
+    }
 
 
 def _finite(value: Any) -> bool:

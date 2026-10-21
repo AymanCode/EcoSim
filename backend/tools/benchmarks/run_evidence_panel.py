@@ -106,7 +106,7 @@ METRICS: tuple[tuple[str, str, float, str, tuple[str, ...]], ...] = (
     ("labor_force_unemployment_rate", "Unemployment, labour force", 100.0, "%", ("mean", "cv", "cv_detrended")),
     ("unemployment_rate", "Jobless, all households (dashboard)", 100.0, "%", ("mean",)),
     ("job_finding_rate", "Job-finding rate (U to E / U)", 100.0, "%", ("mean",)),
-    ("layoffs_per_month", "Layoffs per month", 1.0, "people/month", ("mean",)),
+    ("layoffs_per_month", "Planned layoffs per month", 1.0, "people/month", ("mean",)),
     ("openings_per_unemployed", "Openings per unemployed", 1.0, "ratio", ("mean",)),
     ("real_gdp_paid", "Real GDP (units x base paid price)", 1.0, "$/wk", ("mean", "cv", "cv_detrended")),
     ("real_gdp", "Real GDP (GDP / CPI x 100)", 1.0, "$/wk", ("mean", "cv", "cv_detrended")),
@@ -453,7 +453,8 @@ def plan_runs(
                 "python": runtime["python"],
                 "implementation": runtime["implementation"],
                 "numpy": runtime["numpy"],
-                "requirements_lock_sha256": lock_sha256(roots[arm] and Path(roots[arm]) / "backend" / "requirements.lock"),
+                # The venv that actually ran this arm, not the arm checkout's lock file.
+                "requirements_lock_sha256": lock_sha256(LOCK_PATH),
                 "thread_env": THREAD_ENV,
             },
         }
@@ -712,7 +713,11 @@ def render_markdown(panel: dict[str, Any], windows: list[tuple[str, int, int]]) 
             changes[f"hook.{hook}"] = "on"
         change_text = ", ".join(f"`{k}={v}`" for k, v in sorted(changes.items())) or "no changes"
         dirty = " (uncommitted changes)" if identity.get("working_tree_dirty") else ""
-        lines.append(f"- **`{arm}`:** {change_text}; commit `{(identity.get('commit') or 'unknown')[:10]}`{dirty}.")
+        venv_lock = manifest.get("requirements_lock_sha256") or ""
+        lines.append(
+            f"- **`{arm}`:** {change_text}; commit `{(identity.get('commit') or 'unknown')[:10]}`{dirty}; "
+            f"venv lock `{venv_lock}`."
+        )
     lines += ["", "## Checks", "", "| Arm | Runs identical to baseline (state digest) | Unrecorded money drift at end (mean, max abs) | First divergent week |", "|---|---|---|---|"]
     for arm, check in summary["checks"]["arms"].items():
         ident = check["identical_to_baseline"]
@@ -726,10 +731,28 @@ def render_markdown(panel: dict[str, Any], windows: list[tuple[str, int, int]]) 
     bounds = summary["checks"].get("bounds") or {}
     lines += [
         "",
-        f"Money check ({money.get('mode', MONEY_CHECK_MODE)}, tolerance {money.get('tolerance')}): "
-        f"{'pass' if money.get('passed', True) else 'FAIL'} ({len(money.get('failures') or [])} mismatched runs).",
+        f"Money check ({money.get('mode', MONEY_CHECK_MODE)}, dust tolerance {money.get('tolerance')} dollars): "
+        f"{'pass' if money.get('passed', True) else 'FAIL'} ({len(money.get('failures') or [])} runs).",
         f"Bounds and non-finite values: {'pass' if bounds.get('passed', True) else 'FAIL'} ({len(bounds.get('violations') or [])} shown).",
     ]
+    if money.get("mode") == "relative":
+        lines.append(
+            "Where the baseline conserves, another arm must conserve too. Where the baseline already leaks, "
+            "the drift gap is reported and does not fail the run. Off = main is the state digest."
+        )
+    gaps = money.get("drift_gaps") or []
+    if gaps:
+        lines += [
+            "",
+            "| Sequence | Arm | Baseline | Drift minus baseline (median) | k/n up | mean |",
+            "|---|---|---|---|---|---|",
+        ]
+        for gap in gaps:
+            baseline_text = "conserves" if gap.get("baseline_conserves") else "leaks, not failed"
+            lines.append(
+                f"| {gap['payment_sequence']} | `{gap['arm']}` | {baseline_text} | "
+                f"{_fmt(gap.get('median'), signed=True)} | {gap.get('up')}/{gap.get('n')} | {_fmt(gap.get('mean'), signed=True)} |"
+            )
     det = summary["checks"]["determinism"]
     if det:
         same = sum(1 for item in det if item["identical"])
@@ -811,14 +834,14 @@ def render_markdown(panel: dict[str, Any], windows: list[tuple[str, int, int]]) 
         "- **Real GDP (GDP / CPI):** nominal GDP (`gdp_this_tick`) divided by the posted consumer price index, times 100. Kept beside the primary series.",
         "- **Poverty:** share of households whose liquid wealth, cash + max(0, deposit), is below `households.poverty_threshold` ($200). Extreme uses `extreme_poverty_threshold`.",
         "- **Job-finding rate:** households who were labour-force unemployed at the start of the week and employed at the end, divided by that starting unemployed count.",
-        "- **Layoffs per month:** firms' `planned_layoffs_ids` after the tick, times 52/12. **Openings per unemployed:** `planned_hires_count` divided by labour-force unemployed after the tick.",
+        "- **Planned layoffs per month:** firms' `planned_layoffs_ids` after the tick, times 52/12. This is the plan, not executed separations. **Openings per unemployed:** `planned_hires_count` divided by labour-force unemployed after the tick.",
         "- **Legacy firms:** `is_baseline` firms still active. Exits count firms that were legacy last week and are gone this week. Last-exit week is report only.",
         "- **Happiness tails:** median, p10, p90, and the shares at or below 0.05 and at or above 0.95.",
         "- **Within-window CV:** standard deviation of the weekly values in the window divided by the absolute mean. Detrended CV does that after a linear week trend is removed.",
         "- **Bond buy (K06):** the treasury's weekly bond purchase paid out through the misc pool. `--hook k06_hold_pool` leaves that pool on the money stock.",
         "- **Unrecorded money drift:** change in total money net of recorded outside money (`total_money_net_of_injections`) from construction to the last tick.",
         "- **Runs identical:** per-week state digests (households, firms, government, bank) match. The row fingerprint is kept beside them and is not the identity check.",
-        "- **Money check:** relative mode requires each arm's final drift to match the baseline's drift for the same seed and sequence, within 0.0001 dollars (float dust on a conserved stock). Absolute mode requires the drift itself to be within 1e-6 of zero.",
+        "- **Money check:** both modes use a 0.0001 dollar dust tolerance. Relative mode fails a new leak only on sequences the baseline conserves, and reports arm-minus-baseline drift (median, k/n) where the baseline already leaks. Absolute mode requires every run's own drift inside that tolerance.",
     ]
     return "\n".join(lines) + "\n"
 
