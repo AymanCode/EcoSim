@@ -795,6 +795,16 @@ class GovernmentPolicyConfig:
     rent_stabilization_strict_max_increase: float = 1.005
 
 
+HOUSING_RENT_RULES = ("plan_then_market", "settlement_overwrites")
+
+
+def checked_housing_rent_rule(rule: str) -> str:
+    """Return ``labor_market.housing_rent_rule`` or raise on an unknown value."""
+    if rule not in HOUSING_RENT_RULES:
+        raise ValueError(f"labor_market.housing_rent_rule must be one of {HOUSING_RENT_RULES}, got {rule!r}")
+    return rule
+
+
 @dataclass
 class LaborMarketConfig:
     """Labor market matching parameters."""
@@ -863,21 +873,19 @@ class LaborMarketConfig:
     # reaches cash only and the firm's profit reads as minus its wage bill
     # (behavior before the 2026-10-16 bug fix); kept for before/after runs.
     rent_booked_as_revenue: bool = True
-    # Legacy payment path only: who sets a Housing firm's posted rent each tick.
-    # "plan_then_market" (default): one write, after firm settlement. The
-    #   firm's own plan (FirmAgent.plan_pricing, obligation coverage, -5% to
-    #   +15% a tick) is applied first, then the occupancy rule, the dynamic
-    #   rent floor, the shortage premium and the rent-stabilization cap
-    #   (measured against last week's rent): the order the named payment arms
-    #   use (update_payment_housing_asks), plus their missing cap.
-    # "market_or_plan_higher": one write, after firm settlement. The rent is
-    #   the higher of last week's rent moved by the occupancy rule and the
-    #   firm's plan, so the plan only lifts rent to cover obligations and never
-    #   cuts it while the building is full; then floor, premium and cap.
+    # Legacy payment path only: who sets a Housing firm's posted rent each tick
+    # (one of HOUSING_RENT_RULES; anything else raises).
+    # "plan_then_market" (default, owner decision 2026-10-22): one write, after
+    #   firm settlement. The firm's own plan (FirmAgent.plan_pricing,
+    #   obligation coverage, -5% to +15% a tick) is applied first, then the
+    #   occupancy rule, the dynamic rent floor, the shortage premium and the
+    #   rent-stabilization cap (measured against last week's rent, and never
+    #   below the floor): the order the named payment arms use
+    #   (update_payment_housing_asks), which cap at lease renewal instead.
     # "settlement_overwrites": the housing phase applies the occupancy rule,
     #   floor and cap and settlement then overwrites them with the plan, so
-    #   they never reach tenants (behavior before the 2026-10-17 bug fix);
-    #   kept only for before/after runs.
+    #   they never reach tenants (behavior before the fix); kept only for
+    #   before/after runs and as the rollback.
     housing_rent_rule: str = "plan_then_market"
 
 
@@ -1078,6 +1086,7 @@ class SimulationConfig:
             raise ValueError("tie_break_scale must be finite and non-negative")
         if self.labor_market.switcher_vacancy_cap_per_firm < 0:
             raise ValueError("switcher_vacancy_cap_per_firm must be non-negative")
+        checked_housing_rent_rule(self.labor_market.housing_rent_rule)
         ratio = self.firms.services_expansion_min_excess_demand_ratio
         if not (math.isfinite(ratio) and ratio >= 0.0):
             raise ValueError("services_expansion_min_excess_demand_ratio must be finite and non-negative")

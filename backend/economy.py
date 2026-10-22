@@ -38,7 +38,7 @@ from dataclasses import dataclass, fields
 from collections import deque
 from typing import TYPE_CHECKING, Dict, List, Tuple, Optional
 
-from config import CONFIG, get_config
+from config import CONFIG, checked_housing_rent_rule, get_config
 from fiscal_guards import (
     annualized_debt_to_gdp,
     fiscal_reserve_floor,
@@ -212,6 +212,9 @@ class Economy:
         self._posted_wage_offers: Dict[int, Tuple[float, bool]] = {}
         if self.payment_sequence not in {"legacy", "income_first", "income_late"}:
             raise ValueError("unsupported payment sequence")
+        # An unknown rule raises here, before the first tick, rather than
+        # running as plan_then_market.
+        checked_housing_rent_rule(CONFIG.labor_market.housing_rent_rule)
         self.payment_care_mode = str(getattr(CONFIG, "payment_care_mode", "patient_pay"))
         self.payment_assistance = str(getattr(CONFIG, "payment_assistance", "reserve"))
         self.payment_state = {"wage_claims": {}, "recovery_holds": {}, "ceo_holds": {},
@@ -2925,7 +2928,10 @@ class Economy:
         assessed_project_receipts = tick.assessed_project_receipts
         firm_price_plans = tick.firm_price_plans
         firm_wage_plans = tick.firm_wage_plans
-        legacy_rent_writer = not payment_arm and CONFIG.labor_market.housing_rent_rule != "settlement_overwrites"
+        legacy_rent_writer = (
+            not payment_arm
+            and checked_housing_rent_rule(CONFIG.labor_market.housing_rent_rule) == "plan_then_market"
+        )
         # Last week's posted rents: the rent-stabilization cap is measured
         # against these once the plan has been applied below.
         rent_before = {
@@ -7785,7 +7791,7 @@ class Economy:
         # Phase 3: Housing firms adjust rent based on occupancy. Unless
         # housing_rent_rule is "settlement_overwrites", this runs after firm
         # settlement instead (_phase_firm_settlement), with the firm's plan.
-        if CONFIG.labor_market.housing_rent_rule == "settlement_overwrites":
+        if checked_housing_rent_rule(CONFIG.labor_market.housing_rent_rule) == "settlement_overwrites":
             self._apply_legacy_housing_rent_rules(
                 {firm.firm_id: float(getattr(firm, "price", 0.0) or 0.0) for firm in housing_firms}
             )
@@ -7808,19 +7814,20 @@ class Economy:
                 tick (last week's rent). The rent-stabilization cap limits the
                 rise against this value. A firm missing from it is not capped.
 
-        ``CONFIG.labor_market.housing_rent_rule`` picks the starting rent:
+        ``CONFIG.labor_market.housing_rent_rule`` picks when this runs, and so
+        the rent the occupancy rule starts from:
 
-        - ``"plan_then_market"`` (default): the firm's current ``price``, which
-          after firm settlement holds its own plan (``FirmAgent.plan_pricing``),
-          moved by the occupancy rule. This is the last write of the tick, as
-          ``update_payment_housing_asks`` is on the named payment arms.
-        - ``"market_or_plan_higher"``: the higher of last week's rent moved by
-          the occupancy rule and the plan already in ``price``.
+        - ``"plan_then_market"`` (default): after firm settlement, so ``price``
+          holds the firm's own plan (``FirmAgent.plan_pricing``). This is the
+          last write of the tick, as ``update_payment_housing_asks`` is on the
+          named payment arms.
         - ``"settlement_overwrites"``: the housing phase calls this before
           settlement, ``price`` is still last week's rent, and settlement
           overwrites the result with the plan.
 
-        The dynamic floor, the shortage premium and the cap then apply.
+        The dynamic floor, the shortage premium and the cap then apply. The
+        cap never limits a rise to the floor, so a week in which the floor
+        rises passes through in full whatever the lever says.
 
         Mutates ``firm.price``, ``firm.decision_diagnostics`` and
         ``rent_increase_limited_count``.
@@ -7839,25 +7846,19 @@ class Economy:
         else:
             dynamic_rent_floor = lm.rent_floor_absolute_min
         rent_level = str(getattr(self.government, "rent_stabilization_level", "off") or "off").lower()
-        market_or_plan = lm.housing_rent_rule == "market_or_plan_higher"
         for firm in housing_firms:
             price_before = float(rent_before.get(firm.firm_id, 0.0) or 0.0)
             occupancy_rate = len(firm.current_tenants) / max(firm.max_rental_units, 1)
 
             # Seek equilibrium: raise rent if fully occupied, lower if vacant
-            occupancy_factor = 1.0
             if occupancy_rate >= lm.occupancy_high_threshold:
-                occupancy_factor = lm.rent_increase_high_occupancy
+                firm.price *= lm.rent_increase_high_occupancy
             elif occupancy_rate >= lm.occupancy_good_threshold:
-                occupancy_factor = lm.rent_increase_good_occupancy
+                firm.price *= lm.rent_increase_good_occupancy
             elif occupancy_rate < lm.occupancy_low_threshold:
-                occupancy_factor = lm.rent_decrease_high_vacancy
+                firm.price *= lm.rent_decrease_high_vacancy
             elif occupancy_rate < lm.occupancy_moderate_threshold:
-                occupancy_factor = lm.rent_decrease_moderate_vacancy
-            if market_or_plan:
-                firm.price = max(price_before * occupancy_factor, firm.price)
-            else:
-                firm.price *= occupancy_factor
+                firm.price *= lm.rent_decrease_moderate_vacancy
 
             firm.price = max(dynamic_rent_floor, firm.price)
 
