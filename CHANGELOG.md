@@ -4,6 +4,28 @@ Notable changes and decisions for EcoSim, newest first. The project does not use
 
 ## Unreleased
 
+### 2026-10-22: Owner-approved evidence-panel corrections (#59)
+
+The GitHub-hosted full tier is the reference environment; local and fast-smoke runs are labelled non-reference, and only paired comparisons within one run are supported. Platform/CPU, base evaluator commit and LF-normalized runtime lock hashes are recorded. Digest diagnostics include global Python/NumPy RNG state, loan records, mortgages and payment-ledger totals. Mutation overlays copy when Windows denies symlinks; locked integration tests skip with a clear reason on mismatched local runtimes.
+
+CI installs separate runtime/test locks; Docker installs only the runtime lock. Fast panels run on PR events only. Base/main supplies the evaluator and worker; the pinned PR head supplies the arm under test. The authorization job has no concurrency group; rejected `/eval` comments cannot cancel full runs. Head-at-comment pinning uses branch activity (including force pushes), failing closed when unavailable. Panel jobs use two workers, no pip cache and no persisted checkout credentials. Short job summaries/sticky comments link to 14-day CI artifacts; the bulky committed PR59 evidence bundle is removed. Until #59 lands, CI deliberately uses base panel v1 and reports that bootstrap limitation.
+
+The shared money-stock helper now includes PaymentBook clearing cash, late income, medical funding and recovery/CEO/housing/capital holds, matching `total_economy_cash`; regression tests move cash into and out of these holds without reporting a leak. No simulation behavior, UI, or economic-rule version changes.
+
+Integration with default-on public debt (#43) retains both sides' debt balances in identity digests. Shared-money regressions cover borrowing, interest and repayment with both borrow targets; debt claims are not counted as extra cash. Rules remain v1.10 from main; #59 takes no rules number.
+
+### 2026-10-22: Evidence panel branch is mergeable with main
+
+`ci.yml` runs on pull requests to `main`, and GitHub only starts that workflow when it can build the merge commit. The branch conflicted with `main` in `CHANGELOG.md`, so the workflow never started for `e354a53`. There was no path filter, skip marker, or cancelled run. This merge keeps both histories.
+
+### 2026-10-22: Evidence panel /eval can read the pull request
+
+The full-tier job has `pull-requests: read` so `/eval` can call `pulls.get`. It still has no write permission and no secrets. The concurrency group includes the event and, for a label, the label name, so a later unrelated label does not cancel a running `eval:full`. A new push still cancels the older fast run on that branch. A second `/eval` cancels the running one; any other comment does not.
+
+### 2026-10-22: Evidence panel fails closed on the money and reference checks
+
+A NaN or inf final drift fails the money check in both modes, including legacy. income_first and income_late must conserve on the baseline arm as well, so the nightly main-only run fails if those sequences start leaking; legacy stays report-only until #57. A missing or empty `requirements.lock` refuses to run unless `--allow-nonref` stamps the output not comparable. Gaps smaller than 0.001 print in scientific notation so a 1e-5 dollar gap stays visible. The workflow job that runs the panel has `contents: read` only. Posting `panel.md` is a separate job that reads the uploaded artifact and is the only job with `pull-requests: write`. `eval:full` uses `pull_request_target` (the workflow file from the default branch, read-only, no secrets) and does nothing until that file is on the default branch. Only `workflow_dispatch` accepts `set`, `off_set`, and `seeds`.
+
 ### 2026-10-22: Bank-financed public debt and the town hall's net position
 
 Owner-approved by Ayman (2026-10-22): borrowing is on by default; the AI government may cut taxes while borrowing; the town hall shows cash minus public debt; no classic-dashboard UI is added. This keeps the 2026-10-20 owner decision allowing spending while borrowing, with debt, interest and the true balance visible.
@@ -27,6 +49,14 @@ Owner decision 2026-10-22: split #57. Keep the accounting correction behind `mar
 - Rules v1.9 records these changes. Baseline providers' operating overdrafts remain visible and unsettled; this narrow fix is not a claim that all model finance paths conserve money.
 
 Evidence: `backend/tests_contracts/test_conservation_leaks.py` covers legacy loan write-off, lender shares, bank reserve protection, PublicWorks, protected baseline firms, switch-off reproduction, absent bank, private provider exits, full-tick conservation, and same-tick fiscal recognition. A 1,500 exit deficit creates 1,500 with the switch off; with the switch on and only 200 of lendable bank reserves, the bank pays 200 and treasury pays 1,300 with no money drift. The matched five-seed, 312-week panel compares main/off/on on all three payment sequences; its uncommitted artifact is `benchmarks/results/pr57-panel/panel.md`.
+
+### 2026-10-21: Evidence panel money check follows the baseline
+
+Relative mode fails a new leak only on sequences where main conserves (income_first and income_late). Legacy, where main already leaks, reports arm-minus-baseline drift with median and k/n and does not fail the run. Off = main stays the state digest. Both modes use one dust tolerance, 0.0001 dollars, because a conserved 312-week stock accumulates about 1e-5 dollars of float error. The fast CI tier runs main and off only. `workflow_dispatch` takes `set`, `off_set`, and `seeds`. The `eval:full` label and a `/eval` comment from an owner, member, or collaborator start the full tier (`/eval` runs once this workflow file is on the default branch).
+
+### 2026-10-21: Evidence panel is the reference-env check for behavior PRs
+
+The panel from #58 now refuses to run unless the worker is CPython 3.11 and the installed packages match `backend/requirements.lock` (the lock hash is in the `panel.md` header; `--allow-nonref` stamps every output not comparable). The lock also pins pytest and ruff. Identity compares a per-week digest of households, firms, government and the bank, and reports the first divergent week, including an off arm with `--set off` / `--off-set`. Defaults are 312 weeks and windows 1-100 (reported, not judged), 101-200, 201-312 (judged) and 261-312; `--weeks 260` still runs. Labour-force unemployment over weeks 201+ is scored as distance from the 10-40% band (a baseline outside the band is a warning). Primary real GDP is units sold times the baseline arm's paid price over weeks 11-62. The table adds legacy-firm counts, labour flows, medians, k/n, and within-window and detrended volatility. Fragile 5-seed results escalate to seeds 47-54. Money (relative until #57), bounds, and the determinism repeat fail the run. `--mutate` reverts a line range to main and requires a named test to fail. Levers can start at a week, `--hook k06_hold_pool` holds the misc pool, and `--sweep` / `--interact` / repeated `--metrics-plugin` are shorthand. The server and the worker build through `build_economy_from_setup`. `.github/workflows/evidence-panel.yml` runs a 104-week smoke on each new push and the 312-week panel nightly and on workflow_dispatch. No household, firm, or government behavior change.
 
 ### 2026-10-21: Skills learned on the job wear off out of work, never below week-1 skill (households, default on)
 

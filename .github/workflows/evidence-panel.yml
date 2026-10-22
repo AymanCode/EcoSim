@@ -1,0 +1,317 @@
+name: Evidence panel
+
+# Scoring/worker code and dependencies come from the pinned main/base checkout.
+# PR code is only an arm under test, in a separate read-only-token job.
+# /eval and label events use this workflow from main; they activate after merge.
+# Authorization and SHA resolution happen before any cancellable full job.
+on:
+  pull_request:
+    branches: [main]
+  schedule:
+    - cron: "0 8 * * *"
+  workflow_dispatch:
+    inputs:
+      set:
+        description: "On-arm section.field=value (dispatch only)"
+        required: false
+        default: ""
+        type: string
+      off_set:
+        description: "Off-arm section.field=value (dispatch only)"
+        required: false
+        default: ""
+        type: string
+      seeds:
+        description: "Seed list (dispatch only); empty uses 42-46 with escalation"
+        required: false
+        default: ""
+        type: string
+  issue_comment:
+    types: [created]
+  pull_request_target:
+    types: [labeled]
+
+permissions:
+  contents: read
+
+jobs:
+  resolve:
+    name: Authorize and pin evidence inputs
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      approved: ${{ steps.inputs.outputs.approved }}
+      head: ${{ steps.inputs.outputs.head }}
+      base: ${{ steps.inputs.outputs.base }}
+      number: ${{ steps.inputs.outputs.number }}
+    steps:
+      - uses: actions/github-script@v7
+        id: inputs
+        with:
+          script: |
+            const event = context.eventName;
+            let pr = context.payload.pull_request;
+            let pinnedHead;
+            if (event === 'issue_comment') {
+              const comment = context.payload.comment;
+              if (!context.payload.issue.pull_request ||
+                  !(comment.body === '/eval' || comment.body.startsWith('/eval ')) ||
+                  !['OWNER', 'MEMBER', 'COLLABORATOR'].includes(comment.author_association)) {
+                core.info('Comment is not an authorized /eval; no panel or concurrency slot.');
+                return;
+              }
+              ({data: pr} = await github.rest.pulls.get({
+                ...context.repo, pull_number: context.payload.issue.number,
+              }));
+              // Reconstruct the branch head at comment creation, including force
+              // pushes. Commit author/committer dates cannot establish push time.
+              const {data: activity} = await github.request('GET /repos/{owner}/{repo}/activity', {
+                owner: pr.head.repo.owner.login, repo: pr.head.repo.name,
+                ref: `refs/heads/${pr.head.ref}`, direction: 'desc', per_page: 100,
+              });
+              const pushes = activity.filter(x => ['push', 'force_push', 'branch_creation'].includes(x.activity_type));
+              const atComment = pushes.find(x => Date.parse(x.timestamp || x.pushed_at) <= Date.parse(comment.created_at));
+              if (!pushes.length || pushes[0].after !== pr.head.sha ||
+                  !atComment || !/^[a-f0-9]{40}$/.test(atComment.after)) {
+                core.setFailed('Cannot establish the PR head at comment time from branch activity; use a fresh /eval or eval:full.');
+                return;
+              }
+              pinnedHead = atComment.after;
+            } else if (event === 'pull_request_target') {
+              if (context.payload.label.name !== 'eval:full') return;
+            } else if (!['pull_request', 'workflow_dispatch', 'schedule'].includes(event)) {
+              return;
+            }
+            let base, head;
+            if (pr) {
+              if (pr.state !== 'open' || pr.base.ref !== 'main') return;
+              base = pr.base.sha;
+              head = pinnedHead || pr.head.sha;
+              core.setOutput('number', String(pr.number));
+            } else {
+              const {data: branch} = await github.rest.repos.getBranch({...context.repo, branch: 'main'});
+              base = branch.commit.sha;
+              head = event === 'schedule' ? base : context.sha;
+            }
+            core.setOutput('head', head);
+            core.setOutput('base', base);
+            core.setOutput('approved', 'true');
+
+  fast:
+    name: Fast evidence panel
+    needs: resolve
+    if: github.event_name == 'pull_request' && needs.resolve.outputs.approved == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    concurrency:
+      group: evidence-fast-${{ github.event.pull_request.number }}
+      cancel-in-progress: true
+    permissions:
+      contents: read
+    env:
+      ECOSIM_PANEL_TIER: fast
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          ref: ${{ needs.resolve.outputs.base }}
+          path: evaluator
+          persist-credentials: false
+      - uses: actions/checkout@v7.0.1
+        with:
+          ref: ${{ needs.resolve.outputs.head }}
+          path: candidate
+          persist-credentials: false
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+      - name: Install evaluator runtime and test locks
+        working-directory: evaluator
+        run: |
+          requirements=(-r backend/requirements.lock)
+          if [ -f backend/requirements-test.lock ]; then
+            requirements+=(-r backend/requirements-test.lock)
+          fi
+          python -m pip install "${requirements[@]}" -e ".[test,ml]"
+      - name: Fast panel from base (5 seeds, 104 weeks, 3 sequences)
+        working-directory: evaluator
+        run: |
+          args=(--arm main --root main "$GITHUB_WORKSPACE/evaluator"
+            --arm off --root off "$GITHUB_WORKSPACE/candidate" --baseline main
+            --ticks 104 --windows 1-100,101-104 --jobs 2
+            --out "$GITHUB_WORKSPACE/panel-artifact")
+          # Bootstrap: main has panel v1 until #59 lands. Never copy PR tooling
+          # into the evaluator; v2 is tested by the normal backend CI job.
+          if python -m backend.tools.benchmarks.run_evidence_panel --help | grep -q -- --no-escalate; then
+            args+=(--no-escalate)
+          fi
+          python -m backend.tools.benchmarks.run_evidence_panel "${args[@]}"
+      - name: Record execution provenance and short job summary
+        if: always()
+        env:
+          EVALUATOR_SHA: ${{ needs.resolve.outputs.base }}
+          CANDIDATE_SHA: ${{ needs.resolve.outputs.head }}
+          PANEL_RESULT: ${{ job.status }}
+        run: |
+          python - <<'PY'
+          import json, os, platform
+          from pathlib import Path
+          out = Path('panel-artifact')
+          out.mkdir(exist_ok=True)
+          cpu = next((x.split(':', 1)[1].strip() for x in Path('/proc/cpuinfo').read_text().splitlines() if x.startswith('model name')), platform.processor())
+          stamp = {'evaluator_sha': os.environ['EVALUATOR_SHA'], 'candidate_sha': os.environ['CANDIDATE_SHA'],
+                   'tier': 'fast', 'platform': platform.platform(), 'cpu_model': cpu,
+                   'comparison_scope': 'Compare arms within this run only; no cross-run absolute comparisons.'}
+          (out / 'execution.json').write_text(json.dumps(stamp, indent=2))
+          if not (out / 'summary.md').exists():
+              (out / 'summary.md').write_text('# Evidence panel summary\n\n'
+                  + 'CI smoke, non-reference. ' + stamp['comparison_scope'] + '\n\n'
+                  + 'Job result: ' + os.environ['PANEL_RESULT'] + '. Base evaluator: `' + stamp['evaluator_sha']
+                  + '`. Bootstrap panel v1; v2 scoring activates after merge.\n\n'
+                  + 'Detailed tables and raw runs are in the artifact.\n')
+          with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as f:
+              f.write((out / 'summary.md').read_text())
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: evidence-panel-fast
+          path: panel-artifact/
+          retention-days: 14
+          if-no-files-found: warn
+
+  full:
+    name: Full evidence panel
+    needs: resolve
+    if: github.event_name != 'pull_request' && needs.resolve.outputs.approved == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    concurrency:
+      group: evidence-full-${{ needs.resolve.outputs.number || github.ref }}
+      cancel-in-progress: true
+    permissions:
+      contents: read
+    env:
+      ECOSIM_PANEL_TIER: full
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          ref: ${{ needs.resolve.outputs.base }}
+          path: evaluator
+          persist-credentials: false
+      - uses: actions/checkout@v7.0.1
+        with:
+          ref: ${{ needs.resolve.outputs.head }}
+          path: candidate
+          persist-credentials: false
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+      - name: Install evaluator runtime and test locks (no shared pip cache)
+        working-directory: evaluator
+        run: |
+          requirements=(-r backend/requirements.lock)
+          if [ -f backend/requirements-test.lock ]; then
+            requirements+=(-r backend/requirements-test.lock)
+          fi
+          python -m pip install "${requirements[@]}" -e ".[test,ml]"
+      - name: Full panel from base
+        working-directory: evaluator
+        env:
+          PANEL_SET: ${{ github.event_name == 'workflow_dispatch' && inputs.set || '' }}
+          PANEL_OFF_SET: ${{ github.event_name == 'workflow_dispatch' && inputs.off_set || '' }}
+          PANEL_SEEDS: ${{ github.event_name == 'workflow_dispatch' && inputs.seeds || '' }}
+        run: |
+          args=(--arm main --root main "$GITHUB_WORKSPACE/evaluator" --baseline main
+            --ticks 312 --windows 1-100,101-200,201-312,261-312 --jobs 2
+            --out "$GITHUB_WORKSPACE/panel-artifact")
+          if [ "$GITHUB_EVENT_NAME" = schedule ]; then
+            args+=(--seeds 42,43,44,45,46,47,48,49,50,51,52,53,54)
+          else
+            args+=(--arm off --root off "$GITHUB_WORKSPACE/candidate")
+            if [ -n "$PANEL_SET" ]; then
+              args+=(--arm on --root on "$GITHUB_WORKSPACE/candidate" --set on "$PANEL_SET")
+            fi
+            if [ -n "$PANEL_OFF_SET" ]; then args+=(--set off "$PANEL_OFF_SET"); fi
+            if [ -n "$PANEL_SEEDS" ]; then args+=(--seeds "$PANEL_SEEDS"); fi
+          fi
+          if { [ "$GITHUB_EVENT_NAME" = schedule ] || [ -n "$PANEL_SEEDS" ]; } &&
+             python -m backend.tools.benchmarks.run_evidence_panel --help | grep -q -- --no-escalate; then
+            args+=(--no-escalate)
+          fi
+          python -m backend.tools.benchmarks.run_evidence_panel "${args[@]}"
+      - name: Publish short job summary
+        if: always()
+        env:
+          EVALUATOR_SHA: ${{ needs.resolve.outputs.base }}
+          CANDIDATE_SHA: ${{ needs.resolve.outputs.head }}
+          PANEL_RESULT: ${{ job.status }}
+        run: |
+          python - <<'PY'
+          import json, os, platform
+          from pathlib import Path
+          out = Path('panel-artifact')
+          out.mkdir(exist_ok=True)
+          cpu = next((x.split(':', 1)[1].strip() for x in Path('/proc/cpuinfo').read_text().splitlines() if x.startswith('model name')), platform.processor())
+          stamp = {'evaluator_sha': os.environ['EVALUATOR_SHA'], 'candidate_sha': os.environ['CANDIDATE_SHA'],
+                   'tier': 'full', 'platform': platform.platform(), 'cpu_model': cpu,
+                   'comparison_scope': 'Compare arms within this run only; no cross-run absolute comparisons.'}
+          (out / 'execution.json').write_text(json.dumps(stamp, indent=2))
+          if not (out / 'summary.md').exists():
+              (out / 'summary.md').write_text('# Evidence panel summary\n\n'
+                  + 'GitHub-hosted full tier. ' + stamp['comparison_scope'] + '\n\n'
+                  + 'Job result: ' + os.environ['PANEL_RESULT'] + '. Base evaluator: `' + stamp['evaluator_sha']
+                  + '`. Bootstrap panel v1; v2 scoring activates after merge.\n\n'
+                  + 'Detailed tables and raw runs are in the artifact.\n')
+          with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as f:
+              f.write((out / 'summary.md').read_text())
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: evidence-panel-full
+          path: panel-artifact/
+          retention-days: 14
+          if-no-files-found: warn
+
+  comment:
+    name: Comment the short evidence summary
+    needs: [resolve, fast, full]
+    if: >-
+      always() && needs.resolve.outputs.number != '' &&
+      github.event_name == 'pull_request' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      needs.fast.result != 'cancelled' && needs.fast.result != 'skipped'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: evidence-panel-fast
+          path: panel-artifact
+      - uses: actions/github-script@v7
+        env:
+          PR_NUMBER: ${{ needs.resolve.outputs.number }}
+          HEAD_SHA: ${{ needs.resolve.outputs.head }}
+        with:
+          script: |
+            const fs = require('fs');
+            if (!fs.existsSync('panel-artifact/summary.md')) return;
+            const issue_number = Number(process.env.PR_NUMBER);
+            const {data: pr} = await github.rest.pulls.get({...context.repo, pull_number: issue_number});
+            if (pr.head.sha !== process.env.HEAD_SHA) return; // Do not post stale results.
+            const marker = '<!-- evidence-panel-smoke -->';
+            const run = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            const body = marker + '\n' + fs.readFileSync('panel-artifact/summary.md', 'utf8').slice(0, 10000)
+              + `\n[Workflow and full artifacts](${run})`;
+            const comments = await github.paginate(github.rest.issues.listComments, {...context.repo, issue_number});
+            const existing = comments.find(x => x.user.type === 'Bot' && (x.body || '').includes(marker));
+            if (existing) {
+              await github.rest.issues.updateComment({...context.repo, comment_id: existing.id, body});
+            } else {
+              await github.rest.issues.createComment({...context.repo, issue_number, body});
+            }

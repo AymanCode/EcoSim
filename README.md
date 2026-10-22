@@ -156,7 +156,7 @@ The LLM provider and the local LM Studio and Ollama endpoints are set in `LLMCon
 ## Development
 
 ```bash
-python -m pip install -c backend/requirements.lock -e ".[test,ml]"
+python -m pip install -c backend/requirements.lock -c backend/requirements-test.lock -e ".[test,ml]"
 python -m ruff check .
 python -m pytest
 ```

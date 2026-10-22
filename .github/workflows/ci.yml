@@ -20,6 +20,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Set up Python 3.11
         uses: actions/setup-python@v7
@@ -29,9 +31,10 @@ jobs:
           cache-dependency-path: |
             pyproject.toml
             backend/requirements.lock
+            backend/requirements-test.lock
 
       - name: Install dependencies
-        run: pip install -c backend/requirements.lock -e ".[test,ml]"
+        run: pip install -r backend/requirements.lock -r backend/requirements-test.lock -e ".[test,ml]"
 
       - name: Python correctness lint
         run: python -m ruff check .
@@ -53,6 +56,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Set up Python 3.11
         uses: actions/setup-python@v7
@@ -72,6 +77,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Set up Node
         uses: actions/setup-node@v7.0.0
@@ -106,6 +113,8 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Build and start the documented stack
         run: docker compose up --build -d --wait --wait-timeout 120

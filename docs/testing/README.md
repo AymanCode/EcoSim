@@ -5,7 +5,7 @@
 Run from the repository root in a Python 3.11 virtual environment:
 
 ```bash
-python -m pip install -c backend/requirements.lock -e ".[test,ml]"
+python -m pip install -c backend/requirements.lock -c backend/requirements-test.lock -e ".[test,ml]"
 python -m ruff check .
 python -m pytest --durations=10
 ```
