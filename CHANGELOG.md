@@ -4,24 +4,6 @@ Notable changes and decisions for EcoSim, newest first. The project does not use
 
 ## Unreleased
 
-### 2026-10-21: Food first, then the queued doctor's visit (households, default on; re-cut of #47)
-
-Ayman's decision on #47: the doctor's visit comes after food, on every payment setting. New switch `CONFIG.households.healthcare_food_first_reserve`, default `True` (crew charter pass 2026-10-21, Q4-A: accept the income_late trade; the switch stays as a kill-switch). With it off, runs are identical to the base (see the PR's panel checks).
-
-- **Claim order** in `Economy._household_consumption_budgets`, on every payment sequence:
-  1. rent and loan installments (`_legacy_obligations_due` on legacy, `planning_inputs` on the payment arms, both as before);
-  2. minimum food, `min_food_per_tick` x the highest posted price among Food sellers with stock (`_min_food_cost`; Q6-B; sellers with `inventory_units <= 0` are left out while anyone has stock). When none have stock, the claim uses the highest posted price among all active Food firms. `income_first` and `income_late` plan before production, so a tick that opens with every Food firm sold out would otherwise price food at 0 and let the visit reserve take that money. The claim is 0 only when no Food firm posts a positive finite price;
-  3. the queued visit's expected out-of-pocket cost, capped at what food leaves (`_healthcare_food_first_reserves`);
-  4. the rest of the budget.
-- **Drawdown before the reserve (round-2 item 54.1):** the savings and desperation drawdowns are computed on the liquidity before the reserve, and the reserve only caps the result: budget = min(flag-off budget, liquidity - reserve). So the budget never falls below min(flag-off budget, minimum-food cost).
-- **Visit cost:** read once per budget pass from government's `Economy.expected_healthcare_out_of_pocket_all()` (#45). That getter returns $0 for covered care and for a household that is not validly queued (missing or non-Healthcare firm, not in the queue).
-- **Planner:** households with a visit to pay for plan minimum food first on every payment sequence (legacy already does this for everyone). Without that, the payment-sequence planner splits a budget held at the food cost by preference: in the first cut, queued households short of minimum food on income_first rose from 10% to 26% in ticks 101-200.
-- **Diagnostics:** on the payment arms, `payment_book.obligation_pressure` gains `healthcare_reserve`, and `estimated_discretionary_liquidity` is net of it.
-- **Unchanged:** nothing is charged or moved before service, and the charge at service is unchanged.
-- **Known limitation (government's, not fixed here):** settlement still charges a stale queue entry that the getter prices at $0.
-
-Evidence: `test_households_healthcare_food_first.py` (unit tests, a 200-case property test of the budget rule, the stock-less and one-unit sellers, the sold-out income_first claim, and live `Economy.step()` runs on all three sequences). Evidence panel (#58), 3 sequences x 5 seeds, arms main / off / on: see the PR.
-
 ### 2026-10-21: Skills learned on the job wear off out of work, never below week-1 skill (households, default on)
 
 Rebuild of #39 from `main`, after Claude's round-2 review (2026-10-21). Ayman approved it default on (2026-10-22): skill should decrease over time while not working. Rules v1.8 records it. His earlier rule stands: *"skill loss needs a floor... the floor is where a household starts in week 1."*
@@ -54,6 +36,24 @@ Evidence: `test_contract_government_objective_uses_long_run_unemployment_band`.
 The bot PRs each brought their own study script, with different household and firm counts, payment sequences, run lengths, seed sets and real-GDP deflators, so reviews kept stalling on numbers that could not be compared or reproduced. `backend/tools/benchmarks/run_evidence_panel.py` is one command that runs every arm on every payment sequence and seed at the dashboard's defaults (1,000 households, 5 firms per category, `income_first` first, seeds 42-46, 260 ticks), one process per run, and writes a paired table by tick window with identity, determinism and money checks. Arms can come from different checkouts, so a PR's flag-off state is compared with `main` directly. Tooling only: no simulation code, config default or flag changes.
 
 Evidence: `backend/tests_contracts/test_evidence_panel.py` (7 tests).
+
+### 2026-10-20: Food first, then the queued doctor's visit (households, default on; re-cut of #47)
+
+Ayman's decision on #47: the doctor's visit comes after food, on every payment setting. New switch `CONFIG.households.healthcare_food_first_reserve`, default `True`. Ayman approved the order and default on (2026-10-22: the visit "makes sense to be later than food"); the switch stays as a kill-switch. Rules v1.9 records it (provisional, renumber at merge). With the switch off, runs are identical to `main` (see the PR's panel checks).
+
+- **Claim order** in `Economy._household_consumption_budgets`, on every payment sequence:
+  1. rent and loan installments (`_legacy_obligations_due` on legacy, `planning_inputs` on the payment arms, both as before);
+  2. minimum food, `min_food_per_tick` x the highest posted price among Food sellers with stock (`_min_food_cost`; crew charter Q6-B, 2026-10-21; sellers with `inventory_units <= 0` are left out while anyone has stock). When none have stock, the claim uses the highest posted price among all active Food firms. `income_first` and `income_late` plan before production, so a tick that opens with every Food firm sold out would otherwise price food at 0 and let the visit reserve take that money. The claim is 0 only when no Food firm posts a positive finite price;
+  3. the queued visit's expected out-of-pocket cost, capped at what food leaves (`_healthcare_food_first_reserves`);
+  4. the rest of the budget.
+- **Drawdown before the reserve (round-2 item 54.1):** the savings and desperation drawdowns are computed on the liquidity before the reserve, and the reserve only caps the result: budget = min(flag-off budget, liquidity - reserve). So the budget never falls below min(flag-off budget, minimum-food cost).
+- **Visit cost:** read once per budget pass from government's queue walk, the body of `Economy.expected_healthcare_out_of_pocket_all()` (#45). It gives $0 for covered care and for a household that is not validly queued (missing or non-Healthcare firm, not in the queue). A provider with a NaN or infinite price is left out of the budget pass's walk, so its households reserve $0 instead of the getter's `ValueError` failing every budget pass (main's legacy charge reads a NaN price as $0). The public getters still raise.
+- **Planner:** households with a visit to pay for plan minimum food first on every payment sequence (legacy already does this for everyone; food-first for every household is not built, crew charter Q5). Without that, the payment-sequence planner splits a budget held at the food cost by preference: in the first cut, queued households short of minimum food on income_first rose from 10% to 26% in ticks 101-200.
+- **Diagnostics:** on the payment arms, `payment_book.obligation_pressure` gains `healthcare_reserve`, and `estimated_discretionary_liquidity` is net of it.
+- **Unchanged:** nothing is charged or moved before service, and the charge at service is unchanged.
+- **Known limitation (government's, not fixed here):** settlement still charges a stale queue entry that the getter prices at $0.
+
+Evidence: `test_households_healthcare_food_first.py` (unit tests, a 200-case property test of the budget rule, the stock-less and one-unit sellers, the sold-out income_first claim, a NaN or infinite clinic price, and live `Economy.step()` runs on all three sequences). Evidence panel (#58), 3 sequences x 5 seeds, arms main / off / on: see the PR.
 
 ### 2026-10-20: Read-only estimate of what a queued healthcare visit will cost the household
 
