@@ -4,7 +4,7 @@
 # The Docker image installs backend/requirements.lock only. CI and the
 # evidence panel workflow install both files:
 #
-#    pip install -c backend/requirements.lock -c backend/requirements-test.lock -e ".[test,ml]"
+#    pip install -r backend/requirements.lock -r backend/requirements-test.lock -e ".[test,ml]"
 #
 # Pins come from the Python 3.11 resolution of
 #    pip-compile --extra=ml --extra=test --strip-extras pyproject.toml

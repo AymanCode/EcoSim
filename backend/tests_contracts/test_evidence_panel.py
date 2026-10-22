@@ -583,6 +583,9 @@ def test_workflow_trust_permissions_and_event_boundaries():
         ]
         assert all(x["with"]["persist-credentials"] is False for x in checkouts)
         assert not any(x.get("with", {}).get("cache") == "pip" for x in steps)
+        install = next(x['run'] for x in steps if x.get('name', '').startswith('Install evaluator'))
+        assert 'requirements=(-r backend/requirements.lock)' in install
+        assert 'requirements+=(-r backend/requirements-test.lock)' in install
         run = next(x for x in steps if "panel from base" in x.get("name", "").lower())
         assert run["working-directory"] == "evaluator"
         assert '--root off "$GITHUB_WORKSPACE/candidate"' in run["run"]

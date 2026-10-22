@@ -34,7 +34,7 @@ jobs:
             backend/requirements-test.lock
 
       - name: Install dependencies
-        run: pip install -c backend/requirements.lock -c backend/requirements-test.lock -e ".[test,ml]"
+        run: pip install -r backend/requirements.lock -r backend/requirements-test.lock -e ".[test,ml]"
 
       - name: Python correctness lint
         run: python -m ruff check .

@@ -129,11 +129,11 @@ jobs:
       - name: Install evaluator runtime and test locks
         working-directory: evaluator
         run: |
-          constraints=(-c backend/requirements.lock)
+          requirements=(-r backend/requirements.lock)
           if [ -f backend/requirements-test.lock ]; then
-            constraints+=(-c backend/requirements-test.lock)
+            requirements+=(-r backend/requirements-test.lock)
           fi
-          python -m pip install "${constraints[@]}" -e ".[test,ml]"
+          python -m pip install "${requirements[@]}" -e ".[test,ml]"
       - name: Fast panel from base (5 seeds, 104 weeks, 3 sequences)
         working-directory: evaluator
         run: |
@@ -211,11 +211,11 @@ jobs:
       - name: Install evaluator runtime and test locks (no shared pip cache)
         working-directory: evaluator
         run: |
-          constraints=(-c backend/requirements.lock)
+          requirements=(-r backend/requirements.lock)
           if [ -f backend/requirements-test.lock ]; then
-            constraints+=(-c backend/requirements-test.lock)
+            requirements+=(-r backend/requirements-test.lock)
           fi
-          python -m pip install "${constraints[@]}" -e ".[test,ml]"
+          python -m pip install "${requirements[@]}" -e ".[test,ml]"
       - name: Full panel from base
         working-directory: evaluator
         env:
