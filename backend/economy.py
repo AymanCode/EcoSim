@@ -46,6 +46,7 @@ from fiscal_guards import (
     projected_public_works_startup_cost,
     public_works_affordable_budget,
     trailing_gdp,
+    treasury_net_position,
 )
 import numpy as np
 import math
@@ -284,12 +285,18 @@ class Economy:
         self.last_tick_gov_public_works_affordable_budget: float = 0.0
         self.last_tick_gov_public_works_jobs_authorized: int = 0
         self.last_tick_gov_post_warmup_stimulus: float = 0.0
+        # Treasury's share of legacy exit deficits this tick (phase 12; see
+        # _settle_legacy_exit_deficit), counted in this tick's spending.
+        self.last_tick_gov_exit_deficit_cover: float = 0.0
         self.sector_subsidy_cap_this_tick: float = 0.0
         self.sector_subsidy_remaining_this_tick: float = 0.0
         self.last_tick_gov_subsidy_requested: float = 0.0
         self.last_tick_gov_subsidy_denied_by_cap: float = 0.0
         self.last_fiscal_pressure_instant_ratio: float = 0.0
         self.last_fiscal_pressure_denominator_gdp: float = 1.0
+        # Fiscal pressure before this tick's phase 11.7 update, so a later
+        # phase-12 outflow can be folded into the same tick's update.
+        self.last_fiscal_pressure_prior: float = 0.0
         self.bailout_eligible_firms_by_sector: Dict[str, int] = {}
         self.bailout_denied_firms_by_reason: Dict[str, int] = {}
         self.bailout_received_by_firm_id: Dict[int, float] = {}
@@ -319,6 +326,10 @@ class Economy:
         # (owner decision 2026-09-29, rules doc K02).
         self.external_injection_this_tick: float = 0.0
         self.external_injection_total: float = 0.0
+        # Negative cash that legacy firms exited with, by who paid it
+        # (cumulative, currency; market.settle_legacy_exit_deficit).
+        self.legacy_exit_deficit_treasury_total: float = 0.0
+        self.legacy_exit_deficit_bank_total: float = 0.0
         self.misc_firm_beneficiaries: List[int] = []  # household_ids who receive payouts
         self._initialize_misc_firm_beneficiaries()
         self.post_warmup_stimulus_ticks: int = 0
@@ -907,6 +918,7 @@ class Economy:
         """
         households = self.households
         preference_once = bool(CONFIG.households.fix_preference_applied_once)
+        skills_key = bool(CONFIG.households.skills_dynamics)
         cached = self._household_static_traits_cache
         # Holding the list itself (not its id) means a replaced list can never
         # match through a reused id.
@@ -914,7 +926,7 @@ class Economy:
             cached is not None
             and cached[0] is households
             and cached[1] == len(households)
-            and cached[2] == preference_once
+            and cached[2] == (preference_once, skills_key)
         ):
             return cached[3]
 
@@ -959,8 +971,61 @@ class Economy:
             "drawdown_rates": drawdown_rates,
             "precomputed_fractions": precomputed_fractions,
         }
-        self._household_static_traits_cache = (households, len(households), preference_once, traits)
+        if skills_key:
+            # skills_dynamics: the per-household learning trait, read by the
+            # weekly grant (skills_weekly_learning).
+            traits["skill_growth_rates"] = np.array(
+                [float(h.skill_growth_rate) for h in households], dtype=np.float64
+            )
+        self._household_static_traits_cache = (
+            households, len(households), (preference_once, skills_key), traits
+        )
         return traits
+
+    def _batch_update_skills(self) -> None:
+        """Weekly skill update under ``CONFIG.households.skills_dynamics``.
+
+        Runs once per tick after labor outcomes and roster sync.
+
+        - Out of work: on-the-job skill wears off at a fixed rate, never below
+          the household's week-1 skill ``f`` (``HouseholdAgent.skill_floor``):
+          ``s = max(f, s - a / 52)`` with ``a =
+          skill_loss_per_year_out_of_work``. At or below ``f`` nothing changes.
+        - Employed: nothing here by default; learning stays main's yearly
+          grant in ``HouseholdAgent``. With ``skills_weekly_learning`` on,
+          ``s += g * (1 - s)`` each week, ``g`` the household's
+          ``skill_growth_rate`` trait.
+
+        ``skill_floor`` is the household's skill before its first update (its
+        starting skill, or its skill the week the flag is switched on). Paid
+        education (``maybe_active_education``) raises the floor by the skill
+        it buys, so schooling is not worn off. Result is clipped to [0, 1].
+        """
+        households = self.households
+        n = len(households)
+        if n == 0:
+            return
+        weekly_learning = bool(CONFIG.households.skills_weekly_learning)
+        weekly_loss = float(CONFIG.households.skill_loss_per_year_out_of_work) / 52.0
+        for household in households:
+            if household.skill_floor is None:
+                household.skill_floor = float(household.skills_level)
+        skills = np.fromiter((h.skills_level for h in households), dtype=np.float64, count=n)
+        floors = np.fromiter((h.skill_floor for h in households), dtype=np.float64, count=n)
+        employed = np.fromiter((h.employer_id is not None for h in households), dtype=bool, count=n)
+        if weekly_learning:
+            learn = self._household_static_traits()["skill_growth_rates"]
+            employed_next = skills + learn * (1.0 - skills)
+        else:
+            employed_next = skills
+        updated = np.where(
+            employed,
+            employed_next,
+            np.where(skills > floors, np.maximum(floors, skills - weekly_loss), skills),
+        )
+        np.clip(updated, 0.0, 1.0, out=updated)
+        for household, value in zip(households, updated.tolist()):
+            household.skills_level = value
 
     def _household_consumption_budgets(
         self,
@@ -1491,6 +1556,176 @@ class Economy:
             if abs(taxes_paid) > 1e-12:
                 ledger["taxes"] = ledger.get("taxes", 0.0) - float(taxes_paid)
 
+    def sector_subsidy_budget_left(self) -> float:
+        """$ the treasury can still pay toward sector subsidies this tick (read-only).
+
+        The cap ``apply_sector_subsidy_payment`` pays against. Legacy path:
+        the smaller of the per-tick subsidy budget left
+        (``sector_subsidy_remaining_this_tick``) and free treasury cash, or 0
+        when free cash is not positive. Payment arms: the ``G`` restriction.
+        """
+        if self.payment_sequence != "legacy":
+            return self.payment_state["restrictions"].get("G", 0.0)
+        free_cash = self._payment_free_treasury_cash()
+        if free_cash <= 0.0:
+            return 0.0
+        return min(max(0.0, self.sector_subsidy_remaining_this_tick), free_cash)
+
+    def _healthcare_quote_share(self, visit_price: float, budget_before_visit: float) -> float:
+        """Household share of one visit as the provider quotes it (the R06 information assumption).
+
+        Owner-approved 2026-10-22, the assumption is option A: when a
+        household budgets, its provider quotes the out-of-pocket price from
+        the live subsidy budget and the household's
+        place in the queue. The quote is not binding; the visit is still
+        charged when served. The household sees the quote only, not the
+        treasury state behind it.
+
+        This is the one place the assumption lives:
+        - Option B (the household knows the subsidy rate only, not the cap):
+          pass ``subsidy_budget_left=math.inf`` here instead.
+        - Option C (a binding quote, subsidy earmarked at queue time) also
+          needs the charge path to honor the quote; that is a behavior
+          change outside this getter.
+        """
+        return self.government.expected_healthcare_household_share(
+            visit_price, subsidy_budget_left=budget_before_visit
+        )
+
+    def _healthcare_quote_walk(self) -> Dict[int, Tuple[FirmAgent, float]]:
+        """One queue walk: ``{household_id: (provider, estimated share 0..1)}`` for every queued household.
+
+        Read-only: nothing is charged, reserved, reordered or recorded.
+        Mirrors the charge path of the active payment sequence.
+
+        ``legacy`` (charged in ``_process_healthcare_services``): walks each
+        healthcare firm's queue in the order the charge serves it (sick doctors
+        first, then the tick/firm rotation) and starts from this tick's
+        subsidy budget (``sector_subsidy_budget_left``). Each visit is quoted
+        against the budget left after the visits before it, and each visit
+        within this tick's slots takes its subsidy off that budget, so several
+        queued visits are not all promised the same money. A household past
+        this tick's slots is quoted against what is left after the served
+        visits (the conservative quote; owner-approved 2026-10-22); it will
+        in fact be charged against a later tick's budget.
+
+        Known gaps, both small and both toward reserving too much: a served
+        visit refused for affordability refunds its subsidy to later visits,
+        and staffing (so slots) can change between the budget phase and the
+        charge.
+
+        ``income_first`` / ``income_late`` (charged in
+        ``payment_sectors.settle_payment_care``): the sector subsidy lever does
+        not apply; every queued household gets 0.0 if
+        ``payment_care_covered`` else 1.0. A covered visit the care budget
+        cannot fund is not served rather than shifted to the household.
+
+        Information assumption: ``_healthcare_quote_share``. The public
+        getters below all read this one walk.
+
+        Raises:
+            ValueError: a queued provider's price is NaN or infinite.
+            A negative price is clamped to 0, as the charge does
+            (``max(0, price)``).
+        """
+        walk: Dict[int, Tuple[FirmAgent, float]] = {}
+        if self.payment_sequence != "legacy":
+            from payment_sectors import payment_care_covered
+
+            share = 0.0 if payment_care_covered(self) else 1.0
+            for firm in self._healthcare_firms():
+                for household_id in firm.healthcare_queue:
+                    household = self.household_lookup.get(household_id)
+                    if household is not None and household.queued_healthcare_firm_id == firm.firm_id:
+                        walk[household_id] = (firm, share)
+            return walk
+
+        threshold = CONFIG.households.healthcare_worker_priority_health_threshold
+
+        def sick_doctor(household_id: int) -> bool:
+            household = self.household_lookup.get(household_id)
+            return (
+                household is not None
+                and household.medical_training_status == "doctor"
+                and household.health < threshold
+            )
+
+        budget = self.sector_subsidy_budget_left()
+        for firm in self._healthcare_firms():
+            if not firm.healthcare_queue:
+                continue
+            # Same order as _prioritize_healthcare_queue + the rotation in
+            # _process_healthcare_services, computed without writing the queue.
+            queue = [h for h in firm.healthcare_queue if sick_doctor(h)]
+            queue += [h for h in firm.healthcare_queue if not sick_doctor(h)]
+            if len(queue) > 1 and not sick_doctor(queue[0]):
+                start = (self.current_tick + firm.firm_id) % len(queue)
+                queue = queue[start:] + queue[:start]
+            capacity = self._healthcare_effective_capacity(firm) + max(0.0, firm.healthcare_capacity_carryover)
+            slots = int(math.floor(capacity + 1e-9))
+            price = float(firm.price)
+            if not math.isfinite(price):
+                raise ValueError(f"healthcare firm {firm.firm_id} price must be finite, got {firm.price!r}")
+            price = max(0.0, price)  # the charge reads max(0, price)
+            served = 0
+            for household_id in queue:
+                if self.household_lookup.get(household_id) is None:
+                    continue  # the charge skips it without using a slot
+                share = self._healthcare_quote_share(price, budget)
+                walk[household_id] = (firm, share)
+                if served < slots:
+                    budget = max(0.0, budget - price * (1.0 - share))
+                    served += 1
+        return walk
+
+    def expected_healthcare_household_shares(self) -> Dict[int, float]:
+        """Estimated share (0..1) of its next visit each queued household pays: ``{household_id: share}``.
+
+        Read-only; from the one queue walk (``_healthcare_quote_walk``), so on
+        legacy several queued visits share one subsidy budget in service order
+        and on the payment sequences the share is 0.0 if
+        ``payment_care_covered`` else 1.0. Keys are the households the charge
+        would visit (queue membership), whatever their queue id says.
+        """
+        return {household_id: share for household_id, (_firm, share) in self._healthcare_quote_walk().items()}
+
+    def expected_healthcare_out_of_pocket_all(self) -> Dict[int, float]:
+        """Estimated $ each queued household pays for its visit: ``{household_id: dollars}``, one walk.
+
+        ``price * share`` from the one queue walk, at the posted price of the
+        provider whose queue the household is in (negative reads as 0, as in
+        the charge). The government side checks the household's
+        ``queued_healthcare_firm_id``: it must name an existing firm whose
+        category is Healthcare and whose queue holds the household. A
+        household that fails the check (missing firm, a reused id that now
+        names a Food or other non-healthcare firm, or not in that firm's
+        queue) is left out, which the per-household getter reads as $0. On
+        legacy, firm exits do not clear the queue id and ids are reused, so
+        such stale entries do occur.
+        """
+        dollars: Dict[int, float] = {}
+        for household_id, (firm, share) in self._healthcare_quote_walk().items():
+            household = self.household_lookup.get(household_id)
+            if household is None or household.queued_healthcare_firm_id != firm.firm_id:
+                continue
+            queued_firm = self.firm_lookup.get(household.queued_healthcare_firm_id)
+            if queued_firm is None or (queued_firm.good_category or "").lower() != "healthcare":
+                continue
+            dollars[household_id] = max(0.0, float(firm.price)) * share
+        return dollars
+
+    def expected_healthcare_out_of_pocket(self, household_id: int) -> float:
+        """Estimated $ one household pays for its queued visit (read-only).
+
+        ``expected_healthcare_out_of_pocket_all().get(household_id, 0.0)``: the
+        same walk and the same check, never a second path. Returns 0.0 for an
+        unknown household, no queue id, a queue id naming a missing or
+        non-Healthcare firm, or a household not in that firm's queue. Each
+        call walks every queue; to price many households, call
+        ``expected_healthcare_out_of_pocket_all()`` once.
+        """
+        return self.expected_healthcare_out_of_pocket_all().get(household_id, 0.0)
+
     def apply_sector_subsidy_payment(self, requested_share: float) -> Tuple[float, float]:
         """Pay a sector subsidy request from the shared per-tick subsidy cap.
 
@@ -1504,7 +1739,7 @@ class Economy:
             return 0.0, 0.0
 
         if self.payment_sequence != "legacy":
-            funded = min(requested_share, self.payment_state["restrictions"].get("G", 0.0))
+            funded = min(requested_share, self.sector_subsidy_budget_left())
             if funded:
                 self._payment_spend_restriction("G", funded)
             denied = requested_share - funded
@@ -1515,10 +1750,7 @@ class Economy:
             self.last_tick_gov_subsidy_denied_by_cap += requested_share
             return 0.0, requested_share
 
-        available = min(
-            max(0.0, self.sector_subsidy_remaining_this_tick),
-            self._payment_free_treasury_cash(),
-        )
+        available = self.sector_subsidy_budget_left()
         government_paid = min(requested_share, available)
         denied = requested_share - government_paid
 
@@ -2003,6 +2235,7 @@ class Economy:
         self.last_tick_gov_public_works_affordable_budget = 0.0
         self.last_tick_gov_public_works_jobs_authorized = 0
         self.last_tick_gov_post_warmup_stimulus = 0.0
+        self.last_tick_gov_exit_deficit_cover = 0.0
         self.last_tick_gov_subsidy_requested = 0.0
         self.last_tick_gov_subsidy_denied_by_cap = 0.0
         self.bailout_eligible_firms_by_sector = {}
@@ -2521,6 +2754,9 @@ class Economy:
         # Keep firm-side employee rosters aligned with household employment outcomes.
         # This prevents stale counts in firm telemetry versus unemployment metrics.
         self._sync_firm_employee_rosters()
+        if CONFIG.households.skills_dynamics:
+            # After roster sync, so employment status is final for the week.
+            self._batch_update_skills()
         if payment_arm:
             self.payment_project_worker_by_firm = {}
             if self.config.payment_services_project_enabled:
@@ -2909,6 +3145,10 @@ class Economy:
         total_price_ceiling_taxes = tick.total_price_ceiling_taxes
         total_property_taxes = tick.total_property_taxes
         total_transfers = tick.total_transfers
+        # Phase 11.2: Interest on public debt (G1), before deposit interest so
+        # it counts in the bank's interest income this tick.
+        self.government.pay_public_debt_interest(self.bank, trailing_gdp(self))
+
         # Phase 11.3: Bank deposit sweep & interest (households → bank)
         if self.bank is not None:
             self.bank.update_deposit_rate()  # Fix 22: adjust rate based on reserve ratio
@@ -2936,6 +3176,11 @@ class Economy:
         self.last_tick_gov_social_spending = social_spent
         if social_spent > 0:
             self._collect_misc_revenue(social_spent)
+
+        # Public debt (G1): borrow the shortfall from the bank or repay from
+        # surplus. Runs before the bond buy, which is skipped while debt is
+        # owed. A K06-1 payout change must keep that guard ahead of the surplus.
+        self.government.settle_public_debt(self.bank)
 
         # Bond purchases with surplus — redirect to Misc firm
         govt_investments = self.government.make_investments()
@@ -2984,6 +3229,7 @@ class Economy:
             + self.last_tick_gov_bailouts
             + self.last_tick_gov_public_works_capitalization
             + self.last_tick_gov_post_warmup_stimulus
+            + self.government.last_tick_debt_interest
         )
         self._update_budget_pressure(tick_revenue, tick_spending)
 
@@ -2994,6 +3240,10 @@ class Economy:
         firm_labor_outcomes = tick.firm_labor_outcomes
         # Phase 12: Handle firm bankruptcies and exits
         tick.bankruptcies_this_tick = self._handle_firm_exits()
+        if self.last_tick_gov_exit_deficit_cover > 0.0:
+            # Phase 11.7 ran before exits; count the treasury's exit-deficit
+            # payments in this tick's spending and budget pressure.
+            self._add_spending_to_budget_pressure(self.last_tick_gov_exit_deficit_cover)
 
         # Phase 13: Potentially create new firms
         self._maybe_create_new_firms()
@@ -5808,17 +6058,63 @@ class Economy:
             firm.cash_balance = 0.0
             self._collect_misc_revenue(residual)
 
+    def _settle_legacy_exit_deficit(self, firm: FirmAgent) -> None:
+        """Pay an exiting legacy firm's negative cash so it does not leave with the firm.
+
+        Legacy payroll debits the full wage bill whatever the firm's cash, so a
+        failing firm exits overdrawn. That balance is money already paid out;
+        dropping it with the firm would create the same amount. Who pays (owner
+        decision 2026-10-20): a PublicWorks firm's deficit falls on the
+        treasury, which capitalized it (``_ensure_public_works_capacity``) and
+        is its only funder; so would a registered baseline firm's, but those
+        never exit. Any other firm's falls on its lenders in proportion to
+        what each is still owed: bank-funded loans charge the bank,
+        treasury-funded ones (government-backed bank loans, direct treasury
+        loans) the treasury; with no lender owed anything, the bank. The bank pays no more than its cash above required
+        reserves (``BankAgent.lendable_cash``), the same limit as its lending;
+        the treasury pays the rest. Call before loan write-offs, which read the
+        same balances. Gated by ``CONFIG.market.settle_legacy_exit_deficit``.
+        """
+        deficit = -firm.cash_balance
+        firm.cash_balance = 0.0
+        bank = self.bank
+        bank_share = 0.0
+        public_works = (firm.good_category or "").lower() == "publicworks"
+        if not (public_works or self.government.is_baseline_firm(firm.firm_id)):
+            bank_owed = 0.0
+            treasury_owed = max(0.0, firm.government_loan_remaining)
+            if bank is not None:
+                for loan in bank.loans_for("firm", firm.firm_id):
+                    owed = max(0.0, float(loan["remaining"]))
+                    if loan["govt_backed"]:
+                        treasury_owed += owed
+                    else:
+                        bank_owed += owed
+            total_owed = bank_owed + treasury_owed
+            bank_share = deficit * bank_owed / total_owed if total_owed > MONEY_EPS else deficit
+        bank_paid = min(bank_share, bank.lendable_cash) if bank is not None else 0.0
+        if bank_paid > 0.0:
+            bank.cash_reserves -= bank_paid
+            self.legacy_exit_deficit_bank_total += bank_paid
+        treasury_paid = deficit - bank_paid
+        self.government.cash_balance -= treasury_paid
+        self.legacy_exit_deficit_treasury_total += treasury_paid
+        self.last_tick_gov_exit_deficit_cover += treasury_paid
+
     def _handle_firm_exits(self) -> int:
         """
         Remove bankrupt firms from the economy.
 
         Firms with negative cash below a threshold are removed.
-        Their employees are laid off.
+        Their employees are laid off. On legacy, an exiting firm's negative
+        cash is paid first (``_settle_legacy_exit_deficit``) unless
+        ``CONFIG.market.settle_legacy_exit_deficit`` is off.
 
         Mutates state.
         """
         bankruptcy_threshold = CONFIG.market.bankruptcy_threshold
         zero_cash_max_streak = CONFIG.market.zero_cash_max_streak
+        settle_legacy_deficit = self.payment_sequence == "legacy" and bool(CONFIG.market.settle_legacy_exit_deficit)
         registered_by_firm = {}
         if self.payment_sequence != "legacy" and self.bank is not None:
             for loan in self.bank.active_loans:
@@ -5920,6 +6216,9 @@ class Economy:
             # Clean up firm cache
             if firm.firm_id in self.firm_lookup:
                 del self.firm_lookup[firm.firm_id]
+
+            if settle_legacy_deficit and firm.cash_balance < 0.0:
+                self._settle_legacy_exit_deficit(firm)
 
             # Write off bank loans on bankruptcy
             if self.bank is not None and self.payment_sequence == "legacy":
@@ -7951,11 +8250,8 @@ class Economy:
         if not healthcare_firms:
             return
 
-        # Use sector_subsidy lever if targeting healthcare; otherwise fall back to config
-        if self.government.sector_subsidy_target == "healthcare" and self.government._sector_subsidy_rate > 0:
-            subsidy_share = self.government._sector_subsidy_rate
-        else:
-            subsidy_share = max(0.0, min(1.0, CONFIG.government.healthcare_visit_subsidy_share))
+        # Same share rule as GovernmentAgent.expected_healthcare_household_share.
+        subsidy_share = self.government.healthcare_visit_subsidy_share()
 
         for firm in healthcare_firms:
             firm.inventory_units = 0.0
@@ -8144,6 +8440,7 @@ class Economy:
         self,
         revenue: float,
         spending: float,
+        gdp: Optional[float] = None,
     ) -> None:
         """Update the government's soft budget constraint each tick.
 
@@ -8165,8 +8462,11 @@ class Economy:
         Args:
             revenue: Total government revenue this tick (taxes + loan repayments).
             spending: Total government spending this tick (transfers + investments + subsidies).
+            gdp: GDP denominator to use; by default it is read from current state.
         """
-        gdp = max(self._fiscal_pressure_denominator_gdp(), 1.0)
+        if gdp is None:
+            gdp = max(self._fiscal_pressure_denominator_gdp(), 1.0)
+        self.last_fiscal_pressure_prior = self.government.fiscal_pressure
 
         deficit_this_tick = spending - revenue
         instant_ratio = deficit_this_tick / gdp
@@ -8197,6 +8497,23 @@ class Economy:
         else:
             # Austerity: hard floor at 0.5
             self.government.spending_efficiency = 0.5
+
+    def _add_spending_to_budget_pressure(self, amount: float) -> None:
+        """Redo this tick's budget-pressure update with ``amount`` more spending.
+
+        For a treasury outflow that happens after phase 11.7 (legacy exit
+        deficits at phase 12). Starts again from the pressure before the 11.7
+        update, with 11.7's revenue and GDP denominator (exits remove firms
+        from that denominator), so the result equals counting ``amount`` at
+        11.7. Nothing reads the pressure between the two phases.
+        """
+        government = self.government
+        government.fiscal_pressure = self.last_fiscal_pressure_prior
+        self._update_budget_pressure(
+            government.last_tick_revenue,
+            government.last_tick_spending + amount,
+            gdp=self.last_fiscal_pressure_denominator_gdp,
+        )
 
     # ── Bank integration methods ──────────────────────────────────────
 
@@ -8878,6 +9195,7 @@ class Economy:
 
         # Government metrics — derived numeric parameters
         metrics["government_cash"] = gov.cash_balance
+        metrics["government_net_position"] = treasury_net_position(gov)
         metrics["wage_tax_rate"] = gov.wage_tax_rate
         metrics["profit_tax_rate"] = gov.profit_tax_rate
         metrics["unemployment_benefit"] = gov.unemployment_benefit_level
@@ -8889,7 +9207,8 @@ class Economy:
         metrics["external_injection_total"] = float(self.external_injection_total)
 
         # Government metrics — budget pressure
-        metrics["deficit_ratio"] = max(0.0, -gov.cash_balance) / max(metrics["gdp_this_tick"], 1.0)
+        # Net of public debt (G1): with no debt this is negative cash, as before.
+        metrics["deficit_ratio"] = max(0.0, -treasury_net_position(gov)) / max(metrics["gdp_this_tick"], 1.0)
         metrics["fiscal_pressure"] = gov.fiscal_pressure
         metrics["fiscal_pressure_instant_ratio"] = self.last_fiscal_pressure_instant_ratio
         metrics["fiscal_pressure_denominator_gdp"] = self.last_fiscal_pressure_denominator_gdp
@@ -8929,6 +9248,11 @@ class Economy:
         metrics["recent_gdp"] = recent_gdp
         metrics["public_debt"] = float(getattr(gov, "public_debt", 0.0))
         metrics["annualized_debt_to_gdp"] = annualized_debt_to_gdp(gov, recent_gdp)
+        metrics["gov_debt_rate_annual"] = float(gov.last_tick_debt_rate)
+        metrics["gov_debt_interest_this_tick"] = float(gov.last_tick_debt_interest)
+        metrics["gov_debt_borrowed_this_tick"] = float(gov.last_tick_debt_borrowed)
+        metrics["gov_debt_repaid_this_tick"] = float(gov.last_tick_debt_repaid)
+        metrics["gov_debt_unfunded_this_tick"] = float(gov.last_tick_debt_unfunded)
         metrics["bailout_budget_remaining"] = float(gov.bailout_budget_remaining)
         metrics["bailout_cycle_disbursed"] = float(gov.bailout_cycle_disbursed)
         metrics["bailout_cycle_firms_assisted"] = float(gov.bailout_cycle_firms_assisted)
@@ -8961,6 +9285,9 @@ class Economy:
             metrics["bank_cash_reserves"] = bank.cash_reserves
             metrics["bank_total_deposits"] = bank.total_deposits
             metrics["bank_total_loans_outstanding"] = bank.total_loans_outstanding
+            metrics["bank_public_debt_held"] = bank.public_debt_held
+            metrics["bank_total_assets"] = bank.total_assets
+            metrics["bank_equity"] = bank.equity
             metrics["bank_base_interest_rate"] = bank.base_interest_rate
             metrics["bank_deposit_rate"] = bank.deposit_rate
             metrics["bank_loan_loss_provision"] = bank.loan_loss_provision

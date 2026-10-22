@@ -178,7 +178,11 @@ def _largest_explicit_unmet_sector(unmet_summary: Dict[str, object]) -> str:
 
 def _apply_conservative_policy(economy, metrics: Dict[str, object]) -> Dict[str, object]:
     gov = economy.government
+    # Treasury net position (cash minus public debt, G1): with debt on, borrowing
+    # holds cash near $0, so cash alone would never trigger austerity. With no
+    # public debt this is cash, as on main.
     cash = float(metrics.get("government_cash", gov.cash_balance) or gov.cash_balance)
+    cash -= max(0.0, float(getattr(gov, "public_debt", 0.0) or 0.0))
     unemployment = float(metrics.get("labor_force_unemployment_rate", metrics.get("unemployment_rate", 0.0)) or 0.0)
     gdp = float(metrics.get("gdp_this_tick", 0.0) or 0.0)
     unmet = build_unmet_demand_summary(economy)
@@ -259,6 +263,9 @@ def _apply_conservative_policy(economy, metrics: Dict[str, object]) -> Dict[str,
 
 def _collect_final_summary(economy, rows: List[Dict[str, object]], decisions: List[Dict[str, object]]) -> Dict[str, object]:
     final = rows[-1] if rows else {}
+    # Preserve the pre-debt summary contract when borrowing is off. Existing
+    # debt stays visible if the switch was turned off during the run.
+    debt_visible = bool(CONFIG.government.public_debt_enabled) or _max(rows, "public_debt") > 0.0
     private_real_firms = [
         firm for firm in economy.firms
         if not bool(getattr(firm, "is_baseline", False))
@@ -305,6 +312,11 @@ def _collect_final_summary(economy, rows: List[Dict[str, object]], decisions: Li
         "final": {
             "tick": int(economy.current_tick),
             "government_cash": float(final.get("government_cash", 0.0) or 0.0),
+            **({
+                "government_net_position": float(final.get("government_net_position", 0.0) or 0.0),
+                "public_debt": float(final.get("public_debt", 0.0) or 0.0),
+                "debt_interest_paid": sum(float(row.get("gov_debt_interest_this_tick", 0.0) or 0.0) for row in rows),
+            } if debt_visible else {}),
             "gdp": float(final.get("gdp_this_tick", 0.0) or 0.0),
             "unemployment_rate": float(final.get("unemployment_rate", 0.0) or 0.0),
             "labor_force_unemployment_rate": float(final.get("labor_force_unemployment_rate", 0.0) or 0.0),
@@ -334,12 +346,14 @@ def _collect_final_summary(economy, rows: List[Dict[str, object]], decisions: Li
         },
         "mins": {
             "government_cash": _min(rows, "government_cash"),
+            **({"government_net_position": _min(rows, "government_net_position")} if debt_visible else {}),
             "gdp": _min(rows, "gdp_this_tick"),
             "mean_health": _min(rows, "mean_health"),
             "mean_happiness": _min(rows, "mean_happiness"),
         },
         "maxes": {
             "unemployment_rate": _max(rows, "unemployment_rate"),
+            **({"public_debt": _max(rows, "public_debt")} if debt_visible else {}),
             "jobless_rate_total_population": _max(rows, "jobless_rate_total_population"),
             "cannot_work_rate": _max(rows, "cannot_work_rate"),
             "private_expected_sales": max(
@@ -430,6 +444,9 @@ def _money(value: float) -> str:
 
 def write_markdown(path: Path, results: Dict[str, object]) -> None:
     scenarios = results["scenarios"]
+    debt_visible = any("public_debt" in run["final"] for run in scenarios.values())
+    debt_header = " Final Net Position | Min Net Position | Peak Debt | Debt Interest |" if debt_visible else ""
+    debt_separator = "---:|" * 4 if debt_visible else ""
     lines = [
         "# Government Control Comparison",
         "",
@@ -439,8 +456,8 @@ def write_markdown(path: Path, results: Dict[str, object]) -> None:
         "",
         "## Summary Table",
         "",
-        "| Scenario | Final Gov Cash | Min Gov Cash | Avg GDP | Final GDP | Avg Unemp | Final Unemp | Jobless Pop | Cannot Work | Avg Health | Final Health | Avg Happy | Final Happy | Neg Cash Firms | Neg Net Worth Firms |",
-        "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|",
+        f"| Scenario | Final Gov Cash | Min Gov Cash |{debt_header} Avg GDP | Final GDP | Avg Unemp | Final Unemp | Jobless Pop | Cannot Work | Avg Health | Final Health | Avg Happy | Final Happy | Neg Cash Firms | Neg Net Worth Firms |",
+        f"|---|---:|---:|{debt_separator}---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|",
     ]
     for name in SCENARIOS:
         run = scenarios[name]
@@ -448,8 +465,14 @@ def write_markdown(path: Path, results: Dict[str, object]) -> None:
         avg = run["averages"]
         mins = run["mins"]
         neg = run["firm_negative_counts"]
+        debt_cells = (
+            f"{_money(final.get('government_net_position', final['government_cash']))} | "
+            f"{_money(mins.get('government_net_position', mins['government_cash']))} | "
+            f"{_money(run['maxes'].get('public_debt', 0.0))} | {_money(final.get('debt_interest_paid', 0.0))} | "
+        ) if debt_visible else ""
         lines.append(
             f"| {name} | {_money(final['government_cash'])} | {_money(mins['government_cash'])} | "
+            f"{debt_cells}"
             f"{_money(avg['gdp'])} | {_money(final['gdp'])} | "
             f"{avg['unemployment_rate'] * 100.0:.1f}% | {final['unemployment_rate'] * 100.0:.1f}% | "
             f"{final['jobless_rate_total_population'] * 100.0:.1f}% | {final['cannot_work_rate'] * 100.0:.1f}% | "

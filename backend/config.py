@@ -163,6 +163,32 @@ class HouseholdBehaviorConfig:
     reservation_markup_range: Tuple[float, float] = (1.02, 1.20)
     min_cash_aggressive_search_range: Tuple[float, float] = (60.0, 180.0)
     skill_growth_rate_range: Tuple[float, float] = (0.0005, 0.002)
+    # --- Skills dynamics (households skills PR), default on -------------------
+    # skills_dynamics: bool, default True. Out of work, a household loses
+    #   on-the-job skill at a fixed rate, never below its week-1 skill
+    #   (HouseholdAgent.skill_floor): each week Economy._batch_update_skills
+    #   sets s = max(f, s - a / 52) when s > f, with a =
+    #   skill_loss_per_year_out_of_work. At or below f nothing changes. Paid
+    #   education raises f by the skill it buys. On-the-job learning keeps
+    #   main's yearly grant (skill_growth_rate * (1 - s) per week worked,
+    #   credited every 52 ticks). Off: identical to main (skill never falls).
+    skills_dynamics: bool = True
+    # skills_weekly_learning: bool, default False. Only read when
+    #   skills_dynamics is on. When True, the yearly grant is replaced by a
+    #   weekly one, s += g * (1 - s) per week employed (g = the household's
+    #   skill_growth_rate trait, the same per-week rate the yearly grant
+    #   multiplies by weeks worked). Off by default: no source prefers weekly
+    #   crediting.
+    skills_weekly_learning: bool = False
+    # skill_loss_per_year_out_of_work: float, skill units (0-1 scale) lost per
+    #   52 weeks out of work, applied as a / 52 per week and floored at week-1
+    #   skill. Valid: finite, 0 <= a <= 1. Default 0.04, a fixed amount per
+    #   year (not a share of gains), so a year out costs the same early or
+    #   late in a run. Edin & Gustavsson (2008, ILR Review 61(2)) put a year
+    #   out of work at about 5.5 percentile points of skill. Cohen, Johnston
+    #   & Lindner (2025, AEJ: Applied 17(3)) find no measurable general-skill
+    #   decline, so the loss is bounded to on-the-job gains by the floor.
+    skill_loss_per_year_out_of_work: float = 0.04
     initial_happiness_range: Tuple[float, float] = (0.60, 0.80)
     initial_morale_range: Tuple[float, float] = (0.60, 0.80)
     happiness_decay_rate_range: Tuple[float, float] = (0.0015, 0.0025)
@@ -344,9 +370,11 @@ class HouseholdBehaviorConfig:
     # posted price this tick instead of price_beliefs["housing"/"food"], keys
     # no writer uses (so they always fell back to default_price_level).
     fix_category_price_beliefs: bool = False
-    skill_decay_unemployment_threshold: int = 26  # Ticks unemployed before skill decay starts (~6 months)
-    skill_decay_rate_per_tick: float = 0.002  # Skill loss per tick when decaying
-    skill_decay_floor: float = 0.1  # Minimum skill level (never decay below this)
+    # skill_decay_unemployment_threshold / skill_decay_rate_per_tick /
+    # skill_decay_floor were retired 2026-10-21 (households skills PR): no code
+    # read them, and skills_dynamics below is the one skill-loss mechanism
+    # (rule R12). Their old values (26 ticks, 0.002/tick, floor 0.1) are
+    # recorded in the CHANGELOG entry of that date.
 
     # Feature 2: Buffer-Stock Consumption Model
     target_wealth_income_ratio_base: float = 4.0  # Base target ratio (modified by thriftiness)
@@ -804,6 +832,33 @@ class GovernmentPolicyConfig:
     # firms.price_on_effective_profit_tax False reproduces main. Read each tick.
     profit_tax_style: str = "progressive"
 
+    # Public debt held by the bank (round 1 G1). True (default): when the
+    # treasury ends its spending with negative cash, it borrows from the bank,
+    # up to the bank's lendable cash (reserves above the reserve requirement),
+    # pays weekly interest on what it owes, and repays from cash above its
+    # working balance. Whatever the bank cannot lend stays as negative treasury
+    # cash. False: no new borrowing, identical to main. Debt already owed when
+    # the flag is turned off mid-run keeps paying interest and is repaid from
+    # surplus; it is never frozen or forgiven.
+    public_debt_enabled: bool = True
+    # How much the treasury borrows once it is short:
+    # "buffer" (default): borrow back up to the working balance
+    # (public_debt_cash_buffer_weeks of spending), as the US Treasury's
+    # one-week cash policy does, so cash-limited programs next week see that
+    # balance. "zero" remains valid: borrow only the shortfall, back to $0 of
+    # cash. Under "zero", cash-gated programs spend $0 while borrowing.
+    public_debt_borrow_target: str = "buffer"
+    # Risk premium on public debt, added to the bank's current lending rate,
+    # per unit of annualized debt/GDP (0.035 = 3.5 basis points per percentage
+    # point). Midpoint of Laubach (2009, JEEA 7(4):858-885): a 1 pp rise in
+    # projected debt/GDP raises long-term yields 3-4 bp. Range >= 0.
+    public_debt_risk_premium: float = 0.035
+    # Working balance the treasury keeps before repaying debt, in weeks of its
+    # own spending (last tick's outlays). US Treasury policy since May 2015 is
+    # a cash balance that covers one week of outflows (Treasury Quarterly
+    # Refunding Statement, 6 May 2015). Adaptive: it follows spending. Range >= 0.
+    public_debt_cash_buffer_weeks: float = 1.0
+
 
 @dataclass
 class LaborMarketConfig:
@@ -886,6 +941,16 @@ class MarketMechanicsConfig:
     # Firm Exit/Entry
     bankruptcy_threshold: float = -1000.0
     zero_cash_max_streak: int = 12  # Ticks at zero/negative cash before exit
+    # Legacy payment path only (payment_sequence="legacy"). True (default): a
+    # firm that exits with negative cash has that balance paid before it is
+    # removed (Economy._settle_legacy_exit_deficit): a PublicWorks firm's by
+    # the treasury, which capitalized it; a private firm's by its lenders in proportion to what each is
+    # owed, the bank no further than its cash above required reserves, the
+    # treasury the rest. False: the negative balance leaves with the firm,
+    # creating that much money (behavior before the 2026-10-22 fix); kept for
+    # before/after runs. Which firms exit, and when, is the same either way.
+    # The named payment arms settle exits their own way and ignore this key.
+    settle_legacy_exit_deficit: bool = True
     max_private_competitors: int = 5
     new_firm_demand_threshold: float = 1000.0  # Min household cash
 
@@ -1076,6 +1141,13 @@ class SimulationConfig:
             raise ValueError("food_elasticity must be non-negative")
         if self.households.services_elasticity < 0:
             raise ValueError("services_elasticity must be non-negative")
+        gov = self.government
+        if gov.public_debt_borrow_target not in {"zero", "buffer"}:
+            raise ValueError("public_debt_borrow_target must be 'zero' or 'buffer'")
+        for name in ("public_debt_risk_premium", "public_debt_cash_buffer_weeks"):
+            value = getattr(gov, name)
+            if not (math.isfinite(float(value)) and float(value) >= 0.0):
+                raise ValueError(f"government.{name} must be finite and >= 0")
         if not (math.isfinite(self.households.tie_break_scale) and self.households.tie_break_scale >= 0.0):
             raise ValueError("tie_break_scale must be finite and non-negative")
         if self.labor_market.switcher_vacancy_cap_per_firm < 0:
@@ -1083,6 +1155,17 @@ class SimulationConfig:
         ratio = self.firms.services_expansion_min_excess_demand_ratio
         if not (math.isfinite(ratio) and ratio >= 0.0):
             raise ValueError("services_expansion_min_excess_demand_ratio must be finite and non-negative")
+
+        # Skills dynamics (households skills PR)
+        for name in ("skills_dynamics", "skills_weekly_learning"):
+            if not isinstance(getattr(self.households, name), bool):
+                raise ValueError(f"households.{name} must be a bool")
+        loss = self.households.skill_loss_per_year_out_of_work
+        if isinstance(loss, bool) or not isinstance(loss, (int, float)) or not (math.isfinite(loss) and 0.0 <= loss <= 1.0):
+            raise ValueError("skill_loss_per_year_out_of_work must be finite with 0 <= a <= 1")
+        lo, hi = self.households.skill_growth_rate_range
+        if not (math.isfinite(lo) and math.isfinite(hi) and 0.0 <= lo <= hi <= 0.01):
+            raise ValueError("skill_growth_rate_range must be finite with 0 <= lo <= hi <= 0.01")
 
         # Validate range tuples (low <= high)
         for name, (lo, hi) in [

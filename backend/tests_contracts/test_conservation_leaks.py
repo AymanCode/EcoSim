@@ -570,7 +570,12 @@ def test_a6_a7_legacy_mortgage_is_on_the_bank_ledger_and_serviced_once(fixed_see
 
 
 def test_a6_exiting_firm_mortgage_is_written_off(fixed_seed):
-    """Audit A6: a legacy mortgage left by an exiting firm is written off to the bank."""
+    """Audit A6: a legacy mortgage left by an exiting firm is written off to the bank.
+
+    The firm also exits overdrawn. Its lender (the bank, owed both loans) pays
+    that balance up to its cash above required reserves, the treasury the rest,
+    before the write-off (2026-10-22), so the exit creates no money.
+    """
     economy, housing, _ = _legacy_mortgage_scenario()
     bank = economy.bank
     economy._offer_housing_expansion_loans()
@@ -581,8 +586,266 @@ def test_a6_exiting_firm_mortgage_is_written_off(fixed_seed):
     investment_owed = sum(loan["remaining"] for loan in bank.loans_for("firm", housing.firm_id)) - owed
 
     housing.cash_balance = -1_000_000.0
+    before = total_money_net_of_injections(economy)
+    treasury_before, reserves_before = _payers(economy)
+    bank_pays = min(1_000_000.0, bank.lendable_cash)
     economy._handle_firm_exits()
 
     assert housing not in economy.firms
     assert records[0]["remaining"] == 0.0
     assert bank.loan_loss_provision == pytest.approx(provision_before + owed + investment_owed)
+    assert total_money_net_of_injections(economy) == pytest.approx(before, abs=MONEY_TOL)
+    assert reserves_before - bank.cash_reserves == pytest.approx(bank_pays)
+    assert treasury_before - economy.government.cash_balance == pytest.approx(1_000_000.0 - bank_pays)
+
+
+def _overdrawn_private_firm(economy, firm_id: int = 90, category: str = "Food"):
+    """Add a private firm with one worker; the caller overdraws it."""
+    firm = make_firm(firm_id=firm_id, category=category, is_baseline=False)
+    economy.firms.append(firm)
+    economy.firm_lookup[firm.firm_id] = firm
+    worker = next(h for h in economy.households if h.employer_id is None)
+    worker.employer_id = firm.firm_id
+    worker.wage = firm.wage_offer
+    firm.employees = [worker.household_id]
+    firm.actual_wages = {worker.household_id: firm.wage_offer}
+    firm._invalidate_wage_bill_cache()
+    return firm, worker
+
+
+def _payers(economy):
+    return economy.government.cash_balance, economy.bank.cash_reserves
+
+
+@pytest.mark.parametrize(
+    ("cash", "zero_cash_streak"),
+    [(-1_500.0, 0), (-98.25, CONFIG.market.zero_cash_max_streak)],
+    ids=["below_bankruptcy_threshold", "zero_cash_streak"],
+)
+def test_legacy_private_exit_without_lender_bank_pays_deficit(fixed_seed, cash, zero_cash_streak):
+    """A legacy firm that exits overdrawn must not take its negative balance with it.
+
+    Legacy payroll debits the full wage bill whatever the firm's cash, so a
+    failing firm keeps paying wages it does not have and exits with negative
+    cash. That balance is money already paid out; deleting it with the firm
+    creates the same amount (every seeded legacy drift jump, 2026-10-20). A
+    private firm owing no lender: the bank bears the deficit (owner decision
+    2026-10-20).
+    """
+    economy = _legacy_economy_with_bank()
+    firm, worker = _overdrawn_private_firm(economy)
+    firm.cash_balance = cash
+    firm.zero_cash_streak = zero_cash_streak
+
+    before = total_money_net_of_injections(economy)
+    treasury_before, reserves_before = _payers(economy)
+    economy._handle_firm_exits()
+
+    assert firm not in economy.firms, "precondition: the overdrawn firm did not exit"
+    assert worker.employer_id is None
+    assert total_money_net_of_injections(economy) == pytest.approx(before, abs=MONEY_TOL), (
+        f"exit created {total_money_net_of_injections(economy) - before:+.6f} "
+        f"(firm left with cash {cash:+.2f})"
+    )
+    assert economy.bank.cash_reserves == pytest.approx(reserves_before + cash, abs=MONEY_TOL)
+    assert economy.government.cash_balance == pytest.approx(treasury_before, abs=MONEY_TOL)
+    assert economy.legacy_exit_deficit_bank_total == pytest.approx(-cash, abs=MONEY_TOL)
+    assert economy.last_tick_gov_exit_deficit_cover == 0.0
+
+
+def test_legacy_private_exit_deficit_is_split_across_lenders(fixed_seed):
+    """Lenders still owed bear the deficit in proportion to what each is owed.
+
+    Bank-funded loans charge the bank; treasury-funded ones (government-backed
+    bank loans and direct treasury loans) charge the treasury.
+    """
+    economy = _legacy_economy_with_bank()
+    firm, _ = _overdrawn_private_firm(economy)
+    bank = economy.bank
+    bank_loan = bank.originate_loan("firm", firm.firm_id, 3_000.0, 0.05, 52)
+    backed = bank.issue_government_backed_loan("firm", firm.firm_id, 500.0, 0.01, 52, economy.government)
+    firm.government_loan_remaining = 700.0
+    bank_owed = bank_loan["remaining"]
+    treasury_owed = backed["remaining"] + 700.0
+    firm.cash_balance = -2_000.0
+
+    before = total_money_net_of_injections(economy)
+    treasury_before, reserves_before = _payers(economy)
+    economy._handle_firm_exits()
+
+    bank_share = 2_000.0 * bank_owed / (bank_owed + treasury_owed)
+    assert firm not in economy.firms
+    assert total_money_net_of_injections(economy) == pytest.approx(before, abs=MONEY_TOL)
+    assert reserves_before - economy.bank.cash_reserves == pytest.approx(bank_share)
+    assert treasury_before - economy.government.cash_balance == pytest.approx(2_000.0 - bank_share)
+    assert economy.legacy_exit_deficit_treasury_total == pytest.approx(2_000.0 - bank_share)
+    assert economy.last_tick_gov_exit_deficit_cover == pytest.approx(2_000.0 - bank_share)
+
+
+def test_legacy_bank_pays_deficit_only_from_reserves_above_requirement(fixed_seed):
+    """The bank pays no more than its cash above required reserves, as for lending.
+
+    1,000 in reserves against 8,000 of deposits at the 10% reserve ratio leaves
+    200 the bank can lend; the treasury pays the rest of a 1,500 deficit.
+    """
+    economy = _legacy_economy_with_bank(bank_reserves=1_000.0)
+    bank = economy.bank
+    bank.total_deposits = 8_000.0
+    assert bank.required_reserves == pytest.approx(800.0)
+    firm, _ = _overdrawn_private_firm(economy)
+    firm.cash_balance = -1_500.0
+
+    before = total_money_net_of_injections(economy)
+    treasury_before, _ = _payers(economy)
+    economy._handle_firm_exits()
+
+    assert firm not in economy.firms
+    assert total_money_net_of_injections(economy) == pytest.approx(before, abs=MONEY_TOL)
+    assert bank.cash_reserves == pytest.approx(800.0)
+    assert treasury_before - economy.government.cash_balance == pytest.approx(1_300.0)
+    assert economy.legacy_exit_deficit_bank_total == pytest.approx(200.0)
+    assert economy.legacy_exit_deficit_treasury_total == pytest.approx(1_300.0)
+
+
+@pytest.mark.parametrize("category", ["Housing", "Healthcare"])
+@pytest.mark.parametrize("has_bank", [True, False], ids=["bank_without_lendable_cash", "no_bank"])
+def test_legacy_private_provider_exits_once_with_treasury_fallback(fixed_seed, category, has_bank):
+    """Private providers still exit; their deficit is settled once, even with no bank.
+
+    There is no recurring cover that keeps an insolvent provider operating.
+    Treasury cash may go negative when it is the only available payer.
+    """
+    economy = _legacy_economy_with_bank(bank_reserves=0.0, government_cash=100.0)
+    firm, _ = _overdrawn_private_firm(economy, category=category)
+    firm.cash_balance = -1_500.0
+    if not has_bank:
+        economy.bank = None
+    before = total_money_net_of_injections(economy)
+
+    assert economy._handle_firm_exits() == 1
+    assert firm not in economy.firms
+    assert economy.government.cash_balance == pytest.approx(-1_400.0)
+    assert economy.legacy_exit_deficit_bank_total == 0.0
+    assert economy.legacy_exit_deficit_treasury_total == pytest.approx(1_500.0)
+    assert total_money_net_of_injections(economy) == pytest.approx(before, abs=MONEY_TOL)
+
+    assert economy._handle_firm_exits() == 0
+    assert economy.government.cash_balance == pytest.approx(-1_400.0)
+    assert economy.legacy_exit_deficit_treasury_total == pytest.approx(1_500.0)
+
+
+def test_legacy_public_works_exit_deficit_falls_on_the_treasury(fixed_seed):
+    """A PublicWorks firm is treasury-capitalized and not in the baseline registry.
+
+    It can exit, and it has no private lender: its deficit is the treasury's,
+    never the bank's.
+    """
+    economy = _legacy_economy_with_bank()
+    public = make_firm(firm_id=91, category="Food", is_baseline=True,
+                       good_category="PublicWorks", good_name="PublicWorks91")
+    economy.firms.append(public)
+    economy.firm_lookup[public.firm_id] = public
+    assert not economy.government.is_baseline_firm(public.firm_id)
+    public.cash_balance = -3_000.0
+
+    before = total_money_net_of_injections(economy)
+    treasury_before, reserves_before = _payers(economy)
+    economy._handle_firm_exits()
+
+    assert public not in economy.firms
+    assert total_money_net_of_injections(economy) == pytest.approx(before, abs=MONEY_TOL)
+    assert economy.bank.cash_reserves == pytest.approx(reserves_before)
+    assert treasury_before - economy.government.cash_balance == pytest.approx(3_000.0)
+
+
+@pytest.mark.parametrize("category", ["Food", "Housing", "Services", "Healthcare"])
+def test_legacy_baseline_firms_stay_protected(fixed_seed, category):
+    """Which firms exit is unchanged: registered baseline firms never exit on legacy."""
+    economy = _legacy_economy_with_bank()
+    baseline = next(f for f in economy.firms
+                    if f.good_category == category and economy.government.is_baseline_firm(f.firm_id))
+    baseline.cash_balance = -50_000.0
+    baseline.zero_cash_streak = 10 * CONFIG.market.zero_cash_max_streak
+    treasury_before, reserves_before = _payers(economy)
+
+    economy._handle_firm_exits()
+
+    assert baseline in economy.firms
+    assert baseline.cash_balance == -50_000.0
+    assert _payers(economy) == (treasury_before, reserves_before)
+
+
+def test_legacy_exit_deficit_switch_off_leaves_the_balance_with_the_firm(fixed_seed, monkeypatch):
+    """``settle_legacy_exit_deficit=False`` is the behavior before the fix.
+
+    The firm still exits, nobody pays its negative cash, and the exit creates
+    that much money (kept for before/after runs).
+    """
+    monkeypatch.setattr(CONFIG.market, "settle_legacy_exit_deficit", False)
+    economy = _legacy_economy_with_bank()
+    firm, _ = _overdrawn_private_firm(economy)
+    firm.cash_balance = -1_500.0
+
+    before = total_money_net_of_injections(economy)
+    treasury_before, reserves_before = _payers(economy)
+    economy._handle_firm_exits()
+
+    assert firm not in economy.firms
+    assert total_money_net_of_injections(economy) - before == pytest.approx(1_500.0)
+    assert _payers(economy) == (treasury_before, reserves_before)
+    assert economy.legacy_exit_deficit_bank_total == 0.0
+    assert economy.legacy_exit_deficit_treasury_total == 0.0
+    assert economy.last_tick_gov_exit_deficit_cover == 0.0
+
+
+def test_legacy_tick_with_overdrawn_firm_exit_conserves_money(fixed_seed):
+    """Full legacy tick: an overdrawn private firm pays payroll, sells, exits; money is conserved."""
+    economy = _legacy_economy_with_bank()
+    firm, _ = _overdrawn_private_firm(economy)
+    firm.cash_balance = -5_000.0
+
+    before = total_money_net_of_injections(economy)
+    economy.step()
+
+    assert firm not in economy.firms, "precondition: the overdrawn firm did not exit this tick"
+    drift = total_money_net_of_injections(economy) - before
+    assert abs(drift) <= MONEY_TOL, f"tick with an overdrawn exit drifted {drift:+.6f}"
+    assert economy.legacy_exit_deficit_bank_total > 0.0
+
+
+def test_legacy_exit_deficit_treasury_share_counts_in_this_ticks_fiscal_flows(fixed_seed, monkeypatch):
+    """The treasury's exit payments (phase 12) count as this tick's spending.
+
+    Budget pressure is updated at phase 11.7, before exits. The treasury's share
+    is folded into that same tick's update: spending includes it and the
+    pressure equals counting it at 11.7, against 11.7's GDP denominator.
+    """
+    economy = _legacy_economy_with_bank()
+    firm, _ = _overdrawn_private_firm(economy)
+    firm.cash_balance = -5_000.0
+    firm.government_loan_remaining = 10_000.0  # its only lender is the treasury
+    seen = {}
+    update = economy._update_budget_pressure
+
+    def record_first_update(revenue, spending, gdp=None):
+        if "prior" not in seen:
+            seen.update(prior=economy.government.fiscal_pressure, revenue=revenue, spending=spending)
+        update(revenue, spending, gdp=gdp)
+        seen.setdefault("gdp", economy.last_fiscal_pressure_denominator_gdp)
+
+    monkeypatch.setattr(economy, "_update_budget_pressure", record_first_update)
+    economy.step()
+
+    assert firm not in economy.firms, "precondition: the overdrawn firm did not exit this tick"
+    cover = economy.last_tick_gov_exit_deficit_cover
+    assert cover == pytest.approx(economy.legacy_exit_deficit_treasury_total)
+    assert cover > 0.0
+    assert economy.legacy_exit_deficit_bank_total == 0.0
+    gov = economy.government
+    assert gov.last_tick_spending == pytest.approx(seen["spending"] + cover)
+    assert gov.last_tick_revenue == pytest.approx(seen["revenue"])
+    expected = max(0.95 * seen["prior"] + 0.05 * (seen["spending"] + cover - seen["revenue"]) / seen["gdp"], -0.15)
+    assert gov.fiscal_pressure == pytest.approx(expected)
+    assert economy.last_fiscal_pressure_denominator_gdp == pytest.approx(seen["gdp"])
+    metrics = economy.get_economic_metrics()
+    assert metrics["gov_spending_this_tick"] == pytest.approx(seen["spending"] + cover)
