@@ -12,7 +12,7 @@ Evidence: `backend/tests_contracts/test_evidence_panel.py` (7 tests).
 
 ### 2026-10-20: Read-only estimate of what a queued healthcare visit will cost the household
 
-Households had no way to know what a queued visit would cost them before the charge, so they could not set money aside for it. New read-only getters give that number. No behavior change: per-window metrics hashes equal `main` in 35 paired runs (5 seeds x 7 configurations, 260 ticks; see the PR). Rules revision v1.9 (M03) records the change and its information assumption; it is pending owner approval.
+Households had no way to know what a queued visit would cost them before the charge, so they could not set money aside for it. New read-only getters give that number. No behavior change: per-window metrics hashes equal `main` in 35 paired runs (5 seeds x 7 configurations, 260 ticks; see the PR). The rules revision (M03) is provisional, renumber at merge. It records the change and its information assumption; it is pending owner approval.
 
 - `GovernmentAgent.healthcare_visit_subsidy_share()`: the requested public share on the legacy path, moved out of `Economy._process_healthcare_services` unchanged (the healthcare sector-subsidy rate when that lever is active, else `healthcare_visit_subsidy_share`, default 0). The legacy visit charge now calls it.
 - `GovernmentAgent.expected_healthcare_household_share(visit_price, *, subsidy_budget_left)`: one visit against one explicit budget, `(price - min(price * share, budget)) / price`, clamped to [0, 1]; `1 - share` at price 0. The budget is a required keyword (no silent uncapped default); a NaN budget and a NaN, infinite or negative price raise `ValueError`, a negative budget reads as 0, `inf` means uncapped.

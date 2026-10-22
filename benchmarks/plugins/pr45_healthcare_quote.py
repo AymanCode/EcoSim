@@ -12,7 +12,11 @@ pocket for healthcare this tick. It is reset in
 ``Economy._reset_healthcare_tick_state`` and incremented only when a visit
 is paid, in ``Economy._process_healthcare_services`` (legacy) and
 ``payment_sectors.settle_payment_care`` (payment sequences). There is no
-``last_tick_healthcare_paid`` attribute.
+``last_tick_healthcare_paid`` attribute. On the payment sequences the loan
+is not part of that cash figure, so a visit paid entirely by a medical loan
+has spend 0. Those completed visits stay in ``abs_error_mean``
+(``last_healthcare_units`` > 0). Leaving them out treated a served loan as
+"not served".
 
 On main's checkout (no quote method) every metric is 0.
 """
@@ -75,9 +79,17 @@ def extra_metrics(economy):
         household = lookup.get(hid)
         if household is None:
             continue
+        # A completed visit counts, including cash out-of-pocket of 0.
+        # That 0 is covered care, or a medical loan that paid the whole
+        # patient share. `charged <= 0` used to drop those loan-only visits
+        # together with households still waiting or refused.
+        # `last_healthcare_spend` is cash only, so a full loan enters
+        # abs_error as |quote - 0|. Cash did not exceed the quote, so it
+        # is not an under-quote.
+        served = float(getattr(household, "last_healthcare_units", 0.0) or 0.0) > 0.0
+        if not served:
+            continue
         charged = CHARGE_OF(economy, household)
-        if charged <= 0.0:
-            continue  # not served this tick (still waiting, or refused)
         errs.append(abs(charged - quoted))
         if charged > quoted + 1e-6:
             under += 1

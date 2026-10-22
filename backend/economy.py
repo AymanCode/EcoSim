@@ -1559,7 +1559,9 @@ class Economy:
         getters below all read this one walk.
 
         Raises:
-            ValueError: a queued provider's price is NaN, infinite or negative.
+            ValueError: a queued provider's price is NaN or infinite.
+            A negative price is clamped to 0, as the charge does
+            (``max(0, price)``).
         """
         walk: Dict[int, Tuple[FirmAgent, float]] = {}
         if self.payment_sequence != "legacy":
