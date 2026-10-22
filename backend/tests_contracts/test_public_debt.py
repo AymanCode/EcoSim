@@ -19,16 +19,20 @@ from pathlib import Path
 import pytest
 
 from agents import BankAgent, GovernmentAgent
-from config import CONFIG, SimulationConfig
+from config import CONFIG, SimulationConfig, clone_config, use_config
 from tests_contracts.factories import make_economy
 from tools.benchmarks.regression_snapshot import _set_seed
 from tools.runners.run_large_simulation import create_large_economy
 
 
 @pytest.fixture(autouse=True)
-def _debt_on(monkeypatch):
-    monkeypatch.setattr(CONFIG.government, "public_debt_enabled", True)
-    monkeypatch.setattr(CONFIG.government, "public_debt_borrow_target", "zero")
+def _debt_on():
+    # The stress-run seed helper also writes CONFIG.random_seed. Keep all
+    # per-test settings local so later suites retain their baseline seed.
+    with use_config(clone_config()):
+        CONFIG.government.public_debt_enabled = True
+        CONFIG.government.public_debt_borrow_target = "zero"
+        yield
 
 
 def _money(gov: GovernmentAgent, bank: BankAgent) -> float:

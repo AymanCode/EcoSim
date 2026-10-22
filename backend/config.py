@@ -931,6 +931,16 @@ class MarketMechanicsConfig:
     # Firm Exit/Entry
     bankruptcy_threshold: float = -1000.0
     zero_cash_max_streak: int = 12  # Ticks at zero/negative cash before exit
+    # Legacy payment path only (payment_sequence="legacy"). True (default): a
+    # firm that exits with negative cash has that balance paid before it is
+    # removed (Economy._settle_legacy_exit_deficit): a PublicWorks firm's by
+    # the treasury, which capitalized it; a private firm's by its lenders in proportion to what each is
+    # owed, the bank no further than its cash above required reserves, the
+    # treasury the rest. False: the negative balance leaves with the firm,
+    # creating that much money (behavior before the 2026-10-22 fix); kept for
+    # before/after runs. Which firms exit, and when, is the same either way.
+    # The named payment arms settle exits their own way and ignore this key.
+    settle_legacy_exit_deficit: bool = True
     max_private_competitors: int = 5
     new_firm_demand_threshold: float = 1000.0  # Min household cash
 
