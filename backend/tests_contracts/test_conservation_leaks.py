@@ -707,6 +707,33 @@ def test_legacy_bank_pays_deficit_only_from_reserves_above_requirement(fixed_see
     assert economy.legacy_exit_deficit_treasury_total == pytest.approx(1_300.0)
 
 
+@pytest.mark.parametrize("category", ["Housing", "Healthcare"])
+@pytest.mark.parametrize("has_bank", [True, False], ids=["bank_without_lendable_cash", "no_bank"])
+def test_legacy_private_provider_exits_once_with_treasury_fallback(fixed_seed, category, has_bank):
+    """Private providers still exit; their deficit is settled once, even with no bank.
+
+    There is no recurring cover that keeps an insolvent provider operating.
+    Treasury cash may go negative when it is the only available payer.
+    """
+    economy = _legacy_economy_with_bank(bank_reserves=0.0, government_cash=100.0)
+    firm, _ = _overdrawn_private_firm(economy, category=category)
+    firm.cash_balance = -1_500.0
+    if not has_bank:
+        economy.bank = None
+    before = total_money_net_of_injections(economy)
+
+    assert economy._handle_firm_exits() == 1
+    assert firm not in economy.firms
+    assert economy.government.cash_balance == pytest.approx(-1_400.0)
+    assert economy.legacy_exit_deficit_bank_total == 0.0
+    assert economy.legacy_exit_deficit_treasury_total == pytest.approx(1_500.0)
+    assert total_money_net_of_injections(economy) == pytest.approx(before, abs=MONEY_TOL)
+
+    assert economy._handle_firm_exits() == 0
+    assert economy.government.cash_balance == pytest.approx(-1_400.0)
+    assert economy.legacy_exit_deficit_treasury_total == pytest.approx(1_500.0)
+
+
 def test_legacy_public_works_exit_deficit_falls_on_the_treasury(fixed_seed):
     """A PublicWorks firm is treasury-capitalized and not in the baseline registry.
 

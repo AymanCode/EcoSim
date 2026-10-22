@@ -127,10 +127,12 @@ Private firm behavior includes:
 - survival and burn modes under distress
 - staged layoffs and hiring gates
 - capital investment, service infrastructure, housing unit expansion, and bank/government-backed lending paths
-- bankruptcy when cash falls below the configured threshold or distress persists through the zero-cash guard
+- bankruptcy when cash falls below the configured threshold or distress persists through the zero-cash guard; on the legacy payment sequence a firm can exit overdrawn, and that negative cash is paid before it is removed (a PublicWorks firm's by the treasury, a private firm's by its lenders, the bank only from cash above required reserves; `market.settle_legacy_exit_deficit`, default on)
 - new firm entry into under-served sectors
 
 Baseline firms are protected from bankruptcy and provide a safety-net floor. Public works can create additional baseline-style capacity when enabled by policy.
+
+**vNEXT ? Provisional, renumber at merge (#57 accounting split, 2026-10-22).** Before: removing an overdrawn firm on the legacy payment sequence discarded its negative balance and increased total money by that amount. After: with `market.settle_legacy_exit_deficit=True` (default), its lenders bear the deficit in proportion to their outstanding claims; with no lender the bank bears it, up to cash above required reserves, and the treasury pays the remainder. PublicWorks deficits go entirely to the treasury that capitalized those firms. The treasury share enters the same tick's spending, fiscal balance and budget pressure; contractual loan write-offs remain separate. `False` restores the prior accounting. Exit eligibility stays as on main: all registered baseline providers remain protected, while private Housing and Healthcare firms may exit. There is no recurring provider bailout or baseline retirement in this change. Gradual retirement is separate proposal work, not implemented here.
 
 ## Labor Market
 
