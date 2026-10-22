@@ -4,6 +4,12 @@ Notable changes and decisions for EcoSim, newest first. The project does not use
 
 ## Unreleased
 
+### 2026-10-21: Browser checks wait for the Run screen's fonts
+
+Tooling only (`frontend-react/e2e/`); the app is unchanged. Before: each Playwright spec waited on `document.fonts.ready`, which can settle before `next.css` has declared its Google Fonts faces, so a slow font download swapped fonts in the middle of a layout check. One run on a busy network failed the Main Street Town B case at 1440 px when a stat card's description reflowed (241.4 to 224.6 px). Now: `e2e/fonts.js` waits until both families (Bricolage Grotesque, Instrument Sans) are declared, loads every face, and fails with a plain message after 30 s if they never arrive, so the suite needs the network for Google Fonts. The Run screen itself already re-measures its reserved text when fonts finish loading (`StableText`).
+
+Evidence: with every Google Fonts request held back 1.5 s, 10 of 25 specs failed on `main` (c93db40) and 26 of 26 pass now. The new `e2e/fonts.spec.js` fails against the old wait and passes against the new one, and the normal suite passes 26 of 26.
+
 ### 2026-10-21: Shared evidence panel for behavior-changing PRs
 
 The bot PRs each brought their own study script, with different household and firm counts, payment sequences, run lengths, seed sets and real-GDP deflators, so reviews kept stalling on numbers that could not be compared or reproduced. `backend/tools/benchmarks/run_evidence_panel.py` is one command that runs every arm on every payment sequence and seed at the dashboard's defaults (1,000 households, 5 firms per category, `income_first` first, seeds 42-46, 260 ticks), one process per run, and writes a paired table by tick window with identity, determinism and money checks. Arms can come from different checkouts, so a PR's flag-off state is compared with `main` directly. Tooling only: no simulation code, config default or flag changes.

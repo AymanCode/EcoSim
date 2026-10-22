@@ -50,12 +50,13 @@ npx playwright install chromium   # first run on a machine only
 npm run test:e2e
 ```
 
-`npm run test:e2e` runs the Playwright specs in `e2e/` in Chromium, one worker, in about two minutes. It starts its own Vite dev server on port 4179 (through `npx --yes node@22`, so it follows the Node 22 rule above) and plays the recorded demo at `/?view=next&demo`, so it needs no backend and no other server running. `npm run test` skips `e2e/`. The specs check what jsdom cannot measure:
+`npm run test:e2e` runs the Playwright specs in `e2e/` in Chromium, one worker, in about two minutes. It starts its own Vite dev server on port 4179 (through `npx --yes node@22`, so it follows the Node 22 rule above) and plays the recorded demo at `/?view=next&demo`, so it needs no backend and no other server running. It does need the network: the Run screen's two fonts come from Google Fonts, and every spec waits until both are loaded before measuring (`e2e/fonts.js`), failing after 30 s if they never arrive, because a font that lands in the middle of a check reflows text. `npm run test` skips `e2e/`. The specs check what jsdom cannot measure:
 
 - `no-shift.spec.js`: stepping through every week of the demo at ten widths from 390 to 1440 px, plus a few extra cases (all businesses shown, a town enlarged, a Main Street town picked, a place card kept open), no marked box moves or resizes and the page height stays put (0.5 px tolerance), no clamped text is cut, and no reserved-height box outgrows its reservation. This is the Run screen's no-layout-shift rule.
 - `place-cards.spec.js`: pointing at or tapping each kind of place shows an overlay card that takes no layout space. On phones, place cards may overhang below the drawing.
-- `live-review.spec.js`: incremental frames and command-error notices through the real live controller, scrubbing across a historical policy change, and three-/four-town stat cards with the Town hall drawer open. It mocks the sockets, so it needs no backend. Browser execution of these additions remains unverified in the final-review fix session; see the [fix report](../.superpowers/sdd/2026-10-02-living-town/final-fix-report.md).
+- `live-review.spec.js`: incremental frames and command-error notices through the real live controller, scrubbing across a historical policy change, and three-/four-town stat cards with the Town hall drawer open. It mocks the sockets, so it needs no backend.
 - `town-layers.spec.js`: the town drawings' world layers run no CSS animation while the demo plays, and the pointer passes through the sky and motion layers to the world.
+- `fonts.spec.js`: with every Google Fonts request held back 1.5 s, the shared font wait still returns only once every face of the Run screen's two fonts is loaded.
 
 It is not wired into CI. It prints a plain list of results; a failing run leaves its artifacts in `test-results/`, which is gitignored.
 
