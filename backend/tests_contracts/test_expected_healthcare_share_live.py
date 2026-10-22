@@ -5,9 +5,9 @@ household budgets in (right after legacy phase 5b, or right after the
 payment arms' budget and deposit pass) and compared with what the visit
 actually cost when it was charged later in the same tick.
 
-- Legacy: a 50% healthcare subsidy and a small treasury, so the per-tick cap
-  runs out, binds partway and is slack. The walked estimate is never below
-  the share charged, and equals it except where a refused visit refunded
+- Legacy: a 50% healthcare subsidy, a small treasury and a test subsidy
+  ceiling, so the per-tick cap runs out, binds partway and is slack. The
+  walked estimate is never below the share charged, and equals it except where a refused visit refunded
   subsidy to later visits.
 - income_first / income_late, patient_pay and covered: every care sale leaves
   the household the share read at budget time (1.0 or 0.0), with the
@@ -18,13 +18,28 @@ import contextlib
 import io
 import pytest
 
+import economy as economy_module
+
 from config import CONFIG, clone_config, use_config
 from economy import Economy
 from tools.benchmarks.regression_snapshot import _set_seed
 from tools.runners.run_large_simulation import create_large_economy
 
 
-def test_budget_estimate_matches_every_live_subsidy_payment():
+@pytest.fixture
+def limited_subsidy_budget(monkeypatch):
+    # Exercise partial funding without relying on the rent-dependent GDP and
+    # treasury path to happen to cross a visit's subsidy amount. This fixture
+    # only lowers the real cap; both quote and live charge still use the same
+    # actual budget, cash constraint, queue and settlement paths.
+    original = economy_module.get_sector_subsidy_cap
+    monkeypatch.setattr(
+        economy_module, "get_sector_subsidy_cap",
+        lambda government, recent_gdp: min(10.125, original(government, recent_gdp)),
+    )
+
+
+def test_budget_estimate_matches_every_live_subsidy_payment(limited_subsidy_budget):
     original = Economy.apply_sector_subsidy_payment
     calls = []
 
@@ -42,7 +57,7 @@ def test_budget_estimate_matches_every_live_subsidy_payment():
                 economy = create_large_economy(400, 6)
                 economy.government.set_lever("sector_subsidy_target", "healthcare")
                 economy.government.set_lever("sector_subsidy_level", 50)
-                # A small treasury makes the per-tick cap (2% of cash) bind.
+                # Keep the real treasury constraint as well as the test cap.
                 economy.government.cash_balance = 100_000.0
                 for _ in range(104):
                     economy.step()
@@ -77,7 +92,7 @@ def _healthcare_subsidy_on(economy):
     economy.government.set_lever("sector_subsidy_level", 50)
 
 
-def test_budget_time_estimate_matches_the_legacy_charge():
+def test_budget_time_estimate_matches_the_legacy_charge(limited_subsidy_budget):
     """Read after phase 5b (the household's budget decision), checked against
     every visit completed at phase 6.8 of the same tick."""
     original = Economy._settle_legacy_income_and_plan_shopping
@@ -94,7 +109,7 @@ def test_budget_time_estimate_matches_the_legacy_charge():
 
     def setup(economy):
         _healthcare_subsidy_on(economy)
-        economy.government.cash_balance = 100_000.0  # make the cap bind
+        economy.government.cash_balance = 100_000.0  # retain the real cash constraint
 
     Economy._settle_legacy_income_and_plan_shopping = observe
     try:
