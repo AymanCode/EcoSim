@@ -3363,7 +3363,14 @@ class Economy:
         for firm in self.firms:
             revenue = per_firm_sales.get(firm.firm_id, {}).get("revenue", 0.0)
             if revenue > 0:
-                rd_spending = firm.apply_rd_and_quality_update(revenue)
+                if payment_arm:
+                    # Prior registered/direct debt has already collected. Fund
+                    # discretionary R&D before recording investment or quality.
+                    rd_spending = firm.apply_rd_and_quality_update(
+                        revenue, available_cash=max(0.0, firm.cash_balance)
+                    )
+                else:
+                    rd_spending = firm.apply_rd_and_quality_update(revenue)
                 # Apply investment tax
                 investment_tax = rd_spending * self.government.investment_tax_rate
                 after_tax_investment = rd_spending - investment_tax
