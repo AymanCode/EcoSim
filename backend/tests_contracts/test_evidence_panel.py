@@ -575,8 +575,12 @@ def test_evidence_workflow_lets_eval_read_the_pr_and_cancels_only_the_same_kind(
         "|| github.event.comment.id || github.event_name }}"
     )
 
-    def key(event_name, *, number=None, ref=None, label=None, body=None, comment_id=None):
-        who = number if number is not None else ref
+    def key(event):
+        event_name = event["name"]
+        who = event.get("number", event.get("ref"))
+        label = event.get("label")
+        body = event.get("body")
+        comment_id = event.get("comment_id")
         if label:
             kind = label
         elif event_name == "issue_comment" and (body == "/eval" or (body or "").startswith("/eval ")):
@@ -587,16 +591,17 @@ def test_evidence_workflow_lets_eval_read_the_pr_and_cancels_only_the_same_kind(
             kind = event_name
         return f"evidence-Evidence panel-{event_name}-{who}-{kind}"
 
-    push = key("push", ref="refs/heads/topic")
-    assert push == key("push", ref="refs/heads/topic")
-    assert push != key("push", ref="refs/heads/other")
-    full = key("pull_request_target", number=59, label="eval:full")
-    assert full == key("pull_request_target", number=59, label="eval:full")
-    assert full != key("pull_request_target", number=59, label="bug")
-    assert full != push
-    first_eval = key("issue_comment", number=59, body="/eval", comment_id=1)
-    assert first_eval == key("issue_comment", number=59, body="/eval extra", comment_id=2)
-    assert first_eval != key("issue_comment", number=59, body="looks good", comment_id=3)
+    first_push = key({"name": "push", "ref": "refs/heads/topic", "sha": "e354a53"})
+    later_push = key({"name": "push", "ref": "refs/heads/topic", "sha": "c31da1b"})
+    assert first_push == later_push
+    assert first_push != key({"name": "push", "ref": "refs/heads/other", "sha": "1111111"})
+    full = key({"name": "pull_request_target", "number": 59, "label": "eval:full", "sha": "aaaa"})
+    assert full == key({"name": "pull_request_target", "number": 59, "label": "eval:full", "sha": "bbbb"})
+    assert full != key({"name": "pull_request_target", "number": 59, "label": "bug", "sha": "cccc"})
+    assert full != first_push
+    first_eval = key({"name": "issue_comment", "number": 59, "body": "/eval", "comment_id": 1})
+    assert first_eval == key({"name": "issue_comment", "number": 59, "body": "/eval extra", "comment_id": 2})
+    assert first_eval != key({"name": "issue_comment", "number": 59, "body": "looks good", "comment_id": 3})
 
 
 def test_allow_nonref_stamps_the_panel(tmp_path):
