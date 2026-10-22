@@ -25,6 +25,20 @@ The bot PRs each brought their own study script, with different household and fi
 
 Evidence: `backend/tests_contracts/test_evidence_panel.py` (7 tests).
 
+### 2026-10-20: Read-only estimate of what a queued healthcare visit will cost the household
+
+Households had no way to know what a queued visit would cost them before the charge, so they could not set money aside for it. New read-only getters give that number. No behavior change: on the evidence panel (seeds 42-46, 312 ticks, income_first, income_late and legacy) every standard row's difference from `main` is 0. Rules v1.7 (M03) records the estimate and its information assumption; owner-approved 2026-10-22.
+
+- `GovernmentAgent.healthcare_visit_subsidy_share()`: the requested public share on the legacy path, moved out of `Economy._process_healthcare_services` unchanged (the healthcare sector-subsidy rate when that lever is active, else `healthcare_visit_subsidy_share`, default 0). The legacy visit charge now calls it.
+- `GovernmentAgent.expected_healthcare_household_share(visit_price, *, subsidy_budget_left)`: one visit against one explicit budget, `(price - min(price * share, budget)) / price`, clamped to [0, 1]; `1 - share` at price 0. The budget is a required keyword (no silent uncapped default); a NaN budget and a NaN, infinite or negative price raise `ValueError`, a negative budget reads as 0, `inf` means uncapped.
+- `Economy.sector_subsidy_budget_left()`: the dollars `apply_sector_subsidy_payment` will pay against (legacy: the smaller of the per-tick cap left and free treasury cash, 0 when free cash is not positive; payment arms: the `G` restriction). `apply_sector_subsidy_payment` now reads it.
+- `Economy.expected_healthcare_household_shares()`: `{household_id: share}` for every queued household. On legacy it walks each healthcare queue in the charge's service order (sick doctors first, then the tick/firm rotation) and takes each served visit's subsidy off a running budget, so queued visits are not all promised the same remaining money. Households past this tick's slots are quoted against what is left (conservative; owner-approved 2026-10-22). On `income_first` / `income_late`: 0.0 if `payment_care_covered` else 1.0, whatever the subsidy lever says.
+- `Economy.expected_healthcare_out_of_pocket(household_id)`: dollars, `price * share`; 0.0 when the household is not in a Healthcare firm's queue (also guards the stale queue id left by firm exits on legacy).
+- `Economy._healthcare_quote_share(price, budget)`: the one place the information assumption lives (option A, a non-binding provider quote; owner-approved 2026-10-22).
+- `payment_sectors.payment_care_covered(economy)`: the one coverage rule on the payment sequences (`payment_care_mode == "covered"`). The enqueue quote, `settle_payment_care` and the estimate read it; settlement keeps `main`'s exact `public = price if covered else 0.0`.
+
+Evidence: `tests_contracts/test_expected_healthcare_share.py` (unit, including the three-visit shared-cap case and every bound) and `tests_contracts/test_expected_healthcare_share_live.py` (`Economy.step()` runs: the estimate read at the household's budget phase against every visit charged later in the tick, on legacy and on both payment sequences in both care modes). `tools/benchmarks/run_healthcare_share_snapshot.py` runs each configuration in its own process with `_set_seed` and hashes the metrics by window. `benchmarks/plugins/pr45_healthcare_quote.py` is the panel metric (quote versus `HouseholdAgent.last_healthcare_spend`). The `openwiki/backend/public-institutions.md` page predates these getters and needs a regeneration.
+
 ### 2026-10-16: Poverty and wealth-loss terms read liquid wealth
 
 Bug fix from the PR7 investigation (item 3). `Economy._batch_update_wellbeing` read `cash_balance` alone for the poverty penalties and the wealth-loss term. The weekly deposit sweep runs after `last_tick_cash_start` is set and before wellbeing, so saving money in the bank counted as a wealth loss. The legacy withdrawal refills cash only to about 160, below the 200 poverty line, so households with savings were also scored as poor.
