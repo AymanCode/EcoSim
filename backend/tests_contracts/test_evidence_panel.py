@@ -547,6 +547,58 @@ def test_state_digest_hashes_loan_remaining():
     assert before["combined"] != after["combined"]
 
 
+def test_evidence_workflow_lets_eval_read_the_pr_and_cancels_only_the_same_kind():
+    import yaml
+
+    path = Path(__file__).resolve().parents[2] / ".github" / "workflows" / "evidence-panel.yml"
+    text = path.read_text(encoding="utf-8")
+    assert "${{ secrets" not in text
+    assert "\nsecrets:" not in text
+    doc = yaml.safe_load(text)
+    jobs = doc["jobs"]
+    assert jobs["full"]["permissions"] == {"contents": "read", "pull-requests": "read"}
+    assert "pulls.get" in jobs["full"]["steps"][0]["with"]["script"]
+    assert jobs["fast"]["permissions"] == {"contents": "read"}
+    assert jobs["comment"]["permissions"] == {"contents": "read", "pull-requests": "write"}
+    for name, job in jobs.items():
+        assert "secrets" not in job
+        if name != "comment":
+            assert job["permissions"].get("pull-requests") != "write"
+
+    group = doc["concurrency"]["group"]
+    assert doc["concurrency"]["cancel-in-progress"] is True
+    assert group == (
+        "evidence-${{ github.workflow }}-${{ github.event_name }}-"
+        "${{ github.event.issue.number || github.event.pull_request.number || github.ref }}-"
+        "${{ github.event.label.name || ((github.event_name == 'issue_comment' && "
+        "(github.event.comment.body == '/eval' || startsWith(github.event.comment.body, '/eval '))) && 'eval') "
+        "|| github.event.comment.id || github.event_name }}"
+    )
+
+    def key(event_name, *, number=None, ref=None, label=None, body=None, comment_id=None):
+        who = number if number is not None else ref
+        if label:
+            kind = label
+        elif event_name == "issue_comment" and (body == "/eval" or (body or "").startswith("/eval ")):
+            kind = "eval"
+        elif comment_id is not None:
+            kind = comment_id
+        else:
+            kind = event_name
+        return f"evidence-Evidence panel-{event_name}-{who}-{kind}"
+
+    push = key("push", ref="refs/heads/topic")
+    assert push == key("push", ref="refs/heads/topic")
+    assert push != key("push", ref="refs/heads/other")
+    full = key("pull_request_target", number=59, label="eval:full")
+    assert full == key("pull_request_target", number=59, label="eval:full")
+    assert full != key("pull_request_target", number=59, label="bug")
+    assert full != push
+    first_eval = key("issue_comment", number=59, body="/eval", comment_id=1)
+    assert first_eval == key("issue_comment", number=59, body="/eval extra", comment_id=2)
+    assert first_eval != key("issue_comment", number=59, body="looks good", comment_id=3)
+
+
 def test_allow_nonref_stamps_the_panel(tmp_path):
     code = panel.main([
         "--arm", "a", "--households", "16", "--firms-per-category", "1", "--ticks", "2",

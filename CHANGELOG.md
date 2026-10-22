@@ -4,6 +4,10 @@ Notable changes and decisions for EcoSim, newest first. The project does not use
 
 ## Unreleased
 
+### 2026-10-22: Evidence panel /eval can read the pull request
+
+The full-tier job has `pull-requests: read` so `/eval` can call `pulls.get`. It still has no write permission and no secrets. The concurrency group includes the event and, for a label, the label name, so a later unrelated label does not cancel a running `eval:full`. A new push still cancels the older fast run on that branch. A second `/eval` cancels the running one; any other comment does not.
+
 ### 2026-10-22: Evidence panel fails closed on the money and reference checks
 
 A NaN or inf final drift fails the money check in both modes, including legacy. income_first and income_late must conserve on the baseline arm as well, so the nightly main-only run fails if those sequences start leaking; legacy stays report-only until #57. A missing or empty `requirements.lock` refuses to run unless `--allow-nonref` stamps the output not comparable. Gaps smaller than 0.001 print in scientific notation so a 1e-5 dollar gap stays visible. The workflow job that runs the panel has `contents: read` only. Posting `panel.md` is a separate job that reads the uploaded artifact and is the only job with `pull-requests: write`. `eval:full` uses `pull_request_target` (the workflow file from the default branch, read-only, no secrets) and does nothing until that file is on the default branch. Only `workflow_dispatch` accepts `set`, `off_set`, and `seeds`.

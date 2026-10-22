@@ -8,9 +8,10 @@ name: Evidence panel
 #   file from the default branch, not from the PR. Both stay inert until this
 #   file is on the default branch. `pull_request: labeled` is not used: that
 #   event runs the workflow file from the PR head, so it is not a trusted gate.
-# - The job that checks out and runs a PR head has `contents: read` only and
-#   references no secrets. Unreferenced secrets are not injected. That job
-#   cannot post comments or change the repo.
+# - The fast job has `contents: read` only.
+# - The full job checks out a commit and runs it. It has `contents: read` and
+#   `pull-requests: read` so `/eval` can call `pulls.get`. It has no write
+#   permission and references no secrets. Unreferenced secrets are not injected.
 # - Commenting is a separate job. It downloads the uploaded `panel.md` and
 #   does not check out or execute PR code. It is the only job with
 #   `pull-requests: write`.
@@ -48,7 +49,12 @@ permissions:
   contents: read
 
 concurrency:
-  group: evidence-${{ github.workflow }}-${{ github.event_name }}-${{ github.event.issue.number || github.event.pull_request.number || github.ref }}
+  # Cancel only a superseding run of the same kind.
+  # Push uses the branch ref, so a new push still cancels the older fast run.
+  # pull_request_target adds the label name, so `eval:full` is not cancelled by
+  # a later unrelated label. A second `/eval` cancels the running one; any
+  # other comment uses its own comment id and does not.
+  group: "evidence-${{ github.workflow }}-${{ github.event_name }}-${{ github.event.issue.number || github.event.pull_request.number || github.ref }}-${{ github.event.label.name || ((github.event_name == 'issue_comment' && (github.event.comment.body == '/eval' || startsWith(github.event.comment.body, '/eval '))) && 'eval') || github.event.comment.id || github.event_name }}"
   cancel-in-progress: true
 
 jobs:
@@ -196,6 +202,7 @@ jobs:
     timeout-minutes: 120
     permissions:
       contents: read
+      pull-requests: read
     steps:
       - name: Resolve the commit under test
         id: head
@@ -203,8 +210,9 @@ jobs:
         with:
           script: |
             // pull_request_target's context.sha is the base branch. Use the PR head.
-            // This job has contents: read and no secrets, and the workflow file
-            // itself came from the default branch.
+            // issue_comment has no head sha on the event, so this calls pulls.get.
+            // That needs pull-requests: read. This job has no write permission
+            // and references no secrets. The workflow file came from the default branch.
             let sha = context.sha;
             if (context.eventName === 'issue_comment') {
               const pr = await github.rest.pulls.get({
