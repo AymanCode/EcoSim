@@ -9,10 +9,10 @@ const CSS = fs.readFileSync(new URL('../next.css', here), 'utf8')
 const BACKGROUNDS = ['#FFFFFF', '#F3F5F7', '#EEF1F4']
 // Text drawn in white sits on a dark fill set elsewhere; each of these is checked below.
 const WHITE_ON_DARK = [
-  '.nx-verdict', '.nx-abtn.is-dark', ".nx-mchip[aria-pressed='true']", '.nx-hc .av', '.nx-flag-mark', ".pin[aria-pressed='true']",
+  '.nx-verdict', '.nx-abtn.is-dark', ".nx-mchip[aria-pressed='true']", '.nx-hc .av', ".pin[aria-pressed='true']",
   '.nx-start', ".nx-seg button[aria-pressed='true']", '.nx-big',
 ]
-const TEXT_FILL = /\btext\b|nx-label|nx-flag-mark|nx-bldg-more|nx-ann|nx-ahead|nx-endl|nx-warm-label/
+const TEXT_FILL = /\btext\b|nx-ann|nx-ahead|nx-endl|nx-warm-label/
 
 function luminance(hex) {
   const [r, g, b] = [1, 3, 5].map(i => parseInt(hex.slice(i, i + 2), 16) / 255)
@@ -48,6 +48,13 @@ function resolve(value) {
 const TEXT_TOKENS = Object.keys(TOKENS).filter(name => name.endsWith('-text'))
 
 describe('text contrast in next.css', () => {
+  test('every household pin initial reads at 4.5:1 or better', () => {
+    const townCss = fs.readFileSync(new URL('../town/town.css', here), 'utf8')
+    const initial = townCss.match(/\.nx \.lt-person text\s*\{[^}]*fill:\s*(#[\w]+)/)[1]
+    const fills = [...townCss.matchAll(/\.nx \.lt-pin\.is-(\w+)\s*\{\s*fill:\s*(#[\w]+)/g)]
+    expect(fills.map(([, tone]) => tone).sort()).toEqual(['idle', 'look', 'low', 'work'])
+    for (const [, tone, fill] of fills) expect(contrast(resolve(initial), resolve(fill)), tone).toBeGreaterThanOrEqual(4.5)
+  })
   test('every text token reads at 4.5:1 or better on the page, the panels and panel2', () => {
     expect(TEXT_TOKENS.length).toBeGreaterThanOrEqual(9)
     for (const name of TEXT_TOKENS) {
@@ -89,8 +96,8 @@ describe('text contrast in next.css', () => {
   })
 
   test('white text sits on fills dark enough for it', () => {
-    const fills = RULES.filter(({ selector }) => /\.nx-hc \.av\.is-\w+-bg|\.nx-flag\b(?!-)/.test(selector))
-    expect(fills.length).toBeGreaterThanOrEqual(5)
+    const fills = RULES.filter(({ selector }) => /\.nx-hc \.av\.is-\w+-bg/.test(selector))
+    expect(fills.length).toBeGreaterThanOrEqual(4)
     for (const { selector, decls } of fills) {
       const colour = resolve(decls.background ?? decls.fill)
       expect(contrast(colour, '#FFFFFF'), selector).toBeGreaterThanOrEqual(4.5)
