@@ -93,7 +93,7 @@ The LLM sees a compact economic report and chooses from a fixed policy schema. E
 
 ## Results
 
-Higher is better for GDP, happiness, health, and government cash. For unemployment, the target is a range rather than a direction: about 10-40% in the long run (weeks 201+) is healthy. Above 40% is a red flag, and well under 10% is off-target. The results below were scored before this target was set, so they read lower as better. "Last 26" is the trailing average at the end of the run, which shows the final operating state better than the lifetime mean.
+Higher is better for GDP, happiness, health, and government cash. The unemployment rows are historical. They were scored under the old objective, which told the model to keep unemployment low. The current objective is labour-force unemployment of about 10-40% in the long run: above 40% is a red flag, and well under 10% is off-target. This table is a 200-tick run, so it is not a long-run reading. "Last 26" is the trailing average at the end of the run, which shows the final operating state better than the lifetime mean.
 
 | Metric | Baseline | Granite 8B | Gemma 26B | Llama 70B | GPT-OSS 120B | Ring 1T |
 |---|---:|---:|---:|---:|---:|---:|
@@ -119,7 +119,7 @@ The rule-based baseline does not receive decision-quality scores because it does
 *Governing profiles: each model's characteristic policy mix over the run.*
 
 ![Unemployment trajectories by model](../assets/llm_results_unemployment_overlay.png)
-*Unemployment over time. Ring 1T drives it down; Granite 8B drifts up.*
+*Unemployment over time on this 200-tick run, scored under the old objective. Ring 1T ends at 11.09% and Granite 8B ends at 39.04%.*
 
 ![Household happiness trajectories by model](../assets/llm_results_happiness_overlay.png)
 *Household happiness over time. Models separate less here than on unemployment or GDP.*
@@ -128,11 +128,11 @@ The rule-based baseline does not receive decision-quality scores because it does
 
 ## Read this table first
 
-- **Ring 1T was strongest overall.** It had the best average GDP, best average unemployment, best final unemployment, best final happiness, and a strong cash floor.
+- **Ring 1T was strongest on GDP, final happiness, and the cash floor.** It had the highest average GDP, the highest final happiness, and a strong cash floor. Its average unemployment was 18.34% and its final unemployment was 11.09%. Those unemployment comparisons were scored under the old objective, on this 200-tick run.
 - **Llama 70B was the fiscal hawk.** It ended with the most government cash, but it also produced the lowest final happiness.
 - **GPT-OSS 120B was technically clean but financially risky.** It had the best evidence match rate and 100% accepted decisions, but government cash dropped to -$44,878 mid-run.
-- **Gemma 26B was steady but reactive.** It kept cash positive and made mostly valid decisions, but unemployment stayed high.
-- **Granite 8B got stuck.** It kept increasing food bailout capacity, stopped making new useful changes, ended cash-negative, and had the worst final unemployment.
+- **Gemma 26B was steady but reactive.** It kept cash positive and made mostly valid decisions. Final unemployment was 29.71%.
+- **Granite 8B got stuck.** It kept increasing food bailout capacity, stopped making new useful changes, and ended cash-negative. Final unemployment was 39.04%.
 - **The baseline was decent.** It did not win, but it also did not collapse. That makes the comparison more useful.
 
 One result I want to flag on its own: at 1,000 households, final happiness was low across the board. The models separated more clearly on unemployment, GDP, and fiscal stability than on household wellbeing. I think that is a finding in itself, and probably a sign that the larger simulation is exposing late-run household stress, but I have not diagnosed it yet.
@@ -141,17 +141,17 @@ One result I want to flag on its own: at 1,000 households, final happiness was l
 
 ## Model behavior
 
-**Ring 2.6 1T.** Ring had the best overall run. It turned public works on early, used food support, lowered minimum wage pressure when the labor market was strained, raised taxes later for stability, and kept social spending high late in the run. It ended with $58,844 in government cash, a minimum cash floor of $58,163, final unemployment of 11.09%, and the best final happiness score in the group at 0.144. That happiness number is still low in absolute terms, but Ring handled the trade-off better than the other models.
+**Ring 2.6 1T.** Ring had the best overall run. It turned public works on early, used food support, lowered minimum wage pressure when the labor market was strained, raised taxes later for stability, and kept social spending high late in the run. It ended with $58,844 in government cash, a minimum cash floor of $58,163, final unemployment of 11.09% (scored under the old objective), and the best final happiness score in the group at 0.144. That happiness number is still low in absolute terms, but Ring handled the trade-off better than the other models.
 
 **Llama 3.3 70B.** Llama protected the treasury better than anyone. It cut social spending early, raised wage taxes, and later used targeted support for food and services. Final government cash was $75,197, the best in the table. The downside is clear: final happiness fell to 0.045, the worst result. This is the "balanced books, unhappy households" run.
 
 **GPT-OSS 120B.** GPT-OSS made clean, valid decisions and cited the prompt well. It had the highest evidence match rate at 94.4%. Its policy style was growth-oriented: lower profit taxes, infrastructure spending, wage tax changes, food monitoring, and later food subsidies. The problem was cash discipline. It went as low as -$44,878 before recovering to $14,306 by the end. The model looked technically disciplined while still taking the economy too close to the edge.
 
-**Gemma 4 26B.** Gemma governed like a sector firefighter. It started with food bailouts, moved to all-sector bailouts, raised profit taxes when cash got tighter, monitored healthcare prices, and added food subsidies. It completed the run with positive cash at $23,876, but final unemployment stayed high at 29.71%. One decision at tick 171 came back as nested grouped actions (`group sector_subsidy`, `group bailout`) instead of valid policy keys. The schema rejected those changes and the run continued safely.
+**Gemma 4 26B.** Gemma governed like a sector firefighter. It started with food bailouts, moved to all-sector bailouts, raised profit taxes when cash got tighter, monitored healthcare prices, and added food subsidies. It completed the run with positive cash at $23,876. Final unemployment was 29.71%. One decision at tick 171 came back as nested grouped actions (`group sector_subsidy`, `group bailout`) instead of valid policy keys. The schema rejected those changes and the run continued safely.
 
 **Granite 4.1 8B.** Granite was coherent but narrow. It kept focusing on food bailouts and raised bailout capacity from $5,000 to $10,000 to $25,000 to $50,000. After that, half of the decision cycles produced no new accepted change because the model was repeating policy that was already active. It ended with -$16,885 in government cash, 39.04% final unemployment, and final happiness of 0.074. The smaller model did not fail because it wrote nonsense. It failed because it got stuck on one play.
 
-**Baseline.** The rule-based government matters here. It ended cash-positive at $19,265 and landed near Gemma and GPT-OSS on final happiness, but unemployment finished at 32.99%. It is not a great government, but it gives a useful floor. The LLMs had to beat something that at least stays solvent.
+**Baseline.** The rule-based government matters here. It ended cash-positive at $19,265 and landed near Gemma and GPT-OSS on final happiness. Unemployment finished at 32.99%. It is not a great government, but it gives a useful floor. The LLMs had to beat something that at least stays solvent.
 
 ---
 
@@ -208,7 +208,7 @@ The takeaway I would actually stand behind is practical: an LLM can be put behin
 - Add a monetary authority and test whether one model can coordinate fiscal and monetary policy.
 - Fine-tune a small model on EcoSim transcripts and compare it against the general-purpose models.
 - Add a human-in-the-loop mode where the model proposes policy and a person approves it.
-- Build a scoring view that separates "solvent government," "low unemployment," "stable prices," and "household wellbeing" instead of pretending one score captures governance.
+- Build a scoring view that separates "solvent government," "labour-force unemployment inside the long-run band," "stable prices," and "household wellbeing" instead of pretending one score captures governance.
 
 ---
 

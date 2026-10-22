@@ -325,26 +325,56 @@ def test_contract_prompt_has_no_policy_playbook_advice():
 
 
 _UNEMPLOYMENT_BAND_LINE = (
-    "Choose reduce_unemployment only when unemployment is above about 40%; "
-    "unemployment between about 10% and 40% is normal for this economy."
+    "Choose reduce_unemployment only when labor_force_unemployment_rate is above about 40%. "
+    "About 10-40% in the long run is the target. Above 40% is a red flag, and well under 10% is off-target."
 )
 _UNEMPLOYMENT_OBJECTIVE = (
-    "OBJECTIVE: Maximize GDP and mean happiness while keeping long-run unemployment "
-    "within a healthy range (about 10-40%) and maintaining a sustainable government cash balance."
+    "OBJECTIVE: Maximize GDP and mean happiness while keeping labour-force unemployment "
+    "(labor_force_unemployment_rate) about 10-40% in the long run, and maintaining a sustainable "
+    "government cash balance. Above 40% is a red flag, and well under 10% is off-target."
 )
+
+
+def _response_format_example(prompt: str) -> str:
+    """Return the JSON object shown after RESPONSE FORMAT."""
+    tail = prompt.split("RESPONSE FORMAT", 1)[1]
+    start = tail.index("{")
+    depth = 0
+    for index, char in enumerate(tail[start:], start):
+        if char == "{":
+            depth += 1
+        elif char == "}":
+            depth -= 1
+            if depth == 0:
+                return tail[start:index + 1]
+    raise AssertionError("response-format example did not close")
 
 
 def test_contract_government_objective_uses_long_run_unemployment_band():
     prompt = _build_system_prompt("balanced", num_households=20, num_firms=4)
     assert _UNEMPLOYMENT_OBJECTIVE in prompt
-    assert "about 10-40%" in prompt
     assert "keeping unemployment low" not in prompt
-    assert _UNEMPLOYMENT_BAND_LINE in prompt
-    assert "reduce_unemployment" in prompt
+    assert "healthy range" not in prompt
+    rules = prompt.split("CRITICAL SIMULATION RULES:", 1)[1].split("POLICY SCHEMA:", 1)[0]
+    assert _UNEMPLOYMENT_BAND_LINE in rules
+    assert "labor_force_unemployment_rate" in rules
+    example = _response_format_example(prompt)
+    parsed = json.loads(example)
+    assert _UNEMPLOYMENT_BAND_LINE not in example
+    assert "40%" not in example
+    assert set(parsed) == {"fiscal_mode", "primary_goal", "rationale", "evidence", "changes"}
+    assert "reduce_unemployment" in parsed["primary_goal"]
 
     user = _build_user_prompt({}, {})
-    assert _UNEMPLOYMENT_BAND_LINE in user
-    assert "reduce_unemployment" in user
+    labor_notes = user.split("[LABOR METRIC DEFINITIONS]", 1)[1].split("[SECTOR DIAGNOSTICS]", 1)[0]
+    assert _UNEMPLOYMENT_BAND_LINE in labor_notes
+    assert "labor_force_unemployment_rate" in labor_notes
+    user_example = _response_format_example(user)
+    user_parsed = json.loads(user_example)
+    assert _UNEMPLOYMENT_BAND_LINE not in user_example
+    assert "40%" not in user_example
+    assert set(user_parsed) == {"fiscal_mode", "primary_goal", "rationale", "evidence", "changes"}
+    assert "reduce_unemployment" in user_parsed["primary_goal"]
 
 
 def test_contract_llm_parse_failure_falls_back_to_no_change(tiny_economy_factory, monkeypatch):

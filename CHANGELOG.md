@@ -6,10 +6,10 @@ Notable changes and decisions for EcoSim, newest first. The project does not use
 
 ### 2026-10-21: AI government objective uses the long-run unemployment band
 
-The AI government's system prompt told the model to keep unemployment low. The charter (2026-10-21) treats long-run unemployment of about 10-40% as healthy, above 40% as a red flag, and well under 10% as off-target. The objective line now says that range, and both the system prompt and the user prompt say to choose `reduce_unemployment` only when unemployment is above about 40%. The goal label is unchanged, so the dashboard headline that maps it is unchanged. Rule-based simulation does not read this text. Historical AI-government scores in `docs/experiments/AI_GOVERNMENT_EXPERIMENT.md` were made under the old objective; that page no longer says lower unemployment is better.
+The AI government's system prompt told the model to keep unemployment low. The charter (2026-10-21) says labour-force unemployment of about 10-40% in the long run is the target, above 40% is a red flag, and well under 10% is off-target. The objective line now says that. The system-prompt rules, and the user prompt's labour-metric notes, say to choose `reduce_unemployment` only when `labor_force_unemployment_rate` is above about 40%. That sentence sits outside the JSON response example. The goal label is unchanged, so the dashboard headline that maps it is unchanged. Rule-based simulation does not read this text. Historical AI-government scores in `docs/experiments/AI_GOVERNMENT_EXPERIMENT.md` were made under the old objective on a 200-tick run. That page no longer says lower unemployment is better, and it does not apply the long-run band to that 200-tick table.
 
 - Before: `OBJECTIVE: Maximize GDP and mean happiness while keeping unemployment low and maintaining a sustainable government cash balance.`
-- After: `OBJECTIVE: Maximize GDP and mean happiness while keeping long-run unemployment within a healthy range (about 10-40%) and maintaining a sustainable government cash balance.`
+- After: `OBJECTIVE: Maximize GDP and mean happiness while keeping labour-force unemployment (labor_force_unemployment_rate) about 10-40% in the long run, and maintaining a sustainable government cash balance. Above 40% is a red flag, and well under 10% is off-target.`
 
 Evidence: `test_contract_government_objective_uses_long_run_unemployment_band`.
 

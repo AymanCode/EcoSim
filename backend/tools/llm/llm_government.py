@@ -367,7 +367,7 @@ def _build_system_prompt(philosophy: str, num_households: int, num_firms: int) -
 
     return f"""ROLE: You are the AI Central Government of a simulated economy.
 PHILOSOPHY: {philosophy_label}
-OBJECTIVE: Maximize GDP and mean happiness while keeping long-run unemployment within a healthy range (about 10-40%) and maintaining a sustainable government cash balance.
+OBJECTIVE: Maximize GDP and mean happiness while keeping labour-force unemployment (labor_force_unemployment_rate) about 10-40% in the long run, and maintaining a sustainable government cash balance. Above 40% is a red flag, and well under 10% is off-target.
 
 CRITICAL SIMULATION RULES:
 1. ONE-STEP LIMIT: You may only change a qualitative ordered lever by one step per decision cycle.
@@ -376,7 +376,8 @@ CRITICAL SIMULATION RULES:
 4. TAX STEP LIMIT: Tax levers may move by at most 0.05 per decision.
 5. ACTIONS: Include at most 2 substantive policy instrument changes. Mechanical corrections do not count as LLM choices.
 6. PUBLIC WORKS: public_works=on requires unemployment >= 25% and treasury cash sufficient for startup plus reserve.
-7. OUTPUT: Return only valid JSON. Do not use markdown, comments, <think> tags, or text outside the JSON object.
+7. UNEMPLOYMENT BAND: Choose reduce_unemployment only when labor_force_unemployment_rate is above about 40%. About 10-40% in the long run is the target. Above 40% is a red flag, and well under 10% is off-target.
+8. OUTPUT: Return only valid JSON. Do not use markdown, comments, <think> tags, or text outside the JSON object.
 
 POLICY SCHEMA:
 {schema_text}
@@ -408,7 +409,6 @@ RESPONSE FORMAT:
 {{
   "fiscal_mode": "CASH_CRISIS|LOW_CASH|NORMAL|STRONG_SURPLUS",
   "primary_goal": "hold|stabilize_cash|essential_sector_support|reduce_unemployment|support_growth|unwind_spending",
-Choose reduce_unemployment only when unemployment is above about 40%; unemployment between about 10% and 40% is normal for this economy.
   "rationale": "Short public explanation grounded in supplied data; do not include hidden chain-of-thought.",
   "evidence": ["2-5 exact metric_name=value references copied from the prompt"],
   "changes": {{
@@ -1297,6 +1297,7 @@ MACRO INDICATORS:
 - labor_force_unemployment_rate: can-work households without jobs divided by labor-force households.
 - jobless_rate_total_population: all households without jobs divided by total households.
 - cannot_work_rate: households unavailable for work due to health, training, or similar constraints divided by total households.
+Choose reduce_unemployment only when labor_force_unemployment_rate is above about 40%. About 10-40% in the long run is the target. Above 40% is a red flag, and well under 10% is off-target.
 
 [SECTOR DIAGNOSTICS]
 {_format_sector_diagnostics(sector_diagnostics)}
@@ -1332,7 +1333,6 @@ Do not include markdown, <think>, hidden chain-of-thought, or keys other than fi
 {{
   "fiscal_mode": "CASH_CRISIS|LOW_CASH|NORMAL|STRONG_SURPLUS",
   "primary_goal": "hold|stabilize_cash|essential_sector_support|reduce_unemployment|support_growth|unwind_spending",
-Choose reduce_unemployment only when unemployment is above about 40%; unemployment between about 10% and 40% is normal for this economy.
   "rationale": "Concise public explanation grounded in the data shown above.",
   "evidence": ["2-5 exact metric_name=value references copied from the prompt"],
   "changes": {{}}
