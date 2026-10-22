@@ -204,6 +204,8 @@ class SetupConfig(BaseModel):
     # dashboard; "lean" drops per-frame subject detail (except pinned), trackedFirms and firm_stats. It also
     # selects runtime group-rule enforcement for CONFIG: lean enforces the lever group rules, legacy does not.
     frame_profile: Literal["legacy", "lean"] = "legacy"
+    # The town Run screen (frontend-react/src/next/) sends no payment_sequence, so towns run this
+    # "legacy" default. Only the classic dashboard sends "income_first".
     payment_sequence: Literal["legacy", "income_first", "income_late"] = "legacy"
     payment_care_mode: Literal["patient_pay", "covered"] = "patient_pay"
     payment_assistance: Literal["reserve", "care", "rent", "mixed"] = "reserve"
