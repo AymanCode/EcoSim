@@ -962,6 +962,9 @@ def test_contract_profit_tax_brackets_share_the_top_cap_and_are_built_once(monke
     """
     import agents as agents_module
 
+    # The default schedule is progressive. This test locks main's cash-ranked
+    # path, which is what legacy_cash_rank keeps.
+    monkeypatch.setattr(CONFIG.government, "profit_tax_style", "legacy_cash_rank")
     gov = GovernmentAgent(cash_balance=0.0, profit_tax_rate=0.45)
     firms = [{"firm_id": i, "profit_before_tax": 100.0, "cash_balance": float(i)} for i in range(1, 101)]
 

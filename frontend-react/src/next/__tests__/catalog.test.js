@@ -210,7 +210,7 @@ describe('describePolicy', () => {
     expect(describePolicy({ minimum_wage_policy: 'high', benefit_level: 'high' }))
       .toBe('more help for people out of work and a higher minimum wage')
     expect(describePolicy({ wage_tax_rate: 0.3, profit_tax_rate: 0.35, public_works: 'on' }))
-      .toBe('a 30% tax on wages, a 35% tax on profits and public works jobs')
+      .toBe('a 30% tax on wages, a 35% main rate on business profits and public works jobs')
   })
 
   test('reads a grouped lever as one phrase', () => {
@@ -253,6 +253,10 @@ describe('lever groups, help and question cards', () => {
       expect(typeof spec.help, lever).toBe('string')
       expect(spec.help.length, lever).toBeGreaterThan(20)
       expect(spec.help, lever).toMatch(/^[A-Z].*\.$/)
+      if (lever === 'profit_tax_rate') {
+        expect(spec.help).toBe('Sets the main tax rate on business profits. Smaller profits pay a lower rate (about three quarters of it), rising smoothly to the main rate.')
+        continue
+      }
       expect(spec.help.match(/\. /g), lever).toBeNull()
     }
   })
