@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test'
+import { runScreenFonts } from './fonts.js'
 
 // Changing the week must not move or resize anything on the Run screen (spec
 // section 6). For each width, open the recorded demo, step the timeline
@@ -55,7 +56,7 @@ async function openDemo(page, width) {
   await page.setViewportSize({ width, height: 900 })
   await page.goto('/?view=next&demo')
   await page.locator('input[type=range]').first().waitFor()
-  await page.evaluate(() => document.fonts.ready)
+  await runScreenFonts(page)
   return Number(await page.locator('input[type=range]').first().getAttribute('max'))
 }
 

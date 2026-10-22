@@ -2,6 +2,7 @@ import fs from 'node:fs'
 import { expect, test } from '@playwright/test'
 import { STAT_METRICS, formatMetric } from '../src/next/catalog.js'
 import { isFrame, parseSession } from '../src/next/data/session.js'
+import { runScreenFonts } from './fonts.js'
 
 // Feed real recorded frames over mocked /ws connections. NextApp still uses
 // its production experiment controller, ingest, throttling, and live clock.
@@ -49,7 +50,7 @@ async function liveRun(page, width = 390, towns = 2) {
   await expect.poll(() => commands.map(town => town.slice(0, 2)))
     .toEqual(Array.from({ length: towns }, () => ['SETUP', 'START']))
   await expect(page.getByRole('button', { name: 'Pause', exact: true })).toBeEnabled()
-  await page.evaluate(() => document.fonts.ready)
+  await runScreenFonts(page)
   const send = message => {
     expect(message).not.toHaveProperty('kind')
     sockets.forEach(socket => socket.send(JSON.stringify(message)))
