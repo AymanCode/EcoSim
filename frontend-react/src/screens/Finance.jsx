@@ -26,8 +26,8 @@ export default function Finance({
   const govProfit = Number(metrics.govProfit || 0)
   const govDebt = Number(metrics.govDebt || 0)
   // Public-debt financing this tick: not revenue or spending, so not in the fiscal balance.
-  // The server sends these only when public debt is on (or still owed); otherwise
-  // the panel is main's.
+  // The server sends these only while debt is owed, or after a borrow this session,
+  // and they stay after that; otherwise the panel is main's.
   const showDebtFinancing = metrics.govBorrowed != null || metrics.govRepaid != null
   const govBorrowed = Number(metrics.govBorrowed || 0)
   const govRepaid = Number(metrics.govRepaid || 0)

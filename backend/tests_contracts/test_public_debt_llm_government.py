@@ -149,6 +149,21 @@ def test_system_prompt_states_the_debt_rule():
     assert "tax cuts are not accepted" not in prompt
 
 
+def test_system_prompt_keeps_the_debt_rule_while_debt_is_owed_with_the_flag_off():
+    """Flag off mid-run: the debt rule stays while public_debt > 0, and matches main at 0."""
+    with use_config(clone_config()):
+        CONFIG.government.public_debt_enabled = False
+        owed = _build_system_prompt("balanced", 100, 10, {"public_debt": 1_000.0})
+        clear = _build_system_prompt("balanced", 100, 10, {"public_debt": 0.0})
+        main = _build_system_prompt("balanced", 100, 10)
+    assert "PUBLIC DEBT:" in owed
+    assert "Spending increases and tax cuts while borrowing are both allowed" in owed
+    assert "sustainable treasury net position" in owed
+    assert clear == main
+    assert "PUBLIC DEBT:" not in clear
+    assert "sustainable government cash balance" in clear
+
+
 DEBT_MARKERS = ("public debt", "Public Debt Trend", "Net Position", "Net position", "net_position",
                 "borrow", "Debt Service", "Financing this tick")
 
@@ -161,7 +176,7 @@ def _prompt_texts(economy):
         economy, target_tick=30, lookback=3, impact_horizon=26,
     )
     return {
-        "system": _build_system_prompt("balanced", 100, 10),
+        "system": _build_system_prompt("balanced", 100, 10, raw),
         "user": _build_user_prompt(raw, {}, tick=26, recent_policy_memory=memory),
         "fiscal": _format_fiscal_context(raw, {}),
         "memory": _format_recent_policy_memory(memory),

@@ -372,17 +372,23 @@ def _public_debt_visible(raw_metrics: Optional[Dict[str, Any]] = None) -> bool:
     return _safe_float((raw_metrics or {}).get("public_debt")) > 0.0
 
 
-def _build_system_prompt(philosophy: str, num_households: int, num_firms: int) -> str:
+def _build_system_prompt(
+    philosophy: str,
+    num_households: int,
+    num_firms: int,
+    raw_metrics: Optional[Dict[str, Any]] = None,
+) -> str:
     """Build the system prompt for the government agent.
 
-    With public debt off this is main's prompt exactly (objective on cash,
-    rules 1-7); with it on, the objective is the net position and rule 7
-    states the debt rule.
+    The debt rule is included when the flag is on, or while ``public_debt``
+    is still above zero after the flag is turned off mid-run. With the flag
+    off and nothing owed this is main's prompt exactly (objective on cash,
+    rules 1-7).
     """
 
     philosophy_label = str(philosophy or "balanced").strip() or "balanced"
     schema_text = render_policy_schema_for_prompt()
-    if _public_debt_visible():
+    if _public_debt_visible(raw_metrics):
         objective = (
             "Maximize GDP and mean happiness while keeping unemployment low and maintaining "
             "a sustainable treasury net position (cash minus public debt)."
@@ -2435,6 +2441,7 @@ async def decide_node(state: GovernmentState, provider: LLMProvider, config: Any
         philosophy,
         num_households=int(state["raw_metrics"].get("total_households", 0)),
         num_firms=int(state["raw_metrics"].get("total_firms", 0)),
+        raw_metrics=state["raw_metrics"],
     )
     user_prompt = _build_user_prompt(
         raw_metrics=state["raw_metrics"],
