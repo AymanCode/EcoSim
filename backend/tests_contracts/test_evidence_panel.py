@@ -419,6 +419,110 @@ def test_relative_money_fails_a_new_leak_only_when_main_conserves():
     assert broken["failures"][0]["reason"] == "new leak on a sequence the baseline conserves"
 
 
+def test_nonfinite_money_drift_fails_in_every_mode_and_sequence():
+    design = {
+        "arms": ["main", "on"],
+        "baseline": "main",
+        "sequences": ["income_first", "legacy"],
+        "seeds": [1],
+    }
+    result = panel_summary.evaluate_money([
+        _money_run("main", "income_first", 1, 0.0),
+        _money_run("on", "income_first", 1, float("nan")),
+        _money_run("main", "legacy", 1, float("inf")),
+        _money_run("on", "legacy", 1, float("-inf")),
+    ], design)
+    assert result["passed"] is False
+    assert {
+        (item["arm"], item["payment_sequence"], item["reason"]) for item in result["failures"]
+    } == {
+        ("on", "income_first", "non-finite money drift"),
+        ("main", "legacy", "non-finite money drift"),
+        ("on", "legacy", "non-finite money drift"),
+    }
+
+
+def test_baseline_must_conserve_on_income_sequences_and_legacy_stays_reported():
+    nightly = panel_summary.evaluate_money([
+        _money_run("main", "income_first", 1, 5.0),
+        _money_run("main", "income_late", 1, 1e-5),
+        _money_run("main", "legacy", 1, 7000.0),
+    ], {
+        "arms": ["main"],
+        "baseline": "main",
+        "sequences": ["income_first", "income_late", "legacy"],
+        "seeds": [1],
+    })
+    assert nightly["passed"] is False
+    assert [(item["arm"], item["payment_sequence"], item["reason"]) for item in nightly["failures"]] == [
+        ("main", "income_first", "baseline leak on a sequence that must conserve"),
+    ]
+    assert nightly["sequences"]["income_late"]["conserves"] is True
+    assert nightly["sequences"]["legacy"]["conserves"] is False
+    assert nightly["drift_gaps"] == []
+
+    late = panel_summary.evaluate_money([
+        _money_run("main", "income_late", 1, 5.0),
+    ], {"arms": ["main"], "baseline": "main", "sequences": ["income_late"], "seeds": [1]})
+    assert late["passed"] is False
+    assert late["failures"][0]["reason"] == "baseline leak on a sequence that must conserve"
+
+    shared = panel_summary.evaluate_money([
+        _money_run("main", "income_first", 1, 5.0),
+        _money_run("on", "income_first", 1, 5.0),
+    ], {"arms": ["main", "on"], "baseline": "main", "sequences": ["income_first"], "seeds": [1]})
+    assert [item["reason"] for item in shared["failures"]] == [
+        "baseline leak on a sequence that must conserve",
+    ]
+
+
+def test_small_money_gaps_stay_visible_in_the_markdown():
+    assert panel._fmt(1e-5, signed=True) == "+1.000e-05"
+    assert panel._fmt(-1e-5, signed=True) == "-1.000e-05"
+    assert panel._fmt(4e-4) == "4.000e-04"
+    assert panel._fmt(0.0, signed=True) == "0"
+    assert panel._fmt(1.25, signed=True) == "+1.25"
+
+
+def _panel_argv(out: Path, *extra: str) -> list[str]:
+    return [
+        "--arm", "a", "--households", "16", "--firms-per-category", "1", "--ticks", "2",
+        "--seeds", "1", "--sequences", "legacy", "--windows", "1-2", "--jobs", "1",
+        "--no-determinism-check", "--no-escalate", "--out", str(out),
+        *extra,
+    ]
+
+
+def test_missing_or_empty_requirements_lock_refuses_the_run(tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr(panel, "LOCK_PATH", tmp_path / "missing.lock")
+    _runtime, decision, digest = panel._reference_status(sys.executable)
+    assert decision["ok"] is False
+    assert decision["pins"] == 0
+    assert decision["lock_error"] == "backend/requirements.lock is missing"
+    assert digest is None
+    assert panel.main(_panel_argv(tmp_path / "missing-out")) == 2
+    assert "is missing" in capsys.readouterr().err
+    assert not (tmp_path / "missing-out" / "panel.md").exists()
+
+    empty = tmp_path / "empty.lock"
+    empty.write_text("# generated\n\n", encoding="utf-8")
+    monkeypatch.setattr(panel, "LOCK_PATH", empty)
+    _runtime, decision, _digest = panel._reference_status(sys.executable)
+    assert decision["ok"] is False
+    assert decision["lock_error"] == "backend/requirements.lock has no pins"
+    assert panel.main(_panel_argv(tmp_path / "empty-out")) == 2
+    assert "no pins" in capsys.readouterr().err
+
+
+def test_allow_nonref_still_runs_when_the_lock_is_missing(tmp_path, monkeypatch):
+    monkeypatch.setattr(panel, "LOCK_PATH", tmp_path / "missing.lock")
+    out = tmp_path / "run"
+    code = panel.main(_panel_argv(out, "--allow-nonref"))
+    report = (out / "panel.md").read_text(encoding="utf-8")
+    assert code == 0
+    assert "NON-REFERENCE ENV, not comparable" in report
+
+
 def test_absolute_money_uses_the_same_dust_tolerance(monkeypatch):
     monkeypatch.setattr(panel_summary, "MONEY_CHECK_MODE", "absolute")
     design = {"arms": ["main"], "baseline": "main", "sequences": ["income_first"], "seeds": [1]}

@@ -4,6 +4,10 @@ Notable changes and decisions for EcoSim, newest first. The project does not use
 
 ## Unreleased
 
+### 2026-10-22: Evidence panel fails closed on the money and reference checks
+
+A NaN or inf final drift fails the money check in both modes, including legacy. income_first and income_late must conserve on the baseline arm as well, so the nightly main-only run fails if those sequences start leaking; legacy stays report-only until #57. A missing or empty `requirements.lock` refuses to run unless `--allow-nonref` stamps the output not comparable. Gaps smaller than 0.001 print in scientific notation so a 1e-5 dollar gap stays visible. The workflow job that runs the panel has `contents: read` only. Posting `panel.md` is a separate job that reads the uploaded artifact and is the only job with `pull-requests: write`. `eval:full` uses `pull_request_target` (the workflow file from the default branch, read-only, no secrets) and does nothing until that file is on the default branch. Only `workflow_dispatch` accepts `set`, `off_set`, and `seeds`.
+
 ### 2026-10-21: Evidence panel money check follows the baseline
 
 Relative mode fails a new leak only on sequences where main conserves (income_first and income_late). Legacy, where main already leaks, reports arm-minus-baseline drift with median and k/n and does not fail the run. Off = main stays the state digest. Both modes use one dust tolerance, 0.0001 dollars, because a conserved 312-week stock accumulates about 1e-5 dollars of float error. The fast CI tier runs main and off only. `workflow_dispatch` takes `set`, `off_set`, and `seeds`. The `eval:full` label and a `/eval` comment from an owner, member, or collaborator start the full tier (`/eval` runs once this workflow file is on the default branch).

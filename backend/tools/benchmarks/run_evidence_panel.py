@@ -646,9 +646,12 @@ def summarize(
 
 
 def _fmt(value: float | None, signed: bool = False) -> str:
-    if value is None or (isinstance(value, float) and math.isnan(value)):
+    if value is None or (isinstance(value, float) and not math.isfinite(value)):
         return "n/a"
     magnitude = abs(value)
+    # Three decimal places round a 1e-5 gap to 0. Keep tolerance-scale values visible.
+    if magnitude != 0 and magnitude < 1e-3:
+        return f"{value:{'+' if signed else ''}.3e}"
     digits = 0 if magnitude >= 1000 else 1 if magnitude >= 10 else 2 if magnitude >= 1 else 3
     text = f"{value:{'+' if signed else ''},.{digits}f}"
     return "0" if signed and float(text.replace(",", "")) == 0 else text
@@ -737,8 +740,9 @@ def render_markdown(panel: dict[str, Any], windows: list[tuple[str, int, int]]) 
     ]
     if money.get("mode") == "relative":
         lines.append(
-            "Where the baseline conserves, another arm must conserve too. Where the baseline already leaks, "
-            "the drift gap is reported and does not fail the run. Off = main is the state digest."
+            "income_first and income_late must conserve, including the baseline arm. "
+            "legacy is reported (median, k/n) and does not fail until #57. A non-finite drift always fails. "
+            "Off = main is the state digest."
         )
     gaps = money.get("drift_gaps") or []
     if gaps:
@@ -841,7 +845,7 @@ def render_markdown(panel: dict[str, Any], windows: list[tuple[str, int, int]]) 
         "- **Bond buy (K06):** the treasury's weekly bond purchase paid out through the misc pool. `--hook k06_hold_pool` leaves that pool on the money stock.",
         "- **Unrecorded money drift:** change in total money net of recorded outside money (`total_money_net_of_injections`) from construction to the last tick.",
         "- **Runs identical:** per-week state digests (households, firms, government, bank) match. The row fingerprint is kept beside them and is not the identity check.",
-        "- **Money check:** both modes use a 0.0001 dollar dust tolerance. Relative mode fails a new leak only on sequences the baseline conserves, and reports arm-minus-baseline drift (median, k/n) where the baseline already leaks. Absolute mode requires every run's own drift inside that tolerance.",
+        "- **Money check:** both modes use a 0.0001 dollar dust tolerance. Relative mode requires income_first and income_late, including the baseline, to conserve, and reports arm-minus-baseline drift (median, k/n) for legacy. Absolute mode requires every run's own drift inside that tolerance. A NaN or inf drift fails.",
     ]
     return "\n".join(lines) + "\n"
 
@@ -946,9 +950,21 @@ def build_parser() -> argparse.ArgumentParser:
 
 def _reference_status(python: str) -> tuple[dict[str, str], dict[str, Any], str | None]:
     runtime = probe_runtime(python)
-    pins = parse_lock_pins(LOCK_PATH.read_text(encoding="utf-8")) if LOCK_PATH.is_file() else {}
-    versions = probe_installed_versions(python)
-    packages = compare_lock(pins, versions)
+    if not LOCK_PATH.is_file():
+        packages = {
+            "pins": 0, "missing": [], "mismatched": [], "ok_packages": False,
+            "lock_error": "backend/requirements.lock is missing",
+        }
+    else:
+        pins = parse_lock_pins(LOCK_PATH.read_text(encoding="utf-8"))
+        if not pins:
+            packages = {
+                "pins": 0, "missing": [], "mismatched": [], "ok_packages": False,
+                "lock_error": "backend/requirements.lock has no pins",
+            }
+        else:
+            versions = probe_installed_versions(python)
+            packages = compare_lock(pins, versions)
     decision = reference_decision(reference_python(runtime.get("implementation", ""), runtime.get("python", "")), packages)
     return runtime, decision, lock_sha256(LOCK_PATH)
 

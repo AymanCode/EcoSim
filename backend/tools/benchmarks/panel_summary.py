@@ -26,6 +26,9 @@ MONEY_CHECK_MODE = "relative"
 # ten times that dust and a hundredth of a cent, so a real leak still fails.
 # Scaling the cutoff to the money stock would hide a dollar on a multi-million stock.
 DUST_TOLERANCE = 1e-4
+# legacy still leaks until #57, so that sequence is reported and not failed.
+# Every other sequence, including the baseline arm, must stay inside the dust tolerance.
+REPORT_ONLY_SEQUENCES = frozenset({"legacy"})
 
 UNEMPLOYMENT_BAND = (10.0, 40.0)
 REAL_GDP_BASE_WEEKS = (11, 62)
@@ -311,14 +314,25 @@ def _final_drift(run: dict[str, Any] | None) -> float | None:
     return float(value)
 
 
+def _drift_usable(drift: float | None) -> bool:
+    return drift is not None and math.isfinite(drift)
+
+
+def _money_failure(arm: str, sequence: str, seed: int, drift: float | None, base_drift: float | None, mode: str, reason: str) -> dict[str, Any]:
+    return {
+        "arm": arm, "payment_sequence": sequence, "seed": seed,
+        "drift": drift, "baseline_drift": base_drift, "mode": mode, "reason": reason,
+    }
+
+
 def evaluate_money(results: list[dict[str, Any]], design: dict[str, Any]) -> dict[str, Any]:
     """Fail when an arm's money drift does not match the rule.
 
-    Relative (default until #57): on a sequence whose baseline stays inside the
-    dust tolerance, every other arm must too. A new leak fails. On a sequence
-    the baseline already leaks (legacy, until #57), the arm-minus-baseline drift
-    is reported with median and k/n and does not fail the run. Off = main stays
-    the state-digest check.
+    Relative (default until #57): income_first and income_late must conserve,
+    including the baseline arm, so a nightly main-only run fails if those
+    sequences start leaking. Another arm on those sequences fails only when
+    the baseline itself conserves and that arm leaks. legacy is report-only
+    until #57. A NaN or inf drift fails in every mode and on every sequence.
 
     Absolute: every run's final drift is within ``DUST_TOLERANCE`` of zero.
     """
@@ -332,48 +346,50 @@ def evaluate_money(results: list[dict[str, Any]], design: dict[str, Any]) -> dic
     }
     sequences: dict[str, Any] = {}
     for sequence in design["sequences"]:
-        base_drifts = [_final_drift(runs.get((baseline, sequence, seed))) for seed in design["seeds"]]
-        present = [value for value in base_drifts if value is not None]
-        conserves = bool(present) and len(present) == len(base_drifts) and all(abs(value) <= tolerance for value in present)
+        base_drifts = [_final_drift(runs.get((baseline, sequence, seed))) for seed in design["seeds"] if (baseline, sequence, seed) in runs]
+        usable = [value for value in base_drifts if _drift_usable(value)]
+        conserves = bool(base_drifts) and len(usable) == len(base_drifts) and all(abs(value) <= tolerance for value in usable)
+        finite_abs = [abs(value) for value in usable]
         sequences[sequence] = {
             "conserves": conserves,
-            "baseline_max_abs_drift": max((abs(value) for value in present), default=None),
+            "must_conserve": sequence not in REPORT_ONLY_SEQUENCES,
+            "baseline_max_abs_drift": max(finite_abs, default=None),
         }
     failures = []
     drift_gaps = []
     for arm in design["arms"]:
         for sequence in design["sequences"]:
             deltas = []
+            must_conserve = sequence not in REPORT_ONLY_SEQUENCES
             for seed in design["seeds"]:
                 run = runs.get((arm, sequence, seed))
                 if run is None:
                     continue
                 drift = _final_drift(run)
                 base_drift = _final_drift(runs.get((baseline, sequence, seed)))
+                if not _drift_usable(drift):
+                    reason = "non-finite money drift" if drift is not None else "money drift unavailable"
+                    failures.append(_money_failure(arm, sequence, seed, drift, base_drift, mode, reason))
+                    continue
                 if mode == "absolute":
-                    if drift is None or abs(drift) > tolerance:
-                        failures.append({
-                            "arm": arm, "payment_sequence": sequence, "seed": seed,
-                            "drift": drift, "baseline_drift": base_drift, "mode": mode,
-                            "reason": "absolute drift outside the dust tolerance",
-                        })
+                    if abs(drift) > tolerance:
+                        failures.append(_money_failure(
+                            arm, sequence, seed, drift, base_drift, mode,
+                            "absolute drift outside the dust tolerance",
+                        ))
                     continue
-                if arm == baseline:
-                    continue
-                if drift is None or base_drift is None:
-                    failures.append({
-                        "arm": arm, "payment_sequence": sequence, "seed": seed,
-                        "drift": drift, "baseline_drift": base_drift, "mode": mode,
-                        "reason": "money drift unavailable",
-                    })
+                is_baseline = arm == baseline
+                new_leak = not is_baseline and sequences[sequence]["conserves"]
+                if must_conserve and abs(drift) > tolerance and (is_baseline or new_leak):
+                    reason = (
+                        "baseline leak on a sequence that must conserve"
+                        if is_baseline
+                        else "new leak on a sequence the baseline conserves"
+                    )
+                    failures.append(_money_failure(arm, sequence, seed, drift, base_drift, mode, reason))
+                if arm == baseline or not _drift_usable(base_drift):
                     continue
                 deltas.append(drift - base_drift)
-                if sequences[sequence]["conserves"] and abs(drift) > tolerance:
-                    failures.append({
-                        "arm": arm, "payment_sequence": sequence, "seed": seed,
-                        "drift": drift, "baseline_drift": base_drift, "mode": mode,
-                        "reason": "new leak on a sequence the baseline conserves",
-                    })
             if mode == "relative" and arm != baseline and deltas:
                 drift_gaps.append({
                     "arm": arm,
@@ -620,6 +636,8 @@ def format_reference_error(decision: dict[str, Any], version: str, implementatio
     if mismatched:
         sample = ", ".join(f"{item['name']} lock {item['lock']} installed {item['installed']}" for item in mismatched[:6])
         parts.append(f"{len(mismatched)} version mismatch(es): {sample}")
+    if decision.get("lock_error"):
+        parts.append(str(decision["lock_error"]))
     if missing:
         parts.append(f"{len(missing)} lock pin(s) not installed: {', '.join(missing[:6])}")
     return (
