@@ -1,0 +1,272 @@
+# Evidence panel
+
+`python -m backend.tools.benchmarks.run_evidence_panel --arm main --root main /tmp/ecosim-main --arm off --arm on --set on households.fix_category_price_beliefs=True --off-set households.fix_category_price_beliefs=False --seeds 42,43,44,45,46,47,48,49,50,51,52,53,54 --baseline main --no-escalate --jobs 3 --out /workspace/benchmarks/results/pr59-review`
+
+- **Setup:** 1,000 households, 5 firms per category, 312 ticks, seeds 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54 (one process per run, PYTHONHASHSEED=0).
+- **Reference env:** Python 3.11.17 (CPython), numpy 2.4.6, requirements.lock sha256 `53a047de7f455b8174baeda85d74da3f4d9091ed26ad199dec5eef7d8ac311cd`, one numeric-library thread per run, PYTHONHASHSEED 0. Lock pins checked: 53.
+- **Comparability:** reference.
+- **Windows:** 1-100 (reported, not judged), 101-200, 201-312 (judged), 261-312 (judged). **Baseline:** `main`.
+- **Money check:** relative (switch `MONEY_CHECK_MODE` in `panel_summary.py`; absolute after #57).
+- **`main`:** no changes; commit `82c7cddb15`; venv lock `53a047de7f455b8174baeda85d74da3f4d9091ed26ad199dec5eef7d8ac311cd`.
+- **`off`:** `households.fix_category_price_beliefs=False`; commit `2cc798dbbf`; venv lock `53a047de7f455b8174baeda85d74da3f4d9091ed26ad199dec5eef7d8ac311cd`.
+- **`on`:** `households.fix_category_price_beliefs=True`; commit `2cc798dbbf`; venv lock `53a047de7f455b8174baeda85d74da3f4d9091ed26ad199dec5eef7d8ac311cd`.
+
+## Checks
+
+| Arm | Runs identical to baseline (state digest) | Unrecorded money drift at end (mean, max abs) | First divergent week |
+|---|---|---|---|
+| `main` | baseline | 2,516, 11,080 | baseline |
+| `off` | 39/39 | 2,516, 11,080 | none |
+| `on` | 0/39 | 2,524, 11,226 | week 25 households (income_first seed 50) |
+
+Money check (relative, dust tolerance 0.0001 dollars): pass (0 runs).
+Bounds and non-finite values: pass (0 shown).
+Where the baseline conserves, another arm must conserve too. Where the baseline already leaks, the drift gap is reported and does not fail the run. Off = main is the state digest.
+
+| Sequence | Arm | Baseline | Drift minus baseline (median) | k/n up | mean |
+|---|---|---|---|---|---|
+| income_first | `off` | conserves | 0 | 0/13 | 0 |
+| income_late | `off` | conserves | 0 | 0/13 | 0 |
+| legacy | `off` | leaks, not failed | 0 | 0/13 | 0 |
+| income_first | `on` | conserves | 0 | 7/13 | 0 |
+| income_late | `on` | conserves | 0 | 7/13 | 0 |
+| legacy | `on` | leaks, not failed | +51.7 | 8/13 | +22.6 |
+
+Repeat of `main` seed 42 on each sequence: 3/3 identical (pass).
+
+Warning: income_first: baseline labour-force unemployment is 0.8% over weeks 201+, below the 10-40% band. Warning only; this does not fail the run. The all-households figure is printed beside it and is not judged.
+
+Warning: income_late: baseline labour-force unemployment is 0.3% over weeks 201+, below the 10-40% band. Warning only; this does not fail the run. The all-households figure is printed beside it and is not judged.
+
+### Unemployment band (labour force, weeks 201+)
+
+Distance is the mean over weeks 201+ of points outside 10-40% (0 inside). The all-households column is the dashboard figure and is not judged. A baseline outside the band is a warning, not a failure.
+
+| Sequence | Arm | Labour force % | Band distance (pts) | All households % (unjudged) |
+|---|---|---|---|---|
+| income_first | `main` | 0.789 | 9.21 | 5.92 |
+| income_first | `off` | 0.789 | 9.21 | 5.92 |
+| income_first | `on` | 1.20 | 8.80 | 6.26 |
+| income_late | `main` | 0.337 | 9.66 | 7.57 |
+| income_late | `off` | 0.337 | 9.66 | 7.57 |
+| income_late | `on` | 0.356 | 9.64 | 7.59 |
+| legacy | `main` | 24.1 | 0.000 | 26.1 |
+| legacy | `off` | 24.1 | 0.000 | 26.1 |
+| legacy | `on` | 24.1 | 0.000 | 26.0 |
+
+### Legacy firms (report only)
+
+Last week a legacy firm left the economy. Baseline firms are protected from the bankruptcy exit, so this is often none.
+- `main`: no legacy exit in these runs.
+- `off`: no legacy exit in these runs.
+- `on`: no legacy exit in these runs.
+
+Each cell gives the baseline's level, then the paired difference (arm minus baseline): the mean over seeds, [min, max], the median, and how many seeds went up (k/n). Shares are in percent, so their differences are percentage points. **!** marks a mean whose sign flips when any one seed is left out. Within-window CV is the standard deviation of the weekly series divided by the absolute mean, not the standard deviation of the mean. Detrended CV removes a linear week trend first.
+
+## `off` vs `main`
+
+Identical on all 39 runs: every per-week state digest matches, so every difference is zero.
+
+## `on` vs `main`: income_first
+
+| Metric | 1-100 (reported, not judged): main | 1-100 (reported, not judged): difference | 101-200: main | 101-200: difference | 201-312 (judged): main | 201-312 (judged): difference | 261-312 (judged): main | 261-312 (judged): difference |
+|---|---|---|---|---|---|---|---|---|
+| Unemployment, labour force (%) | 42.1 | -0.055 [-0.797, +0.434] median +0.096 7/13 **!** | 14.7 | -0.059 [-1.47, +1.84] median +0.098 7/13 **!** | 0.789 | +0.415 [-1.28, +2.83] median +0.056 8/13 | 0.639 | +0.276 [-0.890, +2.54] median -0.009 6/13 |
+| Unemployment, labour force, within-window CV (sd/|mean|) (%) | 34.8 | -0.006 [-0.320, +0.273] median -0.055 6/13 **!** | 86.7 | -1.74 [-11.3, +16.3] median -2.61 5/13 | 62.2 | +5.99 [-67.1, +108.7] median +8.84 8/13 **!** | 53.1 | -6.47 [-72.1, +19.2] median -2.09 6/13 |
+| Unemployment, labour force, detrended CV (residual sd/|mean|) (%) | 31.2 | +0.045 [-0.659, +0.711] median +0.129 7/13 **!** | 29.0 | -0.582 [-6.09, +8.58] median -0.548 5/13 | 57.6 | +2.05 [-67.1, +124.8] median +9.97 7/13 **!** | 50.1 | -6.38 [-45.5, +18.0] median -1.64 5/13 |
+| Jobless, all households (dashboard) (%) | 42.3 | -0.053 [-0.786, +0.436] median +0.098 7/13 **!** | 17.7 | -0.062 [-1.35, +1.79] median +0.220 7/13 **!** | 5.92 | +0.344 [-1.39, +2.42] median +0.050 7/13 | 5.98 | +0.220 [-0.763, +2.36] median +0.071 7/13 |
+| Job-finding rate (U to E / U) (%) | 3.76 | +0.101 [+0.007, +0.216] median +0.112 13/13 | 19.7 | -1.34 [-16.4, +16.8] median -2.01 5/13 | 68.4 | -7.64 [-70.2, +36.4] median +0.699 7/13 | 72.2 | -6.95 [-76.5, +37.8] median -0.612 6/13 |
+| Planned layoffs per month (people/month) | 59.3 | +0.037 [-1.21, +1.17] median -0.173 6/13 **!** | 28.9 | -0.747 [-4.55, +2.04] median -0.563 4/13 | 14.2 | -0.405 [-13.6, +13.1] median +0.193 7/13 **!** | 12.0 | +0.083 [-14.4, +14.0] median +0.500 7/13 **!** |
+| Openings per unemployed (ratio) | 0.042 | 0 [-0.001, +0.002] median 0 7/13 **!** | 1.59 | +1.73 [-7.38, +17.5] median -0.194 4/13 | 21.3 | +8.09 [-134.2, +86.6] median -1.56 5/13 | 23.1 | +5.13 [-144.9, +78.5] median -0.865 5/13 **!** |
+| Real GDP (units x base paid price) ($/wk) | 40,068 | +9.68 [-297.3, +393.3] median +29.0 7/13 **!** | 85,556 | +230.3 [-1,512, +3,240] median -205.7 6/13 **!** | 102,158 | +202.9 [-4,901, +5,178] median -1,584 6/13 **!** | 102,195 | +395.4 [-4,679, +5,598] median -186.7 5/13 **!** |
+| Real GDP (units x base paid price), within-window CV (sd/|mean|) (%) | 28.1 | +0.025 [-0.734, +0.568] median +0.074 7/13 **!** | 16.3 | -0.226 [-1.25, +0.799] median -0.102 6/13 | 1.24 | +0.269 [-0.096, +1.85] median +0.146 9/13 | 1.07 | +0.067 [-0.776, +0.670] median +0.014 7/13 |
+| Real GDP (units x base paid price), detrended CV (residual sd/|mean|) (%) | 11.8 | +0.036 [-0.337, +0.328] median +0.102 8/13 | 4.40 | -0.113 [-1.07, +0.785] median +0.055 7/13 | 1.15 | +0.161 [-0.407, +0.610] median +0.166 10/13 | 1.03 | +0.025 [-0.621, +0.503] median +0.004 7/13 **!** |
+| Real GDP (GDP / CPI x 100) ($/wk) | 28,558 | +20.4 [-198.2, +347.7] median +36.6 7/13 **!** | 47,825 | +349.5 [-421.1, +1,789] median +285.2 9/13 | 45,789 | +325.0 [-744.6, +2,445] median +146.1 7/13 | 44,301 | +334.9 [-1,065, +2,297] median +161.8 8/13 |
+| Real GDP (GDP / CPI x 100), within-window CV (sd/|mean|) (%) | 33.3 | +0.083 [-0.533, +0.775] median -0.009 6/13 | 4.46 | -0.051 [-1.27, +1.02] median -0.028 6/13 **!** | 3.73 | -0.091 [-2.52, +1.67] median -0.160 5/13 **!** | 1.49 | -0.170 [-0.965, +0.634] median -0.057 5/13 |
+| Real GDP (GDP / CPI x 100), detrended CV (residual sd/|mean|) (%) | 16.6 | +0.033 [-0.417, +0.444] median +0.083 8/13 **!** | 2.77 | +0.074 [-0.566, +0.981] median -0.040 6/13 **!** | 1.33 | +0.008 [-1.71, +0.848] median +0.083 8/13 **!** | 0.992 | -0.036 [-0.332, +0.368] median -0.037 5/13 |
+| Nominal GDP ($/wk) | 44,131 | +5.75 [-495.5, +553.8] median +45.6 7/13 **!** | 70,396 | +68.9 [-731.3, +970.2] median -116.3 5/13 **!** | 65,840 | +116.7 [-4,388, +5,498] median -772.1 5/13 **!** | 63,801 | +227.9 [-3,092, +6,505] median -816.8 5/13 **!** |
+| Nominal GDP, within-window CV (sd/|mean|) (%) | 43.1 | +0.043 [-0.685, +0.581] median +0.278 9/13 **!** | 2.53 | +0.165 [-0.526, +0.553] median +0.231 9/13 | 3.46 | -0.167 [-1.62, +1.41] median -0.005 6/13 | 1.58 | -0.169 [-0.702, +0.525] median -0.184 5/13 |
+| Nominal GDP, detrended CV (residual sd/|mean|) (%) | 13.7 | -0.064 [-0.626, +0.496] median -0.026 6/13 | 2.17 | +0.073 [-0.640, +0.882] median +0.094 8/13 | 1.09 | +0.029 [-0.230, +0.474] median +0.009 7/13 **!** | 0.956 | -0.034 [-0.374, +0.372] median -0.033 6/13 |
+| Food + Services units sold (units/wk) | 3,725 | +3.77 [-23.9, +38.4] median +3.29 7/13 | 5,435 | +20.2 [-30.6, +192.2] median -2.79 6/13 | 5,934 | -29.2 [-165.4, +182.0] median -56.3 5/13 | 5,920 | -29.1 [-264.7, +256.8] median -68.1 5/13 |
+| Consumer price index (index) | 149.9 | -0.094 [-1.63, +0.766] median -0.050 6/13 **!** | 147.7 | -0.921 [-5.93, +0.358] median -0.777 2/13 | 143.9 | -0.715 [-11.2, +8.42] median -1.93 6/13 **!** | 144.1 | -0.510 [-11.1, +10.1] median -2.43 5/13 **!** |
+| Consumer price index, within-window CV (sd/|mean|) (%) | 15.8 | -0.048 [-0.672, +0.309] median -0.015 5/13 **!** | 4.99 | +0.024 [-0.759, +0.922] median -0.009 6/13 **!** | 1.11 | +0.088 [-1.04, +1.95] median +0.048 8/13 **!** | 0.837 | -0.093 [-1.45, +0.535] median +0.109 7/13 **!** |
+| Consumer price index, detrended CV (residual sd/|mean|) (%) | 8.01 | -0.072 [-0.511, +0.246] median -0.029 6/13 | 1.85 | +0.044 [-0.572, +0.799] median +0.048 7/13 **!** | 0.874 | -0.076 [-1.76, +1.24] median -0.024 6/13 **!** | 0.585 | -0.063 [-0.590, +0.268] median -0.038 6/13 |
+| Mean posted price ($) | 18.7 | -0.058 [-0.669, +0.221] median +0.032 7/13 | 16.2 | -0.458 [-4.17, +0.525] median -0.186 3/13 | 13.5 | +0.149 [-1.57, +2.03] median +0.272 8/13 **!** | 13.3 | +0.173 [-2.16, +1.84] median +0.225 8/13 |
+| Fiscal balance (revenue - spending) ($/wk) | -28,106 | +11.6 [-136.8, +257.0] median -11.0 6/13 **!** | -6,631 | -71.6 [-676.5, +195.7] median -25.0 6/13 | -2,954 | -1.44 [-292.3, +256.5] median -44.5 6/13 **!** | -2,423 | -44.8 [-525.4, +348.5] median -113.6 5/13 |
+| Fiscal balance (revenue - spending), min ($/wk) | -351,511 | 0 [0, 0] median 0 0/13 | -9,351 | -197.9 [-1,606, +539.3] median -151.1 6/13 | -5,078 | -109.9 [-1,175, +419.3] median -42.6 5/13 | -3,200 | -72.5 [-627.6, +637.9] median -162.5 3/13 |
+| Treasury cash ($) | 301,567 | +309.6 [-3,104, +2,472] median +52.9 8/13 | 223,235 | +443.7 [-6,230, +6,626] median +46.2 7/13 **!** | 198,466 | -275.4 [-14,833, +12,519] median -3,034 5/13 **!** | 191,234 | +491.0 [-18,991, +17,818] median -4,285 5/13 **!** |
+| Treasury cash, min ($) | 72,686 | -423.0 [-3,063, +2,205] median -604.4 4/13 | 200,221 | +2,539 [-7,200, +15,607] median +786.4 9/13 | 183,810 | -10.4 [-17,754, +13,943] median -1,481 5/13 **!** | 184,017 | +580.2 [-17,754, +17,912] median -1,481 5/13 **!** |
+| Treasury cash, share of weeks below 0 (%) | 0.000 | 0 [0, 0] median 0 0/13 | 0.000 | 0 [0, 0] median 0 0/13 | 0.000 | 0 [0, 0] median 0 0/13 | 0.000 | 0 [0, 0] median 0 0/13 |
+| Bond buy paid to misc pool (K06) ($/wk) | 33,429 | +36.0 [-389.3, +326.5] median +16.1 8/13 | 22,643 | +52.9 [-815.2, +845.3] median -15.2 6/13 **!** | 19,397 | -40.0 [-1,996, +1,642] median -425.0 5/13 **!** | 18,457 | +58.5 [-2,605, +2,351] median -554.6 5/13 **!** |
+| Legacy firms active (firms) | 4.00 | 0 [0, 0] median 0 0/13 | 4.00 | 0 [0, 0] median 0 0/13 | 4.00 | 0 [0, 0] median 0 0/13 | 4.00 | 0 [0, 0] median 0 0/13 |
+| Legacy firm headcount (people) | 253.0 | +0.001 [-0.050, +0.040] median 0 5/13 **!** | 77.9 | -0.007 [-0.450, +0.490] median +0.050 7/13 **!** | 73.2 | +0.315 [-10.7, +15.2] median +1.12 8/13 **!** | 72.5 | +0.608 [-12.8, +17.6] median +0.288 8/13 **!** |
+| Legacy firm profit ($/wk) | 3,280 | -4.62 [-43.3, +37.6] median -2.66 5/13 | 5,655 | -23.9 [-277.6, +98.1] median -9.06 5/13 | 6,374 | -121.5 [-1,210, +878.0] median -320.1 5/13 | 6,711 | -209.7 [-2,374, +1,471] median -427.0 5/13 |
+| Legacy firm exits, sum (exits) | 0.000 | 0 [0, 0] median 0 0/13 | 0.000 | 0 [0, 0] median 0 0/13 | 0.000 | 0 [0, 0] median 0 0/13 | 0.000 | 0 [0, 0] median 0 0/13 |
+| Private firm profit ($/wk) | 14,319 | -46.5 [-311.0, +49.7] median -1.54 6/13 | 19,878 | +89.7 [-347.4, +472.0] median +37.4 8/13 | 10,966 | +190.7 [-1,193, +1,642] median +193.4 9/13 | 9,118 | +76.3 [-2,049, +2,440] median +326.1 8/13 **!** |
+| Private firms (firms) | 24.1 | 0 [0, 0] median 0 0/13 | 27.0 | 0 [0, 0] median 0 0/13 | 26.8 | -0.086 [-1.00, +0.562] median 0 5/13 | 26.6 | -0.114 [-1.00, +1.00] median 0 4/13 |
+| Private firm headcount (people) | 324.2 | +0.534 [-4.35, +7.89] median -0.930 6/13 **!** | 745.1 | +0.624 [-18.0, +13.4] median -1.94 6/13 **!** | 867.7 | -3.75 [-30.9, +18.6] median -3.31 5/13 | 867.6 | -2.81 [-31.6, +16.9] median -4.08 5/13 |
+| Poverty (liquid < $200) (%) | 18.4 | +0.021 [-0.475, +0.692] median +0.045 7/13 **!** | 46.1 | -0.645 [-4.46, +1.71] median +0.101 7/13 | 59.1 | -1.26 [-13.9, +19.5] median +1.82 8/13 | 61.2 | -1.19 [-12.6, +19.5] median +0.179 7/13 |
+| Extreme poverty (liquid < extreme line) (%) | 11.6 | 0 [-0.560, +0.542] median -0.039 6/13 **!** | 33.5 | -0.790 [-6.37, +2.96] median +0.156 7/13 | 45.4 | -1.40 [-20.0, +26.8] median +1.16 8/13 **!** | 47.8 | -1.01 [-17.5, +22.9] median -0.352 6/13 **!** |
+| Households eating minimum food (%) | 91.0 | +0.099 [-0.397, +0.558] median +0.039 7/13 | 97.3 | +0.073 [-0.525, +0.854] median -0.025 6/13 | 96.1 | -0.004 [-2.64, +1.83] median +0.233 7/13 **!** | 95.6 | -0.030 [-3.85, +2.99] median +0.192 8/13 **!** |
+| Happiness (index) | 0.633 | 0 [-0.003, +0.003] median 0 6/13 **!** | 0.486 | +0.005 [-0.009, +0.025] median 0 7/13 | 0.359 | +0.009 [-0.071, +0.083] median -0.007 5/13 | 0.339 | +0.011 [-0.099, +0.089] median -0.010 5/13 |
+| Happiness, within-window CV (sd/|mean|) (%) | 9.75 | +0.009 [-0.608, +0.529] median -0.003 6/13 **!** | 9.92 | -0.365 [-2.77, +1.16] median -0.187 5/13 | 6.77 | -0.475 [-4.38, +7.70] median -0.163 6/13 | 2.78 | -0.275 [-2.88, +1.83] median +0.033 7/13 |
+| Happiness, detrended CV (residual sd/|mean|) (%) | 3.01 | +0.066 [-0.047, +0.228] median +0.040 11/13 | 1.11 | +0.093 [-0.554, +0.957] median +0.039 9/13 | 1.56 | -0.140 [-1.11, +2.36] median -0.345 3/13 | 0.391 | -0.053 [-0.773, +0.508] median -0.016 5/13 **!** |
+| Happiness median (index) | 0.722 | 0 [-0.002, +0.003] median 0 6/13 **!** | 0.451 | +0.016 [-0.056, +0.099] median +0.010 8/13 | 0.029 | +0.026 [-0.157, +0.258] median 0 4/13 | 0.021 | +0.013 [-0.200, +0.231] median 0 3/13 **!** |
+| Happiness p10 (index) | 0.232 | 0 [-0.001, +0.001] median 0 7/13 **!** | 0.000 | 0 [0, 0] median 0 1/13 **!** | 0.000 | 0 [0, 0] median 0 0/13 | 0.000 | 0 [0, 0] median 0 0/13 |
+| Happiness p90 (index) | 0.882 | 0 [-0.001, +0.001] median 0 6/13 **!** | 1.00 | 0 [0, 0] median 0 0/13 **!** | 1.00 | 0 [0, 0] median 0 0/13 | 1.00 | 0 [0, 0] median 0 0/13 |
+| Happiness share <= 0.05 (%) | 12.2 | +0.076 [-0.256, +0.545] median +0.066 8/13 | 40.5 | -0.479 [-2.89, +0.715] median -0.008 6/13 | 56.7 | -1.12 [-13.7, +17.4] median +1.75 8/13 | 59.5 | -1.05 [-13.5, +21.2] median +1.68 8/13 |
+| Happiness share >= 0.95 (%) | 4.42 | -0.008 [-0.209, +0.120] median 0 6/13 **!** | 30.7 | +0.422 [-0.496, +1.74] median +0.310 9/13 | 28.5 | +0.866 [-3.88, +6.46] median -0.320 6/13 | 27.4 | +1.08 [-4.71, +6.81] median -0.071 6/13 |
+| Health (index) | 0.810 | 0 [-0.001, +0.001] median 0 8/13 **!** | 0.656 | +0.001 [-0.001, +0.003] median 0 9/13 | 0.623 | 0 [-0.003, +0.005] median 0 8/13 **!** | 0.621 | 0 [-0.006, +0.007] median 0 5/13 **!** |
+| Unmet Food demand (units/wk) | 355.9 | +4.26 [-23.5, +40.4] median +0.187 7/13 | 235.4 | -8.94 [-56.2, +54.4] median -19.0 4/13 | 175.5 | +13.7 [-60.4, +71.5] median +13.7 8/13 | 163.9 | +11.8 [-57.7, +62.5] median +22.9 8/13 |
+| Unmet Services demand (units/wk) | 1,738 | -1.43 [-24.0, +10.7] median -3.53 6/13 **!** | 47.3 | +3.49 [-12.4, +20.4] median +2.94 10/13 | 8.02 | +1.89 [-2.77, +9.80] median +1.15 8/13 | 5.21 | +2.09 [-0.356, +8.03] median +1.73 9/13 |
+| Liquid wealth p10 ($) | 150.0 | -0.191 [-2.25, +1.04] median +0.038 7/13 | 49.9 | +0.906 [-5.62, +10.5] median -0.816 5/13 | 49.8 | +0.599 [-14.6, +16.4] median -1.35 5/13 **!** | 49.2 | +0.025 [-9.65, +5.74] median -1.21 5/13 **!** |
+| Liquid wealth p20 ($) | 259.7 | -0.531 [-6.58, +3.87] median -0.610 4/13 | 63.3 | +1.34 [-6.26, +13.4] median -0.161 5/13 | 58.2 | +0.847 [-18.4, +18.6] median -1.66 5/13 **!** | 57.4 | -0.640 [-10.1, +6.58] median -1.09 5/13 **!** |
+| Liquid wealth p30 ($) | 382.8 | -0.050 [-7.40, +6.57] median -0.022 6/13 **!** | 93.5 | +3.15 [-6.29, +24.4] median +0.502 7/13 | 67.9 | +1.88 [-40.8, +38.8] median -1.57 5/13 **!** | 64.8 | -0.563 [-22.1, +10.6] median -1.69 5/13 **!** |
+| Liquid wealth p40 ($) | 513.0 | +0.209 [-8.09, +6.77] median +0.209 7/13 **!** | 155.9 | +4.75 [-12.0, +40.3] median +0.434 7/13 | 85.7 | +7.51 [-81.6, +73.5] median -2.58 5/13 | 80.7 | +3.71 [-66.3, +55.6] median -0.025 6/13 **!** |
+| Liquid wealth p50 ($) | 654.3 | +0.407 [-9.22, +7.68] median +0.573 8/13 **!** | 243.9 | +6.60 [-15.5, +45.5] median +3.28 8/13 | 129.3 | +12.7 [-121.0, +108.2] median -13.3 5/13 | 115.4 | +13.4 [-111.4, +97.3] median +2.14 7/13 |
+| Liquid wealth p60 ($) | 809.2 | -0.027 [-6.61, +7.94] median -1.63 4/13 **!** | 352.4 | +7.91 [-17.0, +49.2] median +3.58 8/13 | 206.4 | +13.2 [-140.2, +119.4] median -15.9 5/13 | 186.1 | +13.8 [-148.6, +114.8] median -0.368 6/13 |
+| Liquid wealth p70 ($) | 977.7 | +0.784 [-8.87, +7.13] median +1.15 8/13 | 496.7 | +7.56 [-15.2, +58.0] median +2.96 8/13 | 308.9 | +21.5 [-148.2, +178.6] median -9.60 5/13 | 283.9 | +22.0 [-147.8, +179.2] median -2.24 6/13 |
+| Liquid wealth p80 ($) | 1,198 | +1.07 [-11.3, +14.4] median +1.58 8/13 **!** | 739.4 | +12.5 [-11.1, +90.0] median +6.57 9/13 | 504.9 | +34.4 [-192.5, +265.8] median -4.95 5/13 | 466.9 | +38.1 [-203.7, +304.9] median +1.45 7/13 |
+| Liquid wealth p90 ($) | 1,566 | +4.09 [-9.33, +25.2] median +2.65 9/13 | 1,426 | +17.5 [-39.2, +116.5] median +14.0 8/13 | 1,447 | +40.1 [-284.5, +313.2] median +17.7 7/13 | 1,441 | +39.5 [-285.9, +331.5] median -4.57 6/13 |
+
+## `on` vs `main`: income_late
+
+| Metric | 1-100 (reported, not judged): main | 1-100 (reported, not judged): difference | 101-200: main | 101-200: difference | 201-312 (judged): main | 201-312 (judged): difference | 261-312 (judged): main | 261-312 (judged): difference |
+|---|---|---|---|---|---|---|---|---|
+| Unemployment, labour force (%) | 41.9 | +0.043 [-0.258, +0.321] median +0.096 7/13 | 13.8 | +0.081 [-1.57, +1.95] median -0.132 6/13 **!** | 0.337 | +0.019 [-0.097, +0.160] median +0.028 7/13 | 0.291 | -0.024 [-0.205, +0.146] median -0.027 5/13 |
+| Unemployment, labour force, within-window CV (sd/|mean|) (%) | 34.8 | -0.011 [-0.224, +0.254] median -0.019 6/13 **!** | 94.1 | +0.742 [-13.2, +12.4] median +1.78 7/13 **!** | 116.4 | +15.8 [-39.7, +61.2] median +13.7 8/13 | 112.1 | +9.49 [-92.0, +172.6] median -3.97 6/13 **!** |
+| Unemployment, labour force, detrended CV (residual sd/|mean|) (%) | 31.2 | -0.039 [-0.393, +0.583] median -0.166 5/13 | 30.1 | +0.697 [-10.0, +10.6] median -1.02 6/13 **!** | 112.7 | +15.6 [-48.1, +63.6] median +14.4 9/13 | 108.5 | +8.99 [-79.9, +164.6] median -2.90 6/13 **!** |
+| Jobless, all households (dashboard) (%) | 42.1 | +0.045 [-0.255, +0.327] median +0.101 7/13 | 17.3 | +0.203 [-1.12, +2.03] median +0.133 8/13 | 7.57 | +0.013 [-0.471, +0.431] median +0.025 8/13 **!** | 7.37 | +0.054 [-1.54, +1.54] median -0.033 6/13 **!** |
+| Job-finding rate (U to E / U) (%) | 4.03 | +0.017 [-0.090, +0.126] median +0.010 7/13 | 27.5 | +0.255 [-10.2, +7.49] median +1.06 7/13 **!** | 75.5 | -0.309 [-9.62, +5.73] median +1.42 8/13 **!** | 80.4 | -0.939 [-26.4, +17.4] median -1.74 6/13 **!** |
+| Planned layoffs per month (people/month) | 60.0 | -0.123 [-0.997, +0.737] median -0.303 6/13 | 27.9 | +0.130 [-5.46, +7.11] median +0.217 8/13 **!** | 5.69 | +0.372 [-2.79, +2.94] median +0.426 8/13 | 4.70 | -0.019 [-3.00, +2.25] median +0.083 7/13 **!** |
+| Openings per unemployed (ratio) | 0.042 | 0 [-0.001, +0.001] median 0 4/13 | 2.27 | -0.714 [-6.84, +6.70] median +0.333 8/13 | 84.4 | +0.130 [-34.9, +29.4] median +8.64 7/13 **!** | 125.5 | +0.822 [-62.4, +48.4] median -2.99 6/13 **!** |
+| Real GDP (units x base paid price) ($/wk) | 40,087 | -67.6 [-582.8, +328.9] median -0.971 6/13 | 85,013 | -320.9 [-3,065, +1,066] median +36.3 8/13 | 100,588 | +251.5 [-1,955, +1,926] median +132.7 9/13 | 101,426 | +449.0 [-1,619, +3,009] median +11.9 7/13 |
+| Real GDP (units x base paid price), within-window CV (sd/|mean|) (%) | 27.9 | -0.020 [-0.996, +0.874] median -0.034 6/13 **!** | 16.2 | +0.108 [-1.39, +1.92] median -0.288 5/13 **!** | 1.85 | +0.132 [-0.622, +1.10] median +0.036 7/13 | 1.31 | -0.064 [-0.848, +0.488] median +0.070 7/13 **!** |
+| Real GDP (units x base paid price), detrended CV (residual sd/|mean|) (%) | 11.7 | +0.033 [-0.098, +0.237] median +0.020 8/13 | 4.58 | +0.056 [-0.777, +1.23] median -0.178 5/13 **!** | 1.55 | +0.086 [-0.380, +0.667] median +0.032 8/13 | 1.19 | -0.142 [-1.04, +0.218] median -0.012 6/13 |
+| Real GDP (GDP / CPI x 100) ($/wk) | 28,841 | -41.6 [-206.0, +67.2] median -21.6 4/13 | 48,292 | -163.8 [-1,891, +1,513] median -198.1 5/13 | 45,740 | -505.4 [-2,191, +728.4] median -582.4 4/13 | 44,329 | -432.8 [-3,672, +1,528] median -701.1 4/13 |
+| Real GDP (GDP / CPI x 100), within-window CV (sd/|mean|) (%) | 33.9 | -0.050 [-0.623, +0.373] median +0.002 7/13 | 4.26 | -0.244 [-1.74, +1.44] median -0.261 3/13 | 3.89 | -0.157 [-2.89, +2.83] median -0.120 5/13 **!** | 1.97 | +0.015 [-0.804, +0.801] median -0.162 6/13 **!** |
+| Real GDP (GDP / CPI x 100), detrended CV (residual sd/|mean|) (%) | 16.7 | -0.004 [-0.345, +0.437] median -0.006 6/13 **!** | 2.86 | +0.061 [-0.929, +0.896] median +0.088 7/13 **!** | 1.88 | -0.073 [-1.12, +0.462] median +0.026 7/13 **!** | 1.30 | -0.154 [-0.918, +0.755] median -0.118 4/13 |
+| Nominal GDP ($/wk) | 44,528 | -66.4 [-359.1, +398.7] median -100.6 6/13 | 70,694 | -112.8 [-1,083, +700.4] median -96.8 5/13 | 66,387 | +37.5 [-1,519, +1,689] median -83.3 4/13 **!** | 64,888 | -72.1 [-1,882, +1,957] median -401.7 6/13 **!** |
+| Nominal GDP, within-window CV (sd/|mean|) (%) | 43.6 | -0.041 [-0.697, +0.580] median -0.029 6/13 **!** | 2.58 | +0.102 [-0.774, +0.835] median +0.092 8/13 | 3.23 | +0.090 [-1.04, +1.55] median +0.173 8/13 **!** | 2.24 | +0.081 [-0.986, +0.710] median +0.138 8/13 |
+| Nominal GDP, detrended CV (residual sd/|mean|) (%) | 13.8 | +0.028 [-0.646, +0.999] median -0.030 6/13 **!** | 2.11 | -0.055 [-0.499, +0.475] median -0.084 5/13 | 1.93 | +0.088 [-0.526, +0.658] median -0.004 6/13 | 1.31 | -0.099 [-1.09, +0.822] median +0.018 7/13 |
+| Food + Services units sold (units/wk) | 3,735 | -4.44 [-32.4, +18.0] median -5.99 5/13 | 5,435 | -23.1 [-104.2, +38.5] median -22.2 3/13 | 5,812 | +3.16 [-97.5, +208.1] median -27.9 6/13 **!** | 5,769 | +3.01 [-114.7, +192.3] median -14.1 5/13 **!** |
+| Consumer price index (index) | 149.7 | +0.010 [-0.624, +0.730] median +0.117 7/13 **!** | 146.8 | +0.334 [-3.76, +5.07] median +0.121 8/13 **!** | 145.3 | +1.68 [-1.40, +6.63] median +1.49 8/13 | 146.5 | +1.28 [-3.06, +7.03] median +1.66 8/13 |
+| Consumer price index, within-window CV (sd/|mean|) (%) | 15.8 | +0.010 [-0.294, +0.310] median +0.058 7/13 **!** | 4.89 | -0.074 [-1.83, +1.18] median -0.047 6/13 **!** | 1.52 | +0.043 [-1.10, +1.53] median -0.123 4/13 **!** | 0.888 | +0.074 [-0.794, +0.729] median +0.075 9/13 |
+| Consumer price index, detrended CV (residual sd/|mean|) (%) | 7.96 | +0.015 [-0.700, +0.658] median -0.011 6/13 **!** | 1.97 | +0.161 [-0.657, +0.870] median +0.110 8/13 | 1.07 | +0.052 [-0.634, +0.946] median +0.038 7/13 **!** | 0.597 | +0.048 [-0.463, +0.416] median +0.082 8/13 |
+| Mean posted price ($) | 18.8 | -0.010 [-0.281, +0.164] median -0.010 6/13 **!** | 15.7 | +0.174 [-0.105, +1.16] median +0.059 10/13 | 13.5 | +0.207 [-1.19, +2.77] median +0.043 8/13 **!** | 13.5 | +0.003 [-1.97, +1.80] median -0.076 6/13 **!** |
+| Fiscal balance (revenue - spending) ($/wk) | -28,053 | -15.2 [-246.2, +187.4] median +3.50 7/13 **!** | -6,801 | +78.2 [-299.0, +461.4] median +125.7 8/13 | -2,976 | +19.3 [-375.3, +270.5] median +106.1 8/13 **!** | -2,447 | -16.9 [-583.8, +432.7] median -12.3 6/13 **!** |
+| Fiscal balance (revenue - spending), min ($/wk) | -351,511 | 0 [0, 0] median 0 0/13 | -9,697 | +130.1 [-892.0, +1,257] median -13.3 6/13 | -5,294 | +140.9 [-851.6, +754.6] median +74.1 7/13 | -3,279 | -15.6 [-586.8, +929.0] median -97.3 6/13 **!** |
+| Treasury cash ($) | 303,372 | -317.5 [-3,267, +1,570] median -171.2 6/13 | 226,395 | -1,058 [-5,120, +2,799] median -712.9 5/13 | 197,695 | +649.7 [-2,421, +6,686] median +166.2 7/13 | 192,228 | +709.8 [-6,053, +8,544] median +1,183 8/13 |
+| Treasury cash, min ($) | 73,813 | -216.6 [-3,052, +1,761] median +45.6 7/13 **!** | 205,653 | -431.8 [-9,665, +8,053] median +635.4 7/13 **!** | 182,672 | +734.2 [-5,669, +6,708] median +1,168 8/13 | 183,411 | +687.7 [-7,553, +10,557] median +1,392 7/13 **!** |
+| Treasury cash, share of weeks below 0 (%) | 0.000 | 0 [0, 0] median 0 0/13 | 0.000 | 0 [0, 0] median 0 0/13 | 0.000 | 0 [0, 0] median 0 0/13 | 0.000 | 0 [0, 0] median 0 0/13 |
+| Bond buy paid to misc pool (K06) ($/wk) | 33,670 | -43.7 [-419.9, +205.9] median -18.0 6/13 | 23,060 | -132.5 [-665.3, +380.3] median -77.0 5/13 | 19,288 | +87.4 [-343.5, +888.0] median +18.1 8/13 | 18,584 | +96.6 [-809.2, +1,149] median +125.9 8/13 |
+| Legacy firms active (firms) | 4.00 | 0 [0, 0] median 0 0/13 | 4.00 | 0 [0, 0] median 0 0/13 | 4.00 | 0 [0, 0] median 0 0/13 | 4.00 | 0 [0, 0] median 0 0/13 |
+| Legacy firm headcount (people) | 253.0 | -0.008 [-0.070, +0.030] median 0 6/13 | 77.7 | -0.085 [-1.13, +2.09] median -0.180 4/13 **!** | 71.4 | -0.310 [-11.2, +3.03] median +0.393 8/13 **!** | 70.4 | -1.09 [-22.7, +5.13] median +0.423 8/13 **!** |
+| Legacy firm profit ($/wk) | 3,257 | -2.70 [-71.0, +28.1] median +0.653 8/13 **!** | 5,596 | +1.86 [-287.1, +201.4] median +5.45 7/13 **!** | 6,517 | +163.2 [-199.3, +432.9] median +163.6 9/13 | 6,923 | +166.1 [-427.7, +1,158] median +16.5 7/13 |
+| Legacy firm exits, sum (exits) | 0.000 | 0 [0, 0] median 0 0/13 | 0.000 | 0 [0, 0] median 0 0/13 | 0.000 | 0 [0, 0] median 0 0/13 | 0.000 | 0 [0, 0] median 0 0/13 |
+| Private firm profit ($/wk) | 14,413 | -2.08 [-230.2, +228.3] median -11.9 5/13 **!** | 19,797 | -54.5 [-319.9, +372.3] median -123.7 4/13 | 11,946 | -316.7 [-1,157, +606.1] median -331.6 3/13 | 10,238 | -506.9 [-3,027, +1,377] median -229.3 3/13 |
+| Private firms (firms) | 24.1 | 0 [0, 0] median 0 0/13 | 27.0 | 0 [0, 0] median 0 0/13 | 26.4 | +0.166 [-0.911, +0.938] median 0 6/13 | 26.1 | +0.143 [-1.00, +1.00] median 0 6/13 |
+| Private firm headcount (people) | 326.1 | -0.441 [-3.29, +2.59] median -1.02 5/13 | 748.9 | -1.95 [-20.6, +11.6] median -1.15 6/13 | 852.9 | +0.178 [-5.15, +12.0] median -1.05 5/13 **!** | 855.9 | +0.544 [-9.94, +17.0] median -0.346 6/13 **!** |
+| Poverty (liquid < $200) (%) | 19.2 | +0.073 [-0.281, +0.648] median +0.013 7/13 | 48.8 | +0.337 [-1.84, +3.88] median -0.002 6/13 | 55.7 | -1.04 [-7.25, +5.92] median -0.606 5/13 | 55.1 | -0.864 [-6.66, +5.46] median -0.304 5/13 |
+| Extreme poverty (liquid < extreme line) (%) | 12.4 | +0.069 [-0.139, +0.488] median +0.045 7/13 | 36.2 | +0.973 [-2.48, +6.12] median +0.679 10/13 | 39.1 | -1.46 [-9.68, +5.49] median -1.66 4/13 | 37.5 | -0.236 [-9.70, +5.28] median +1.16 8/13 **!** |
+| Households eating minimum food (%) | 91.4 | -0.021 [-0.412, +0.228] median +0.062 9/13 **!** | 97.6 | -0.151 [-1.04, +0.535] median -0.130 4/13 | 95.8 | -0.330 [-1.55, +1.40] median -0.524 5/13 | 95.0 | -0.639 [-3.43, +1.94] median -0.217 4/13 |
+| Happiness (index) | 0.629 | -0.001 [-0.003, 0] median 0 6/13 | 0.463 | -0.002 [-0.018, +0.010] median +0.002 7/13 | 0.362 | +0.002 [-0.015, +0.021] median +0.001 8/13 | 0.357 | +0.003 [-0.022, +0.030] median 0 6/13 |
+| Happiness, within-window CV (sd/|mean|) (%) | 10.5 | +0.089 [-0.104, +0.570] median +0.026 7/13 | 10.6 | +0.223 [-2.10, +2.42] median +0.312 7/13 | 2.71 | +0.308 [-1.70, +2.31] median +0.324 7/13 | 1.35 | +0.245 [-1.40, +1.95] median +0.235 9/13 |
+| Happiness, detrended CV (residual sd/|mean|) (%) | 3.12 | +0.024 [-0.087, +0.159] median +0.004 8/13 | 1.27 | +0.047 [-1.65, +1.01] median +0.097 7/13 **!** | 1.77 | +0.216 [-0.757, +1.20] median +0.261 8/13 | 0.568 | -0.065 [-0.654, +0.328] median +0.017 8/13 |
+| Happiness median (index) | 0.721 | 0 [-0.002, +0.001] median 0 5/13 | 0.357 | -0.005 [-0.065, +0.040] median +0.003 8/13 **!** | 0.024 | +0.006 [-0.070, +0.136] median 0 6/13 **!** | 0.021 | +0.013 [-0.145, +0.232] median +0.003 8/13 **!** |
+| Happiness p10 (index) | 0.231 | 0 [-0.001, 0] median 0 6/13 | 0.000 | 0 [0, 0] median 0 0/13 | 0.000 | 0 [0, 0] median 0 0/13 | 0.000 | 0 [0, 0] median 0 0/13 |
+| Happiness p90 (index) | 0.882 | 0 [-0.001, +0.002] median 0 2/13 | 1.00 | 0 [0, 0] median 0 0/13 **!** | 1.00 | 0 [0, 0] median 0 0/13 | 1.00 | 0 [0, 0] median 0 0/13 |
+| Happiness share <= 0.05 (%) | 12.8 | +0.071 [-0.183, +0.450] median +0.058 8/13 | 43.0 | +0.310 [-1.53, +2.32] median -0.081 6/13 | 54.8 | -0.867 [-6.15, +5.12] median -1.21 4/13 | 54.5 | -1.14 [-7.30, +8.17] median -0.840 5/13 |
+| Happiness share >= 0.95 (%) | 4.40 | -0.028 [-0.156, +0.096] median -0.009 5/13 | 29.7 | -0.155 [-1.41, +0.994] median +0.016 7/13 | 28.7 | +0.018 [-1.12, +1.62] median +0.162 7/13 **!** | 28.3 | +0.014 [-1.14, +1.21] median +0.177 8/13 **!** |
+| Health (index) | 0.810 | 0 [-0.001, 0] median 0 5/13 | 0.654 | -0.001 [-0.003, +0.001] median -0.001 3/13 | 0.613 | 0 [-0.005, +0.008] median -0.001 4/13 **!** | 0.611 | 0 [-0.011, +0.014] median -0.001 5/13 **!** |
+| Unmet Food demand (units/wk) | 358.9 | +2.00 [-23.3, +17.9] median -0.230 6/13 | 224.5 | +2.17 [-36.9, +46.0] median -7.43 5/13 **!** | 194.9 | +0.235 [-37.9, +42.5] median -1.79 6/13 **!** | 189.0 | +1.96 [-52.3, +68.3] median +1.90 8/13 **!** |
+| Unmet Services demand (units/wk) | 1,743 | +1.73 [-9.20, +21.0] median +1.66 7/13 | 48.0 | -0.247 [-8.93, +7.63] median +1.24 7/13 **!** | 13.9 | -1.56 [-6.05, +2.98] median -1.43 3/13 | 10.1 | +0.974 [-3.43, +6.40] median +0.787 7/13 |
+| Liquid wealth p10 ($) | 146.3 | -0.177 [-1.03, +0.947] median -0.188 5/13 | 46.1 | -0.522 [-6.09, +3.47] median +0.115 7/13 | 53.3 | +1.37 [-6.74, +6.82] median +1.000 7/13 | 53.2 | -1.09 [-13.4, +12.2] median +0.300 7/13 |
+| Liquid wealth p20 ($) | 251.0 | -0.692 [-4.18, +3.38] median -0.443 3/13 | 57.0 | -1.10 [-10.6, +3.39] median -0.150 6/13 | 64.5 | +2.37 [-10.1, +15.2] median +1.08 8/13 | 64.4 | -1.30 [-15.4, +17.2] median +0.526 8/13 |
+| Liquid wealth p30 ($) | 374.7 | -0.521 [-5.83, +3.88] median +0.005 7/13 | 80.9 | -2.40 [-14.3, +4.71] median -0.824 6/13 | 76.8 | +3.74 [-17.4, +23.2] median +3.75 8/13 | 77.9 | -1.83 [-17.8, +26.4] median -1.74 6/13 |
+| Liquid wealth p40 ($) | 505.2 | +0.391 [-6.51, +3.10] median +2.12 8/13 | 134.2 | -3.70 [-23.5, +12.1] median +0.327 7/13 | 101.3 | +7.11 [-29.5, +44.4] median +2.89 10/13 | 107.7 | +3.60 [-24.8, +41.9] median +7.87 7/13 |
+| Liquid wealth p50 ($) | 645.7 | +0.156 [-3.10, +3.64] median +0.318 7/13 **!** | 218.5 | -3.71 [-31.9, +15.8] median +2.04 7/13 | 153.0 | +8.23 [-34.5, +53.7] median +3.76 8/13 | 160.7 | +8.39 [-28.7, +46.2] median +3.88 7/13 |
+| Liquid wealth p60 ($) | 800.7 | -0.326 [-6.11, +4.68] median -0.789 5/13 **!** | 324.3 | -3.23 [-35.0, +16.5] median -1.29 6/13 | 233.8 | +4.23 [-31.8, +46.5] median +3.66 9/13 | 237.6 | +3.56 [-27.6, +43.9] median -1.26 6/13 |
+| Liquid wealth p70 ($) | 971.2 | +1.46 [-3.89, +7.04] median +2.12 9/13 | 467.7 | -2.12 [-49.7, +21.9] median +3.00 7/13 **!** | 341.3 | +5.41 [-23.4, +49.4] median +3.99 9/13 | 344.6 | +2.22 [-29.1, +52.3] median +2.91 7/13 **!** |
+| Liquid wealth p80 ($) | 1,193 | +2.06 [-6.53, +9.83] median +0.673 8/13 | 717.3 | -4.48 [-56.9, +19.0] median -0.759 6/13 | 550.3 | +5.53 [-61.2, +69.2] median +11.0 7/13 | 550.2 | +4.63 [-66.2, +99.7] median +1.41 7/13 **!** |
+| Liquid wealth p90 ($) | 1,569 | +0.710 [-15.7, +14.5] median +1.15 8/13 **!** | 1,424 | -7.95 [-121.9, +80.9] median -14.6 6/13 **!** | 1,494 | -7.00 [-144.6, +80.5] median -13.3 6/13 **!** | 1,529 | -13.4 [-210.0, +88.4] median -15.3 6/13 **!** |
+
+## `on` vs `main`: legacy
+
+| Metric | 1-100 (reported, not judged): main | 1-100 (reported, not judged): difference | 101-200: main | 101-200: difference | 201-312 (judged): main | 201-312 (judged): difference | 261-312 (judged): main | 261-312 (judged): difference |
+|---|---|---|---|---|---|---|---|---|
+| Unemployment, labour force (%) | 31.4 | 0 [0, 0] median 0 0/13 | 29.4 | -0.013 [-0.084, +0.011] median 0 1/13 | 24.1 | -0.049 [-1.37, +2.56] median -0.033 4/13 **!** | 22.3 | -0.039 [-2.04, +3.80] median -0.061 4/13 **!** |
+| Unemployment, labour force, within-window CV (sd/|mean|) (%) | 35.6 | 0 [0, 0] median 0 0/13 | 9.72 | +0.027 [-0.061, +0.210] median 0 4/13 | 9.65 | +0.277 [-7.75, +4.80] median +0.150 8/13 **!** | 3.90 | +0.714 [-2.42, +5.30] median 0 6/13 |
+| Unemployment, labour force, detrended CV (residual sd/|mean|) (%) | 30.9 | 0 [0, 0] median 0 0/13 | 5.44 | -0.060 [-0.303, 0] median 0 0/13 | 4.94 | -0.053 [-3.46, +1.99] median 0 6/13 **!** | 3.22 | +0.066 [-0.842, +1.00] median +0.042 7/13 **!** |
+| Jobless, all households (dashboard) (%) | 31.6 | 0 [0, 0] median 0 0/13 | 30.9 | -0.013 [-0.083, +0.011] median 0 1/13 | 26.1 | -0.044 [-1.35, +2.50] median -0.032 4/13 **!** | 24.3 | -0.029 [-1.99, +3.71] median -0.060 4/13 **!** |
+| Job-finding rate (U to E / U) (%) | 5.42 | 0 [0, 0] median 0 0/13 | 2.97 | +0.004 [-0.010, +0.027] median 0 4/13 | 2.97 | +0.047 [-0.295, +0.365] median +0.009 8/13 | 3.04 | +0.092 [-0.238, +0.423] median +0.086 8/13 |
+| Planned layoffs per month (people/month) | 62.6 | 0 [0, 0] median 0 0/13 | 31.4 | -0.057 [-0.303, +0.043] median 0 1/13 | 24.6 | +0.143 [-2.01, +2.05] median 0 6/13 **!** | 24.3 | +0.596 [-2.17, +3.67] median +0.167 7/13 |
+| Openings per unemployed (ratio) | 0.058 | 0 [0, 0] median 0 0/13 | 0.030 | 0 [0, 0] median 0 4/13 | 0.030 | 0 [-0.003, +0.003] median 0 6/13 | 0.031 | +0.001 [-0.002, +0.004] median +0.001 8/13 |
+| Real GDP (units x base paid price) ($/wk) | 56,435 | 0 [0, 0] median 0 0/13 | 80,750 | +19.3 [-68.4, +162.0] median 0 5/13 | 90,433 | +269.8 [-1,872, +2,707] median +5.09 8/13 | 92,952 | +369.6 [-3,824, +5,463] median +5.46 8/13 **!** |
+| Real GDP (units x base paid price), within-window CV (sd/|mean|) (%) | 24.3 | 0 [0, 0] median 0 0/13 | 5.92 | +0.024 [-0.116, +0.286] median 0 5/13 | 3.56 | +0.092 [-1.65, +2.05] median +0.002 8/13 **!** | 1.82 | -0.116 [-0.962, +0.624] median -0.020 4/13 |
+| Real GDP (units x base paid price), detrended CV (residual sd/|mean|) (%) | 10.1 | 0 [0, 0] median 0 0/13 | 2.53 | -0.022 [-0.084, 0] median 0 0/13 | 1.93 | +0.003 [-0.543, +0.711] median -0.001 5/13 **!** | 1.64 | -0.082 [-0.672, +0.164] median -0.002 6/13 |
+| Real GDP (GDP / CPI x 100) ($/wk) | 40,589 | 0 [0, 0] median 0 0/13 | 51,269 | +3.05 [-51.0, +49.4] median 0 4/13 **!** | 48,851 | -620.6 [-3,230, +542.3] median -12.8 5/13 | 48,654 | -1,041 [-4,642, +1,159] median -221.3 5/13 |
+| Real GDP (GDP / CPI x 100), within-window CV (sd/|mean|) (%) | 32.7 | 0 [0, 0] median 0 0/13 | 4.49 | -0.020 [-0.153, +0.010] median 0 2/13 | 2.48 | +0.432 [-1.06, +3.44] median 0 6/13 | 2.26 | -0.109 [-4.19, +2.67] median -0.009 5/13 **!** |
+| Real GDP (GDP / CPI x 100), detrended CV (residual sd/|mean|) (%) | 12.5 | 0 [0, 0] median 0 0/13 | 3.10 | +0.002 [-0.132, +0.136] median 0 3/13 **!** | 2.13 | +0.084 [-1.20, +1.05] median 0 6/13 | 1.63 | -0.123 [-0.934, +1.46] median -0.064 4/13 |
+| Nominal GDP ($/wk) | 67,076 | 0 [0, 0] median 0 0/13 | 93,059 | +1.72 [-31.1, +72.4] median 0 2/13 **!** | 85,374 | -233.4 [-1,407, +781.7] median -70.3 5/13 | 82,331 | -78.5 [-1,930, +3,161] median +8.76 7/13 **!** |
+| Nominal GDP, within-window CV (sd/|mean|) (%) | 45.5 | 0 [0, 0] median 0 0/13 | 4.67 | +0.004 [-0.017, +0.073] median 0 3/13 **!** | 4.48 | +0.046 [-1.70, +1.50] median -0.004 6/13 **!** | 2.72 | -0.151 [-2.49, +1.57] median -0.007 5/13 **!** |
+| Nominal GDP, detrended CV (residual sd/|mean|) (%) | 12.4 | 0 [0, 0] median 0 0/13 | 3.11 | +0.005 [-0.086, +0.117] median 0 3/13 **!** | 1.94 | +0.352 [-0.978, +2.10] median +0.009 8/13 | 1.45 | -0.001 [-1.40, +1.49] median 0 7/13 **!** |
+| Food + Services units sold (units/wk) | 4,826 | 0 [0, 0] median 0 0/13 | 6,098 | +1.61 [-2.22, +8.78] median 0 6/13 | 6,516 | -3.13 [-152.4, +104.2] median +4.11 9/13 **!** | 6,621 | -6.08 [-213.7, +182.3] median +1.56 9/13 **!** |
+| Consumer price index (index) | 157.3 | 0 [0, 0] median 0 0/13 | 183.0 | -0.008 [-0.199, +0.386] median 0 2/13 **!** | 176.6 | +2.15 [-1.64, +12.2] median +0.002 7/13 | 171.0 | +4.25 [-2.04, +22.2] median +0.008 8/13 |
+| Consumer price index, within-window CV (sd/|mean|) (%) | 17.9 | 0 [0, 0] median 0 0/13 | 4.05 | -0.025 [-0.230, +0.046] median 0 2/13 | 3.76 | -0.439 [-3.98, +0.528] median -0.002 5/13 | 1.78 | -0.258 [-1.97, +0.584] median 0 7/13 |
+| Consumer price index, detrended CV (residual sd/|mean|) (%) | 5.58 | 0 [0, 0] median 0 0/13 | 2.00 | -0.047 [-0.390, +0.168] median 0 1/13 | 1.63 | -0.090 [-0.795, +0.283] median -0.012 4/13 | 1.18 | -0.108 [-1.28, +0.535] median -0.044 5/13 |
+| Mean posted price ($) | 20.4 | 0 [0, 0] median 0 0/13 | 23.4 | -0.001 [-0.035, +0.065] median 0 3/13 **!** | 18.9 | -0.004 [-0.604, +0.639] median +0.001 8/13 **!** | 17.5 | +0.146 [-1.30, +1.24] median +0.002 8/13 |
+| Fiscal balance (revenue - spending) ($/wk) | -31,852 | 0 [0, 0] median 0 0/13 | -3,649 | -22.9 [-166.7, +33.2] median 0 2/13 | -2,322 | +13.0 [-89.5, +125.7] median +11.3 7/13 | -1,976 | -39.0 [-543.6, +242.9] median +13.7 7/13 **!** |
+| Fiscal balance (revenue - spending), min ($/wk) | -356,517 | 0 [0, 0] median 0 0/13 | -9,958 | 0 [0, 0] median 0 0/13 | -4,944 | +216.9 [-76.5, +801.5] median +95.7 8/13 | -3,304 | -10.8 [-562.2, +637.9] median -47.4 5/13 **!** |
+| Treasury cash ($) | 339,731 | 0 [0, 0] median 0 0/13 | 172,458 | +176.5 [-229.5, +835.6] median 0 5/13 | 116,172 | -383.5 [-6,550, +4,193] median -273.6 6/13 **!** | 109,010 | +539.6 [-10,199, +11,002] median +1,127 7/13 **!** |
+| Treasury cash, min ($) | 25,218 | 0 [0, 0] median 0 0/13 | 120,005 | -16.2 [-2,507, +2,691] median 0 4/13 **!** | 96,951 | -3,377 [-36,716, +8,292] median -461.5 5/13 | 99,784 | -2,354 [-36,716, +12,337] median -461.5 6/13 **!** |
+| Treasury cash, share of weeks below 0 (%) | 0.000 | 0 [0, 0] median 0 0/13 | 0.000 | 0 [0, 0] median 0 0/13 | 0.000 | 0 [0, 0] median 0 0/13 | 0.000 | 0 [0, 0] median 0 0/13 |
+| Bond buy paid to misc pool (K06) ($/wk) | 39,143 | 0 [0, 0] median 0 0/13 | 16,275 | +20.7 [-29.9, +92.2] median 0 5/13 | 8,699 | -48.0 [-889.1, +558.9] median -32.9 6/13 **!** | 7,740 | +75.3 [-1,378, +1,498] median +141.6 7/13 **!** |
+| Legacy firms active (firms) | 4.00 | 0 [0, 0] median 0 0/13 | 4.00 | 0 [0, 0] median 0 0/13 | 4.00 | 0 [0, 0] median 0 0/13 | 4.00 | 0 [0, 0] median 0 0/13 |
+| Legacy firm headcount (people) | 250.2 | 0 [0, 0] median 0 0/13 | 74.0 | -0.033 [-0.350, +0.010] median 0 1/13 | 74.1 | -0.071 [-0.589, +0.384] median -0.009 4/13 | 74.1 | -0.167 [-1.56, +0.635] median -0.019 4/13 |
+| Legacy firm profit ($/wk) | -1,470 | 0 [0, 0] median 0 0/13 | 1,967 | +1.47 [-0.004, +14.7] median 0 6/13 | 1,896 | +4.55 [-13.5, +32.6] median +1.16 9/13 | 1,898 | +7.96 [-25.3, +81.7] median +2.50 9/13 |
+| Legacy firm exits, sum (exits) | 0.000 | 0 [0, 0] median 0 0/13 | 0.000 | 0 [0, 0] median 0 0/13 | 0.000 | 0 [0, 0] median 0 0/13 | 0.000 | 0 [0, 0] median 0 0/13 |
+| Private firm profit ($/wk) | 25,245 | 0 [0, 0] median 0 0/13 | 37,487 | -4.31 [-73.0, +59.9] median 0 3/13 **!** | 32,657 | -134.6 [-1,060, +890.4] median +2.75 7/13 | 29,787 | -44.2 [-1,656, +1,420] median +7.10 7/13 **!** |
+| Private firms (firms) | 23.8 | 0 [0, 0] median 0 0/13 | 26.0 | 0 [0, 0] median 0 0/13 | 26.0 | 0 [0, 0] median 0 0/13 | 26.0 | 0 [0, 0] median 0 0/13 |
+| Private firm headcount (people) | 434.0 | 0 [0, 0] median 0 0/13 | 616.6 | +0.164 [0, +0.870] median 0 6/13 | 665.2 | +0.507 [-24.7, +13.8] median +0.295 7/13 **!** | 683.2 | +0.457 [-36.7, +20.1] median +0.538 7/13 **!** |
+| Poverty (liquid < $200) (%) | 3.16 | 0 [0, 0] median 0 0/13 | 18.0 | +0.007 [-0.013, +0.057] median 0 5/13 | 30.8 | -0.355 [-3.34, +3.09] median -0.112 3/13 | 31.7 | -0.675 [-6.16, +5.80] median -0.119 4/13 |
+| Extreme poverty (liquid < extreme line) (%) | 1.27 | 0 [0, 0] median 0 0/13 | 11.9 | +0.002 [-0.016, +0.020] median 0 4/13 | 21.0 | -0.274 [-2.19, +1.73] median 0 6/13 | 21.1 | -0.486 [-3.41, +3.53] median 0 6/13 |
+| Households eating minimum food (%) | 91.5 | 0 [0, 0] median 0 0/13 | 99.5 | +0.003 [-0.020, +0.024] median 0 5/13 | 99.8 | -0.086 [-1.06, +0.062] median -0.009 2/13 | 99.8 | -0.144 [-1.65, +0.094] median -0.015 3/13 |
+| Happiness (index) | 0.756 | 0 [0, 0] median 0 0/13 | 0.773 | 0 [0, 0] median 0 3/13 | 0.662 | +0.001 [-0.009, +0.018] median 0 8/13 **!** | 0.635 | +0.003 [-0.021, +0.037] median 0 8/13 |
+| Happiness, within-window CV (sd/|mean|) (%) | 4.04 | 0 [0, 0] median 0 0/13 | 3.39 | +0.003 [-0.005, +0.030] median 0 3/13 | 5.00 | -0.348 [-2.38, +0.296] median -0.081 4/13 | 1.67 | -0.175 [-1.13, +0.693] median -0.015 5/13 |
+| Happiness, detrended CV (residual sd/|mean|) (%) | 0.668 | 0 [0, 0] median 0 0/13 | 0.851 | +0.003 [-0.005, +0.023] median 0 3/13 | 1.18 | +0.007 [-0.364, +0.383] median 0 7/13 **!** | 0.320 | +0.010 [-0.737, +0.462] median 0 6/13 **!** |
+| Happiness median (index) | 0.778 | 0 [0, 0] median 0 0/13 | 0.968 | 0 [0, 0] median 0 2/13 **!** | 0.968 | +0.006 [-0.011, +0.045] median 0 3/13 | 0.938 | +0.012 [-0.024, +0.079] median 0 3/13 |
+| Happiness p10 (index) | 0.638 | 0 [0, 0] median 0 0/13 | 0.106 | 0 [0, 0] median 0 0/13 | 0.000 | 0 [0, 0] median 0 0/13 | 0.000 | 0 [0, 0] median 0 0/13 |
+| Happiness p90 (index) | 0.880 | 0 [0, 0] median 0 0/13 | 1.00 | 0 [0, 0] median 0 0/13 | 1.00 | 0 [0, 0] median 0 0/13 | 1.00 | 0 [0, 0] median 0 0/13 |
+| Happiness share <= 0.05 (%) | 1.77 | 0 [0, 0] median 0 0/13 | 14.3 | +0.003 [-0.004, +0.023] median 0 4/13 | 28.3 | -0.172 [-2.56, +2.82] median -0.088 4/13 **!** | 30.5 | -0.330 [-5.03, +5.88] median -0.148 4/13 **!** |
+| Happiness share >= 0.95 (%) | 4.95 | 0 [0, 0] median 0 0/13 | 53.7 | -0.004 [-0.029, +0.016] median 0 2/13 | 59.7 | +0.126 [-0.643, +1.81] median 0 5/13 **!** | 58.0 | +0.338 [-0.781, +3.52] median 0 5/13 |
+| Health (index) | 0.808 | 0 [0, 0] median 0 0/13 | 0.768 | 0 [0, 0] median 0 6/13 | 0.770 | 0 [-0.002, +0.001] median 0 6/13 | 0.771 | 0 [-0.004, +0.001] median 0 4/13 |
+| Unmet Food demand (units/wk) | 459.2 | 0 [0, 0] median 0 0/13 | 248.0 | -1.42 [-8.04, +0.907] median 0 1/13 | 215.0 | +5.96 [-38.6, +53.3] median +2.64 7/13 | 207.7 | +12.3 [-33.3, +71.5] median +7.55 8/13 |
+| Unmet Services demand (units/wk) | 1,963 | 0 [0, 0] median 0 0/13 | 376.9 | -0.285 [-3.54, +0.843] median 0 3/13 | 97.0 | +14.1 [-50.5, +87.4] median +2.89 9/13 | 83.5 | +0.260 [-114.5, +123.0] median +0.119 8/13 **!** |
+| Liquid wealth p10 ($) | 468.8 | 0 [0, 0] median 0 0/13 | 107.9 | +0.010 [-0.118, +0.363] median 0 1/13 **!** | 57.9 | +1.10 [-1.99, +11.0] median +0.009 7/13 | 56.0 | +2.03 [-4.15, +18.6] median +0.018 7/13 |
+| Liquid wealth p20 ($) | 754.5 | 0 [0, 0] median 0 0/13 | 259.3 | -0.105 [-1.21, +0.042] median 0 3/13 | 123.0 | -0.044 [-35.3, +19.5] median +0.078 9/13 **!** | 129.5 | +0.068 [-71.1, +34.7] median +0.174 8/13 **!** |
+| Liquid wealth p30 ($) | 1,028 | 0 [0, 0] median 0 0/13 | 424.8 | -0.127 [-0.571, +0.019] median 0 1/13 | 209.3 | +4.35 [-26.0, +32.8] median +0.513 9/13 | 206.3 | +8.11 [-46.7, +62.2] median +0.042 7/13 |
+| Liquid wealth p40 ($) | 1,272 | 0 [0, 0] median 0 0/13 | 597.1 | -0.111 [-1.22, +0.327] median 0 3/13 | 306.6 | +6.69 [-28.8, +41.9] median +0.516 9/13 | 290.7 | +12.5 [-54.7, +83.0] median +0.791 9/13 |
+| Liquid wealth p50 ($) | 1,503 | 0 [0, 0] median 0 0/13 | 812.0 | -0.150 [-0.675, +0.028] median 0 2/13 | 438.7 | +10.2 [-28.0, +52.4] median +1.49 9/13 | 404.4 | +17.9 [-53.1, +105.5] median +0.757 10/13 |
+| Liquid wealth p60 ($) | 1,738 | 0 [0, 0] median 0 0/13 | 1,079 | +0.006 [-0.558, +0.467] median 0 4/13 **!** | 642.1 | +12.1 [-30.8, +66.9] median +3.47 10/13 | 582.2 | +21.8 [-53.5, +109.8] median +8.93 10/13 |
+| Liquid wealth p70 ($) | 1,990 | 0 [0, 0] median 0 0/13 | 1,447 | +0.144 [-0.601, +1.51] median 0 4/13 | 968.8 | +17.2 [-24.3, +119.5] median +0.760 10/13 | 883.5 | +30.7 [-42.1, +186.8] median +13.2 9/13 |
+| Liquid wealth p80 ($) | 2,277 | 0 [0, 0] median 0 0/13 | 2,035 | +0.391 [-0.860, +6.47] median 0 3/13 **!** | 1,745 | +18.2 [-19.1, +76.2] median +3.97 10/13 | 1,682 | +30.8 [-45.7, +125.5] median +15.0 10/13 |
+| Liquid wealth p90 ($) | 2,689 | 0 [0, 0] median 0 0/13 | 3,050 | -0.781 [-4.33, +1.45] median 0 2/13 | 2,870 | +16.4 [-48.2, +128.5] median +0.367 7/13 | 2,779 | +36.0 [-36.1, +215.3] median +0.170 7/13 |
+
+## Definitions
+
+- **Unemployment, labour force:** unemployed and able to work, divided by employed plus those unemployed (`labor_force_unemployment_rate`). The 10-40% band uses this rate from week 201 on.
+- **Jobless, all households:** share of all households without a job, including those that cannot work (`compute_household_stats`). Printed next to the band and not judged.
+- **Band distance:** mean over weeks 201+ of max(0, 10 - u, u - 40) where u is the labour-force rate in percent. Zero inside the band.
+- **Real GDP (primary):** units sold times the baseline arm's paid price, same seed and sequence. Paid price is revenue / units over weeks 11-62 (the first post-warmup year; warmup is 10). A shorter run uses every simulated week.
+- **Real GDP (GDP / CPI):** nominal GDP (`gdp_this_tick`) divided by the posted consumer price index, times 100. Kept beside the primary series.
+- **Poverty:** share of households whose liquid wealth, cash + max(0, deposit), is below `households.poverty_threshold` ($200). Extreme uses `extreme_poverty_threshold`.
+- **Job-finding rate:** households who were labour-force unemployed at the start of the week and employed at the end, divided by that starting unemployed count.
+- **Planned layoffs per month:** firms' `planned_layoffs_ids` after the tick, times 52/12. This is the plan, not executed separations. **Openings per unemployed:** `planned_hires_count` divided by labour-force unemployed after the tick.
+- **Legacy firms:** `is_baseline` firms still active. Exits count firms that were legacy last week and are gone this week. Last-exit week is report only.
+- **Happiness tails:** median, p10, p90, and the shares at or below 0.05 and at or above 0.95.
+- **Within-window CV:** standard deviation of the weekly values in the window divided by the absolute mean. Detrended CV does that after a linear week trend is removed.
+- **Bond buy (K06):** the treasury's weekly bond purchase paid out through the misc pool. `--hook k06_hold_pool` leaves that pool on the money stock.
+- **Unrecorded money drift:** change in total money net of recorded outside money (`total_money_net_of_injections`) from construction to the last tick.
+- **Runs identical:** per-week state digests (households, firms, government, bank) match. The row fingerprint is kept beside them and is not the identity check.
+- **Money check:** both modes use a 0.0001 dollar dust tolerance. Relative mode fails a new leak only on sequences the baseline conserves, and reports arm-minus-baseline drift (median, k/n) where the baseline already leaks. Absolute mode requires every run's own drift inside that tolerance.
