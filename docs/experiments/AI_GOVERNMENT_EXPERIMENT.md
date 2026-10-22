@@ -141,7 +141,7 @@ One result I want to flag on its own: at 1,000 households, final happiness was l
 
 ## Model behavior
 
-**Ring 2.6 1T.** Ring had the best overall run. It turned public works on early, used food support, lowered minimum wage pressure when the labor market was strained, raised taxes later for stability, and kept social spending high late in the run. It ended with $58,844 in government cash, a minimum cash floor of $58,163, final unemployment of 11.09% (scored under the old objective), and the best final happiness score in the group at 0.144. That happiness number is still low in absolute terms, but Ring handled the trade-off better than the other models.
+**Ring 2.6 1T.** Ring had the strongest run on GDP, final happiness, and the cash floor. It turned public works on early, used food support, lowered minimum wage pressure when the labor market was strained, raised taxes later for stability, and kept social spending high late in the run. It ended with $58,844 in government cash, a minimum cash floor of $58,163, final unemployment of 11.09% (scored under the old objective), and the best final happiness score in the group at 0.144. That happiness number is still low in absolute terms, but Ring handled the trade-off better than the other models.
 
 **Llama 3.3 70B.** Llama protected the treasury better than anyone. It cut social spending early, raised wage taxes, and later used targeted support for food and services. Final government cash was $75,197, the best in the table. The downside is clear: final happiness fell to 0.045, the worst result. This is the "balanced books, unhappy households" run.
 
