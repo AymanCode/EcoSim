@@ -4,6 +4,18 @@ Notable changes and decisions for EcoSim, newest first. The project does not use
 
 ## Unreleased
 
+### 2026-10-22: Bank-financed public debt and the town hall's net position
+
+Owner-approved by Ayman (2026-10-22): borrowing is on by default; the AI government may cut taxes while borrowing; the town hall shows cash minus public debt; no classic-dashboard UI is added. This keeps the 2026-10-20 owner decision allowing spending while borrowing, with debt, interest and the true balance visible.
+
+- `government.public_debt_enabled=True` finances legacy treasury shortfalls from bank reserves above their requirement, only when the bank can lend. `public_debt_borrow_target="buffer"` restores a one-week working balance; `"zero"` remains valid. The unlendable remainder stays as negative cash. `income_first` and `income_late` never borrow.
+- Treasury `public_debt` equals bank `public_debt_held`. Weekly interest goes to the bank before deposit interest. Cash above the working balance repays principal, and the misc bond buy is skipped while debt is owed. Switching borrowing off mid-run still services outstanding debt. Financing creates no money and also runs with stabilizers disabled.
+- Tax cuts and spending increases share the existing unfunded-overdraft or annualized debt/GDP >= 1 brake. The redundant separate tax-cut cap is removed. Debt-visible prompt rules are 6 PUBLIC WORKS, 7 UNEMPLOYMENT BAND, 8 PUBLIC DEBT and 9 OUTPUT; the objective evaluates GDP, happiness, the 10-40% labour-force unemployment band and a sustainable net treasury position. With borrowing off and no debt owed, or on a non-borrowing payment sequence, the prompt matches main.
+- Reporting and evaluation use cash minus debt: fiscal mode, debt trend, policy memory, run summaries, fiscal stress, fiscal balance and the town's `curated.townHallCash`. The town's existing red IOU/"owes" display now survives a bank-financed deficit even when treasury cash is positive. Fresh borrowing-off runs retain main's cash projection. Classic Finance rows/tests and the unused `govBorrowed`/`govRepaid` frame fields are removed.
+- The evidence panel supersedes the old public-debt comparison script and report. Contracts cover paired accounting, lending limits, debt service, the single fiscal brake, prompt identity and legacy-only visibility, and the town's lean frames. The short main/off/on evidence panel compares all three sequences on the exact merged main revision; results remain under ignored `benchmarks/results/pr43-identity`.
+- Model limitation: most public-debt interest remains in bank reserves/equity; there is no bank owner dividend or expense. Household and firm borrowers share lendable reserves with the treasury. Borrowing can improve household wellbeing while lowering output and private profits; earlier stress-panel effects are documented with their baseline and limits in the PR evidence.
+- Rules: `docs/ECONOMIC_AGENT_RULES.md` M06, Government row and tick-order rows 11/11.5 are **v1.10**. OpenWiki refresh remains due through the approved integration workflow.
+
 ### 2026-10-22: Legacy firm exits no longer create money (exit-deficit settlement, default on)
 
 Owner decision 2026-10-22: split #57. Keep the accounting correction behind `market.settle_legacy_exit_deficit` (default `True`), and restore main's firm-exit rules. Baseline Food, Housing, Services and Healthcare providers stay protected. The original baseline-shutdown code is preserved at `archive/pr57-baseline-shutdown` (`a14fa51`); gradual retirement requires a separate proposal and approval.

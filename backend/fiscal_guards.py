@@ -39,6 +39,21 @@ def trailing_gdp(economy: Any) -> float:
     return max(1.0, households * 25.0)
 
 
+def public_debt_can_borrow() -> bool:
+    """Whether the treasury can take on new public debt in this run (G1).
+
+    True with ``public_debt_enabled`` on the ``legacy`` payment sequence.
+    ``income_first`` and ``income_late`` ration outlays to free treasury cash,
+    so their treasury never goes negative and never borrows; there the flag
+    changes nothing.
+    """
+
+    return (
+        bool(getattr(CONFIG.government, "public_debt_enabled", False))
+        and str(getattr(CONFIG, "payment_sequence", "legacy")) == "legacy"
+    )
+
+
 def annualized_debt_to_gdp(government: Any, recent_gdp: float) -> float:
     """Debt/GDP using annualized tick GDP and public_debt when available."""
 
@@ -46,6 +61,22 @@ def annualized_debt_to_gdp(government: Any, recent_gdp: float) -> float:
     ticks_per_year = max(1, int(getattr(CONFIG.time, "ticks_per_year", 52)))
     annualized_gdp = max(1.0, _to_float(recent_gdp, 0.0) * ticks_per_year)
     return public_debt / annualized_gdp
+
+
+def treasury_net_position(government: Any) -> float:
+    """Treasury cash minus public debt owed to the bank, in $.
+
+    A reporting signal, not a spending gate. Before public debt existed the
+    treasury's net position was its cash, since a deficit showed up as
+    negative cash. With ``public_debt_enabled`` the bank lends the shortfall
+    (back to $0, or to the one-week buffer), so cash alone no longer shows a
+    deficit; cash minus debt does. The LLM government's prompt, fiscal mode,
+    policy memory and evaluation summaries read it. With no debt it equals cash.
+    """
+
+    cash = _to_float(getattr(government, "cash_balance", 0.0), 0.0)
+    debt = max(0.0, _to_float(getattr(government, "public_debt", 0.0), 0.0))
+    return cash - debt
 
 
 def fiscal_reserve_floor(recent_gdp: float) -> float:

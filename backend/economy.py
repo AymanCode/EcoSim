@@ -46,6 +46,7 @@ from fiscal_guards import (
     projected_public_works_startup_cost,
     public_works_affordable_budget,
     trailing_gdp,
+    treasury_net_position,
 )
 import numpy as np
 import math
@@ -3121,6 +3122,10 @@ class Economy:
         total_price_ceiling_taxes = tick.total_price_ceiling_taxes
         total_property_taxes = tick.total_property_taxes
         total_transfers = tick.total_transfers
+        # Phase 11.2: Interest on public debt (G1), before deposit interest so
+        # it counts in the bank's interest income this tick.
+        self.government.pay_public_debt_interest(self.bank, trailing_gdp(self))
+
         # Phase 11.3: Bank deposit sweep & interest (households → bank)
         if self.bank is not None:
             self.bank.update_deposit_rate()  # Fix 22: adjust rate based on reserve ratio
@@ -3148,6 +3153,11 @@ class Economy:
         self.last_tick_gov_social_spending = social_spent
         if social_spent > 0:
             self._collect_misc_revenue(social_spent)
+
+        # Public debt (G1): borrow the shortfall from the bank or repay from
+        # surplus. Runs before the bond buy, which is skipped while debt is
+        # owed. A K06-1 payout change must keep that guard ahead of the surplus.
+        self.government.settle_public_debt(self.bank)
 
         # Bond purchases with surplus — redirect to Misc firm
         govt_investments = self.government.make_investments()
@@ -3196,6 +3206,7 @@ class Economy:
             + self.last_tick_gov_bailouts
             + self.last_tick_gov_public_works_capitalization
             + self.last_tick_gov_post_warmup_stimulus
+            + self.government.last_tick_debt_interest
         )
         self._update_budget_pressure(tick_revenue, tick_spending)
 
@@ -9158,6 +9169,7 @@ class Economy:
 
         # Government metrics — derived numeric parameters
         metrics["government_cash"] = gov.cash_balance
+        metrics["government_net_position"] = treasury_net_position(gov)
         metrics["wage_tax_rate"] = gov.wage_tax_rate
         metrics["profit_tax_rate"] = gov.profit_tax_rate
         metrics["unemployment_benefit"] = gov.unemployment_benefit_level
@@ -9169,7 +9181,8 @@ class Economy:
         metrics["external_injection_total"] = float(self.external_injection_total)
 
         # Government metrics — budget pressure
-        metrics["deficit_ratio"] = max(0.0, -gov.cash_balance) / max(metrics["gdp_this_tick"], 1.0)
+        # Net of public debt (G1): with no debt this is negative cash, as before.
+        metrics["deficit_ratio"] = max(0.0, -treasury_net_position(gov)) / max(metrics["gdp_this_tick"], 1.0)
         metrics["fiscal_pressure"] = gov.fiscal_pressure
         metrics["fiscal_pressure_instant_ratio"] = self.last_fiscal_pressure_instant_ratio
         metrics["fiscal_pressure_denominator_gdp"] = self.last_fiscal_pressure_denominator_gdp
@@ -9209,6 +9222,11 @@ class Economy:
         metrics["recent_gdp"] = recent_gdp
         metrics["public_debt"] = float(getattr(gov, "public_debt", 0.0))
         metrics["annualized_debt_to_gdp"] = annualized_debt_to_gdp(gov, recent_gdp)
+        metrics["gov_debt_rate_annual"] = float(gov.last_tick_debt_rate)
+        metrics["gov_debt_interest_this_tick"] = float(gov.last_tick_debt_interest)
+        metrics["gov_debt_borrowed_this_tick"] = float(gov.last_tick_debt_borrowed)
+        metrics["gov_debt_repaid_this_tick"] = float(gov.last_tick_debt_repaid)
+        metrics["gov_debt_unfunded_this_tick"] = float(gov.last_tick_debt_unfunded)
         metrics["bailout_budget_remaining"] = float(gov.bailout_budget_remaining)
         metrics["bailout_cycle_disbursed"] = float(gov.bailout_cycle_disbursed)
         metrics["bailout_cycle_firms_assisted"] = float(gov.bailout_cycle_firms_assisted)
@@ -9241,6 +9259,9 @@ class Economy:
             metrics["bank_cash_reserves"] = bank.cash_reserves
             metrics["bank_total_deposits"] = bank.total_deposits
             metrics["bank_total_loans_outstanding"] = bank.total_loans_outstanding
+            metrics["bank_public_debt_held"] = bank.public_debt_held
+            metrics["bank_total_assets"] = bank.total_assets
+            metrics["bank_equity"] = bank.equity
             metrics["bank_base_interest_rate"] = bank.base_interest_rate
             metrics["bank_deposit_rate"] = bank.deposit_rate
             metrics["bank_loan_loss_provision"] = bank.loan_loss_provision
