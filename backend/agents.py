@@ -142,6 +142,7 @@ class HouseholdAgent(AgentMixin):
     last_other_income: float = 0.0
     last_consumption_spending: float = 0.0
     last_tick_cash_start: float = 0.0  # Cash at start of tick for change calculation
+    last_tick_deposit_start: float = 0.0  # Bank deposit at the same moment, so wellbeing measures liquid wealth
     last_tick_ledger: Dict[str, float] = field(default_factory=dict)
     ledger_cash_start: float = 0.0
     last_dividend_firm_ids: List[int] = field(default_factory=list)
@@ -6371,6 +6372,61 @@ class GovernmentAgent(AgentMixin):
             True if the firm is a registered baseline firm, False otherwise
         """
         return firm_id in self.baseline_firm_ids.values()
+
+    def healthcare_visit_subsidy_share(self) -> float:
+        """Share of a healthcare visit's price the treasury is asked to pay (0..1).
+
+        The ``sector_subsidy`` lever when it targets healthcare at a positive
+        rate; otherwise ``CONFIG.government.healthcare_visit_subsidy_share``
+        (default 0). This is the requested share, before the per-tick
+        subsidy cap; ``Economy.apply_sector_subsidy_payment`` applies the cap.
+        """
+        if self.sector_subsidy_target == "healthcare" and self._sector_subsidy_rate > 0:
+            return self._sector_subsidy_rate
+        return max(0.0, min(1.0, CONFIG.government.healthcare_visit_subsidy_share))
+
+    def expected_healthcare_household_share(
+        self, visit_price: float, *, subsidy_budget_left: float
+    ) -> float:
+        """Share (0..1) of one visit at ``visit_price`` the household pays, given a subsidy budget.
+
+        The legacy visit rule in ``Economy._process_healthcare_services``:
+        the treasury is asked for ``visit_price * healthcare_visit_subsidy_share()``
+        and pays at most ``subsidy_budget_left``; the household pays the rest.
+        The cap is in dollars, so once it binds the share rises with the price.
+        Pure: reads state, charges and reserves nothing.
+
+        This prices one visit against one budget. Several queued visits draw
+        on the same budget, so in the simulation use
+        ``Economy.expected_healthcare_household_shares()``, which walks the
+        queues in service order and passes each visit the budget left after
+        the visits served before it.
+
+        Args:
+            visit_price: the provider's visit price in $. Must be finite and
+                non-negative (the charge path cannot price a NaN or infinite
+                visit either); otherwise ``ValueError``.
+            subsidy_budget_left: $ the treasury can still pay toward this
+                visit. Required, so a caller cannot get an uncapped share by
+                leaving it out. ``math.inf`` means explicitly uncapped; a
+                negative value reads as 0; NaN raises ``ValueError``.
+
+        Returns:
+            ``(price - min(price * share, budget)) / price``, clamped to
+            [0, 1]. At price 0 no dollars are needed, so the cap cannot bind
+            and the result is ``1 - healthcare_visit_subsidy_share()``.
+        """
+        price = float(visit_price)
+        if not math.isfinite(price) or price < 0.0:
+            raise ValueError(f"visit_price must be finite and non-negative, got {visit_price!r}")
+        budget = float(subsidy_budget_left)
+        if math.isnan(budget):
+            raise ValueError("subsidy_budget_left must not be NaN")
+        share = self.healthcare_visit_subsidy_share()
+        if price == 0.0:
+            return max(0.0, min(1.0, 1.0 - share))
+        paid = min(price * share, max(0.0, budget))
+        return max(0.0, min(1.0, (price - paid) / price))
 
     def get_unemployment_benefit_level(self) -> float:
         """

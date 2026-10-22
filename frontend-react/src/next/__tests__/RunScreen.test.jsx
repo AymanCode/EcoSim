@@ -5,7 +5,7 @@ import useReplay from '../useReplay.js'
 import { formatMetric } from '../catalog.js'
 import { commonTicks, valueAt } from '../data/derive.js'
 import { leadSentence, verdict } from '../narration.js'
-import { fixtureArm, TOWN_A, TOWN_B } from './fixture.js'
+import { fixtureArm, TOWN_A, TOWN_B, WHOLE_SCREEN_MS } from './fixture.js'
 
 function townB() {
   const b = fixtureArm(TOWN_B)
@@ -41,11 +41,15 @@ const sheetLink = container => within(container.querySelector('.nx-side')).getBy
 const sheetToggle = () => within(screen.getByRole('region', { name: 'Timeline' })).getByRole('button', { name: 'Show me all the numbers' })
 const sheet = () => screen.queryByRole('dialog', { name: 'All the numbers' })
 
-describe('RunScreen', () => {
+describe('RunScreen', { timeout: WHOLE_SCREEN_MS }, () => {
   test('two towns: two matching columns, the lead sentence and the verdict', () => {
     const arms = [fixtureArm(TOWN_A), townB()]
     const { container } = render(<Clocked arms={arms} />)
     scrubTo(20)
+    const cards = container.querySelectorAll('.lt-towns .lt-card')
+    expect(cards).toHaveLength(2)
+    expect(cards[0]).toHaveTextContent('Town A')
+    expect(cards[1]).toHaveTextContent('Town B')
     const columns = container.querySelectorAll('.nx-col')
     expect(columns).toHaveLength(2)
     expect(columns[0]).toHaveTextContent('Town A')
@@ -53,7 +57,6 @@ describe('RunScreen', () => {
     expect(columns[1]).toHaveTextContent('Town B')
     expect(columns[1]).toHaveTextContent('a higher minimum wage')
     columns.forEach(column => {
-      expect(column.querySelector('.nx-townc')).toBeInTheDocument()
       expect(column.querySelector('.nx-biz')).toBeInTheDocument()
       expect(column.querySelector('.nx-hh')).toBeInTheDocument()
     })
@@ -121,6 +124,9 @@ describe('RunScreen', () => {
     const { container } = render(<Clocked arms={arms} />)
     expect(container.querySelectorAll('.nx-col')).toHaveLength(1)
     expect(container.querySelector('.nx-cols')).toHaveClass('is-single')
+    expect(container.querySelector('.nx-solo .nx-biz')).toBeInTheDocument()
+    expect(container.querySelector('.nx-solo .nx-hh')).toBeInTheDocument()
+    expect(container.querySelectorAll('.lt-card')).toHaveLength(1)
     scrubTo(18)
     const shown = container.querySelector('.nx-verdict').textContent
     expect(shown).toBe(verdict(arms, 18))
