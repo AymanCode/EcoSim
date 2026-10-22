@@ -36,7 +36,7 @@ def test_small_rate_below_the_anchor_and_main_rate_above_it(monkeypatch):
     gov = GovernmentAgent(cash_balance=0.0, profit_tax_rate=0.20)
     # Seven profits. Median is 400, so L=400 and U=2000. S = 0.76 * 0.20.
     profits = [100.0, 200.0, 300.0, 400.0, 500.0, 600.0, 5000.0]
-    taxes = gov.plan_taxes([], _firms(profits))["profit_taxes"]
+    taxes = gov.plan_taxes([], _firms(profits), weekly_profit_assessment=True)["profit_taxes"]
     assert gov.last_profit_tax_anchor == pytest.approx(400.0)
     assert gov.last_profit_tax_upper == pytest.approx(2000.0)
     assert taxes[1] == pytest.approx(100.0 * 0.152)  # below L
@@ -66,7 +66,7 @@ def test_after_tax_profit_rises_with_pre_tax_profit(monkeypatch):
     rng = random.Random(0)
     profits = [rng.uniform(0.01, 10_000.0) for _ in range(80)]
     gov = GovernmentAgent(cash_balance=0.0, profit_tax_rate=0.20)
-    taxes = gov.plan_taxes([], _firms(profits))["profit_taxes"]
+    taxes = gov.plan_taxes([], _firms(profits), weekly_profit_assessment=True)["profit_taxes"]
     ordered = sorted(zip(profits, (taxes[i + 1] for i in range(len(profits)))))
     after = [p - t for p, t in ordered]
     assert all(after[i] <= after[i + 1] + 1e-8 for i in range(len(after) - 1))
@@ -79,14 +79,14 @@ def test_no_anchor_charges_the_main_rate(monkeypatch):
     _style(monkeypatch)
     gov = GovernmentAgent(cash_balance=0.0, profit_tax_rate=0.20)
     # Fewer than four distinct profitable firms: both pay M, not the small rate.
-    taxes = gov.plan_taxes([], _firms([10.0, 10_000.0, -5.0]))["profit_taxes"]
+    taxes = gov.plan_taxes([], _firms([10.0, 10_000.0, -5.0]), weekly_profit_assessment=True)["profit_taxes"]
     assert taxes[1] == pytest.approx(2.0)
     assert taxes[2] == pytest.approx(2_000.0)
     assert taxes[3] == 0.0
     assert gov.last_profit_tax_anchor == 0.0
 
     empty = GovernmentAgent(cash_balance=0.0, profit_tax_rate=0.20)
-    losses = empty.plan_taxes([], _firms([-1.0, 0.0, -3.0]))["profit_taxes"]
+    losses = empty.plan_taxes([], _firms([-1.0, 0.0, -3.0]), weekly_profit_assessment=True)["profit_taxes"]
     assert losses == {1: 0.0, 2: 0.0, 3: 0.0}
     assert empty.last_profit_tax_anchor == 0.0
 
@@ -95,7 +95,7 @@ def test_nonpositive_anchor_falls_back_to_the_main_rate(monkeypatch):
     _style(monkeypatch)
     monkeypatch.setattr("agents.statistics.median", lambda _values: 0.0)
     gov = GovernmentAgent(cash_balance=0.0, profit_tax_rate=0.20)
-    taxes = gov.plan_taxes([], _firms([100.0, 200.0, 300.0, 400.0]))["profit_taxes"]
+    taxes = gov.plan_taxes([], _firms([100.0, 200.0, 300.0, 400.0]), weekly_profit_assessment=True)["profit_taxes"]
     assert taxes[1] == pytest.approx(20.0)
     assert gov.last_profit_tax_anchor == 0.0
 
@@ -106,7 +106,7 @@ def test_nonfinite_profit_is_excluded_and_owes_nothing(monkeypatch):
     firms = _firms([100.0, 200.0, 300.0, 400.0, 500.0, 600.0])
     firms.append({"firm_id": 99, "profit_before_tax": float("nan")})
     firms.append({"firm_id": 100, "profit_before_tax": float("inf")})
-    taxes = gov.plan_taxes([], firms)["profit_taxes"]
+    taxes = gov.plan_taxes([], firms, weekly_profit_assessment=True)["profit_taxes"]
     assert taxes[99] == 0.0
     assert taxes[100] == 0.0
     assert gov.last_profit_tax_nonfinite_excluded == 2
@@ -128,7 +128,7 @@ def test_rate_is_clamped_to_the_small_and_main_rates():
 def test_lever_zero_charges_nothing(monkeypatch):
     _style(monkeypatch)
     gov = GovernmentAgent(cash_balance=0.0, profit_tax_rate=0.0)
-    taxes = gov.plan_taxes([], _firms([10.0, 100.0, 1_000.0, 10_000.0]))["profit_taxes"]
+    taxes = gov.plan_taxes([], _firms([10.0, 100.0, 1_000.0, 10_000.0]), weekly_profit_assessment=True)["profit_taxes"]
     assert all(amount == 0.0 for amount in taxes.values())
 
 
@@ -143,7 +143,7 @@ def test_average_rate_does_not_depend_on_firm_count(monkeypatch):
 
     def average(profits):
         gov = GovernmentAgent(cash_balance=0.0, profit_tax_rate=0.20)
-        taxes = gov.plan_taxes([], _firms(profits))["profit_taxes"]
+        taxes = gov.plan_taxes([], _firms(profits), weekly_profit_assessment=True)["profit_taxes"]
         return sum(taxes.values()) / sum(profits)
 
     assert average(base) == pytest.approx(average(base * 8), abs=0.01)
@@ -154,13 +154,66 @@ def test_anchor_window_drops_profits_older_than_13_weeks(monkeypatch):
     gov = GovernmentAgent(cash_balance=0.0, profit_tax_rate=0.20)
     wide = [10.0, 20.0, 30.0, 40.0, 50.0, 10_000.0]
     tight = [100.0, 100.0, 100.0, 100.0, 100.0, 100.0]
-    gov.plan_taxes([], _firms(wide))
+    gov.plan_taxes([], _firms(wide), weekly_profit_assessment=True)
     assert gov.last_profit_tax_anchor == pytest.approx(35.0)
     for _ in range(13):
-        gov.plan_taxes([], _firms(tight))
+        gov.plan_taxes([], _firms(tight), weekly_profit_assessment=True)
     # The opening week has fallen out of the 13-week window.
     assert gov.last_profit_tax_anchor == pytest.approx(100.0)
     assert len(gov.profit_tax_profit_window) == 13
+
+
+def test_anchor_window_ignores_interleaved_wage_and_exit_taxes(monkeypatch):
+    _style(monkeypatch)
+    gov = GovernmentAgent(cash_balance=0.0, profit_tax_rate=0.20)
+    weekly_entries = []
+    for week in range(1, 21):
+        profits = [float(week * 100 + i) for i in range(4)]
+        # A loss-only week still occupies one weekly slot and ages old profits.
+        if week == 15:
+            profits = [-1.0] * 4
+        firms = _firms(profits)
+        gov.plan_taxes([], firms, weekly_profit_assessment=True)
+        positive = [(f["firm_id"], p) for f, p in zip(firms, profits) if p > 0.0]
+        weekly_entries.append((tuple(i for i, _ in positive), tuple(p for _, p in positive)))
+        taxable = dict(gov.last_taxable_profit_by_firm)
+        anchor = gov.last_profit_tax_anchor
+
+        for _ in range(2):
+            gov.plan_taxes([{"household_id": 1, "wage_income": 100.0}], [])
+        # Same snapshot shape as the pending Services receipt taxed on exit.
+        exit_plan = gov.plan_taxes([], [{
+            "firm_id": 999, "profit_before_tax": 1_000_000.0,
+            "cash_balance": 1_000_000.0, "good_category": "Services",
+            "property_tax_rate": 0.0, "max_rental_units": 0, "price": 10.0,
+        }])
+        assert exit_plan["profit_taxes"][999] > 0.0
+        assert list(gov.profit_tax_profit_window) == weekly_entries[-13:]
+        assert gov.last_taxable_profit_by_firm == taxable
+        assert gov.last_profit_tax_anchor == anchor
+
+    expected_profits = [p for _, profits in weekly_entries[-13:] for p in profits]
+    assert len(gov.profit_tax_profit_window) == 13
+    assert gov.last_profit_tax_anchor == pytest.approx(float(np.median(expected_profits)))
+
+
+@pytest.mark.parametrize("style", ["progressive", "flat", "legacy_cash_rank"])
+def test_nonweekly_tax_plans_preserve_weekly_profit_diagnostics(monkeypatch, style):
+    _style(monkeypatch, style)
+    gov = GovernmentAgent(cash_balance=0.0, profit_tax_rate=0.20)
+    gov.plan_taxes([], _firms([100.0, float("nan"), -1.0, 400.0]),
+                   weekly_profit_assessment=True)
+    taxable = {1: 100.0, 2: 0.0, 3: 0.0, 4: 400.0}
+    assert gov.last_taxable_profit_by_firm == taxable
+    assert gov.last_profit_tax_nonfinite_excluded == 1
+    gov.plan_taxes([{"household_id": 1, "wage_income": 100.0}], [])
+    gov.plan_taxes([], [{"firm_id": 999, "profit_before_tax": 1_000.0}])
+    assert gov.last_taxable_profit_by_firm == taxable
+    assert gov.last_profit_tax_nonfinite_excluded == 1
+    # The next weekly assessment replaces diagnostics, even on a loss-only week.
+    gov.plan_taxes([], _firms([-1.0]), weekly_profit_assessment=True)
+    assert gov.last_taxable_profit_by_firm == {1: 0.0}
+    assert gov.last_profit_tax_nonfinite_excluded == 0
 
 
 def test_unknown_profit_tax_style_raises(monkeypatch):
@@ -219,7 +272,7 @@ def test_legacy_cash_rank_effective_rate_differs_from_the_lever(monkeypatch):
         {"firm_id": i, "profit_before_tax": 100.0, "cash_balance": float(i)}
         for i in range(1, 21)
     ]
-    taxes = gov.plan_taxes([], firms)["profit_taxes"]
+    taxes = gov.plan_taxes([], firms, weekly_profit_assessment=True)["profit_taxes"]
     rates = {i: taxes[i] / 100.0 for i in taxes}
     assert max(rates.values()) > 0.20 + 1e-9
     assert min(rates.values()) < 0.20 - 1e-9

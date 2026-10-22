@@ -6582,11 +6582,14 @@ class GovernmentAgent(AgentMixin):
             )
         return style
 
-    def _note_taxable_profits(self, firms: List[Dict[str, object]]) -> Dict[int, float]:
-        """Map firm id to this tick's positive finite profit, else 0.
+    def _note_taxable_profits(
+        self, firms: List[Dict[str, object]], *, weekly_profit_assessment: bool,
+    ) -> Dict[int, float]:
+        """Map firm id to positive finite profit, else 0.
 
         A NaN or infinite profit is excluded (stored as 0, so it owes nothing)
-        and counted on ``last_profit_tax_nonfinite_excluded``.
+        and counted. Only the weekly assessment records settlement diagnostics;
+        wage-only and exit assessments must not replace that weekly snapshot.
         """
         taxable: Dict[int, float] = {}
         nonfinite = 0
@@ -6604,8 +6607,9 @@ class GovernmentAgent(AgentMixin):
                 taxable[firm_id] = 0.0
                 continue
             taxable[firm_id] = profit if profit > 0.0 else 0.0
-        self.last_profit_tax_nonfinite_excluded = nonfinite
-        self.last_taxable_profit_by_firm = taxable
+        if weekly_profit_assessment:
+            self.last_profit_tax_nonfinite_excluded = nonfinite
+            self.last_taxable_profit_by_firm = taxable
         return taxable
 
     def _marginal_relief_rate(
@@ -6627,21 +6631,24 @@ class GovernmentAgent(AgentMixin):
 
     def _progressive_anchor(
         self, firms: List[Dict[str, object]], taxable: Dict[int, float],
+        *, weekly_profit_assessment: bool,
     ) -> tuple:
-        """Update the 13-week window and return (anchored, L, U, S, M).
+        """Return (anchored, L, U, S, M), advancing only for a weekly assessment.
 
-        The window includes this tick. No anchor (empty window, L <= 0, or
+        The weekly window includes this tick, even if no firm made a profit.
+        Other assessments use the existing window. No anchor (empty window, L <= 0, or
         fewer than four distinct profitable firms in the window) means every
         profitable firm pays the main rate.
         """
-        ids = []
-        profits = []
-        for firm in firms:
-            profit = taxable.get(firm["firm_id"], 0.0)
-            if profit > 0.0:
-                ids.append(firm["firm_id"])
-                profits.append(profit)
-        self.profit_tax_profit_window.append((tuple(ids), tuple(profits)))
+        if weekly_profit_assessment:
+            ids = []
+            profits = []
+            for firm in firms:
+                profit = taxable.get(firm["firm_id"], 0.0)
+                if profit > 0.0:
+                    ids.append(firm["firm_id"])
+                    profits.append(profit)
+            self.profit_tax_profit_window.append((tuple(ids), tuple(profits)))
         window_ids: set = set()
         window_profits: List[float] = []
         for tick_ids, tick_profits in self.profit_tax_profit_window:
@@ -6665,8 +6672,11 @@ class GovernmentAgent(AgentMixin):
 
     def _progressive_profit_taxes(
         self, firms: List[Dict[str, object]], taxable: Dict[int, float],
+        *, weekly_profit_assessment: bool,
     ) -> Dict[int, float]:
-        anchored, lower, upper, small, main = self._progressive_anchor(firms, taxable)
+        anchored, lower, upper, small, main = self._progressive_anchor(
+            firms, taxable, weekly_profit_assessment=weekly_profit_assessment,
+        )
         taxes: Dict[int, float] = {}
         for firm in firms:
             firm_id = firm["firm_id"]
@@ -6766,18 +6776,23 @@ class GovernmentAgent(AgentMixin):
     def plan_taxes(
         self,
         households: List[Dict[str, object]],
-        firms: List[Dict[str, object]]
+        firms: List[Dict[str, object]],
+        *,
+        weekly_profit_assessment: bool = False,
     ) -> Dict[str, Dict[int, float]]:
         """
         Plan taxes on wages and profits.
 
-        Does not move money. Records this tick's taxable profit on the
-        government for settlement diagnostics; the legacy cash-rank path is
-        otherwise the calculation main runs.
+        Does not move money. The phase-7 weekly profit assessment owns the
+        rolling anchor window and settlement diagnostics. Other calls assess
+        tax without advancing the window or replacing the weekly snapshot.
+        The legacy cash-rank tax calculation is unchanged.
 
         Args:
             households: List of dicts with household_id and wage_income
             firms: List of dicts with firm_id and profit_before_tax
+            weekly_profit_assessment: True only for the weekly phase-7 call,
+                including weeks with no positive profit; False for wages and exits.
 
         Returns:
             Dict with "wage_taxes" and "profit_taxes", each mapping ID -> tax amount
@@ -6815,13 +6830,17 @@ class GovernmentAgent(AgentMixin):
         # Profit tax. progressive (default) is the UK-style schedule;
         # flat charges the lever; legacy_cash_rank is main's cash bands.
         style = self._profit_tax_style()
-        taxable = self._note_taxable_profits(firms)
+        taxable = self._note_taxable_profits(
+            firms, weekly_profit_assessment=weekly_profit_assessment,
+        )
         if style == "legacy_cash_rank":
             profit_taxes = self._legacy_cash_rank_profit_taxes(firms)
         elif style == "flat":
             profit_taxes = self._flat_profit_taxes(firms, taxable)
         else:
-            profit_taxes = self._progressive_profit_taxes(firms, taxable)
+            profit_taxes = self._progressive_profit_taxes(
+                firms, taxable, weekly_profit_assessment=weekly_profit_assessment,
+            )
 
         # Calculate property taxes for housing firms
         property_taxes = {}

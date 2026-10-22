@@ -43,7 +43,7 @@ def test_flat_on_every_profitable_firm_pays_the_lever_rate(monkeypatch):
     firms.append({"firm_id": 99, "profit_before_tax": -500.0, "cash_balance": 0.0})
     firms.append({"firm_id": 100, "profit_before_tax": float("nan"), "cash_balance": 0.0})
 
-    taxes = gov.plan_taxes([], firms)["profit_taxes"]
+    taxes = gov.plan_taxes([], firms, weekly_profit_assessment=True)["profit_taxes"]
 
     assert all(taxes[i] == pytest.approx(0.25 * 100 * i) for i in range(1, 21))
     assert taxes[99] == 0.0
@@ -58,10 +58,10 @@ def test_economy_step_with_flat_on_collects_the_lever_rate():
     seen = []
     original = GovernmentAgent.plan_taxes
 
-    def observe(self, households, firms):
+    def observe(self, households, firms, *, weekly_profit_assessment=False):
         if len(firms) >= 4:
             seen.append([dict(f) for f in firms])
-        return original(self, households, firms)
+        return original(self, households, firms, weekly_profit_assessment=weekly_profit_assessment)
 
     cfg = clone_config()
     cfg.payment_sequence = "legacy"

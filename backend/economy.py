@@ -2731,7 +2731,9 @@ class Economy:
         tick.assessed_project_receipts = (dict(self.payment_state.get("services_pending_receipts", {}))
                                      if payment_arm else {})
 
-        tick.tax_plan = self.government.plan_taxes([], firm_tax_snapshots)
+        tick.tax_plan = self.government.plan_taxes(
+            [], firm_tax_snapshots, weekly_profit_assessment=True,
+        )
         if payment_arm:
             tick.tax_plan["wage_taxes"] = dict(self.payment_book.wage_taxes)
             self.payment_state["services_pending_receipts"] = {}
