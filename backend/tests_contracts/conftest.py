@@ -8,6 +8,12 @@ import pytest
 from agents import FirmAgent, GovernmentAgent, HouseholdAgent
 from config import CONFIG
 from economy import Economy
+from tools.benchmarks.panel_money import (
+    payment_holds,
+    total_money,
+    total_money_with_bank,
+    total_money_net_of_injections,
+)
 from tests_contracts.factories import (
     make_economy as make_test_economy,
     make_factory_namespace,
@@ -17,42 +23,6 @@ from tests_contracts.factories import (
 def seed_everything(seed: int) -> None:
     random.seed(seed)
     np.random.seed(seed)
-
-
-def total_money(economy: Economy) -> float:
-    household_cash = sum(h.cash_balance for h in economy.households)
-    firm_cash = sum(f.cash_balance for f in economy.firms)
-    queued_firm_cash = sum(f.cash_balance for f in getattr(economy, "queued_firms", []))
-    government_cash = economy.government.cash_balance
-    misc_pool = getattr(economy, "misc_firm_revenue", 0.0)
-    return household_cash + firm_cash + queued_firm_cash + government_cash + misc_pool
-
-
-def total_money_with_bank(economy: Economy) -> float:
-    """``total_money`` plus the bank's cash reserves, when a bank exists.
-
-    Household deposits are NOT added. A deposit moves cash into the bank:
-    ``Economy._process_bank_deposits`` subtracts it from ``hh.cash_balance``
-    and ``BankAgent.accept_deposit`` does ``self.cash_reserves += amount``
-    (``backend/agents.py``); ``BankAgent.withdraw`` does the reverse. So the
-    deposited money is already inside ``cash_reserves``, and
-    ``hh.bank_deposit`` / ``bank.total_deposits`` are the claim on it.
-    Adding them would count the same money twice.
-    """
-    bank = getattr(economy, "bank", None)
-    bank_reserves = float(bank.cash_reserves) if bank is not None else 0.0
-    return total_money(economy) + bank_reserves
-
-
-def total_money_net_of_injections(economy: Economy) -> float:
-    """``total_money_with_bank`` minus the recorded external injections.
-
-    Legacy new-firm seed cash and the legacy demand shock are intentional
-    outside money (owner decision 2026-09-29, rules doc K02). The economy
-    records them in ``external_injection_total`` (signed), so a conserving
-    economy keeps this value constant.
-    """
-    return total_money_with_bank(economy) - float(getattr(economy, "external_injection_total", 0.0))
 
 
 @pytest.fixture
