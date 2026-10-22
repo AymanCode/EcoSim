@@ -8,8 +8,9 @@ balance, and be judged on them. So:
   overdraft, when the bank could not lend, or for debt/GDP >= 1), as on main;
 - fiscal mode, the prompt, policy memory and run summaries read the net
   position (cash minus public debt), the debt trend and the interest paid;
-- tax cuts use the same guard as spending (an unfunded overdraft, or
-  debt/GDP >= 1), so a funded borrow does not block them;
+- tax cuts stop once annualized debt/GDP reaches public_debt_tax_cut_cap.
+  The stress panel sets that cap at 1.0, the same line as the spending
+  brake, so a funded borrow below 1.0 does not block them;
 - with the flag off and no debt owed, the prompt is main's: no debt lines.
 """
 
@@ -235,11 +236,15 @@ def _debt_for_ratio(ratio: float, gdp: float = 1_000.0) -> float:
     return ratio * gdp * CONFIG.time.ticks_per_year
 
 
+def _configured_tax_cut_cap() -> float:
+    return float(CONFIG.government.public_debt_tax_cut_cap)
+
+
 def test_tax_cut_accepted_below_the_debt_cap():
-    """Cash >= 0 and debt/GDP just under the cap: the tax cut is accepted."""
+    """Cash >= 0 and debt/GDP just under the configured cap: the tax cut is accepted."""
     gdp = 1_000.0
     gov = GovernmentAgent(cash_balance=1_000.0)
-    gov.public_debt = _debt_for_ratio(0.09, gdp)
+    gov.public_debt = _debt_for_ratio(_configured_tax_cut_cap() - 0.01, gdp)
     with use_config(clone_config()):
         CONFIG.government.public_debt_enabled = True
         applied, reasons = _review_tax_cut(gov, gdp)
@@ -247,33 +252,62 @@ def test_tax_cut_accepted_below_the_debt_cap():
 
 
 def test_tax_cut_rejected_over_the_debt_cap():
-    """Cash >= 0 and debt/GDP just over the cap: the tax cut is the cap reason, not fiscal stress."""
+    """Cash >= 0 and debt/GDP just over the configured cap: the tax cut is rejected.
+
+    At the stress-panel cap of 1.0 that line is also the spending brake, so the
+    reason is fiscal stress. A cap set below 1.0 uses tax_cut_over_debt_cap.
+    """
     gdp = 1_000.0
+    ratio = _configured_tax_cut_cap() + 0.01
     gov = GovernmentAgent(cash_balance=1_000.0)
-    gov.public_debt = _debt_for_ratio(0.11, gdp)
+    gov.public_debt = _debt_for_ratio(ratio, gdp)
     with use_config(clone_config()):
         CONFIG.government.public_debt_enabled = True
         applied, reasons = _review_tax_cut(gov, gdp)
-    assert applied == {} and reasons == ["tax_cut_over_debt_cap"]
+    expected = "tax_cut_during_fiscal_stress" if ratio >= 1.0 else "tax_cut_over_debt_cap"
+    assert applied == {} and reasons == [expected]
 
 
-def test_spending_increase_still_accepted_over_the_tax_cut_cap():
-    """The cap blocks tax cuts only. A spending increase at the same debt/GDP is accepted."""
+def test_spending_increase_follows_the_one_point_brake():
+    """A spending increase just over the tax-cut cap is rejected only when that cap is 1.0.
+
+    The spending brake stays at debt/GDP >= 1. The stress-panel cap equals that
+    brake, so the same ratio blocks the spending increase.
+    """
     gdp = 1_000.0
+    ratio = _configured_tax_cut_cap() + 0.01
     gov = GovernmentAgent(cash_balance=1_000.0)
-    gov.public_debt = _debt_for_ratio(0.11, gdp)
+    gov.public_debt = _debt_for_ratio(ratio, gdp)
     gov.set_lever("infrastructure_spending", "low")
     with use_config(clone_config()):
         CONFIG.government.public_debt_enabled = True
         applied, reasons = _review(gov, INFRASTRUCTURE_UP, gdp)
-    assert reasons == [] and applied == INFRASTRUCTURE_UP
+    if ratio >= 1.0:
+        assert applied == {} and reasons == ["spending_increase_during_fiscal_stress"]
+    else:
+        assert reasons == [] and applied == INFRASTRUCTURE_UP
+
+
+def test_a_lower_cap_blocks_the_tax_cut_and_still_allows_spending():
+    """Below the spending brake, only the tax cut stops, and the reason is the cap."""
+    gdp = 1_000.0
+    gov = GovernmentAgent(cash_balance=1_000.0)
+    gov.set_lever("infrastructure_spending", "low")
+    with use_config(clone_config()):
+        CONFIG.government.public_debt_tax_cut_cap = 0.50
+        gov.public_debt = _debt_for_ratio(0.51, gdp)
+        applied, reasons = _review_tax_cut(gov, gdp)
+        spending, spending_reasons = _review(gov, INFRASTRUCTURE_UP, gdp)
+    assert applied == {} and reasons == ["tax_cut_over_debt_cap"]
+    assert spending_reasons == [] and spending == INFRASTRUCTURE_UP
 
 
 def test_system_prompt_states_the_tax_cut_cap_when_debt_is_on():
     with use_config(clone_config()):
         CONFIG.government.public_debt_enabled = True
-        cap = CONFIG.government.public_debt_tax_cut_cap
+        cap = _configured_tax_cut_cap()
         prompt = _build_system_prompt("balanced", 100, 10)
+    assert cap == 1.0
     assert f"tax cuts are blocked once annualized debt/GDP reaches {cap:.2f}" in prompt
     assert "spending increases are blocked at 1.00" in prompt
 

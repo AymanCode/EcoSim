@@ -821,13 +821,14 @@ class GovernmentPolicyConfig:
     # Refunding Statement, 6 May 2015). Adaptive: it follows spending. Range >= 0.
     public_debt_cash_buffer_weeks: float = 1.0
     # AI tax cuts stop once annualized debt/GDP reaches this cap. The 13-seed
-    # O9 panel (seeds 42-54, 312 weeks, income_first first, dashboard levers,
-    # 2026-10-22) had a highest on-arm per-seed peak of 0, so 0 x 1.5 rounded
-    # up to the next 0.05 is 0.00, and the 0.10 floor applies so ordinary
-    # buffer borrowing does not trip the cap. The EU Maastricht / Stability
-    # and Growth Pact 60% debt reference value is context only; it is not
-    # this cap. Range (0, 1].
-    public_debt_tax_cut_cap: float = 0.10
+    # stress panel (seeds 42-54, 312 weeks, income_first first, crisis benefits
+    # and high infrastructure, technology and social spending, commit 8e3a0b5,
+    # 2026-10-22) had a highest per-seed peak of 1.2428 on the buffer arm
+    # (legacy, seed 49, week 309). 1.2428 x 1.5 is 1.8642, which rounds up to
+    # the next 0.05 (1.90) and is then capped at 1.0, so this cap equals the
+    # spending brake. The EU Maastricht / Stability and Growth Pact 60% debt
+    # reference value is context only; it is not this cap. Range (0, 1].
+    public_debt_tax_cut_cap: float = 1.0
 
 
 @dataclass

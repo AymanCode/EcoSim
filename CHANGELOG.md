@@ -10,7 +10,7 @@ Charter pass on the public-debt switch. The field stays; off is still main's beh
 
 - `government.public_debt_enabled` now defaults to on. `public_debt_borrow_target` defaults to `"buffer"` (one week of outflows). `"zero"` remains valid.
 - The LLM sanitizer allows tax cuts while borrowing under the same guard as spending increases: an unfunded overdraft, or debt/GDP >= 1. With the flag off that guard is cash below zero, as on main. Rule 7 of the debt-visible prompt states that rule and that the AI is judged on net position, debt trend and interest. The debt-off prompt is unchanged.
-- Tax cuts are also blocked once annualized debt/GDP reaches `public_debt_tax_cut_cap` (0.10). The 13-seed O9 panel's on-arm peak was 0, so 0 × 1.5 rounded up sits under the 0.10 floor; spending increases stay on the 1.0 guard.
+- Tax cuts are also blocked once annualized debt/GDP reaches `public_debt_tax_cut_cap` (1.0). The 13-seed stress panel's highest per-seed peak was 1.2428, so 1.2428 × 1.5 rounded up to the next 0.05 is 1.90 and the 1.0 ceiling applies. The cap equals the spending brake.
 - The server sends `govBorrowed` and `govRepaid` only while debt is owed, or after the treasury has borrowed at least once this session (`public_debt_ever_borrowed`). Default levers never borrow, so those frames match main. No frontend change.
 - No bond buy while debt is owed. `settle_public_debt` still runs before the bond buy.
 - Rules: `docs/ECONOMIC_AGENT_RULES.md` M06 and the Government row. The new revision is provisional, renumber at merge. The 2026-10-20 record stays as written; its number is provisional, renumber at merge.

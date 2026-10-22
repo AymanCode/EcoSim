@@ -2158,9 +2158,10 @@ def sanitize_llm_government_changes_detailed(
     # while borrowing are allowed. fiscal_stress fires for an unfunded
     # overdraft (cash below zero after this tick's financing) or debt/GDP >= 1.
     # Tax cuts also stop once annualized debt/GDP reaches public_debt_tax_cut_cap.
-    # A cut blocked only by that cap is tax_cut_over_debt_cap. With the flag
-    # off and nothing owed, debt/GDP is 0, so the cap does not fire and this
-    # is main's cash check.
+    # The stress-panel value is 1.0, so at the default this is the same line as
+    # the spending brake. A cut blocked only by a lower cap is
+    # tax_cut_over_debt_cap. With the flag off and nothing owed, debt/GDP is 0,
+    # so the cap does not fire and this is main's cash check.
     fiscal_stress = float(getattr(government, "cash_balance", 0.0) or 0.0) < 0.0 or debt_to_gdp >= 1.0
     tax_cut_cap = float(CONFIG.government.public_debt_tax_cut_cap)
     tax_cut_stress = fiscal_stress or debt_to_gdp >= tax_cut_cap
