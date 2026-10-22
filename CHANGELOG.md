@@ -14,7 +14,7 @@ Rebuild of #39 from `main`, after Claude's round-2 review and the crew charter p
 - **Retired config keys (rule R12, one mechanism):** `skill_decay_unemployment_threshold` (was `26`), `skill_decay_rate_per_tick` (was `0.002`) and `skill_decay_floor` (was `0.1`). No code read them.
 - **Validation:** `skill_loss_per_year_out_of_work` finite with `0 <= a <= 1`; both switches must be bools; `skill_growth_rate_range` finite with `0 <= lo <= hi <= 0.01`.
 
-Evidence: `test_households_skills.py` (step tests for the yearly grant and the one-year loss, the 2 x 2 switch matrix, a 156-tick live run, validation). Evidence panel (#58), 3 sequences x 5 seeds, arms main / off / on: see the PR.
+Evidence: `test_households_skills.py` (step tests for the yearly grant and the one-year loss, the 2 x 2 switch matrix, a 156-tick live run, validation). Evidence panel (#58): `python -m backend.tools.benchmarks.run_evidence_panel` with `--seeds 42,43,44,45,46,47,48,49,50,51,52,53,54`, `--ticks 312`, windows `1-100,101-200,201-312,261-312`, arms main / off (`households.skills_dynamics=False`) / on, plugin `backend/tools/benchmarks/plugins/households_skills.py`. See the PR.
 
 ### 2026-10-21: Shared evidence panel for behavior-changing PRs
 
