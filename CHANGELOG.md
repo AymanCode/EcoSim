@@ -63,7 +63,7 @@ Evidence: `backend/tests_contracts/test_evidence_panel.py` (7 tests).
 
 ### 2026-10-22: Remove healthcare R&D; keep payroll pricing opt-in
 
-Owner decision (Ayman): "There is no reason for R&D for healthcare.. it actually does nothing." Healthcare unconditionally returns zero from `FirmAgent.apply_rd_and_quality_update`; other sectors keep their R&D. This removes the clinic-to-miscellaneous-pool R&D payment at phase 11.6, leaves those funds with the clinic, and adds no replacement payment, subsidy, credit or money creation. Existing bonus/dividend rules remain in force.
+Owner decision (Ayman): "There is no reason for R&D for healthcare.. it actually does nothing." Healthcare unconditionally returns zero from `FirmAgent.apply_rd_and_quality_update`; other sectors keep their R&D. This removes the phase-11.6 clinic debit that paid investment tax to the treasury and routed the after-tax remainder through miscellaneous revenue, leaves those funds with the clinic, and adds no replacement payment, subsidy, credit or money creation. Existing bonus/dividend rules remain in force.
 
 `CONFIG.firms.fix_healthcare_price_covers_payroll` now defaults to **False**. With it off, healthcare keeps main's full-slot pricing, generic baseline warmup pricing and capital behavior. Server sessions and town policy presets inherit that default. Explicit opt-in retains expected-request pricing, the 15% weekly price limit, visit-slot warmup pricing and the healthcare capital exclusion.
 
