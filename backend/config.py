@@ -183,14 +183,12 @@ class HouseholdBehaviorConfig:
     skills_weekly_learning: bool = False
     # skill_loss_per_year_out_of_work: float, skill units (0-1 scale) lost per
     #   52 weeks unemployed, applied as a / 52 per week and floored at week-1
-    #   skill. Valid: finite, 0 <= a <= 1. Default 0.04: a year out moves a
-    #   worker about 5 percentile points down the skill distribution in-sim
-    #   (realized 4.2-5.3 points, flat by spell start over 624 ticks), against
-    #   about 5.5 in Edin & Gustavsson (2008, ILR Review 61(2)). A fixed amount
-    #   per year, not a share of gains, so a year out costs the same early or
-    #   late in a run (round-2 review). Cohen, Johnston & Lindner (2025, AEJ:
-    #   Applied 17(3)) find no measurable general-skill decline, so the loss is
-    #   bounded to on-the-job gains by the floor.
+    #   skill. Valid: finite, 0 <= a <= 1. Default 0.04, a fixed amount per
+    #   year (not a share of gains), so a year out costs the same early or
+    #   late in a run. Edin & Gustavsson (2008, ILR Review 61(2)) put a year
+    #   out of work at about 5.5 percentile points of skill. Cohen, Johnston
+    #   & Lindner (2025, AEJ: Applied 17(3)) find no measurable general-skill
+    #   decline, so the loss is bounded to on-the-job gains by the floor.
     skill_loss_per_year_out_of_work: float = 0.04
     initial_happiness_range: Tuple[float, float] = (0.60, 0.80)
     initial_morale_range: Tuple[float, float] = (0.60, 0.80)
