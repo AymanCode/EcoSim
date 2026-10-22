@@ -1,0 +1,397 @@
+/* The living towns: the town cards, their grid and legend, and the diorama's
+   scene, ported from mockup 08. The card chrome uses the page's --nx- tokens;
+   the scene keeps the mockup's own palette. Weather colours arrive as CSS
+   variables on the scene parts that read them, marked data-weather
+   (weather.js); the fallbacks are a calm "getting by" day. Nothing here
+   changes a box's size as the weeks change. */
+
+/* ---------- the grid of town cards ---------- */
+.nx .lt-towns { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 18px; margin-top: 22px }
+.nx .lt-towns.is-1, .nx .lt-towns.is-focus { grid-template-columns: minmax(0, 1fr) }
+@media (max-width: 1100px) {
+  .nx .lt-towns { grid-template-columns: minmax(0, 1fr) }
+}
+
+/* ---------- a town card ---------- */
+.nx .lt-card { position: relative; padding: 0; overflow: hidden; border-radius: 16px; container: lt-card / inline-size }
+.nx .lt-card[hidden] { display: none }
+
+/* One line, always: the name, the rules (cut short with an ellipsis; the full
+   wording is the title), a fixed-width mood chip and a fixed-width button. On
+   a narrow card the rules take a line of their own under the name. */
+.nx .lt-head {
+  display: grid;
+  grid-template-columns: auto auto minmax(0, 1fr) auto auto;
+  grid-template-areas: 'dot name rules mood focus';
+  align-items: center;
+  column-gap: 10px;
+  padding: 14px 16px 12px 18px;
+}
+.nx .lt-dot { grid-area: dot; width: 10px; height: 10px; border-radius: 3px; display: block }
+.nx .lt-head h2 { grid-area: name; font-size: 20px; line-height: 1.2; white-space: nowrap }
+.nx .lt-rules {
+  grid-area: rules;
+  min-width: 0;
+  font-size: 13.5px;
+  line-height: 1.5;
+  color: var(--nx-ink3-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.nx .lt-mood {
+  grid-area: mood;
+  box-sizing: border-box;
+  width: 9.6em;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px 4px 7px;
+  border-radius: 999px;
+  font-size: 12.5px;
+  line-height: 18px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  transition: background-color .6s ease, color .6s ease;
+}
+.nx .lt-mood svg { width: 18px; height: 18px; flex: none; display: block }
+.nx .lt-mood span { overflow: hidden; text-overflow: ellipsis }
+.nx .lt-mood.is-thriving { background: #FDF0D6; color: #8A5A0B }
+.nx .lt-mood.is-okay { background: #EEF1E4; color: #4F6A2E }
+.nx .lt-mood.is-struggling { background: #E9EBEE; color: #4D5866 }
+.nx .lt-mood.is-hard { background: #DDE2EA; color: #2E3C52 }
+.nx .lt-focus {
+  grid-area: focus;
+  box-sizing: border-box;
+  width: 7.6em;
+  padding: 4px 8px;
+  border: 1px solid var(--nx-line2);
+  border-radius: 999px;
+  background: var(--nx-panel);
+  font-size: 12.5px;
+  line-height: 18px;
+  color: var(--nx-ink2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.nx .lt-focus:hover { background: var(--nx-panel2); color: var(--nx-ink) }
+@container lt-card (max-width: 520px) {
+  .nx .lt-head {
+    grid-template-columns: auto minmax(0, 1fr) auto auto;
+    grid-template-areas: 'dot name mood focus' 'rules rules rules rules';
+    row-gap: 4px;
+    padding: 12px 12px 10px 14px;
+  }
+}
+
+/* The drawing keeps the scene's aspect ratio at every width. Its three
+   layers share one box: the world svg sets the height (from its viewBox) and
+   the back and motion svgs lie exactly over it. The back and motion layers
+   are compositor layers of their own (what moves there every frame never
+   redraws the world) and let the pointer through to the world. */
+/* A tap on the drawing does not flash the whole box (the box listens for
+   clicks for the place cards), and a quick double click selects no text. */
+.nx .lt-canvas { position: relative; -webkit-tap-highlight-color: transparent }
+.nx .lt-stage { position: relative; isolation: isolate; -webkit-user-select: none; user-select: none }
+.nx .lt-stage > svg { display: block; width: 100%; height: auto }
+.nx .lt-stage > .lt-scene { position: relative; z-index: 1 }
+.nx .lt-stage > .lt-layer { position: absolute; inset: 0; height: 100%; pointer-events: none; will-change: transform }
+.nx .lt-stage > .lt-back { z-index: 0 }
+.nx .lt-stage > .lt-motion { z-index: 2 }
+
+/* Four facts: each value on one line, each label in a two-line area. */
+.nx .lt-facts {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 6px 16px;
+  margin: 0;
+  padding: 10px 18px 14px;
+  border-top: 1px solid var(--nx-line);
+}
+.nx .lt-facts > div { display: flex; flex-direction: column-reverse; justify-content: flex-end; min-width: 0 }
+.nx .lt-facts dd {
+  margin: 0;
+  font-family: var(--nx-disp), var(--nx-body), sans-serif;
+  font-size: 21px;
+  font-weight: 600;
+  line-height: 1.2;
+  color: var(--nx-ink);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.nx .lt-facts dd.is-owed { color: var(--nx-home-text) }
+.nx .lt-facts dt {
+  margin-top: 2px;
+  font-size: 12.5px;
+  line-height: 1.5;
+  height: 3em;
+  overflow: hidden;
+  color: var(--nx-ink3-text);
+}
+@container lt-card (max-width: 560px) {
+  .nx .lt-facts { grid-template-columns: repeat(2, minmax(0, 1fr)); padding: 8px 14px 12px }
+}
+
+/* ---------- the shared legend ---------- */
+.nx .lt-legend { display: flex; flex-wrap: wrap; gap: 6px 20px; margin-top: 14px; font-size: 12.5px; line-height: 1.5; color: var(--nx-ink3-text) }
+.nx .lt-legend span { display: inline-flex; align-items: center; gap: 7px; white-space: nowrap }
+.nx .lt-legend i { width: 10px; height: 10px; border-radius: 50%; flex: none; display: inline-block }
+.nx .lt-legend i.is-sq { border-radius: 2px }
+.nx .lt-legend i.is-lit { background: #FFD15C }
+.nx .lt-legend i.is-dark { background: #646E7D }
+.nx .lt-legend i.is-lost { box-sizing: border-box; border: 1.5px dashed #C8483B }
+.nx .lt-legend i.is-pin { background: #3B9B68; box-shadow: 0 0 0 2px #fff, 0 0 0 3px #C9BFAE }
+.nx .lt-legend .lt-scale { color: var(--nx-ink4-text) }
+
+/* ---------- Main Street, up close ----------
+   One town's street from the side, under the legend (MainStreetCard.jsx,
+   MainStreet.jsx). The header is one line on a wide card and two on a narrow
+   one (the title, then the town and its rules beside the picker); the rules
+   are cut short with an ellipsis (the full wording is the title) and the
+   picker's buttons have fixed widths, so nothing in it changes size as the
+   weeks change. The drawing keeps the street's aspect ratio (the .lt-stage
+   rules below). */
+/* The card does not clip: on a phone the drawing is about 100 px tall, so a
+   place card hangs over what lies below it (z-index 1 keeps it above the
+   panels, under the timeline) rather than being cut off; the drawing clips
+   its own bottom corners to the card's. */
+.nx .lt-street { position: relative; z-index: 1; margin-top: 18px; padding: 0; border-radius: 16px; container: lt-street / inline-size }
+.nx .lt-street .lt-stage { overflow: hidden; border-radius: 0 0 15px 15px }
+.nx .lt-street-head {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-areas: 'title sub pick';
+  align-items: center;
+  column-gap: 12px;
+  padding: 14px 16px 12px 18px;
+}
+.nx .lt-street-head h2 { grid-area: title; font-size: 20px; line-height: 1.2; white-space: nowrap }
+.nx .lt-street-sub {
+  grid-area: sub;
+  min-width: 0;
+  font-size: 13.5px;
+  line-height: 1.5;
+  color: var(--nx-ink3-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* A segmented control like the timeline's speeds, each button 6.6em wide;
+   on a phone, three or four towns get narrower buttons without the dots. */
+.nx .lt-pick { grid-area: pick; display: flex; gap: 2px; padding: 2px; border-radius: 999px; background: var(--nx-panel2) }
+.nx .lt-pick button {
+  box-sizing: border-box;
+  flex: none;
+  width: 6.6em;
+  padding: 4px 9px;
+  border: 0;
+  border-radius: 999px;
+  background: none;
+  font-size: 12.5px;
+  line-height: 18px;
+  font-weight: 500;
+  color: var(--nx-ink3-text);
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.nx .lt-pick button i { display: inline-block; width: 8px; height: 8px; margin-right: 6px; border-radius: 2px }
+.nx .lt-pick button:hover { color: var(--nx-ink) }
+.nx .lt-pick button[aria-pressed='true'] { background: var(--nx-panel); color: var(--nx-ink); box-shadow: 0 1px 2px rgba(23, 32, 43, .1) }
+.nx .lt-pick button:focus-visible { border-radius: 999px }
+@container lt-street (max-width: 620px) {
+  .nx .lt-street-head {
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas: 'title title' 'sub pick';
+    row-gap: 6px;
+    padding: 12px 12px 10px 14px;
+  }
+}
+@container lt-street (max-width: 460px) {
+  .nx .lt-pick:has(> :nth-child(3)) button { width: 5.1em; padding: 4px 6px }
+  .nx .lt-pick:has(> :nth-child(3)) button i { display: none }
+}
+
+/* ---------- place cards ----------
+   Pointing at a house, a shop, the town hall, the bank or a pin shows its
+   card beside the pointer, clicking keeps it (usePlaceCard.js,
+   PlaceCard.jsx). It lies over the drawing and takes no room, lets the
+   pointer through unless it is kept, and fades in (never out: a card that
+   goes, goes at once). Dark like mockup 08's card, in the page's tokens.
+   Each tag is its tone at 22 % over the card (good --nx-work, warn
+   --nx-look, bad --nx-home, quiet --nx-ink3, info the help coins' teal
+   #2696AB) with its text a lighter tint of the same tone; PlaceCard.test.jsx
+   checks every text colour here reads at 4.5:1 or better. */
+.nx .lt-scene [data-kind] { cursor: pointer }
+.nx .lt-place {
+  position: absolute;
+  left: 0;
+  top: 0;
+  z-index: 4;
+  min-width: min(210px, calc(100% - 12px));
+  max-width: min(270px, calc(100% - 12px));
+  padding: 12px 14px;
+  border-radius: 14px;
+  background: var(--nx-ink);
+  color: var(--nx-panel2);
+  font-size: 13px;
+  line-height: 1.45;
+  box-shadow: 0 16px 40px -16px rgba(23, 32, 43, .55);
+  pointer-events: none;
+  visibility: hidden;
+  opacity: 0;
+  transform: translateY(4px);
+}
+.nx .lt-place.is-on { visibility: visible; opacity: 1; transform: none; transition: opacity .15s ease, transform .15s ease }
+.nx .lt-place.is-pinned { pointer-events: auto; cursor: default }
+.nx .lt-place-title { margin-bottom: 2px; font-family: var(--nx-disp), var(--nx-body), sans-serif; font-size: 16px; font-weight: 600; line-height: 1.25; color: var(--nx-panel) }
+.nx .lt-place-sub { margin-bottom: 6px; font-size: 12px; color: var(--nx-ink4) }
+.nx .lt-place-row { display: flex; justify-content: space-between; gap: 12px }
+.nx .lt-place-row > span:first-child { color: var(--nx-slate) }
+.nx .lt-place-row > span:last-child { color: var(--nx-panel); font-variant-numeric: tabular-nums; white-space: nowrap }
+.nx .lt-place-note { margin-top: 4px; color: var(--nx-line2) }
+.nx .lt-place-tag { display: inline-block; margin-top: 7px; padding: 2px 8px; border-radius: 999px; font-size: 11.5px; font-weight: 600; line-height: 1.45 }
+.nx .lt-place-tag.is-good { background: rgba(46, 158, 107, .22); color: #6DBB97 }
+.nx .lt-place-tag.is-warn { background: rgba(201, 138, 27, .22); color: #D7A754 }
+.nx .lt-place-tag.is-bad { background: rgba(214, 74, 94, .22); color: #E48996 }
+.nx .lt-place-tag.is-quiet { background: rgba(110, 122, 135, .22); color: #A8AFB7 }
+.nx .lt-place-tag.is-info { background: rgba(38, 150, 171, .22); color: #67B6C4 }
+@container lt-card (max-width: 520px) {
+  .nx .lt-place { padding: 9px 11px; font-size: 12.5px; border-radius: 12px }
+  .nx .lt-place-title { font-size: 15px }
+}
+@container lt-street (max-width: 520px) {
+  .nx .lt-place { padding: 9px 11px; font-size: 12.5px; border-radius: 12px }
+  .nx .lt-place-title { font-size: 15px }
+}
+
+/* ---------- the scene ----------
+   Nothing in the scene has a CSS animation or transition: on an SVG shape
+   either one makes the browser give the shape (and every shape painted after
+   it over it) a compositor layer of its own, which cost far more per frame
+   than drawing them (measured: 566 layers, 22 fps, for two towns). States
+   change at once with the week; what moves is written by the motion loop
+   (useSceneMotion) on its own clock. */
+.nx .lt-stage text { font-family: var(--nx-body), system-ui, sans-serif }
+.nx .lt-back .lt-sky-top { stop-color: var(--lt-sky-top, #F1E6D6) }
+.nx .lt-back .lt-sky-bottom { stop-color: var(--lt-sky-bottom, #FBF7F0) }
+.nx .lt-back .lt-sun { opacity: var(--lt-sun, .5) }
+.nx .lt-back [data-cloud] { fill: var(--lt-cloud-fill, #F0F1F2) }
+.nx .lt-scene .lt-grass.is-a { fill: var(--lt-grass-a, #C5D3A6) }
+.nx .lt-scene .lt-grass.is-b { fill: var(--lt-grass-b, #BDCC9D) }
+/* The dimming of hard times. The mockup multiplies the scene by #34405A at
+   up to 20 %; a blend mode cannot reach the sky in the back layer, so this is
+   a plain overlay of a darker blue at 0.9 times the strength, which darkens
+   light and mid colours by the same amount as the multiply did. */
+.nx .lt-scene .lt-shade { opacity: calc(var(--lt-shade, 0) * .9); pointer-events: none }
+.nx .lt-scene .lt-glows, .nx .lt-scene .lt-signs { pointer-events: none }
+
+/* Houses: lit, dark, long dark (faded, weeds) and lost (an empty outline). */
+.nx .lt-house .lt-wl { fill: #F3E9DA }
+.nx .lt-house .lt-wr { fill: #DCCDB8 }
+.nx .lt-house .lt-gable { fill: #E9DECB }
+.nx .lt-house .lt-rf { fill: #C7684A }
+.nx .lt-house .lt-rb { fill: #AD573C }
+.nx .lt-house .lt-win { fill: #FFD15C }
+.nx .lt-house .lt-chim { fill: #9A5E46 }
+.nx .lt-house.is-look .lt-wl { fill: #BDB9B2 }
+.nx .lt-house.is-look .lt-wr { fill: #A39F98 }
+.nx .lt-house.is-look .lt-gable { fill: #B2AEA7 }
+.nx .lt-house.is-look .lt-rf { fill: #646E7D }
+.nx .lt-house.is-look .lt-rb { fill: #545D6B }
+.nx .lt-house.is-look .lt-win { fill: #363C48 }
+.nx .lt-house.is-look .lt-chim { fill: #6E6A66 }
+.nx .lt-house.is-look.is-long .lt-wl { fill: #ADA79C }
+.nx .lt-house.is-look.is-long .lt-wr { fill: #958F85 }
+.nx .lt-house.is-look.is-long .lt-rf { fill: #5C6470 }
+.nx .lt-house.is-home .lt-wl, .nx .lt-house.is-home .lt-wr, .nx .lt-house.is-home .lt-gable,
+.nx .lt-house.is-home .lt-rf, .nx .lt-house.is-home .lt-rb {
+  fill: rgba(200, 72, 59, .06);
+  stroke: #C8483B;
+  stroke-width: .8;
+  stroke-dasharray: 2 2;
+}
+/* What a house does not show is not drawn at all (display: none rather than
+   opacity: 0, so it costs nothing to paint). */
+.nx .lt-house.is-home .lt-win, .nx .lt-house.is-home .lt-chim { display: none }
+.nx .lt-house .lt-flowers, .nx .lt-house .lt-weeds, .nx .lt-house .lt-sale, .nx .lt-house .lt-smoke { display: none }
+.nx .lt-house.is-work .lt-flowers { display: inline }
+.nx .lt-house.is-look.is-long .lt-weeds { display: inline }
+.nx .lt-house.is-home .lt-sale { display: inline }
+.nx .lt-house.is-work.is-smoky .lt-smoke { display: inline }
+.nx .lt-smoke circle { fill: #F4F1EC }
+
+/* Window glows, stronger the darker the town. */
+.nx .lt-glow { display: none }
+.nx .lt-glow.is-on { display: inline; opacity: var(--lt-glow, .6) }
+
+/* Seasons: blossom in spring, orange in autumn, bare trees and snow in winter. */
+.nx .lt-snow, .nx .lt-snowtip { display: none; fill: #FBFCFF; opacity: .96 }
+.nx .lt-scene.season-winter .lt-snow, .nx .lt-scene.season-winter .lt-snowtip { display: inline }
+.nx .lt-scene.season-winter .lt-house.is-home .lt-snow { display: none }
+.nx .lt-tree .lt-leaf1 { fill: #7FA165 }
+.nx .lt-tree .lt-leaf2 { fill: #97B97B }
+.nx .lt-tree .lt-branches { display: none; stroke: #7A5C3E; stroke-width: 1; fill: none; stroke-linecap: round }
+.nx .lt-scene.season-spring .lt-tree.is-blossom .lt-leaf1 { fill: #EFA9BC }
+.nx .lt-scene.season-spring .lt-tree.is-blossom .lt-leaf2 { fill: #F7CBD7 }
+.nx .lt-scene.season-autumn .lt-tree .lt-leaf1 { fill: #D58743 }
+.nx .lt-scene.season-autumn .lt-tree .lt-leaf2 { fill: #E8A95C }
+.nx .lt-scene.season-autumn .lt-tree.is-blossom .lt-leaf1 { fill: #C4643A }
+.nx .lt-scene.season-winter .lt-tree .lt-leaf1, .nx .lt-scene.season-winter .lt-tree .lt-leaf2 { display: none }
+.nx .lt-scene.season-winter .lt-tree .lt-branches { display: inline }
+
+/* Shops: lit windows (flickering while struggling, written by the loop), dark
+   once closed. */
+.nx .lt-shop .lt-win { fill: #FFD36B }
+.nx .lt-shop.is-closed .lt-win { fill: #5A606C }
+
+/* Sign pills and the treasury's amount. */
+.nx .lt-pill text { font-weight: 700; letter-spacing: .35px; text-anchor: middle; dominant-baseline: central }
+/* A light halo keeps the treasury's amount readable over the town hall. */
+.nx .lt-amount { font-size: 8px; font-weight: 600; fill: #8A6514; paint-order: stroke; stroke: rgba(255, 255, 255, .8); stroke-width: 2.2px; stroke-linejoin: round }
+.nx .lt-amount.is-owed { fill: #C8483B }
+
+/* New rules: a ring round the town hall (the loop pulses it twice), which
+   stays until the rules are WEEKS.pulse weeks old. */
+.nx .lt-hall-ring { fill: none; stroke-width: 2.2 }
+
+/* Main Street's hills and meadow take the weather's colours; its houses
+   share the island's classes, with a warm glow round a lit window. */
+.nx .lt-back .lt-hill-a { fill: var(--lt-hill-a, #DADDC4) }
+.nx .lt-back .lt-hill-b { fill: var(--lt-hill-b, #CBD4B2) }
+.nx .lt-back .lt-meadow { fill: var(--lt-meadow, #C3CDA8) }
+.nx .lt-house .lt-sglow { display: none }
+.nx .lt-house.is-work .lt-sglow { display: inline }
+
+/* Pins over the homes of people you follow. Each has an unseen, wider circle
+   that takes the pointer (lt-pin-hit). */
+.nx .lt-pin { stroke: #fff; stroke-width: 1.5 }
+.nx .lt-pin.is-work { fill: #267548 }
+.nx .lt-pin.is-look { fill: #946312 }
+.nx .lt-pin.is-low { fill: #B13F35 }
+.nx .lt-pin.is-idle { fill: #6F695F }
+.nx .lt-person text { font-size: 7px; font-weight: 700; fill: #fff; text-anchor: middle; dominant-baseline: central; pointer-events: none }
+.nx .lt-street-pin text { font-size: 8px }
+
+/* Rain, or snow in winter; taken out entirely when there is none. */
+.nx .lt-rain { opacity: var(--lt-rain, 0) }
+.nx .lt-rain.is-dry { display: none }
+.nx .lt-rain line { stroke: #8FA0B8; stroke-width: .9; stroke-linecap: round }
+.nx .lt-rain.is-snow line { stroke: #FFFFFF; stroke-width: 2.1; stroke-dasharray: .1 40 }
+
+/* What the motion loop adds (useSceneMotion): walkers, coin rings, floating
+   moments and dust puffs; it writes their movement itself. */
+.nx .lt-walker { stroke: #4A443C; stroke-linecap: round }
+.nx .lt-ping { fill: none; stroke-width: 1.4 }
+.nx .lt-puff { fill: #CFC6B6 }
+
+/* States and weather still change; nothing loops or travels (the loop also
+   stands still), and the mood chip changes colour at once. */
+@media (prefers-reduced-motion: reduce) {
+  .nx .lt-stage *, .nx .lt-mood, .nx .lt-place { animation: none !important; transition: none !important }
+}

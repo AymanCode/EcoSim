@@ -34,6 +34,23 @@ describe('BusinessList', () => {
     expect(container.querySelectorAll('.nx-brow')).toHaveLength(7)
   })
 
+  test('all firms scroll in their own box, reachable by keyboard, until the viewer closes it', () => {
+    const arm = fixtureArm()
+    const { container, rerender } = render(<BusinessList arm={arm} tick={24} />)
+    expect(screen.queryByRole('region')).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'See all 9' }))
+    const box = screen.getByRole('region', { name: `Every business in ${arm.label}` })
+    expect(box).toHaveClass('is-open')
+    expect(box).toHaveAttribute('tabindex', '0')
+    expect(box.querySelectorAll('.nx-brow')).toHaveLength(9)
+    // A week with no more firms than fit keeps the box and the way to close it.
+    rerender(<BusinessList arm={arm} tick={24} max={20} />)
+    expect(container.querySelector('.nx-blistbox')).toHaveClass('is-open')
+    fireEvent.click(screen.getByRole('button', { name: 'Show fewer' }))
+    expect(screen.queryByRole('region')).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Show fewer' })).toBeNull()
+  })
+
   test('lists firms closed in the last year after the open ones, faded and tagged Closed', () => {
     const arm = fixtureArm()
     arm.snapshots[24] = { ...arm.snapshots[24], firmsClosed: [{ id: 50, name: 'FoodCo9', sector: 'Food', closedTick: 20, lastStaff: 3 }] }

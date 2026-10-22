@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest'
 import {
-  commonTicks, valueAt, snapshotAt, seriesUpTo, compareAt, eventsUpTo, householdState, latestEventFor, countedAt, countedSeriesUpTo, rangeSoFar,
+  commonTicks, valueAt, snapshotAt, seriesUpTo, compareAt, eventsUpTo, eventsAt, householdState, latestEventFor, countedAt, countedSeriesUpTo, rangeSoFar,
   cumulativeUpTo, weeklyCounts, firmStatesAt, rulesTable, everMeasured,
 } from '../data/derive.js'
 import { fixtureArm, TOWN_A, TOWN_B } from './fixture.js'
@@ -324,4 +324,11 @@ describe('everMeasured', () => {
     expect(everMeasured([nulls, a], KEY)).toBe(true)
     expect(everMeasured([], KEY)).toBe(false)
   })
+})
+
+test("eventsAt lists only that week's events", () => {
+  const arm = { events: [{ tick: 3, id: 'a' }, { tick: 4, id: 'b' }, { tick: 4, id: 'c' }, { tick: 6, id: 'd' }] }
+  expect(eventsAt(arm, 4).map(event => event.id)).toEqual(['b', 'c'])
+  expect(eventsAt(arm, 5)).toEqual([])
+  expect(eventsAt({}, 1)).toEqual([])
 })
