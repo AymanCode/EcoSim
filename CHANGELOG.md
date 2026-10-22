@@ -60,6 +60,14 @@ Bug fix from the PR7 investigation (item 3). `Economy._batch_update_wellbeing` r
 
 Evidence: `backend/tests_contracts/test_wellbeing_liquid_wealth.py` (4 tests). With a cash-only wellbeing read, tests 1 and 3 fail on their assertions; the snapshot-timing test fails if the deposit snapshot in `_apply_household_income` is removed.
 
+### 2026-10-22: Legacy Housing rent uses plan_then_market (owner decision)
+
+Ayman chose `plan_then_market` on 2026-10-22 as the single default rent rule. Previously, the housing phase changed posted rent using occupancy, the wage-indexed floor, the shortage premium and rent stabilization, but firm settlement overwrote that result. On the `legacy` payment sequence used by the town Run screen, the final rent adjustment now runs after the firm's planned price is applied, so tenants pay that posted rent the following week. `labor_market.housing_rent_rule="settlement_overwrites"` retains the old behavior for rollback and matched comparisons. These are the only supported values; an unknown value raises at configuration/economy construction and at the legacy rent boundary. The named `income_first` and `income_late` payment paths are unchanged.
+
+This makes rent a wage-indexed administered price in the seeded legacy economies: the dynamic floor `max(10, p25 wage x 0.30)` dominates the firm's obligation-coverage plan. The stabilization lever does not change those seeded rent paths because a rise to the floor bypasses the cap; a 17-23% floor-driven weekly rise can reach tenants even under strict stabilization. Whether the cap should limit floor-driven rises remains an owner question; this change adds no such cap. Housing has 35% of the default CPI basket, creating a rent -> CPI -> observed-inflation wage review -> wage-indexed rent-floor feedback path. Its net magnitude also includes other prices and employment changes; GDP must be read alongside household poverty, happiness and health.
+
+Evidence: `backend/tests_contracts/test_housing_rent_single_writer.py` checks the default and rejected strings, the per-tick floor/cap, seeded lever-inert behavior, floor-driven jumps, the pre-settlement price boundary and the rollback. Housing revenue/loan and shopping-reserve contracts cover the coupled payment paths. Healthcare quote/charge live tests use an explicit small subsidy ceiling so partial-funding coverage does not depend on the rent-driven fiscal path. Rules edits are marked `vNEXT` (provisional; the integration owner assigns the version at merge).
+
 ### 2026-10-16: Wage offer floor and posted-offer getters
 
 Households (#29) saw offers at the $36 minimum wage, not `max(minimum wage, 1.5x benefit)` = $45. Read-only getters so they can read the real numbers; no offer changes (seed 42, 1,000 households, 104 ticks: final state hash identical to `main`).
