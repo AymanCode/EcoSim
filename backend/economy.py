@@ -976,7 +976,7 @@ class Economy:
 
         Runs once per tick after labor outcomes and roster sync.
 
-        - Unemployed: on-the-job skill wears off at a fixed rate, never below
+        - Out of work: on-the-job skill wears off at a fixed rate, never below
           the household's week-1 skill ``f`` (``HouseholdAgent.skill_floor``):
           ``s = max(f, s - a / 52)`` with ``a =
           skill_loss_per_year_out_of_work``. At or below ``f`` nothing changes.

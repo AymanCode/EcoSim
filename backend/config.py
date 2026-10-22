@@ -178,11 +178,10 @@ class HouseholdBehaviorConfig:
     #   weekly one, s += g * (1 - s) per week employed (g = the household's
     #   skill_growth_rate trait, the same per-week rate the yearly grant
     #   multiplies by weeks worked). Off by default: no source prefers weekly
-    #   crediting, and on its own it lowered low-skill employment (round-2
-    #   review, pack Q1).
+    #   crediting.
     skills_weekly_learning: bool = False
     # skill_loss_per_year_out_of_work: float, skill units (0-1 scale) lost per
-    #   52 weeks unemployed, applied as a / 52 per week and floored at week-1
+    #   52 weeks out of work, applied as a / 52 per week and floored at week-1
     #   skill. Valid: finite, 0 <= a <= 1. Default 0.04, a fixed amount per
     #   year (not a share of gains), so a year out costs the same early or
     #   late in a run. Edin & Gustavsson (2008, ILR Review 61(2)) put a year

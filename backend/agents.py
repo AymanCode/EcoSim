@@ -1856,7 +1856,7 @@ class HouseholdAgent(AgentMixin):
             self.skills_level = min(1.0, self.skills_level + 0.005)
             if CONFIG.households.skills_dynamics:
                 # Paid schooling is not an on-the-job gain: it raises the floor
-                # that unemployment wear-off stops at, so it is not lost.
+                # that wear-off while out of work stops at, so it is not lost.
                 if self.skill_floor is None:
                     self.skill_floor = before
                 self.skill_floor = min(1.0, self.skill_floor + (self.skills_level - before))
