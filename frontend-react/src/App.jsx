@@ -1,3 +1,7 @@
+// Classic dashboard (legacy UI, opens at /). Frozen by owner decision 2026-10-22:
+// no new features, panels or rows here unless Ayman asks. Current UI work goes in
+// src/next/ (the town Run screen, ?view=next). See "Current and legacy surfaces"
+// in AGENTS.md / CLAUDE.md.
 import React, { useState, useEffect, useRef } from 'react';
 import Markets from './screens/Markets.jsx';
 import Government from './screens/Government.jsx';
