@@ -61,6 +61,9 @@ from .panel_summary import (
     CANONICAL_SEEDS,
     ESCALATION_SEEDS,
     MONEY_CHECK_MODE,
+    WITHIN_RUN_NOTE,
+    comparability_label,
+    host_stamp,
     attach_paid_real_gdp,
     check_failures,
     clip_default_windows,
@@ -91,10 +94,22 @@ THREAD_ENV = {
     name: "1"
     for name in ("OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS", "VECLIB_MAXIMUM_THREADS", "NUMEXPR_NUM_THREADS")
 }
-RUNTIME_PROBE = (
-    "import json, platform, sys, numpy; print(json.dumps({'python': platform.python_version(), "
-    "'implementation': platform.python_implementation(), 'numpy': numpy.__version__, 'executable': sys.executable}))"
-)
+RUNTIME_PROBE = """
+import json, os, platform, sys
+from pathlib import Path
+import numpy
+cpu = platform.processor() or os.environ.get('PROCESSOR_IDENTIFIER', 'unknown')
+info = Path('/proc/cpuinfo')
+if info.is_file():
+    for line in info.read_text().splitlines():
+        if line.startswith('model name'):
+            cpu = line.partition(':')[2].strip()
+            break
+print(json.dumps({'python': platform.python_version(),
+    'implementation': platform.python_implementation(), 'numpy': numpy.__version__,
+    'executable': sys.executable, 'platform': platform.platform(),
+    'system': platform.system(), 'machine': platform.machine(), 'cpu_model': cpu}))
+"""
 DEFAULT_WINDOWS = "1-100,101-200,201-312,261-312"
 DEFAULT_TICKS = 312
 ARM_NAME = re.compile(r"^[a-z0-9][a-z0-9._+-]*$")
@@ -448,6 +463,7 @@ def plan_runs(
             "metrics_plugins": list(plugins),
             "metrics_plugin_sha256": list(plugin_hashes),
             "worker_sha256": hashlib.sha256(WORKER.read_bytes()).hexdigest(),
+            "money_helper_sha256": hashlib.sha256(WORKER.with_name("panel_money.py").read_bytes()).hexdigest(),
             "pythonhashseed": PYTHONHASHSEED,
             "runtime": {
                 "python": runtime["python"],
@@ -686,8 +702,7 @@ def render_markdown(panel: dict[str, Any], windows: list[tuple[str, int, int]]) 
     plugin_rows = panel.get("plugin_rows") or []
     manifest = panel["manifest"]
     lines = ["# Evidence panel", ""]
-    if manifest.get("comparability") != "reference":
-        lines += ["> **NON-REFERENCE ENV, not comparable**", ""]
+    lines += [f"> **{manifest.get('comparability', 'non-reference')}**. {WITHIN_RUN_NOTE}", ""]
     lines += [
         f"`{manifest['command']}`",
         "",
@@ -697,7 +712,10 @@ def render_markdown(panel: dict[str, Any], windows: list[tuple[str, int, int]]) 
         f"numpy {manifest['worker_runtime']['numpy']}, requirements.lock sha256 `{manifest.get('requirements_lock_sha256')}`, "
         f"one numeric-library thread per run, PYTHONHASHSEED {PYTHONHASHSEED}. "
         f"Lock pins checked: {manifest.get('lock_pins_checked', 'n/a')}.",
-        f"- **Comparability:** {manifest.get('comparability', 'reference')}.",
+        f"- **Host:** {manifest['worker_runtime'].get('platform', 'unknown')}; "
+        f"CPU {manifest['worker_runtime'].get('cpu_model', 'unknown')}.",
+        f"- **Evaluator:** `{manifest.get('evaluator', {}).get('commit', 'unknown')}` (tool checkout).",
+        f"- **Comparability:** {manifest.get('comparability', 'non-reference')}. {WITHIN_RUN_NOTE}",
         f"- **Windows:** {', '.join(_window_heading(label, windows) for label in settings['windows'])}. **Baseline:** `{baseline}`.",
         f"- **Money check:** {MONEY_CHECK_MODE} (switch `MONEY_CHECK_MODE` in `panel_summary.py`; absolute after #57).",
     ]
@@ -843,10 +861,35 @@ def render_markdown(panel: dict[str, Any], windows: list[tuple[str, int, int]]) 
         "- **Happiness tails:** median, p10, p90, and the shares at or below 0.05 and at or above 0.95.",
         "- **Within-window CV:** standard deviation of the weekly values in the window divided by the absolute mean. Detrended CV does that after a linear week trend is removed.",
         "- **Bond buy (K06):** the treasury's weekly bond purchase paid out through the misc pool. `--hook k06_hold_pool` leaves that pool on the money stock.",
-        "- **Unrecorded money drift:** change in total money net of recorded outside money (`total_money_net_of_injections`) from construction to the last tick.",
-        "- **Runs identical:** per-week state digests (households, firms, government, bank) match. The row fingerprint is kept beside them and is not the identity check.",
+        "- **Unrecorded money drift:** change in total money net of recorded outside money (the evaluator's `panel_money.total_money_net_of_injections`) from construction to the last tick.",
+        "- **Runs identical:** per-week state digests (households, firms, government, bank, loans, payment-ledger totals, RNG) match. The row fingerprint is kept beside them and is not the identity check.",
         "- **Money check:** both modes use a 0.0001 dollar dust tolerance. Relative mode requires income_first and income_late, including the baseline, to conserve, and reports arm-minus-baseline drift (median, k/n) for legacy. Absolute mode requires every run's own drift inside that tolerance. A NaN or inf drift fails.",
     ]
+    return "\n".join(lines) + "\n"
+
+
+def render_short_summary(panel: dict[str, Any]) -> str:
+    """Bounded CI/job-comment summary; detailed tables and raw runs stay in artifacts."""
+    manifest, design = panel["manifest"], panel["design"]
+    checks = panel["summary"]["checks"]
+    reasons = check_failures(checks)
+    if any(not item["ok"] for item in panel.get("mutations", [])):
+        reasons.append("mutation check")
+    lines = ["# Evidence panel summary", "", f"**{'FAIL' if reasons else 'PASS'}**; "
+             f"{panel['settings']['ticks']} weeks, {len(design['seeds'])} seeds, "
+             f"{len(design['sequences'])} payment sequences.", "",
+             f"{manifest['comparability']}. {WITHIN_RUN_NOTE}", "",
+             f"Host: {manifest['worker_runtime'].get('platform', 'unknown')}; "
+             f"CPU: {manifest['worker_runtime'].get('cpu_model', 'unknown')}.",
+             f"Evaluator commit: `{manifest.get('evaluator', {}).get('commit', 'unknown')}`."]
+    for arm, check in checks["arms"].items():
+        identity = check.get("identical_to_baseline")
+        if identity:
+            lines.append(f"- `{arm}` vs `{design['baseline']}`: "
+                         f"{identity['identical']}/{identity['runs']} state digests identical.")
+    if reasons:
+        lines.append("- Failed checks: " + "; ".join(reasons))
+    lines += ["", "Detailed panel, evaluator JSON and raw runs are in the workflow artifact."]
     return "\n".join(lines) + "\n"
 
 
@@ -868,8 +911,13 @@ def write_evaluator(path: Path, panel: dict[str, Any], markdown: str) -> None:
     """One file for an AI evaluator: env, per-arm scores, and the panel. No combined score."""
     manifest = panel["manifest"]
     payload = {
-        "comparability": manifest.get("comparability", "reference"),
+        "comparability": manifest.get("comparability", "non-reference"),
+        "comparison_scope": WITHIN_RUN_NOTE,
+        "evaluator": manifest.get("evaluator"),
         "env": {
+            "platform": manifest["worker_runtime"].get("platform"),
+            "cpu_model": manifest["worker_runtime"].get("cpu_model"),
+            "host": manifest.get("host"),
             "python": manifest["worker_runtime"]["python"],
             "implementation": manifest["worker_runtime"].get("implementation"),
             "numpy": manifest["worker_runtime"]["numpy"],
@@ -878,6 +926,7 @@ def write_evaluator(path: Path, panel: dict[str, Any], markdown: str) -> None:
             "thread_env": manifest.get("thread_env"),
             "money_check_mode": MONEY_CHECK_MODE,
             "lock_pins_checked": manifest.get("lock_pins_checked"),
+            "runtime_lock_ok": manifest.get("runtime_lock_ok"),
             "reference_ok": manifest.get("reference_ok"),
         },
         "unemployment_band": {
@@ -935,13 +984,14 @@ def build_parser() -> argparse.ArgumentParser:
                    help="Revert these lines to --root main and require --mutate-tests to fail.")
     p.add_argument("--mutate-tests", action="append", default=[], metavar="PATH",
                    help="Pytest node id run by --mutate. The check passes when at least one test fails.")
+    p.add_argument("--mutate-root", type=Path, help="Candidate checkout for mutation tests (default: tool checkout).")
     p.add_argument("--jobs", type=int, default=max(1, (os.cpu_count() or 2) - 1))
     p.add_argument("--no-determinism-check", dest="determinism_check", action="store_false",
                    help="Skip repeating the baseline's first seed on each sequence.")
     p.add_argument("--no-escalate", dest="escalate", action="store_false",
                    help="Do not add seeds 47-54 when a judged headline result is fragile.")
     p.add_argument("--allow-nonref", action="store_true",
-                   help="Run outside CPython 3.11 + requirements.lock and stamp every output 'not comparable'.")
+                   help="Allow runtime/lock mismatches; all comparisons remain within this run only.")
     p.add_argument("--out", type=Path, help="Run folder (reused on rerun). Default: benchmarks/results/<timestamp>-evidence-panel.")
     p.add_argument("--python", default=sys.executable, help="Interpreter for the worker processes.")
     p.set_defaults(determinism_check=True, escalate=True)
@@ -973,6 +1023,7 @@ def _stamp_outputs(run_dir: Path, panel: dict[str, Any], markdown: str, windows:
     comparability = panel["manifest"].get("comparability", "reference")
     (run_dir / "panel.json").write_text(json.dumps(panel, indent=2, sort_keys=True), encoding="utf-8")
     (run_dir / "panel.md").write_text(markdown, encoding="utf-8")
+    (run_dir / "summary.md").write_text(render_short_summary(panel), encoding="utf-8")
     write_evaluator(run_dir / "evaluator.json", panel, markdown)
     write_window_csv(run_dir / "window_values.csv", panel["summary"], comparability)
 
@@ -986,7 +1037,8 @@ def main(argv: list[str] | None = None) -> int:
     if not decision["ok"] and not args.allow_nonref:
         print(format_reference_error(decision, runtime.get("python", ""), runtime.get("implementation", "")), file=sys.stderr)
         return 2
-    comparability = "NON-REFERENCE ENV, not comparable" if args.allow_nonref else "reference"
+    host = host_stamp(dict(os.environ))
+    comparability = comparability_label(decision["ok"], args.allow_nonref, host, runtime.get("system", ""))
     if args.mutate and not args.mutate_tests:
         print("--mutate needs at least one --mutate-tests path", file=sys.stderr)
         return 2
@@ -997,11 +1049,12 @@ def main(argv: list[str] | None = None) -> int:
     mutations = []
     for file_spec in args.mutate:
         mutations.append(mutation_check(
-            candidate_root=repo_root(), main_root=main_root, file_spec=file_spec,
+            candidate_root=(args.mutate_root or repo_root()).resolve(), main_root=main_root, file_spec=file_spec,
             tests=list(args.mutate_tests), python=args.python,
         ))
         print(f"[panel] mutation {file_spec}: {mutations[-1]['detail']}", flush=True)
 
+    evaluator = model_identity(repo_root())
     specs, design = plan_runs(args, runtime)
     plugin_rows, extra_bounds = plugin_display(design["metrics_plugins"]) if design["metrics_plugins"] else ([], {})
     if args.out is not None:
@@ -1011,8 +1064,7 @@ def main(argv: list[str] | None = None) -> int:
         run_dir = BenchmarkPaths.create(default_results_root(), "evidence-panel").run_dir
     started = dt.datetime.now(dt.timezone.utc).isoformat()
     print(f"[panel] {len(specs)} runs, {args.jobs} at a time -> {run_dir}", flush=True)
-    if comparability != "reference":
-        print("[panel] NON-REFERENCE ENV, not comparable", flush=True)
+    print(f"[panel] {comparability}. {WITHIN_RUN_NOTE}", flush=True)
     results, failures = execute(specs, run_dir / "runs", args.jobs, args.python)
     command = "python -m backend.tools.benchmarks.run_evidence_panel " + shlex.join(argv)
 
@@ -1028,8 +1080,12 @@ def main(argv: list[str] | None = None) -> int:
             "thread_env": THREAD_ENV,
             "requirements_lock_sha256": digest,
             "lock_pins_checked": decision.get("pins"),
-            "reference_ok": decision.get("ok"),
+            "runtime_lock_ok": decision.get("ok"),
+            "reference_ok": comparability == "reference",
             "comparability": comparability,
+            "comparison_scope": WITHIN_RUN_NOTE,
+            "host": host,
+            "evaluator": evaluator,
             "money_check_mode": MONEY_CHECK_MODE,
         }
 

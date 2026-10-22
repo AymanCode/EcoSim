@@ -61,6 +61,35 @@ RATE_BOUNDS = {
 
 SKIP_DIRS = {".git", "__pycache__", ".venv", "node_modules", ".pytest_cache", "benchmarks", ".mypy_cache"}
 
+# Per-week state digest components, in the order a divergence is reported.
+# evidence_panel_worker.STATE_COMPONENTS writes the same names.
+STATE_COMPONENTS = ("households", "firms", "government", "bank", "loans", "payments", "rng")
+
+# Comparability stamps. The reference environment is a GitHub-hosted Linux
+# runner with the locked packages. A local run with the locked packages is
+# labelled non-reference; --allow-nonref runs without them.
+REFERENCE = "reference"
+LOCAL_RUN = "non-reference (local or CI smoke)"
+NOT_COMPARABLE = "NON-REFERENCE ENV, not comparable"
+WITHIN_RUN_NOTE = (
+    "Compare arms within this run only. GitHub-hosted runners differ in CPU model, so numbers "
+    "from two runs, or from a local run, are not comparable even when every version stamp matches."
+)
+HOST_ENV_KEYS = ("GITHUB_ACTIONS", "RUNNER_ENVIRONMENT", "RUNNER_OS", "RUNNER_ARCH", "ImageOS", "ImageVersion", "ECOSIM_PANEL_TIER")
+
+
+def host_stamp(environ: dict[str, str]) -> dict[str, str | None]:
+    """The CI runner variables that say where the panel ran. All None on a local machine."""
+    return {key: environ.get(key) for key in HOST_ENV_KEYS}
+
+
+def comparability_label(env_ok: bool, allow_nonref: bool, host: dict[str, Any], system: str) -> str:
+    """``reference`` only on a GitHub-hosted Linux runner with the locked packages."""
+    if allow_nonref or not env_ok:
+        return NOT_COMPARABLE
+    hosted = host.get("GITHUB_ACTIONS") == "true" and host.get("RUNNER_ENVIRONMENT") == "github-hosted"
+    return REFERENCE if hosted and system == "Linux" and host.get("ECOSIM_PANEL_TIER") == "full" else LOCAL_RUN
+
 
 def clip_default_windows(parts: list[tuple[int, int]], ticks: int) -> list[tuple[str, int, int]]:
     """Fit the default windows to a shorter run. ``--weeks 260`` drops 261-312 and clips 201-312."""
@@ -291,7 +320,7 @@ def first_divergence(left: dict[str, Any], right: dict[str, Any]) -> dict[str, A
         if one.get("combined") == other.get("combined"):
             continue
         component = next(
-            (name for name in ("households", "firms", "government", "bank") if one.get(name) != other.get(name)),
+            (name for name in STATE_COMPONENTS if one.get(name) != other.get(name)),
             "combined",
         )
         return {"tick": int(one.get("tick") or 0), "component": component}
@@ -560,6 +589,18 @@ def plugin_summaries(paths: list[str], results: list[dict[str, Any]]) -> dict[st
     return out
 
 
+def _link_or_copy(source: Path, target: Path) -> None:
+    """Symlink ``target`` to ``source``; copy it where symlinks are not allowed.
+
+    Windows refuses ``os.symlink`` without Developer Mode or admin rights
+    (WinError 1314), so the mutation tree falls back to a copy there.
+    """
+    try:
+        os.symlink(source, target)
+    except (OSError, NotImplementedError):
+        shutil.copy2(source, target)
+
+
 def _overlay_tree(src: Path, dst: Path) -> None:
     for dirpath, dirnames, filenames in os.walk(src):
         dirnames[:] = [name for name in dirnames if name not in SKIP_DIRS and not name.startswith(".git")]
@@ -570,7 +611,7 @@ def _overlay_tree(src: Path, dst: Path) -> None:
                 continue
             target = dst / relative / name
             if not target.exists():
-                os.symlink(Path(dirpath) / name, target)
+                _link_or_copy(Path(dirpath) / name, target)
 
 
 def mutation_check(*, candidate_root: Path, main_root: Path, file_spec: str, tests: list[str], python: str) -> dict[str, Any]:
@@ -622,9 +663,14 @@ def mutation_check(*, candidate_root: Path, main_root: Path, file_spec: str, tes
 
 
 def lock_sha256(path: Path) -> str | None:
+    """sha256 of the lock with CRLF line endings read as LF.
+
+    A Windows checkout with ``core.autocrlf`` and a Linux checkout of the same
+    commit then stamp the same hash.
+    """
     if not path.is_file():
         return None
-    return hashlib.sha256(path.read_bytes()).hexdigest()
+    return hashlib.sha256(path.read_bytes().replace(b"\r\n", b"\n")).hexdigest()
 
 
 def format_reference_error(decision: dict[str, Any], version: str, implementation: str) -> str:

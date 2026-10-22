@@ -1,6 +1,7 @@
 """Contracts for the shared evidence panel (tools/benchmarks/run_evidence_panel.py)."""
 
 import json
+import os
 import random
 import re
 import sys
@@ -91,10 +92,16 @@ def test_config_overrides_match_the_setting_type_and_refuse_unknown_names():
 
 
 def _main(tmp_path, *extra):
+    runtime, decision, _digest = panel._reference_status(sys.executable)
+    if not decision['ok']:
+        reason = panel_summary.format_reference_error(decision, runtime['python'], runtime['implementation'])
+        if os.environ.get('GITHUB_ACTIONS') == 'true':
+            pytest.fail(reason)
+        pytest.skip(reason)
     return panel.main([
         "--households", "40", "--firms-per-category", "2", "--ticks", "6",
         "--seeds", "1,2", "--sequences", "income_first,legacy", "--windows", "1-3,4-",
-        "--jobs", "4", "--out", str(tmp_path), *extra,
+        "--jobs", "2", "--out", str(tmp_path), *extra,
     ])
 
 
@@ -547,61 +554,84 @@ def test_state_digest_hashes_loan_remaining():
     assert before["combined"] != after["combined"]
 
 
-def test_evidence_workflow_lets_eval_read_the_pr_and_cancels_only_the_same_kind():
+def _workflow():
     import yaml
-
     path = Path(__file__).resolve().parents[2] / ".github" / "workflows" / "evidence-panel.yml"
     text = path.read_text(encoding="utf-8")
-    assert "${{ secrets" not in text
-    assert "\nsecrets:" not in text
-    doc = yaml.safe_load(text)
+    return text, yaml.safe_load(text)
+
+
+def test_workflow_trust_permissions_and_event_boundaries():
+    text, doc = _workflow()
+    events = doc.get("on", doc.get(True))  # PyYAML's YAML 1.1 treats 'on' as a bool.
+    assert "pull_request" in events and "push" not in events
+    assert "concurrency" not in doc  # Rejected comments never acquire a workflow slot.
     jobs = doc["jobs"]
-    assert jobs["full"]["permissions"] == {"contents": "read", "pull-requests": "read"}
-    assert "pulls.get" in jobs["full"]["steps"][0]["with"]["script"]
-    assert jobs["fast"]["permissions"] == {"contents": "read"}
+    assert "concurrency" not in jobs["resolve"]
+    assert jobs["resolve"]["permissions"] == {"contents": "read", "pull-requests": "read"}
+    assert "needs.resolve.outputs.approved == 'true'" in jobs["full"]["if"]
+    assert jobs["full"]["concurrency"]["group"] == "evidence-full-${{ needs.resolve.outputs.number || github.ref }}"
+    assert jobs["full"]["permissions"] == {"contents": "read"}
     assert jobs["comment"]["permissions"] == {"contents": "read", "pull-requests": "write"}
-    for name, job in jobs.items():
-        assert "secrets" not in job
-        if name != "comment":
-            assert job["permissions"].get("pull-requests") != "write"
+    assert "${{ secrets" not in text
+    for name in ("fast", "full"):
+        steps = jobs[name]["steps"]
+        checkouts = [step for step in steps if step.get("uses", "").startswith("actions/checkout@")]
+        assert [(x["with"]["path"], x["with"]["ref"]) for x in checkouts] == [
+            ("evaluator", "${{ needs.resolve.outputs.base }}"),
+            ("candidate", "${{ needs.resolve.outputs.head }}"),
+        ]
+        assert all(x["with"]["persist-credentials"] is False for x in checkouts)
+        assert not any(x.get("with", {}).get("cache") == "pip" for x in steps)
+        run = next(x for x in steps if "panel from base" in x.get("name", "").lower())
+        assert run["working-directory"] == "evaluator"
+        assert '--root off "$GITHUB_WORKSPACE/candidate"' in run["run"]
+        assert "--jobs 2" in run["run"]
 
-    group = doc["concurrency"]["group"]
-    assert doc["concurrency"]["cancel-in-progress"] is True
-    assert group == (
-        "evidence-${{ github.workflow }}-${{ github.event_name }}-"
-        "${{ github.event.issue.number || github.event.pull_request.number || github.ref }}-"
-        "${{ github.event.label.name || ((github.event_name == 'issue_comment' && "
-        "(github.event.comment.body == '/eval' || startsWith(github.event.comment.body, '/eval '))) && 'eval') "
-        "|| github.event.comment.id || github.event_name }}"
-    )
 
-    def key(event):
-        event_name = event["name"]
-        who = event.get("number", event.get("ref"))
-        label = event.get("label")
-        body = event.get("body")
-        comment_id = event.get("comment_id")
-        if label:
-            kind = label
-        elif event_name == "issue_comment" and (body == "/eval" or (body or "").startswith("/eval ")):
-            kind = "eval"
-        elif comment_id is not None:
-            kind = comment_id
-        else:
-            kind = event_name
-        return f"evidence-Evidence panel-{event_name}-{who}-{kind}"
+@pytest.mark.parametrize("association,body,pushed,expected,failed", [
+    ("NONE", "/eval", "2026-10-22T00:00:00Z", False, False),
+    ("CONTRIBUTOR", "/eval", "2026-10-22T00:00:00Z", False, False),
+    ("OWNER", "ordinary comment", "2026-10-22T00:00:00Z", False, False),
+    ("OWNER", "/eval", "2026-10-22T00:00:00Z", True, False),
+    ("COLLABORATOR", "/eval extra", "2026-10-22T00:00:00Z", True, False),
+    ("MEMBER", "/eval", "2026-10-22T02:00:00Z", False, True),
+    ("OWNER", "/eval", None, False, True),
+])
+def test_eval_authorization_runs_before_concurrency_and_pins_the_head(association, body, pushed, expected, failed):
+    """Execute the actual workflow JS gate with mocked GitHub responses."""
+    import shutil
+    import subprocess
 
-    first_push = key({"name": "push", "ref": "refs/heads/topic", "sha": "e354a53"})
-    later_push = key({"name": "push", "ref": "refs/heads/topic", "sha": "c31da1b"})
-    assert first_push == later_push
-    assert first_push != key({"name": "push", "ref": "refs/heads/other", "sha": "1111111"})
-    full = key({"name": "pull_request_target", "number": 59, "label": "eval:full", "sha": "aaaa"})
-    assert full == key({"name": "pull_request_target", "number": 59, "label": "eval:full", "sha": "bbbb"})
-    assert full != key({"name": "pull_request_target", "number": 59, "label": "bug", "sha": "cccc"})
-    assert full != first_push
-    first_eval = key({"name": "issue_comment", "number": 59, "body": "/eval", "comment_id": 1})
-    assert first_eval == key({"name": "issue_comment", "number": 59, "body": "/eval extra", "comment_id": 2})
-    assert first_eval != key({"name": "issue_comment", "number": 59, "body": "looks good", "comment_id": 3})
+    node = shutil.which("node")
+    if node is None:
+        pytest.skip("Node required to exercise the workflow's actual authorization script")
+    _text, doc = _workflow()
+    script = doc["jobs"]["resolve"]["steps"][0]["with"]["script"]
+    data = {"association": association, "body": body, "pushed": pushed}
+    harness = r"""
+const data = JSON.parse(process.argv[1]);
+const out = {}, calls = [];
+const context = {eventName:'issue_comment', repo:{owner:'AymanCode',repo:'EcoSim'},
+  payload:{issue:{number:59,pull_request:{}}, comment:{body:data.body,
+    author_association:data.association,created_at:'2026-10-22T01:00:00Z'}}};
+const core = {info:()=>{},setFailed:x=>out.failed=x,setOutput:(k,v)=>out[k]=v};
+const github = {rest:{pulls:{get:async()=>{calls.push('get');return {data:{number:59,
+  state:'open',head:{sha:'a'.repeat(40),ref:'topic',repo:{owner:{login:'AymanCode'},name:'EcoSim'}},base:{ref:'main',sha:'pinned-base'}}};}}},
+  request:async()=>{calls.push('activity');return {data:data.pushed ? [{activity_type:'push',after:'a'.repeat(40),timestamp:data.pushed}] : []};}};
+(async()=>{await new (Object.getPrototypeOf(async()=>{}).constructor)(
+  'context','core','github',SCRIPT)(context,core,github);
+  console.log(JSON.stringify({out,calls}));})().catch(e=>{console.error(e);process.exit(1)});
+""".replace("SCRIPT", json.dumps(script))
+    proc = subprocess.run([node, "-e", harness, json.dumps(data)], capture_output=True, text=True, check=True)
+    result = json.loads(proc.stdout)
+    assert (result["out"].get("approved") == "true") is expected
+    assert bool(result["out"].get("failed")) is failed
+    if expected:
+        assert result["out"]["head"] == "a" * 40
+        assert result["out"]["base"] == "pinned-base"
+    if not expected and not failed:
+        assert result["calls"] == []
 
 
 def test_allow_nonref_stamps_the_panel(tmp_path):
@@ -615,4 +645,72 @@ def test_allow_nonref_stamps_the_panel(tmp_path):
     assert "NON-REFERENCE ENV, not comparable" in report
     assert evaluator["comparability"] == "NON-REFERENCE ENV, not comparable"
     assert "requirements_lock_sha256" in evaluator["env"]
+    assert evaluator["env"]["platform"] and evaluator["env"]["cpu_model"]
+    assert evaluator["evaluator"]["commit"]
+    assert "within this run only" in evaluator["comparison_scope"]
+    assert "within this run only" in (tmp_path / "summary.md").read_text()
+    assert "not comparable" in (tmp_path / "window_values.csv").read_text().splitlines()[0]
     assert code == 0
+
+
+def test_reference_labels_require_hosted_full_tier():
+    hosted = {"GITHUB_ACTIONS": "true", "RUNNER_ENVIRONMENT": "github-hosted", "ECOSIM_PANEL_TIER": "full"}
+    label = panel_summary.comparability_label
+    assert label(True, False, hosted, "Linux") == panel_summary.REFERENCE
+    assert label(True, False, {}, "Windows") == panel_summary.LOCAL_RUN
+    assert label(True, False, {**hosted, "ECOSIM_PANEL_TIER": "fast"}, "Linux") == panel_summary.LOCAL_RUN
+    assert label(True, False, {**hosted, "RUNNER_ENVIRONMENT": "self-hosted"}, "Linux") == panel_summary.LOCAL_RUN
+    assert label(False, False, hosted, "Linux") == panel_summary.NOT_COMPARABLE
+    assert label(True, True, hosted, "Linux") == panel_summary.NOT_COMPARABLE
+
+
+def test_lock_hash_normalizes_crlf(tmp_path):
+    lf, crlf = tmp_path / "lf.lock", tmp_path / "crlf.lock"
+    lf.write_bytes(b"numpy==2.0\npytest==8.0\n")
+    crlf.write_bytes(b"numpy==2.0\r\npytest==8.0\r\n")
+    assert panel_summary.lock_sha256(lf) == panel_summary.lock_sha256(crlf)
+
+
+def test_mutation_overlay_copies_when_symlinks_are_denied(tmp_path, monkeypatch):
+    source, target = tmp_path / "source", tmp_path / "target"
+    source.mkdir()
+    (source / "code.py").write_text("value = 7\n", encoding="utf-8")
+    def denied(*args):
+        raise OSError("symlink privilege not held")
+    monkeypatch.setattr(panel_summary.os, "symlink", denied)
+    panel_summary._overlay_tree(source, target)
+    assert (target / "code.py").read_text() == "value = 7\n"
+    assert not (target / "code.py").is_symlink()
+
+
+def test_digest_detects_rng_loans_and_payment_ledger_changes():
+    economy = SimpleNamespace(households=[], firms=[], queued_firms=[],
+        government=SimpleNamespace(cash_balance=0., wage_tax_rate=0., profit_tax_rate=0.), bank=SimpleNamespace(active_loans=[{"remaining": 10., "rate": .1}]),
+        payment_sequence="income_first", payment_state={"recovery_holds": {1: 5.}})
+    before = state_components(economy)
+    random.random()
+    after = state_components(economy)
+    assert before['rng'] != after['rng'] and before['combined'] != after['combined']
+    before = after
+    np.random.random()
+    after = state_components(economy)
+    assert before['rng'] != after['rng']
+    before = after
+    economy.bank.active_loans[0]['rate'] = .2
+    after = state_components(economy)
+    assert before['loans'] != after['loans'] and before['combined'] != after['combined']
+    before = after
+    economy.payment_state['recovery_holds'][1] = 6.
+    after = state_components(economy)
+    assert before['payments'] != after['payments'] and before['combined'] != after['combined']
+
+
+def test_runtime_probe_stamps_host_cpu_and_tools_do_not_enter_runtime_lock():
+    runtime = panel.probe_runtime(sys.executable)
+    assert runtime['platform'] and runtime['cpu_model'] and runtime['system']
+    root = Path(__file__).resolve().parents[2]
+    runtime_pins = panel_summary.parse_lock_pins((root / 'backend/requirements.lock').read_text())
+    test_pins = panel_summary.parse_lock_pins((root / 'backend/requirements-test.lock').read_text())
+    assert not runtime_pins.keys() & test_pins.keys()
+    assert {'pytest', 'pytest-asyncio', 'ruff'} <= test_pins.keys()
+    assert not {'pytest', 'ruff'} & runtime_pins.keys()

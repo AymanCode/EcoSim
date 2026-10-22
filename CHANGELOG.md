@@ -4,6 +4,14 @@ Notable changes and decisions for EcoSim, newest first. The project does not use
 
 ## Unreleased
 
+### 2026-10-22: Owner-approved evidence-panel corrections (#59)
+
+The GitHub-hosted full tier is the reference environment; local and fast-smoke runs are labelled non-reference, and only paired comparisons within one run are supported. Platform/CPU, base evaluator commit and LF-normalized runtime lock hashes are recorded. Digest diagnostics include global Python/NumPy RNG state, loan records, mortgages and payment-ledger totals. Mutation overlays copy when Windows denies symlinks; locked integration tests skip with a clear reason on mismatched local runtimes.
+
+CI installs separate runtime/test locks; Docker installs only the runtime lock. Fast panels run on PR events only. Base/main supplies the evaluator and worker; the pinned PR head supplies the arm under test. The authorization job has no concurrency group; rejected `/eval` comments cannot cancel full runs. Head-at-comment pinning uses branch activity (including force pushes), failing closed when unavailable. Panel jobs use two workers, no pip cache and no persisted checkout credentials. Short job summaries/sticky comments link to 14-day CI artifacts; the bulky committed PR59 evidence bundle is removed. Until #59 lands, CI deliberately uses base panel v1 and reports that bootstrap limitation.
+
+The shared money-stock helper now includes PaymentBook clearing cash, late income, medical funding and recovery/CEO/housing/capital holds, matching `total_economy_cash`; regression tests move cash into and out of these holds without reporting a leak. No simulation behavior, UI, or economic-rule version changes.
+
 ### 2026-10-22: Evidence panel branch is mergeable with main
 
 `ci.yml` runs on pull requests to `main`, and GitHub only starts that workflow when it can build the merge commit. The branch conflicted with `main` in `CHANGELOG.md`, so the workflow never started for `e354a53`. There was no path filter, skip marker, or cancelled run. This merge keeps both histories.

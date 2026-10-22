@@ -18,10 +18,12 @@ from __future__ import annotations
 
 import ast
 import contextlib
+import dataclasses
 import hashlib
 import importlib.util
 import io
 import json
+import numbers
 import os
 import platform
 import re
@@ -29,6 +31,13 @@ import sys
 import time
 from pathlib import Path
 from typing import Any
+
+# Load measuring code beside this worker, before selecting an arm's imports.
+# Importing the candidate's conftest would let arms measure money differently.
+_money_spec = importlib.util.spec_from_file_location("_panel_money", Path(__file__).with_name("panel_money.py"))
+_money = importlib.util.module_from_spec(_money_spec)
+_money_spec.loader.exec_module(_money)
+total_money_net_of_injections = _money.total_money_net_of_injections
 
 PANEL_CATEGORIES = ("Food", "Services")
 WEEKS_PER_MONTH = 52.0 / 12.0
@@ -115,11 +124,106 @@ def _num(value: Any) -> float | None:
     return None
 
 
-def state_components(economy: Any) -> dict[str, str]:
-    """Hash households, firms, government and the bank. Panel rows are not an input.
+def _plain(value: Any) -> Any:
+    """A JSON-stable copy of a loan or ledger field: numbers as floats, mappings as sorted pairs."""
+    if value is None or isinstance(value, (bool, str)):
+        return value
+    if isinstance(value, numbers.Real):
+        return float(value)
+    if isinstance(value, dict):
+        return sorted((str(key), _plain(item)) for key, item in value.items())
+    if isinstance(value, (list, tuple)):
+        return [_plain(item) for item in value]
+    return repr(value)
 
-    A change in a field the table does not report (skill, for example) still
-    changes the household component, which is what the identity check reads.
+
+def _record(item: Any) -> Any:
+    if isinstance(item, dict):
+        return _plain(item)
+    if dataclasses.is_dataclass(item) and not isinstance(item, type):
+        return _plain({field.name: getattr(item, field.name) for field in dataclasses.fields(item)})
+    return repr(item)
+
+
+def _total(mapping: Any) -> float:
+    return float(sum((mapping or {}).values()))
+
+
+def _loan_book(economy: Any) -> list[Any]:
+    """Every bank loan record (all fields) and every housing firm's mortgage contracts."""
+    bank = getattr(economy, "bank", None)
+    bank_loans = [_record(loan) for loan in (getattr(bank, "active_loans", None) or [])] if bank is not None else None
+    mortgages = []
+    for firm in list(getattr(economy, "firms", []) or []) + list(getattr(economy, "queued_firms", []) or []):
+        contracts = getattr(firm, "housing_active_loans", None) or []
+        if contracts:
+            mortgages.append([int(firm.firm_id), [_record(contract) for contract in contracts]])
+    mortgages.sort(key=lambda item: item[0])
+    return [bank_loans, mortgages]
+
+
+def _payment_ledger(economy: Any) -> Any:
+    """Totals of the payment sequences' claims, holds and restriction budgets. None before they existed."""
+    state = getattr(economy, "payment_state", None)
+    if not isinstance(state, dict):
+        return None
+    book = getattr(economy, "payment_book", None)
+    routes = state.get("capital_routes") or ()
+    book_totals = None
+    if book is not None:
+        book_totals = [
+            _num(getattr(book, "clearing_cash", 0.0)),
+            _total(getattr(book, "late_income", None)),
+            _total(getattr(book, "medical_funding_pending", None)),
+            _total(getattr(book, "clearing_payables", None)),
+        ]
+    return [
+        str(getattr(economy, "payment_sequence", "")),
+        _total(state.get("wage_claims")),
+        len(state.get("wage_claims") or {}),
+        _total(state.get("recovery_holds")),
+        _total(state.get("ceo_holds")),
+        _num(state.get("housing_equal_distribution_hold", 0.0)),
+        float(sum(float(row.get("amount", 0.0)) for row in routes)),
+        bool(state.get("capital_routes_released", True)),
+        _plain(state.get("restrictions")),
+        len(state.get("unpaid_streaks") or {}),
+        book_totals,
+    ]
+
+
+def _rng_state() -> list[Any]:
+    """The process-wide ``random`` and ``numpy.random`` states the engine draws from."""
+    import random
+
+    import numpy as np
+
+    version, internal, gauss = random.getstate()
+    name, keys, position, has_gauss, cached = np.random.get_state()
+    return [
+        version,
+        hashlib.sha256(json.dumps(list(internal)).encode("utf-8")).hexdigest(),
+        gauss,
+        str(name),
+        hashlib.sha256(np.ascontiguousarray(keys).tobytes()).hexdigest(),
+        int(position),
+        int(has_gauss),
+        float(cached),
+    ]
+
+
+STATE_COMPONENTS = ("households", "firms", "government", "bank", "loans", "payments", "rng")
+
+
+def state_components(economy: Any) -> dict[str, str]:
+    """Hash households, firms, government, the bank, loans, payment ledgers and RNG state.
+
+    Panel rows are not an input. A change in a field the table does not report
+    (skill, for example) still changes the household component, which is what
+    the identity check reads. ``loans`` covers every bank loan field and the
+    housing mortgages, ``payments`` the payment sequences' claim and hold
+    totals, and ``rng`` the global ``random`` / ``numpy.random`` states, so an
+    arm that draws one extra number diverges here even before any balance moves.
     """
     households = []
     for household in economy.households:
@@ -206,8 +310,11 @@ def state_components(economy: Any) -> dict[str, str]:
         "firms": _digest(firms),
         "government": _digest(government_payload),
         "bank": _digest(bank_payload),
+        "loans": _digest(_loan_book(economy)),
+        "payments": _digest(_payment_ledger(economy)),
+        "rng": _digest(_rng_state()),
     }
-    components["combined"] = _digest([components[name] for name in ("households", "firms", "government", "bank")])
+    components["combined"] = _digest([components[name] for name in STATE_COMPONENTS])
     return components
 
 
@@ -448,11 +555,6 @@ def run(spec: dict[str, Any]) -> dict[str, Any]:
     from config import CONFIG, clone_config, use_config
     from tools.runners.run_large_simulation import compute_household_stats
 
-    try:
-        from tests_contracts.conftest import total_money_net_of_injections
-    except ImportError:  # An older checkout without the shared money helper.
-        total_money_net_of_injections = None
-
     plugins = _load_plugins(spec)
     seed = int(spec["seed"])
     rows: list[dict[str, Any]] = []
@@ -511,7 +613,7 @@ def run(spec: dict[str, Any]) -> dict[str, Any]:
         "row_fingerprint": rows_fingerprint(rows),
         "final": final,
         "money": {
-            "definition": "tests_contracts.conftest.total_money_net_of_injections, change since construction",
+            "definition": "evaluator panel_money.total_money_net_of_injections, change since construction",
             "available": bool(money),
             "final_drift": drift[-1] if drift else None,
             "max_abs_drift": max((abs(value) for value in drift), default=None),

@@ -8,6 +8,19 @@ Read [product intent](docs/product-intent.md) when making product, design, or pe
 
 The current GitHub `main` branch (`origin/main`) is the authoritative EcoSim repository. Do not assume an older local checkout is current. Before repository analysis or change work, verify the checked-out commit and its relationship to `origin/main`; if the checkout is behind, stop and reconcile it with GitHub before relying on local source or generated documentation.
 
+## Current and legacy surfaces
+
+Owner decision (Ayman, 2026-10-22): no new work on the classic dashboard. Agents previewed and changed the wrong frontend because both are on `main`. The generated wiki may still describe the classic dashboard as the app, so trust this section.
+
+- **Current frontend: the town Run screen.** It lives in `frontend-react/src/next/` and opens at `?view=next` (entry `NextApp.jsx`; picked in `next/pickView.js`). Ayman works in it. Put new UI work here, and preview UI changes against it.
+- **Legacy frontend: the classic dashboard.** It lives in `frontend-react/src/App.jsx`, `src/screens/`, `src/shell/`, `src/ui/` and `src/index.css`, and opens at `/`. It is still the URL default (see the README) but is frozen: no new features, panels or rows unless Ayman asks. Do not use it for mockups of current UI. Both apps share `src/main.jsx`, `src/socketUrl.js` and `src/charts/useMeasured.js`.
+- **The payment sequence the town runs is `legacy`.** The town's SETUP (`next/live/plan.js`, `setupConfigs`) sends no `payment_sequence`, so the server default applies: `payment_sequence="legacy"` (`backend/server.py`, `backend/config.py`). Only the classic dashboard sends `income_first`. Judge what a user sees on the `legacy` sequence first. Do not claim that "the dashboard default is income_first" without saying which frontend you mean.
+- **"legacy" names four different things.** Say which one you mean:
+  1. `payment_sequence="legacy"`: the money and timing path. It is what the town runs today.
+  2. `frame_profile="legacy"`: the classic dashboard's full frame shape. The town asks for `"lean"`.
+  3. The classic dashboard UI itself.
+  4. Ayman's "legacy firms": the baseline (public warm-up) Food, Housing, Services and Healthcare providers that the factory seeds. Ayman sees them as scaffolding that private firms should replace as the economy grows.
+
 ## Required wiki-first navigation
 
 For every task that requires understanding, reviewing, changing, or validating this repository, use `openwiki/` as the navigation layer before broad source exploration.
