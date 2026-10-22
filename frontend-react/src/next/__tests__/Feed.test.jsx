@@ -14,6 +14,8 @@ describe('Feed', () => {
     expect(rows[0]).toHaveTextContent('Year 1, week 11')
     expect(rows.some(row => row.textContent.includes('Town A'))).toBe(true)
     expect(rows.some(row => row.textContent.includes('Town B'))).toBe(true)
+    // A line cut short at two lines keeps its whole sentence in its title.
+    rows.forEach(row => expect(row.querySelector('.t')).toHaveAttribute('title', row.querySelector('.t').textContent))
   })
 
   test('collapses repeats of one kind within a week into a counted line', () => {

@@ -667,29 +667,80 @@ function howToNotes({ armCount = 2, perHouse = householdsPerHouse(null), firstPo
   return [
     tick,
     rules,
-    `Every **house** stands for ${perHouse}. Amber houses, with an empty window, show the share of working-age people looking for work. Red houses, with a dashed outline, are households that lost their home. Green houses are the rest.`,
-    "Every building on **Main street** is a firm. Taller means more staff. A flag means it's struggling to pay wages or rent, a cross means it closed.",
+    `Every **house** stands for ${perHouse}. Lit windows mean the people there have work; dark houses show the share of working-age people looking for work. An empty outline with a FOR SALE sign means those households lost their home.`,
+    "Every **shop** along the two roads is a business, coloured by what it sells. Taller means more staff. A crane means it's hiring, SALE in the window means it's struggling to pay wages or rent, and boards mean it closed. The weather follows how the town is doing.",
   ]
 }
 
 export const COPY = {
   town: {
-    hall: 'Town hall',
-    bank: 'Bank',
-    mainStreet: 'Main street',
     houseScale: total => {
       const per = Number(total) / 100
       if (Number.isInteger(per) && per >= 1) return `each house is ${counted(per, 'household')}`
       return 'each house is 1 in 100 households'
     },
     hallChanged: 'Town hall: new rules this month',
-    moreBuildings: n => `+${n} more`,
     outOfWork: 'out of work',
     typicalPay: 'typical weekly pay',
-    firms: n => counted(n, 'firm'),
-    firmStates: (struggling, closed) => `${struggling} struggling, ${closed} closed`,
     altHouses: (work, look, home) => `Out of every 100 households: ${work} working, ${look} looking for work, ${home} lost their home.`,
     altFirms: (open, struggling, closed) => `${counted(open, 'firm')} open: ${struggling} struggling. ${closed} closed in the last year.`,
+  },
+  // The living-town drawings (town/), their cards, legend and summary.
+  diorama: {
+    moods: { thriving: 'Thriving', okay: 'Getting by', struggling: 'Struggling', hard: 'Hard times' },
+    enlarge: 'Enlarge',
+    showAll: n => (n === 2 ? 'Show both' : 'Show all'),
+    mainStreet: 'Main Street, up close',
+    mainStreetFor: (label, rules) => `${label} · ${rules}`,
+    // The segmented control that picks which town's Main Street is shown.
+    streetPicker: 'Pick a town',
+    // Main Street's text alternative (its drawing is aria-hidden).
+    streetSummary: (shown, hiring, closed) => `Main Street shows ${counted(shown, 'shop')}: ${hiring} hiring, ${closed} closed.`,
+    moreLots: n => `+${n} more`,
+    // The facts row under a town's drawing; the values come from formatMetric.
+    facts: {
+      shops: struggling => (struggling > 0 ? `shops open · ${struggling} struggling` : 'shops open'),
+      hall: owes => (owes ? 'the town hall owes' : 'in the town hall'),
+    },
+    signs: { hiring: 'HIRING', sale: 'SALE', closed: 'CLOSED', lease: 'FOR LEASE', fresh: 'NEW', forSale: 'FOR SALE', owes: 'owes', owesSlip: 'OWES', hall: 'TOWN HALL', bank: 'BANK' },
+    moments: { closed: 'Closed', opened: 'Opened!', lost: n => `−${n} jobs`, gained: n => `+${n} jobs`, badLoans: amount => `Bad loans ${amount}` },
+    banner: {
+      minimum_wage_policy: 'NEW MIN. WAGE', benefit_level: 'NEW BENEFITS', wage_tax_rate: 'NEW WAGE TAX', profit_tax_rate: 'NEW PROFIT TAX',
+      investment_tax_rate: 'NEW INVEST. TAX', public_works: 'PUBLIC WORKS', sector_subsidy_target: 'SUBSIDIES', sector_subsidy_level: 'SUBSIDIES',
+      price_stabilization_target: 'PRICE CONTROLS', price_stabilization_level: 'PRICE CONTROLS', rent_stabilization_level: 'RENT CONTROLS',
+      infrastructure_spending: 'NEW SPENDING', technology_spending: 'NEW SPENDING', social_spending: 'NEW SPENDING',
+      bailout_policy: 'BAILOUTS', bailout_target: 'BAILOUTS', bailout_budget: 'BAILOUTS', many: 'NEW RULES',
+    },
+    legend: {
+      working: 'lights on: working', looking: 'dark: looking for work', lost: 'lost their home',
+      spend: 'spending at shops', pay: 'pay to workers', tax: 'taxes to the town hall', help: 'help from the town hall',
+      pins: 'pins: people you follow', perHouse: total => COPY.town.houseScale(total),
+    },
+    summary: {
+      mood: band => ({ thriving: 'The town is thriving.', okay: 'The town is getting by.', struggling: 'The town is struggling.', hard: 'The town is going through hard times.' })[band],
+      // Winter's rain is snow, and a little snow falls in any mood (spec 4.1).
+      weather: (season, mood) => `It is ${season}; ${season === 'winter' ? 'it is snowing' : mood === 'hard' ? 'it is raining' : mood === 'struggling' ? 'it is cloudy' : 'the sun is out'}.`,
+      overflow: n => `${counted(n, 'more business', 'more businesses')} than lots; ${n === 1 ? 'it is' : 'they are'} not drawn.`,
+    },
+    card: {
+      house: { work: 'A working home', look: 'Looking for work', home: 'Lost their home', sub: per => `stands for ${per}` },
+      houseWork: weeks => `Lights on: the people here have jobs. Working for ${weeks} week${weeks === 1 ? '' : 's'} in a row.`,
+      houseLook: weeks => (weeks >= 12 ? `Lights off: someone here lost their job ${weeks} weeks ago, so the garden has gone to weeds.` : `Lights off: someone here lost their job ${weeks} week${weeks === 1 ? '' : 's'} ago.`),
+      houseHome: 'These families could not keep up with rent and had to leave.',
+      staff: 'Staff', cash: 'Cash in the bank', coop: 'town co-op', closedOn: 'Closed', closedStaff: 'Staff when it closed',
+      closedNote: lease => (lease ? 'Empty and up for lease.' : 'Boarded up. It ran out of cash.'),
+      thisWeek: (hired, laid) => `This week: ${[hired ? `hired ${hired}` : '', laid ? `let ${laid} go` : ''].filter(Boolean).join(', ')}.`,
+      richest: 'The richest shop in town, not counting the co-ops.',
+      states: { building: 'Being built', fresh: 'Just opened', growing: 'Growing, hiring', struggling: 'Struggling to pay its bills', steady: 'Steady', closed: 'Closed' },
+      // The queue in the picture is a scale (one figure per $2,800 of help), so the card describes it and counts no one.
+      hall: 'Town hall', taxes: 'Taxes in this week', help: 'Help paid to families this week', saved: 'Saved', owes: 'Owes', queue: 'A queue of families is waiting for help.',
+      inDebt: 'In debt', hasSavings: 'Has savings', notMeasured: 'Not measured',
+      bank: 'The bank', bankSub: 'lends to shops and families', loans: 'Loans out', bad: 'Gone bad this week', badTag: 'Loans going bad', lending: 'Lending',
+      person: 'someone you follow',
+      savings: 'Savings', health: 'Health', happiness: 'Happiness', rentOwed: 'Rent owed',
+      word: value => (value == null ? NOT_MEASURED : value >= 0.66 ? 'good' : value >= 0.33 ? 'so-so' : 'low'),
+      working: 'Working', looking: 'Looking for work',
+    },
   },
   // Short lines under the lead when something notable just happened
   // (narration.js `moments`, components/Moments.jsx).
@@ -707,6 +758,7 @@ export const COPY = {
     closedWhen: when => `closed ${when}`,
     seeAll: n => `See all ${n}`,
     showFewer: 'Show fewer',
+    allLabel: town => `Every business in ${town}`,
     empty: 'No businesses are open yet.',
   },
   households: {
