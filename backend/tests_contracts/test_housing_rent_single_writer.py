@@ -177,7 +177,7 @@ def test_plan_then_market_is_the_default():
     assert CONFIG.labor_market.housing_rent_rule == "plan_then_market"
 
 
-@pytest.mark.parametrize("rule", ["plan_then_markt", "market_or_plan_higher", ""])
+@pytest.mark.parametrize("rule", ["plan_then_markt", "unknown", ""])
 def test_unknown_housing_rent_rule_raises(monkeypatch, rule):
     with pytest.raises(ValueError, match="housing_rent_rule"):
         SimulationConfig(labor_market=LaborMarketConfig(housing_rent_rule=rule))
