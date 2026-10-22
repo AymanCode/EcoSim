@@ -4,6 +4,18 @@ Notable changes and decisions for EcoSim, newest first. The project does not use
 
 ## Unreleased
 
+### 2026-10-21: Skills learned on the job wear off out of work, never below week-1 skill (households, default on)
+
+Rebuild of #39 from `main`, after Claude's round-2 review (2026-10-21). Ayman approved it default on (2026-10-22): skill should decrease over time while not working. Rules v1.8 records it. His earlier rule stands: *"skill loss needs a floor... the floor is where a household starts in week 1."*
+
+- **`CONFIG.households.skills_dynamics`, default `True`.** `Economy._batch_update_skills` runs once a tick, after `_sync_firm_employee_rosters`. Households out of work lose a fixed `skill_loss_per_year_out_of_work = 0.04` skill units per year, applied as `a / 52` a week, never below their week-1 skill `f` (`HouseholdAgent.skill_floor`): `s = max(f, s - a / 52)`. Paid education raises `f` by the skill it buys. With the switch off, runs are identical to `main`.
+- **Learning stays yearly.** Main's 52-tick grant (`skill_growth_rate * (1 - s)` per week worked) is unchanged under `skills_dynamics`. Weekly crediting moves behind its own switch, `CONFIG.households.skills_weekly_learning`, default `False` and read only with `skills_dynamics` on.
+- **Fixed loss, not a share of gains.** The round-2 rule lost a share of everything gained, so a year out cost more the later the spell started. A fixed 0.04/yr loses the same amount early or late in a run, floored at week-1 skill. Edin & Gustavsson (2008) put a year out of work at about 5.5 percentile points of skill. Round 2's `skill_gain_depreciation_annual_range` and its per-household RNG stream are not carried over (neither exists on `main`).
+- **Retired config keys (rule R12, one mechanism):** `skill_decay_unemployment_threshold` (was `26`), `skill_decay_rate_per_tick` (was `0.002`) and `skill_decay_floor` (was `0.1`). No code read them.
+- **Validation:** `skill_loss_per_year_out_of_work` finite with `0 <= a <= 1`; both switches must be bools; `skill_growth_rate_range` finite with `0 <= lo <= hi <= 0.01`.
+
+Evidence: `test_households_skills.py` (step tests for the yearly grant and the one-year loss, the 2 x 2 switch matrix, a 156-tick live run, validation). Evidence panel (#58): `python -m backend.tools.benchmarks.run_evidence_panel` with `--seeds 42,43,44,45,46,47,48,49,50,51,52,53,54`, `--ticks 312`, windows `1-100,101-200,201-312,261-312`, arms main / off (`households.skills_dynamics=False`) / on, plugin `backend/tools/benchmarks/plugins/households_skills.py`. See the PR.
+
 ### 2026-10-21: Browser checks wait for the Run screen's fonts
 
 Tooling only (`frontend-react/e2e/`); the app is unchanged. Before: each Playwright spec waited on `document.fonts.ready`, which can settle before `next.css` has declared its Google Fonts faces, so a slow font download swapped fonts in the middle of a layout check. One run on a busy network failed the Main Street Town B case at 1440 px when a stat card's description reflowed (241.4 to 224.6 px). Now: `e2e/fonts.js` waits until both families (Bricolage Grotesque, Instrument Sans) are declared, loads every face, and fails with a plain message after 30 s if they never arrive, so the suite needs the network for Google Fonts. The Run screen itself already re-measures its reserved text when fonts finish loading (`StableText`).
@@ -53,6 +65,19 @@ Owner decision (Ayman). R&D buys quality, and no healthcare decision reads quali
 
 Evidence: `test_contract_profitable_healthcare_firm_spends_nothing_on_rd` (fails on main: 100.0 spent from 1,000 of revenue) and the guard `test_contract_profitable_food_firm_still_spends_on_rd` (passes on both). Backend suite 847 passed, 1 failed (`test_langgraph_is_installed_and_the_government_graph_builds`, pre-existing: `langgraph` is not installed in this venv).
 
+### 2026-10-20: Read-only estimate of what a queued healthcare visit will cost the household
+
+Households had no way to know what a queued visit would cost them before the charge, so they could not set money aside for it. New read-only getters give that number. No behavior change: on the evidence panel (seeds 42-46, 312 ticks, income_first, income_late and legacy) every standard row's difference from `main` is 0. Rules v1.7 (M03) records the estimate and its information assumption; owner-approved 2026-10-22.
+
+- `GovernmentAgent.healthcare_visit_subsidy_share()`: the requested public share on the legacy path, moved out of `Economy._process_healthcare_services` unchanged (the healthcare sector-subsidy rate when that lever is active, else `healthcare_visit_subsidy_share`, default 0). The legacy visit charge now calls it.
+- `GovernmentAgent.expected_healthcare_household_share(visit_price, *, subsidy_budget_left)`: one visit against one explicit budget, `(price - min(price * share, budget)) / price`, clamped to [0, 1]; `1 - share` at price 0. The budget is a required keyword (no silent uncapped default); a NaN budget and a NaN, infinite or negative price raise `ValueError`, a negative budget reads as 0, `inf` means uncapped.
+- `Economy.sector_subsidy_budget_left()`: the dollars `apply_sector_subsidy_payment` will pay against (legacy: the smaller of the per-tick cap left and free treasury cash, 0 when free cash is not positive; payment arms: the `G` restriction). `apply_sector_subsidy_payment` now reads it.
+- `Economy.expected_healthcare_household_shares()`: `{household_id: share}` for every queued household. On legacy it walks each healthcare queue in the charge's service order (sick doctors first, then the tick/firm rotation) and takes each served visit's subsidy off a running budget, so queued visits are not all promised the same remaining money. Households past this tick's slots are quoted against what is left (conservative; owner-approved 2026-10-22). On `income_first` / `income_late`: 0.0 if `payment_care_covered` else 1.0, whatever the subsidy lever says.
+- `Economy.expected_healthcare_out_of_pocket(household_id)`: dollars, `price * share`; 0.0 when the household is not in a Healthcare firm's queue (also guards the stale queue id left by firm exits on legacy).
+- `Economy._healthcare_quote_share(price, budget)`: the one place the information assumption lives (option A, a non-binding provider quote; owner-approved 2026-10-22).
+- `payment_sectors.payment_care_covered(economy)`: the one coverage rule on the payment sequences (`payment_care_mode == "covered"`). The enqueue quote, `settle_payment_care` and the estimate read it; settlement keeps `main`'s exact `public = price if covered else 0.0`.
+
+Evidence: `tests_contracts/test_expected_healthcare_share.py` (unit, including the three-visit shared-cap case and every bound) and `tests_contracts/test_expected_healthcare_share_live.py` (`Economy.step()` runs: the estimate read at the household's budget phase against every visit charged later in the tick, on legacy and on both payment sequences in both care modes). `tools/benchmarks/run_healthcare_share_snapshot.py` runs each configuration in its own process with `_set_seed` and hashes the metrics by window. `benchmarks/plugins/pr45_healthcare_quote.py` is the panel metric (quote versus `HouseholdAgent.last_healthcare_spend`). The `openwiki/backend/public-institutions.md` page predates these getters and needs a regeneration.
 
 ### 2026-10-16: Poverty and wealth-loss terms read liquid wealth
 

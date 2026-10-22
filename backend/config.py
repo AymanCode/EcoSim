@@ -163,6 +163,32 @@ class HouseholdBehaviorConfig:
     reservation_markup_range: Tuple[float, float] = (1.02, 1.20)
     min_cash_aggressive_search_range: Tuple[float, float] = (60.0, 180.0)
     skill_growth_rate_range: Tuple[float, float] = (0.0005, 0.002)
+    # --- Skills dynamics (households skills PR), default on -------------------
+    # skills_dynamics: bool, default True. Out of work, a household loses
+    #   on-the-job skill at a fixed rate, never below its week-1 skill
+    #   (HouseholdAgent.skill_floor): each week Economy._batch_update_skills
+    #   sets s = max(f, s - a / 52) when s > f, with a =
+    #   skill_loss_per_year_out_of_work. At or below f nothing changes. Paid
+    #   education raises f by the skill it buys. On-the-job learning keeps
+    #   main's yearly grant (skill_growth_rate * (1 - s) per week worked,
+    #   credited every 52 ticks). Off: identical to main (skill never falls).
+    skills_dynamics: bool = True
+    # skills_weekly_learning: bool, default False. Only read when
+    #   skills_dynamics is on. When True, the yearly grant is replaced by a
+    #   weekly one, s += g * (1 - s) per week employed (g = the household's
+    #   skill_growth_rate trait, the same per-week rate the yearly grant
+    #   multiplies by weeks worked). Off by default: no source prefers weekly
+    #   crediting.
+    skills_weekly_learning: bool = False
+    # skill_loss_per_year_out_of_work: float, skill units (0-1 scale) lost per
+    #   52 weeks out of work, applied as a / 52 per week and floored at week-1
+    #   skill. Valid: finite, 0 <= a <= 1. Default 0.04, a fixed amount per
+    #   year (not a share of gains), so a year out costs the same early or
+    #   late in a run. Edin & Gustavsson (2008, ILR Review 61(2)) put a year
+    #   out of work at about 5.5 percentile points of skill. Cohen, Johnston
+    #   & Lindner (2025, AEJ: Applied 17(3)) find no measurable general-skill
+    #   decline, so the loss is bounded to on-the-job gains by the floor.
+    skill_loss_per_year_out_of_work: float = 0.04
     initial_happiness_range: Tuple[float, float] = (0.60, 0.80)
     initial_morale_range: Tuple[float, float] = (0.60, 0.80)
     happiness_decay_rate_range: Tuple[float, float] = (0.0015, 0.0025)
@@ -344,9 +370,11 @@ class HouseholdBehaviorConfig:
     # posted price this tick instead of price_beliefs["housing"/"food"], keys
     # no writer uses (so they always fell back to default_price_level).
     fix_category_price_beliefs: bool = False
-    skill_decay_unemployment_threshold: int = 26  # Ticks unemployed before skill decay starts (~6 months)
-    skill_decay_rate_per_tick: float = 0.002  # Skill loss per tick when decaying
-    skill_decay_floor: float = 0.1  # Minimum skill level (never decay below this)
+    # skill_decay_unemployment_threshold / skill_decay_rate_per_tick /
+    # skill_decay_floor were retired 2026-10-21 (households skills PR): no code
+    # read them, and skills_dynamics below is the one skill-loss mechanism
+    # (rule R12). Their old values (26 ticks, 0.002/tick, floor 0.1) are
+    # recorded in the CHANGELOG entry of that date.
 
     # Feature 2: Buffer-Stock Consumption Model
     target_wealth_income_ratio_base: float = 4.0  # Base target ratio (modified by thriftiness)
@@ -1072,6 +1100,17 @@ class SimulationConfig:
         ratio = self.firms.services_expansion_min_excess_demand_ratio
         if not (math.isfinite(ratio) and ratio >= 0.0):
             raise ValueError("services_expansion_min_excess_demand_ratio must be finite and non-negative")
+
+        # Skills dynamics (households skills PR)
+        for name in ("skills_dynamics", "skills_weekly_learning"):
+            if not isinstance(getattr(self.households, name), bool):
+                raise ValueError(f"households.{name} must be a bool")
+        loss = self.households.skill_loss_per_year_out_of_work
+        if isinstance(loss, bool) or not isinstance(loss, (int, float)) or not (math.isfinite(loss) and 0.0 <= loss <= 1.0):
+            raise ValueError("skill_loss_per_year_out_of_work must be finite with 0 <= a <= 1")
+        lo, hi = self.households.skill_growth_rate_range
+        if not (math.isfinite(lo) and math.isfinite(hi) and 0.0 <= lo <= hi <= 0.01):
+            raise ValueError("skill_growth_rate_range must be finite with 0 <= lo <= hi <= 0.01")
 
         # Validate range tuples (low <= high)
         for name, (lo, hi) in [

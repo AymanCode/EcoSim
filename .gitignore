@@ -90,10 +90,12 @@ data/
 !openwiki/data/
 !openwiki/data/*.md
 
-# Local agent / IDE settings
+# Local agent / IDE settings. The evidence-panel metrics plugins are source.
 .claude/
 .agents/
 plugins/
+!backend/tools/benchmarks/plugins/
+!backend/tools/benchmarks/plugins/**
 
 # LLM test runs and scratch status dumps
 experiments/**/*.json

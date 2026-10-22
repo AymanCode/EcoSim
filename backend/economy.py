@@ -907,6 +907,7 @@ class Economy:
         """
         households = self.households
         preference_once = bool(CONFIG.households.fix_preference_applied_once)
+        skills_key = bool(CONFIG.households.skills_dynamics)
         cached = self._household_static_traits_cache
         # Holding the list itself (not its id) means a replaced list can never
         # match through a reused id.
@@ -914,7 +915,7 @@ class Economy:
             cached is not None
             and cached[0] is households
             and cached[1] == len(households)
-            and cached[2] == preference_once
+            and cached[2] == (preference_once, skills_key)
         ):
             return cached[3]
 
@@ -959,8 +960,61 @@ class Economy:
             "drawdown_rates": drawdown_rates,
             "precomputed_fractions": precomputed_fractions,
         }
-        self._household_static_traits_cache = (households, len(households), preference_once, traits)
+        if skills_key:
+            # skills_dynamics: the per-household learning trait, read by the
+            # weekly grant (skills_weekly_learning).
+            traits["skill_growth_rates"] = np.array(
+                [float(h.skill_growth_rate) for h in households], dtype=np.float64
+            )
+        self._household_static_traits_cache = (
+            households, len(households), (preference_once, skills_key), traits
+        )
         return traits
+
+    def _batch_update_skills(self) -> None:
+        """Weekly skill update under ``CONFIG.households.skills_dynamics``.
+
+        Runs once per tick after labor outcomes and roster sync.
+
+        - Out of work: on-the-job skill wears off at a fixed rate, never below
+          the household's week-1 skill ``f`` (``HouseholdAgent.skill_floor``):
+          ``s = max(f, s - a / 52)`` with ``a =
+          skill_loss_per_year_out_of_work``. At or below ``f`` nothing changes.
+        - Employed: nothing here by default; learning stays main's yearly
+          grant in ``HouseholdAgent``. With ``skills_weekly_learning`` on,
+          ``s += g * (1 - s)`` each week, ``g`` the household's
+          ``skill_growth_rate`` trait.
+
+        ``skill_floor`` is the household's skill before its first update (its
+        starting skill, or its skill the week the flag is switched on). Paid
+        education (``maybe_active_education``) raises the floor by the skill
+        it buys, so schooling is not worn off. Result is clipped to [0, 1].
+        """
+        households = self.households
+        n = len(households)
+        if n == 0:
+            return
+        weekly_learning = bool(CONFIG.households.skills_weekly_learning)
+        weekly_loss = float(CONFIG.households.skill_loss_per_year_out_of_work) / 52.0
+        for household in households:
+            if household.skill_floor is None:
+                household.skill_floor = float(household.skills_level)
+        skills = np.fromiter((h.skills_level for h in households), dtype=np.float64, count=n)
+        floors = np.fromiter((h.skill_floor for h in households), dtype=np.float64, count=n)
+        employed = np.fromiter((h.employer_id is not None for h in households), dtype=bool, count=n)
+        if weekly_learning:
+            learn = self._household_static_traits()["skill_growth_rates"]
+            employed_next = skills + learn * (1.0 - skills)
+        else:
+            employed_next = skills
+        updated = np.where(
+            employed,
+            employed_next,
+            np.where(skills > floors, np.maximum(floors, skills - weekly_loss), skills),
+        )
+        np.clip(updated, 0.0, 1.0, out=updated)
+        for household, value in zip(households, updated.tolist()):
+            household.skills_level = value
 
     def _household_consumption_budgets(
         self,
@@ -1491,6 +1545,176 @@ class Economy:
             if abs(taxes_paid) > 1e-12:
                 ledger["taxes"] = ledger.get("taxes", 0.0) - float(taxes_paid)
 
+    def sector_subsidy_budget_left(self) -> float:
+        """$ the treasury can still pay toward sector subsidies this tick (read-only).
+
+        The cap ``apply_sector_subsidy_payment`` pays against. Legacy path:
+        the smaller of the per-tick subsidy budget left
+        (``sector_subsidy_remaining_this_tick``) and free treasury cash, or 0
+        when free cash is not positive. Payment arms: the ``G`` restriction.
+        """
+        if self.payment_sequence != "legacy":
+            return self.payment_state["restrictions"].get("G", 0.0)
+        free_cash = self._payment_free_treasury_cash()
+        if free_cash <= 0.0:
+            return 0.0
+        return min(max(0.0, self.sector_subsidy_remaining_this_tick), free_cash)
+
+    def _healthcare_quote_share(self, visit_price: float, budget_before_visit: float) -> float:
+        """Household share of one visit as the provider quotes it (the R06 information assumption).
+
+        Owner-approved 2026-10-22, the assumption is option A: when a
+        household budgets, its provider quotes the out-of-pocket price from
+        the live subsidy budget and the household's
+        place in the queue. The quote is not binding; the visit is still
+        charged when served. The household sees the quote only, not the
+        treasury state behind it.
+
+        This is the one place the assumption lives:
+        - Option B (the household knows the subsidy rate only, not the cap):
+          pass ``subsidy_budget_left=math.inf`` here instead.
+        - Option C (a binding quote, subsidy earmarked at queue time) also
+          needs the charge path to honor the quote; that is a behavior
+          change outside this getter.
+        """
+        return self.government.expected_healthcare_household_share(
+            visit_price, subsidy_budget_left=budget_before_visit
+        )
+
+    def _healthcare_quote_walk(self) -> Dict[int, Tuple[FirmAgent, float]]:
+        """One queue walk: ``{household_id: (provider, estimated share 0..1)}`` for every queued household.
+
+        Read-only: nothing is charged, reserved, reordered or recorded.
+        Mirrors the charge path of the active payment sequence.
+
+        ``legacy`` (charged in ``_process_healthcare_services``): walks each
+        healthcare firm's queue in the order the charge serves it (sick doctors
+        first, then the tick/firm rotation) and starts from this tick's
+        subsidy budget (``sector_subsidy_budget_left``). Each visit is quoted
+        against the budget left after the visits before it, and each visit
+        within this tick's slots takes its subsidy off that budget, so several
+        queued visits are not all promised the same money. A household past
+        this tick's slots is quoted against what is left after the served
+        visits (the conservative quote; owner-approved 2026-10-22); it will
+        in fact be charged against a later tick's budget.
+
+        Known gaps, both small and both toward reserving too much: a served
+        visit refused for affordability refunds its subsidy to later visits,
+        and staffing (so slots) can change between the budget phase and the
+        charge.
+
+        ``income_first`` / ``income_late`` (charged in
+        ``payment_sectors.settle_payment_care``): the sector subsidy lever does
+        not apply; every queued household gets 0.0 if
+        ``payment_care_covered`` else 1.0. A covered visit the care budget
+        cannot fund is not served rather than shifted to the household.
+
+        Information assumption: ``_healthcare_quote_share``. The public
+        getters below all read this one walk.
+
+        Raises:
+            ValueError: a queued provider's price is NaN or infinite.
+            A negative price is clamped to 0, as the charge does
+            (``max(0, price)``).
+        """
+        walk: Dict[int, Tuple[FirmAgent, float]] = {}
+        if self.payment_sequence != "legacy":
+            from payment_sectors import payment_care_covered
+
+            share = 0.0 if payment_care_covered(self) else 1.0
+            for firm in self._healthcare_firms():
+                for household_id in firm.healthcare_queue:
+                    household = self.household_lookup.get(household_id)
+                    if household is not None and household.queued_healthcare_firm_id == firm.firm_id:
+                        walk[household_id] = (firm, share)
+            return walk
+
+        threshold = CONFIG.households.healthcare_worker_priority_health_threshold
+
+        def sick_doctor(household_id: int) -> bool:
+            household = self.household_lookup.get(household_id)
+            return (
+                household is not None
+                and household.medical_training_status == "doctor"
+                and household.health < threshold
+            )
+
+        budget = self.sector_subsidy_budget_left()
+        for firm in self._healthcare_firms():
+            if not firm.healthcare_queue:
+                continue
+            # Same order as _prioritize_healthcare_queue + the rotation in
+            # _process_healthcare_services, computed without writing the queue.
+            queue = [h for h in firm.healthcare_queue if sick_doctor(h)]
+            queue += [h for h in firm.healthcare_queue if not sick_doctor(h)]
+            if len(queue) > 1 and not sick_doctor(queue[0]):
+                start = (self.current_tick + firm.firm_id) % len(queue)
+                queue = queue[start:] + queue[:start]
+            capacity = self._healthcare_effective_capacity(firm) + max(0.0, firm.healthcare_capacity_carryover)
+            slots = int(math.floor(capacity + 1e-9))
+            price = float(firm.price)
+            if not math.isfinite(price):
+                raise ValueError(f"healthcare firm {firm.firm_id} price must be finite, got {firm.price!r}")
+            price = max(0.0, price)  # the charge reads max(0, price)
+            served = 0
+            for household_id in queue:
+                if self.household_lookup.get(household_id) is None:
+                    continue  # the charge skips it without using a slot
+                share = self._healthcare_quote_share(price, budget)
+                walk[household_id] = (firm, share)
+                if served < slots:
+                    budget = max(0.0, budget - price * (1.0 - share))
+                    served += 1
+        return walk
+
+    def expected_healthcare_household_shares(self) -> Dict[int, float]:
+        """Estimated share (0..1) of its next visit each queued household pays: ``{household_id: share}``.
+
+        Read-only; from the one queue walk (``_healthcare_quote_walk``), so on
+        legacy several queued visits share one subsidy budget in service order
+        and on the payment sequences the share is 0.0 if
+        ``payment_care_covered`` else 1.0. Keys are the households the charge
+        would visit (queue membership), whatever their queue id says.
+        """
+        return {household_id: share for household_id, (_firm, share) in self._healthcare_quote_walk().items()}
+
+    def expected_healthcare_out_of_pocket_all(self) -> Dict[int, float]:
+        """Estimated $ each queued household pays for its visit: ``{household_id: dollars}``, one walk.
+
+        ``price * share`` from the one queue walk, at the posted price of the
+        provider whose queue the household is in (negative reads as 0, as in
+        the charge). The government side checks the household's
+        ``queued_healthcare_firm_id``: it must name an existing firm whose
+        category is Healthcare and whose queue holds the household. A
+        household that fails the check (missing firm, a reused id that now
+        names a Food or other non-healthcare firm, or not in that firm's
+        queue) is left out, which the per-household getter reads as $0. On
+        legacy, firm exits do not clear the queue id and ids are reused, so
+        such stale entries do occur.
+        """
+        dollars: Dict[int, float] = {}
+        for household_id, (firm, share) in self._healthcare_quote_walk().items():
+            household = self.household_lookup.get(household_id)
+            if household is None or household.queued_healthcare_firm_id != firm.firm_id:
+                continue
+            queued_firm = self.firm_lookup.get(household.queued_healthcare_firm_id)
+            if queued_firm is None or (queued_firm.good_category or "").lower() != "healthcare":
+                continue
+            dollars[household_id] = max(0.0, float(firm.price)) * share
+        return dollars
+
+    def expected_healthcare_out_of_pocket(self, household_id: int) -> float:
+        """Estimated $ one household pays for its queued visit (read-only).
+
+        ``expected_healthcare_out_of_pocket_all().get(household_id, 0.0)``: the
+        same walk and the same check, never a second path. Returns 0.0 for an
+        unknown household, no queue id, a queue id naming a missing or
+        non-Healthcare firm, or a household not in that firm's queue. Each
+        call walks every queue; to price many households, call
+        ``expected_healthcare_out_of_pocket_all()`` once.
+        """
+        return self.expected_healthcare_out_of_pocket_all().get(household_id, 0.0)
+
     def apply_sector_subsidy_payment(self, requested_share: float) -> Tuple[float, float]:
         """Pay a sector subsidy request from the shared per-tick subsidy cap.
 
@@ -1504,7 +1728,7 @@ class Economy:
             return 0.0, 0.0
 
         if self.payment_sequence != "legacy":
-            funded = min(requested_share, self.payment_state["restrictions"].get("G", 0.0))
+            funded = min(requested_share, self.sector_subsidy_budget_left())
             if funded:
                 self._payment_spend_restriction("G", funded)
             denied = requested_share - funded
@@ -1515,10 +1739,7 @@ class Economy:
             self.last_tick_gov_subsidy_denied_by_cap += requested_share
             return 0.0, requested_share
 
-        available = min(
-            max(0.0, self.sector_subsidy_remaining_this_tick),
-            self._payment_free_treasury_cash(),
-        )
+        available = self.sector_subsidy_budget_left()
         government_paid = min(requested_share, available)
         denied = requested_share - government_paid
 
@@ -2521,6 +2742,9 @@ class Economy:
         # Keep firm-side employee rosters aligned with household employment outcomes.
         # This prevents stale counts in firm telemetry versus unemployment metrics.
         self._sync_firm_employee_rosters()
+        if CONFIG.households.skills_dynamics:
+            # After roster sync, so employment status is final for the week.
+            self._batch_update_skills()
         if payment_arm:
             self.payment_project_worker_by_firm = {}
             if self.config.payment_services_project_enabled:
@@ -7925,11 +8149,8 @@ class Economy:
         if not healthcare_firms:
             return
 
-        # Use sector_subsidy lever if targeting healthcare; otherwise fall back to config
-        if self.government.sector_subsidy_target == "healthcare" and self.government._sector_subsidy_rate > 0:
-            subsidy_share = self.government._sector_subsidy_rate
-        else:
-            subsidy_share = max(0.0, min(1.0, CONFIG.government.healthcare_visit_subsidy_share))
+        # Same share rule as GovernmentAgent.expected_healthcare_household_share.
+        subsidy_share = self.government.healthcare_visit_subsidy_share()
 
         for firm in healthcare_firms:
             firm.inventory_units = 0.0
