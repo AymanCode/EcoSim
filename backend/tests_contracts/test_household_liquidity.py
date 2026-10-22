@@ -73,9 +73,11 @@ def test_no_inline_copies_of_the_deposit_haircut_remain():
 
 
 def test_economy_step_withdrawals_never_exceed_the_accessible_share():
-    """Realized outcome: in a live legacy step, no household's deposit falls by
-    more than the withdrawable share of what it held, beyond what the step's
-    own deposit sweep and interest add back."""
+    """Realized outcome: in a live legacy step, the tick's pre-purchase
+    withdrawal total stays within the withdrawable share of the deposits held
+    at the start of the tick, and no deposit goes negative. There is no
+    per-household 90% bound: the legacy cash-buffer refill in the deposit
+    sweep may withdraw a whole deposit."""
     from tools.runners.run_large_simulation import create_large_economy
     import contextlib
     import io
@@ -97,10 +99,9 @@ def test_economy_step_withdrawals_never_exceed_the_accessible_share():
             if start <= 0.0:
                 continue
             checked += 1
-            # Withdrawals within one tick are capped per call at 90% of the
-            # balance at that moment, so the balance never ends below 10% of
-            # its start unless the legacy buffer refill (which may withdraw
-            # the remainder) ran. Either way it never goes negative.
+            # Each withdrawal call is capped at 90% of the balance at that
+            # moment, several calls can run in one tick, and the legacy buffer
+            # refill may withdraw the remainder, so only the sign is checked.
             assert h.bank_deposit >= -1e-9
             assert liquid_wealth(h.cash_balance, h.bank_deposit) == h.cash_balance + max(0.0, h.bank_deposit)
         # Pre-purchase withdrawals moved real money; their total is bounded by

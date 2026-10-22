@@ -13,9 +13,6 @@ from household_liquidity import DEPOSIT_ACCESS_SHARE
 from tests_contracts.factories import make_household, make_households
 
 
-ACCESS_RATE_CONSUMPTION = 0.90  # hard-coded in _batch_plan_consumption
-
-
 ACCESS_RATE = DEPOSIT_ACCESS_SHARE  # 0.90
 
 
