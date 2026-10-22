@@ -1,3 +1,4 @@
+import { useMemo } from 'react'
 import { COPY } from '../catalog.js'
 import { weekLabel } from '../narration.js'
 import { SPEEDS } from '../useReplay.js'
@@ -20,6 +21,18 @@ function PlayIcon({ playing }) {
 
 // Phases in which a live run can be paused or resumed.
 const STEERABLE = ['running', 'paused']
+
+// The longest week label a run of `length` weeks shows. The clock keeps it as
+// hidden room under the week shown, so the clock keeps one width and the bar
+// never rewraps as the weeks go by (spec section 6).
+function longestWeekLabel(length) {
+  let longest = ''
+  for (let week = 1; week <= length; week += 1) {
+    const label = weekLabel(week)
+    if (label.length > longest.length) longest = label
+  }
+  return longest
+}
 
 // The sticky timeline: play/pause, the week, a scrubber over the recorded
 // weeks with year marks, and the playback speed (only when there is one).
@@ -51,6 +64,7 @@ export default function HorizonBar({
   const toggleName = live ? (pauseShown ? COPY.horizon.pause : COPY.live.resume) : replayName
   const steerable = !live || STEERABLE.includes(live.phase)
   const hasSpeed = speed !== undefined && onSpeed !== undefined
+  const longest = useMemo(() => longestWeekLabel(length), [length])
 
   return (
     <div ref={barRef} className="nx-hbar" role="region" aria-label={COPY.horizon.region}>
@@ -61,7 +75,10 @@ export default function HorizonBar({
         </button>
         <div className="nx-clock">
           <i aria-hidden="true" className={playing ? 'is-on' : ''} />
-          <span className="nx-week">{weekLabel(tick)}</span>
+          <span className="nx-weekbox">
+            <span className="nx-week">{weekLabel(tick)}</span>
+            <span className="nx-week-room" aria-hidden="true">{longest}</span>
+          </span>
           <span className="nx-of">{COPY.horizon.length(horizon || last)}</span>
         </div>
         {live && !following && (

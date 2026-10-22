@@ -8,6 +8,14 @@ const here = import.meta.url
 
 export const FIXTURE_TEXT = fs.readFileSync(new URL('../../test/fixtures/session-compare-small.jsonl', here), 'utf8')
 
+// Tests that render the whole Run screen (both town cards, Main Street, the
+// columns, chart and feed) take 1.5 to 3 s alone and can pass Vitest's default
+// 5 s when every worker is busy (CI runs the suite at default parallelism), so
+// they get this timeout, set on their describe or test; so do the two heaviest
+// town card tests (TownCard.test.jsx), which render the demo at several weeks.
+// Every other test keeps the default.
+export const WHOLE_SCREEN_MS = 15_000
+
 export const TOWN_A = { label: 'Town A', color: '#2E6FE0' }
 export const TOWN_B = { label: 'Town B', color: '#E0762C' }
 

@@ -5,6 +5,14 @@ import { METRICS } from '../catalog.js'
 import { fixtureArm, TOWN_A, TOWN_B } from './fixture.js'
 
 describe('StatCard', () => {
+  test.each([3, 4])('reserves the maximum rows for %i towns even before values widen', count => {
+    const arms = Array.from({ length: count }, (_, i) => fixtureArm({ label: `Town ${i}`, color: '#000' }))
+    const { container, rerender } = render(<StatCard metricKey="peopleOutOfWorkPer100" arms={arms} tick={1} />)
+    expect(container.querySelector('.pair').style.getPropertyValue('--nx-pv-lines')).toBe(String(count))
+    rerender(<StatCard metricKey="peopleOutOfWorkPer100" arms={arms} tick={11} />)
+    expect(container.querySelectorAll('.nx-pv')).toHaveLength(count)
+    expect(container.querySelector('.pair').style.getPropertyValue('--nx-pv-lines')).toBe(String(count))
+  })
   test('shows the catalog name, one value per town, sparklines and the meaning', () => {
     const b = fixtureArm(TOWN_B)
     b.series.peopleOutOfWorkPer100 = b.series.peopleOutOfWorkPer100.map(v => v + 3)

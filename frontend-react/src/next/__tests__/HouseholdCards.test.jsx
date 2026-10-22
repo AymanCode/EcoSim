@@ -15,6 +15,19 @@ describe('HouseholdCards', () => {
     expect(cardNames(container)[0]).toBe(`${householdName(subjects[0].id)}, ${subjects[0].age}`)
   })
 
+  test('keeps four slots when the sample is smaller, the empty ones hidden', () => {
+    const arm = fixtureArm()
+    const two = arm.snapshots[24].subjects.slice(0, 2)
+    arm.snapshots[24] = { ...arm.snapshots[24], subjects: two }
+    const { container } = render(<HouseholdCards arm={arm} tick={24} />)
+    const slots = [...container.querySelectorAll('.nx-hgrid > li')]
+    expect(slots).toHaveLength(4)
+    expect(slots.slice(2).every(slot => slot.getAttribute('aria-hidden') === 'true')).toBe(true)
+    expect(screen.getAllByRole('listitem')).toHaveLength(2)
+    expect(cardNames(container)).toEqual(two.map(subject => `${householdName(subject.id)}, ${subject.age}`))
+    expect(screen.queryByRole('button', { name: 'Show me four others' })).toBeNull()
+  })
+
   test('"Show me four others" moves on through the sample', () => {
     const arm = fixtureArm()
     const { container } = render(<HouseholdCards arm={arm} tick={24} />)

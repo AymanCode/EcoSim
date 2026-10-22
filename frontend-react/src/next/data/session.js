@@ -70,7 +70,7 @@ const pick = (source, keys) => {
 const FIRM_FIELDS = ['id', 'name', 'sector', 'cash', 'staff', 'state', 'isBaseline']
 const SUBJECT_FIELDS = [
   'id', 'age', 'isEmployed', 'canWork', 'housingSecurity', 'employer', 'employerCategory', 'wage', 'cash', 'rentArrears',
-  'unemploymentDuration',
+  'unemploymentDuration', 'health', 'happiness',
 ]
 const CLOSED_FIELDS = ['id', 'name', 'sector', 'closedTick', 'lastStaff']
 const list = value => (Array.isArray(value) ? value : [])
