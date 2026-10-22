@@ -1,4 +1,4 @@
-import { describe, expect, test } from 'vitest'
+import { describe, expect, test, vi } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import HowToRead from '../components/HowToRead.jsx'
 import { fixtureArm, TOWN_A, TOWN_B } from './fixture.js'
@@ -11,6 +11,34 @@ function town(meta, { households, policy } = {}) {
 }
 
 describe('HowToRead', () => {
+  test('reserves the longest historical policy note before a scrub and preserves its bold markup', () => {
+    // jsdom has no line layout. Use a deterministic text-size probe to verify
+    // which candidates StableText measures; Playwright checks real wrapping.
+    const probe = vi.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(function () {
+      return { width: 240, height: this.textContent.length, left: 0, top: 0 }
+    })
+    try {
+      const first = town(TOWN_A)
+      first.policyChanges = [
+        { tick: 12, policy: 'minimum_wage_policy', value: 'high' },
+        { tick: 12, policy: 'benefit_level', value: 'high' },
+        { tick: 12, policy: 'wage_tax_rate', value: 0.3 },
+      ]
+      const arms = [first, town(TOWN_B)]
+      const { container, rerender } = render(<HowToRead arms={arms} tick={11} />)
+      const note = container.querySelector('[data-stable="howto:1"]')
+      const room = parseFloat(note.style.minHeight)
+      expect(room).toBeGreaterThan(note.textContent.length)
+      rerender(<HowToRead arms={arms} tick={12} />)
+      expect(note.style.minHeight).toBe(`${room}px`)
+      expect(note.textContent.length).toBe(room)
+      expect(note.querySelector('b')).toHaveTextContent('first town')
+      rerender(<HowToRead arms={arms} tick={11} />)
+      expect(note.style.minHeight).toBe(`${room}px`)
+    } finally {
+      probe.mockRestore()
+    }
+  })
   test('four first-timer notes for two towns', () => {
     const { container } = render(<HowToRead arms={[town(TOWN_A), town(TOWN_B)]} tick={11} />)
     expect(screen.getByRole('heading', { name: /How to read this/ })).toBeInTheDocument()

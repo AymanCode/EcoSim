@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest'
 import { parseSession, buildArm, createArm, ingest, isFrame } from '../data/session.js'
-import { FIXTURE_TEXT, fixtureArm, TOWN_A } from './fixture.js'
+import { FIXTURE_TEXT, demoArms, fixtureArm, TOWN_A } from './fixture.js'
 import { addPendingConfig, failPendingConfig } from '../data/session.js'
 
 describe('parseSession', () => {
@@ -70,8 +70,8 @@ describe('buildArm', () => {
     expect(Object.keys(arm.snapshots[24].firms[0]).sort())
       .toEqual(['cash', 'id', 'isBaseline', 'name', 'sector', 'staff', 'state'])
     expect(Object.keys(arm.snapshots[24].subjects[0]).sort()).toEqual([
-      'age', 'canWork', 'cash', 'employer', 'employerCategory', 'housingSecurity', 'id', 'isEmployed',
-      'rentArrears', 'unemploymentDuration', 'wage',
+      'age', 'canWork', 'cash', 'employer', 'employerCategory', 'happiness', 'health', 'housingSecurity', 'id',
+      'isEmployed', 'rentArrears', 'unemploymentDuration', 'wage',
     ])
   })
 
@@ -311,4 +311,14 @@ describe('receipts', () => {
     expect(bare.receipts).toEqual([])
     expect({ ...bare, receipts: arm.receipts }).toEqual(arm)
   })
+})
+
+test('tracked subjects keep health and happiness', () => {
+  const [arm] = demoArms()
+  const subjects = arm.snapshots[arm.ticks[60]].subjects
+  expect(subjects.length).toBeGreaterThan(0)
+  for (const subject of subjects) {
+    expect(typeof subject.health).toBe('number')
+    expect(typeof subject.happiness).toBe('number')
+  }
 })
