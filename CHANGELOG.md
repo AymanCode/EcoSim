@@ -37,33 +37,15 @@ The bot PRs each brought their own study script, with different household and fi
 
 Evidence: `backend/tests_contracts/test_evidence_panel.py` (7 tests).
 
-### 2026-10-20: The healthcare visit price covers the doctors' payroll
+### 2026-10-22: Remove healthcare R&D; keep payroll pricing opt-in
 
-Owner decision (Ayman): the sole care provider should be able to price to profit. Before, `FirmAgent._healthcare_labor_price_targets` priced a visit at wage bill / (doctors x 2.2 slots) x 1.1875, assuming every slot is sold. The doctor roster is fixed (2% of households, seeded by the factory; doctors only work in healthcare and the economy zeroes the clinic's hiring plan), wages are pinned to the 36 minimum, and demand fills about half the slots (21.5 requests a week for 44 slots on seed 42). So the price was 19.43 in every post-warmup week, break-even needed 37 visits a week, and seed 42 lost money in 249 of 250 post-warmup weeks (-73,047 at week 260). Warmup was worse: the generic baseline warmup rule divided a doctor's wage by goods productivity (11.9 units) and floored the visit at 5.00. Care requests have no price input (rules M03), so the price never fed back anyway.
+Owner decision (Ayman): "There is no reason for R&D for healthcare.. it actually does nothing." Healthcare unconditionally returns zero from `FirmAgent.apply_rd_and_quality_update`; other sectors keep their R&D. This removes the clinic-to-miscellaneous-pool R&D payment at phase 11.6, leaves those funds with the clinic, and adds no replacement payment, subsidy, credit or money creation. Existing bonus/dividend rules remain in force.
 
-Behind `CONFIG.firms.fix_healthcare_price_covers_payroll` (default on; False restores the old behavior, seed 42 then matches the R&D-only change to the cent):
+`CONFIG.firms.fix_healthcare_price_covers_payroll` now defaults to **False**. With it off, healthcare keeps main's full-slot pricing, generic baseline warmup pricing and capital behavior. Server sessions and town policy presets inherit that default. Explicit opt-in retains expected-request pricing, the 15% weekly price limit, visit-slot warmup pricing and the healthcare capital exclusion.
 
-- The wage bill is spread over expected visits: the smoothed weekly requests (`healthcare_arrivals_ema`, already used for staffing), capped at the slots. The 15% after-tax margin and surge pricing are unchanged. When requests fill every slot, the price is the old one.
-- The price moves at most 15% a week, as housing rent does. Without it the cold request average sends the price from 5 to 155 at week 11.
-- Warmup prices the visit slots (19.43) instead of goods units (5.00).
-- Healthcare buys no capital. Its visit capacity does not use capital, and once profitable the generic rule borrowed 500 a week for it (64,000-70,000 of debt by week 260 in the trial runs).
+The earlier five-seed panel (historical main; weeks 261-312, off -> on) found household harm: on the town's `payment_sequence="legacy"`, care refusals rose 0 -> 0.26/week, poverty 23.1% -> 27.4% and happiness fell 0.71 -> 0.65; on `income_late`, funding denials rose 25 -> 61/week and medical debt 46 -> 411. Clinic solvency alone is not household safety. A price cap or a gap funded by an existing mechanism needs a separate owner decision; neither is implemented here.
 
-Seeded runs (1,000 households, 5 firms per category, seeds 42-46, mean over seeds, main -> this change):
-
-- Clinic: price 19.43 -> about 41. Cash at week 520: -144,607 -> +18,289.
-- Households at week 520: total cash + deposits -5.3% (2.03M -> 1.92M, about -108 each), median 529 -> 486, 10th percentile 128 -> 93, share under 100 10.3% -> 13.0%, share with savings 79.7% -> 74.0%. On main the clinic's overdraft paid the doctors' wages that patients did not; patients now pay them.
-- Care: spend over ten years 220 -> 435 per household, 0.5% -> 1.0% of income (bottom fifth by starting wealth: 0.54% -> 1.05%). Visits -0.8%. Refused visits 0.2 -> 75.6 per 1,000 households over ten years (0.7% of visits, 66 of them in years 6-10). Mean health 0.777 -> 0.776; share below 0.5 unchanged (11.4% -> 11.5%). Medical-loan debt stays near zero.
-- Unemployment moves in both directions across seeds (path sensitivity; not an effect claimed here).
-
-Evidence: `test_contracts_healthcare.py` adds 12 test cases: the price over expected visits, the cap at slots, the weekly limit (2 cases), the seed-42 payroll case, warmup slots, no capital (2 cases), and four flag tests (default on; off restores the full-slot price, the goods-unit warmup price and the capital purchase). The 7 behavior cases other than the cap fail on main; the cap test passes on both as a guard. `test_contract_healthcare_price_targets_doctor_labor_cost_plus_margin` now sets requests that fill the slots, so it still pins the old formula for that case.
-
-### 2026-10-20: Healthcare does no R&D
-
-Owner decision (Ayman). R&D buys quality, and no healthcare decision reads quality: care is left out of the shopping snapshots, provider choice reads queue length and price, and a visit heals the patient's missing health whatever the provider. Before, the generic phase-11.6 rule (`FirmAgent.apply_rd_and_quality_update`) still sent 5-10% of a profitable week's revenue from a Healthcare firm to the miscellaneous pool. It also ignored cash: the baseline clinic's one R&D payment on seed 42 (44.36, week 42) was made at -10,716. Now Healthcare firms return 0 from that step, next to the survival-mode exit. Other categories are unchanged.
-
-- Seed 42, 1,000 households, 260 weeks, current pricing: R&D disappears from the clinic's cash flow. Final cash -73,047.50 becomes -73,042.23, because the clinic is profitable in only one week. The price-to-demand investigation (same date) shows this matters once the price covers costs: with that proposed fix applied by monkeypatch, R&D would otherwise take about 17,000 over five years, and the clinic ends at +14,033 instead of +2,044.
-
-Evidence: `test_contract_profitable_healthcare_firm_spends_nothing_on_rd` (fails on main: 100.0 spent from 1,000 of revenue) and the guard `test_contract_profitable_food_firm_still_spends_on_rd` (passes on both). Backend suite 847 passed, 1 failed (`test_langgraph_is_installed_and_the_government_graph_builds`, pre-existing: `langgraph` is not installed in this venv).
+Evidence: healthcare contracts explicitly enable the experimental branch, check both omitted/default and explicit-off pricing/warmup/capital, and verify zero healthcare R&D with either flag value. Server tests cover lean/classic frame profiles, all three payment sequences and an initial healthcare policy vector. The fresh main-versus-PR defaults panel uses main `8da5a1c`, sequences legacy/income_first/income_late, seeds 42-46 and 312 ticks; its artifacts and complete results are linked in PR #56. OpenWiki regeneration remains due (local approved CLI/provider unavailable).
 
 ### 2026-10-20: Read-only estimate of what a queued healthcare visit will cost the household
 

@@ -1,7 +1,7 @@
 import pytest
 
 from agents import FirmAgent, GovernmentAgent, HouseholdAgent
-from config import CONFIG
+from config import CONFIG, SimulationConfig
 from economy import Economy
 
 
@@ -212,8 +212,9 @@ def test_contract_healthcare_price_targets_doctor_labor_cost_plus_margin(fixed_s
     assert firm.decision_diagnostics["healthcare_target_margin"] == pytest.approx(0.15)
 
 
-def test_contract_healthcare_price_spreads_wages_over_expected_visits(fixed_seed):
+def test_contract_healthcare_price_spreads_wages_over_expected_visits(fixed_seed, monkeypatch):
     """Half-used slots: the wage bill is spread over the visits patients ask for, not idle slots."""
+    monkeypatch.setattr(CONFIG.firms, "fix_healthcare_price_covers_payroll", True)
     firm = _two_doctor_clinic(price=45.0, expected_visits=2.0)
 
     price_plan = firm.plan_pricing(sell_through_rate=0.0, unemployment_rate=0.5)
@@ -223,8 +224,9 @@ def test_contract_healthcare_price_spreads_wages_over_expected_visits(fixed_seed
     assert price_plan["price_next"] == pytest.approx(46.0)
 
 
-def test_contract_healthcare_expected_visits_are_capped_at_slots(fixed_seed):
+def test_contract_healthcare_expected_visits_are_capped_at_slots(fixed_seed, monkeypatch):
     """More requests than slots does not lower the price below the full-slot cost."""
+    monkeypatch.setattr(CONFIG.firms, "fix_healthcare_price_covers_payroll", True)
     firm = _two_doctor_clinic(price=22.0, expected_visits=10.0)
 
     price_plan = firm.plan_pricing(sell_through_rate=0.0, unemployment_rate=0.5)
@@ -234,8 +236,9 @@ def test_contract_healthcare_expected_visits_are_capped_at_slots(fixed_seed):
 
 
 @pytest.mark.parametrize("price, expected_next", [(9.0, 10.35), (40.0, 34.0)])
-def test_contract_healthcare_price_moves_at_most_15_percent_a_week(fixed_seed, price, expected_next):
+def test_contract_healthcare_price_moves_at_most_15_percent_a_week(fixed_seed, monkeypatch, price, expected_next):
     """Target 23: from 9 the price rises to 9 * 1.15; from 40 it falls to 40 * 0.85."""
+    monkeypatch.setattr(CONFIG.firms, "fix_healthcare_price_covers_payroll", True)
     firm = _two_doctor_clinic(price=price, expected_visits=4.0)
 
     price_plan = firm.plan_pricing(sell_through_rate=0.0, unemployment_rate=0.5)
@@ -257,8 +260,9 @@ def _baseline_clinic(price: float) -> FirmAgent:
     return firm
 
 
-def test_contract_baseline_healthcare_price_covers_payroll_at_observed_visits(fixed_seed):
+def test_contract_baseline_healthcare_price_covers_payroll_at_observed_visits(fixed_seed, monkeypatch):
     """Seed 42 on main: 21 requests a week for 44 slots, price fixed at 19.43, a loss every week."""
+    monkeypatch.setattr(CONFIG.firms, "fix_healthcare_price_covers_payroll", True)
     firm = _baseline_clinic(price=19.43)
     firm.healthcare_arrivals_ema = 21.0
 
@@ -269,8 +273,9 @@ def test_contract_baseline_healthcare_price_covers_payroll_at_observed_visits(fi
     assert firm.price * 21.0 >= 36.0 * 20
 
 
-def test_contract_baseline_healthcare_warmup_prices_from_visit_slots(fixed_seed):
+def test_contract_baseline_healthcare_warmup_prices_from_visit_slots(fixed_seed, monkeypatch):
     """Warmup uses the doctors' visit slots, not goods productivity (36 / 11.9 gave the 5 floor)."""
+    monkeypatch.setattr(CONFIG.firms, "fix_healthcare_price_covers_payroll", True)
     firm = _baseline_clinic(price=19.0)
     firm.healthcare_arrivals_ema = 5.0  # warmup demand is not used for the price
 
@@ -281,8 +286,9 @@ def test_contract_baseline_healthcare_warmup_prices_from_visit_slots(fixed_seed)
 
 
 @pytest.mark.parametrize("cash", [0.0, 1_000_000.0])
-def test_contract_healthcare_buys_no_capital(fixed_seed, cash):
+def test_contract_healthcare_buys_no_capital(fixed_seed, monkeypatch, cash):
     """Visit capacity is doctors x visits; a capital unit adds none, so a profitable clinic buys none."""
+    monkeypatch.setattr(CONFIG.firms, "fix_healthcare_price_covers_payroll", True)
     firm = _baseline_clinic(price=45.0)
     firm.cash_balance = cash
     firm.smoothed_profit_margin = 0.15
@@ -295,13 +301,16 @@ def test_contract_healthcare_buys_no_capital(fixed_seed, cash):
     assert firm.cash_balance == pytest.approx(cash)
 
 
-def test_contract_healthcare_price_fix_flag_is_on_by_default():
-    assert CONFIG.firms.fix_healthcare_price_covers_payroll is True
+def test_contract_healthcare_price_fix_flag_is_off_by_default():
+    assert SimulationConfig().firms.fix_healthcare_price_covers_payroll is False
+    assert CONFIG.firms.fix_healthcare_price_covers_payroll is False
 
 
-def test_contract_healthcare_flag_off_restores_full_slot_price(fixed_seed, monkeypatch):
+@pytest.mark.parametrize("explicit_off", [False, True])
+def test_contract_healthcare_flag_off_restores_full_slot_price(fixed_seed, monkeypatch, explicit_off):
     """Flag off: 80 / 4 slots * 1.15 = 23 in one step, whatever the requests."""
-    monkeypatch.setattr(CONFIG.firms, "fix_healthcare_price_covers_payroll", False)
+    if explicit_off:
+        monkeypatch.setattr(CONFIG.firms, "fix_healthcare_price_covers_payroll", False)
     firm = _two_doctor_clinic(price=9.0, expected_visits=2.0)
 
     price_plan = firm.plan_pricing(sell_through_rate=0.0, unemployment_rate=0.5)
@@ -309,9 +318,11 @@ def test_contract_healthcare_flag_off_restores_full_slot_price(fixed_seed, monke
     assert price_plan["price_next"] == pytest.approx(23.0)
 
 
-def test_contract_healthcare_flag_off_restores_goods_unit_warmup_price(fixed_seed, monkeypatch):
+@pytest.mark.parametrize("explicit_off", [False, True])
+def test_contract_healthcare_flag_off_restores_goods_unit_warmup_price(fixed_seed, monkeypatch, explicit_off):
     """Flag off: the generic baseline warmup rule, 36 / 11.9 * (1 + 0.05 / 0.8) = 3.214."""
-    monkeypatch.setattr(CONFIG.firms, "fix_healthcare_price_covers_payroll", False)
+    if explicit_off:
+        monkeypatch.setattr(CONFIG.firms, "fix_healthcare_price_covers_payroll", False)
     firm = _baseline_clinic(price=19.0)
 
     plan = firm.plan_pricing(sell_through_rate=0.0, unemployment_rate=0.1, in_warmup=True, profit_tax_rate=0.2)
@@ -319,8 +330,10 @@ def test_contract_healthcare_flag_off_restores_goods_unit_warmup_price(fixed_see
     assert plan["price_next"] == pytest.approx(3.2143, abs=1e-4)
 
 
-def test_contract_healthcare_flag_off_restores_capital_purchase(fixed_seed, monkeypatch):
-    monkeypatch.setattr(CONFIG.firms, "fix_healthcare_price_covers_payroll", False)
+@pytest.mark.parametrize("explicit_off", [False, True])
+def test_contract_healthcare_flag_off_restores_capital_purchase(fixed_seed, monkeypatch, explicit_off):
+    if explicit_off:
+        monkeypatch.setattr(CONFIG.firms, "fix_healthcare_price_covers_payroll", False)
     firm = _baseline_clinic(price=45.0)
     firm.cash_balance = 0.0
     firm.smoothed_profit_margin = 0.15
@@ -425,13 +438,15 @@ def test_contract_healthcare_wages_are_pinned_to_the_policy_minimum_wage(tiny_ec
             assert healthcare.actual_wages[worker_id] == pytest.approx(policy_minimum)
 
 
-def test_contract_profitable_healthcare_firm_spends_nothing_on_rd(fixed_seed):
+@pytest.mark.parametrize("price_fix", [False, True])
+def test_contract_profitable_healthcare_firm_spends_nothing_on_rd(fixed_seed, monkeypatch, price_fix):
     """R&D buys quality, and no healthcare decision reads quality.
 
     Care is left out of the shopping snapshots, provider choice reads queue and
     price, and healing reads the patient's missing health. Before this rule the
     generic R&D step still spent up to 10% of a profitable week's revenue.
     """
+    monkeypatch.setattr(CONFIG.firms, "fix_healthcare_price_covers_payroll", price_fix)
     firm = _new_healthcare_firm(price=40.0)
     firm.cash_balance = 1_000.0
     firm.net_profit = 300.0

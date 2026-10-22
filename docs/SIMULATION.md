@@ -178,7 +178,8 @@ Healthcare:
 - Healthcare is queue-based and non-storable.
 - Households enqueue healthcare requests based on health status and planned visit schedules.
 - Healthcare firms process visits up to labor-based capacity, with resident/doctor capacity differences.
-- The visit price is the doctors' wage bill spread over expected visits (smoothed weekly requests, capped at the visit slots) plus a 15% after-tax margin, moving at most 15% a week; warmup uses the full slots. Healthcare firms do no R&D and buy no capital. `CONFIG.firms.fix_healthcare_price_covers_payroll = False` restores the old full-slot price.
+- Healthcare firms do no R&D (unconditional owner decision). By default, visit pricing uses the doctors' wage bill divided by all visit slots plus a 15% after-tax margin; baseline warmup and capital investment keep their existing rules.
+- `CONFIG.firms.fix_healthcare_price_covers_payroll` is an experimental switch, **False by default** in library config and inherited by server sessions and town policy presets. Explicit `True` spreads payroll over smoothed requests capped at slots, limits weekly price changes to 15%, prices visit slots during warmup and excludes healthcare capital purchases. The prior evidence panel found worse household access and wellbeing with this switch on; it is not a household-safe default and adds no subsidy.
 - Payment can use cash, accessible deposits, government subsidy, or medical loans.
 - Denied visits and completed visits are emitted as healthcare events.
 

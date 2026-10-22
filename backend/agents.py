@@ -2746,11 +2746,10 @@ class FirmAgent(AgentMixin):
     ) -> Dict[str, float]:
         """Return healthcare break-even and target visit price from labor costs.
 
-        (total_wage / expected visits) * 1.15 formula. Expected visits are the
-        smoothed weekly requests (``healthcare_arrivals_ema``), capped at the
-        doctors' visit slots; in warmup they are the full slots. The doctor
-        roster is fixed, so spreading the wage bill over idle slots left the
-        price below cost whenever demand was under capacity. Effective per-doctor wage
+        By default, divide the wage bill by all doctor visit slots. The
+        experimental payroll-price flag instead uses smoothed weekly requests
+        (``healthcare_arrivals_ema``), capped at slots; warmup still uses slots.
+        Effective per-doctor wage
         is floored at the higher of the config floor and the policy minimum
         (``_minimum_wage``) so wage_offer drift below minimum cannot underprice
         the visit. Gross margin is inflated by the
