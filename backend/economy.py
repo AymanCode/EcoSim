@@ -1611,11 +1611,12 @@ class Economy:
     def _healthcare_quote_share(self, visit_price: float, budget_before_visit: float) -> float:
         """Household share of one visit as the provider quotes it (the R06 information assumption).
 
-        Pending Ayman's confirmation, the assumption is option A: when a
-        household budgets, its provider quotes the out-of-pocket price from
-        the live subsidy budget and the household's place in the queue. The
-        quote is not binding; the visit is still charged when served. The
-        household sees the quote only, not the treasury state behind it.
+        Decided by the crew under the charter, 2026-10-21, the assumption is
+        option A: when a household budgets, its provider quotes the
+        out-of-pocket price from the live subsidy budget and the household's
+        place in the queue. The quote is not binding; the visit is still
+        charged when served. The household sees the quote only, not the
+        treasury state behind it.
 
         This is the one place the assumption lives:
         - Option B (the household knows the subsidy rate only, not the cap):
@@ -1642,8 +1643,8 @@ class Economy:
         within this tick's slots takes its subsidy off that budget, so several
         queued visits are not all promised the same money. A household past
         this tick's slots is quoted against what is left after the served
-        visits (the conservative choice, pending Ayman's confirmation); it
-        will in fact be charged against a later tick's budget.
+        visits (the conservative quote; decided by the crew under the charter,
+        2026-10-21); it will in fact be charged against a later tick's budget.
 
         Known gaps, both small and both toward reserving too much: a served
         visit refused for affordability refunds its subsidy to later visits,
