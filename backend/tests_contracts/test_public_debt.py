@@ -43,7 +43,6 @@ def test_shortfall_is_borrowed_and_money_is_conserved():
     assert result["borrowed"] == pytest.approx(10_000.0)
     assert gov.cash_balance == pytest.approx(0.0)
     assert gov.public_debt == pytest.approx(10_000.0)
-    assert gov.public_debt_ever_borrowed is True
     assert _money(gov, bank) == pytest.approx(before)
 
 

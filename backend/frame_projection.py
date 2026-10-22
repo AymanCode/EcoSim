@@ -10,6 +10,8 @@ from __future__ import annotations
 import statistics
 from typing import Any, Dict, List, Optional
 
+from fiscal_guards import treasury_net_position
+
 SECTORS = ("Food", "Housing", "Services", "Healthcare")
 SECTOR_KEYS = {"Food": "priceFood", "Housing": "priceHousing", "Services": "priceServices", "Healthcare": "priceHealthcare"}
 
@@ -94,7 +96,7 @@ def build_curated_metrics(*, economy: Any, econ_metrics: Dict[str, Any], tick: i
         "wealthP50": _num(econ_metrics.get("wealth_p50")),
         "wealthP90": _num(econ_metrics.get("wealth_p90")),
         "wealthAsOfTick": int(wealth_as_of_tick),
-        "townHallCash": float(economy.government.cash_balance),
+        "townHallCash": treasury_net_position(economy.government),
         "homelessHouseholds": _num((getattr(economy, "last_housing_diagnostics", {}) or {}).get("homeless_household_count", 0.0)),
         "careDenials": _num(health["healthcare_denied_count"]) if "healthcare_denied_count" in health else None,
         "firmsOpen": len(firms),

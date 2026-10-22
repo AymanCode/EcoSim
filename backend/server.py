@@ -1524,13 +1524,10 @@ class SimulationManager:
         raise cash and debt by the same amount and repayments lower both, so
         neither counts as revenue or spending; interest on the debt does count
         (it lowers cash). With no public debt this is the change in cash, as
-        before. ``borrowed`` and ``repaid`` are this tick's financing flows,
-        ``debt`` is public debt plus any negative cash the bank did not lend.
-        ``debt_visible`` is True when debt is owed now, or the treasury has
-        borrowed at least once this session. Default levers never borrow, so
-        those frames omit ``govBorrowed`` and ``govRepaid`` and the Finance
-        screen looks like main. The flag alone does not show the lines.
-        Updates the stored net position.
+        before. ``debt`` is public debt plus any negative cash the bank did
+        not lend. Updates the stored net position. Financing flows remain in
+        the economic metrics and LLM observations; there are no separate
+        financing fields for the frozen classic dashboard.
         """
         gov = self.economy.government
         cash = float(gov.cash_balance)
@@ -1542,9 +1539,6 @@ class SimulationManager:
             "fiscal_balance": fiscal_balance,
             "net_position": net_position,
             "debt": public_debt + max(0.0, -cash),
-            "borrowed": float(getattr(gov, "last_tick_debt_borrowed", 0.0) or 0.0),
-            "repaid": float(getattr(gov, "last_tick_debt_repaid", 0.0) or 0.0),
-            "debt_visible": public_debt > 0.0 or bool(getattr(gov, "public_debt_ever_borrowed", False)),
         }
 
     def _snapshot_government_levers(self) -> Dict[str, Any]:
@@ -3102,10 +3096,6 @@ class SimulationManager:
                         "gdp": gdp / 1000000.0,
                         "govDebt": treasury_flow["debt"] / 1000000.0,
                         "govProfit": fiscal_balance / 1000000.0,
-                        **({
-                            "govBorrowed": treasury_flow["borrowed"] / 1000000.0,
-                            "govRepaid": treasury_flow["repaid"] / 1000000.0,
-                        } if treasury_flow["debt_visible"] else {}),
                         "govRevenue": gov_revenue / 1000000.0,
                         "govTransfers": gov_transfers / 1000000.0,
                         "govInvestments": gov_investments / 1000000.0,
