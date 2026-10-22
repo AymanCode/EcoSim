@@ -41,7 +41,9 @@ from fiscal_guards import (
     can_fund_public_works_startup,
     fiscal_reserve_floor,
     projected_public_works_startup_cost,
+    public_debt_can_borrow,
     trailing_gdp,
+    treasury_net_position,
 )
 from llm_provider import LLMProvider, extract_json_from_response
 from policy_schema import (
@@ -359,15 +361,66 @@ def _is_meaningful(indicator: str, value: Any) -> bool:
     return value not in (None, "", "none", 0)
 
 
-def _build_system_prompt(philosophy: str, num_households: int, num_firms: int) -> str:
-    """Build the system prompt for the government agent."""
+def _public_debt_visible(raw_metrics: Optional[Dict[str, Any]] = None) -> bool:
+    """Whether the prompt shows public-debt lines (G1).
+
+    True when the treasury can borrow (``public_debt_can_borrow``: the flag on
+    the ``legacy`` sequence), or while debt from an earlier part of the run is
+    still owed. Otherwise every prompt, memory and data-seen line is main's
+    text exactly, so AI-government runs with debt off, or on ``income_first``
+    and ``income_late`` where nothing is borrowed, match main.
+    """
+    if public_debt_can_borrow():
+        return True
+    return _safe_float((raw_metrics or {}).get("public_debt")) > 0.0
+
+
+def _build_system_prompt(
+    philosophy: str,
+    num_households: int,
+    num_firms: int,
+    raw_metrics: Optional[Dict[str, Any]] = None,
+) -> str:
+    """Build the system prompt for the government agent.
+
+    The debt objective and rule 8 (PUBLIC DEBT, so OUTPUT becomes rule 9) are
+    included when the treasury can borrow (the flag on the ``legacy``
+    sequence), or while ``public_debt`` is still above zero after the flag is
+    turned off mid-run. Otherwise, including ``income_first`` and
+    ``income_late`` with the flag on, this is main's prompt exactly
+    (objective on cash, rules 1-8).
+    """
 
     philosophy_label = str(philosophy or "balanced").strip() or "balanced"
     schema_text = render_policy_schema_for_prompt()
+    if _public_debt_visible(raw_metrics):
+        objective = (
+            "Maximize GDP and mean happiness while keeping labour-force unemployment "
+            "(labor_force_unemployment_rate) about 10-40% in the long run, and maintaining a sustainable "
+            "treasury net position (cash minus public debt). Above 40% is a red flag, and well under 10% "
+            "is off-target."
+        )
+        debt_rule = (
+            "8. PUBLIC DEBT: When treasury cash runs out, the bank may lend the shortfall (public debt) "
+            "and charges weekly interest. Spending increases and tax cuts while borrowing are allowed; "
+            "both are blocked while cash is still negative after borrowing, or once annualized debt/GDP "
+            "reaches 1.00. "
+            "You are judged on the net position (cash minus public debt), the debt trend and the interest "
+            "paid, not on cash alone; borrowed money is not revenue.\n"
+        )
+        output_rule_number = 9
+    else:
+        objective = (
+            "Maximize GDP and mean happiness while keeping labour-force unemployment "
+            "(labor_force_unemployment_rate) about 10-40% in the long run, and maintaining a sustainable "
+            "government cash balance. Above 40% is a red flag, and well under 10% is off-target."
+        )
+        debt_rule = ""
+        output_rule_number = 8
 
     return f"""ROLE: You are the AI Central Government of a simulated economy.
 PHILOSOPHY: {philosophy_label}
-OBJECTIVE: Maximize GDP and mean happiness while keeping labour-force unemployment (labor_force_unemployment_rate) about 10-40% in the long run, and maintaining a sustainable government cash balance. Above 40% is a red flag, and well under 10% is off-target.
+OBJECTIVE: {objective}
 
 CRITICAL SIMULATION RULES:
 1. ONE-STEP LIMIT: You may only change a qualitative ordered lever by one step per decision cycle.
@@ -377,7 +430,7 @@ CRITICAL SIMULATION RULES:
 5. ACTIONS: Include at most 2 substantive policy instrument changes. Mechanical corrections do not count as LLM choices.
 6. PUBLIC WORKS: public_works=on requires unemployment >= 25% and treasury cash sufficient for startup plus reserve.
 7. UNEMPLOYMENT BAND: Choose reduce_unemployment only when labor_force_unemployment_rate is above about 40%. About 10-40% in the long run is the target. Above 40% is a red flag, and well under 10% is off-target.
-8. OUTPUT: Return only valid JSON. Do not use markdown, comments, <think> tags, or text outside the JSON object.
+{debt_rule}{output_rule_number}. OUTPUT: Return only valid JSON. Do not use markdown, comments, <think> tags, or text outside the JSON object.
 
 POLICY SCHEMA:
 {schema_text}
@@ -494,6 +547,7 @@ def _format_recent_policy_memory(memory: List[Dict[str, Any]]) -> str:
 
     if not memory:
         return "No recent policy actions recorded."
+    debt_visible = _public_debt_visible()
 
     def fmt_delta(impact: Dict[str, Any], key: str, unit: str = "") -> str:
         """Format one stored policy-impact delta for prompt memory."""
@@ -534,6 +588,8 @@ def _format_recent_policy_memory(memory: List[Dict[str, Any]]) -> str:
                 f"health={fmt_delta(mature, 'mean_health_delta_pp', 'pp')}, "
                 f"cash={fmt_delta(mature, 'government_cash_delta')}, "
                 f"net_flow={fmt_delta(mature, 'net_fiscal_flow_delta')}"
+                + (f", public_debt={fmt_delta(mature, 'public_debt_delta')}, "
+                   f"net_position={fmt_delta(mature, 'net_position_delta')}" if debt_visible else "")
             )
         lines.extend(
             [
@@ -548,6 +604,8 @@ def _format_recent_policy_memory(memory: List[Dict[str, Any]]) -> str:
                     f"health={fmt_delta(short, 'mean_health_delta_pp', 'pp')}, "
                     f"cash={fmt_delta(short, 'government_cash_delta')}, "
                     f"net_flow={fmt_delta(short, 'net_fiscal_flow_delta')}"
+                    + (f", public_debt={fmt_delta(short, 'public_debt_delta')}, "
+                       f"net_position={fmt_delta(short, 'net_position_delta')}" if debt_visible else "")
                 ),
                 f"  mature_after_impact_horizon: {mature_text}",
             ]
@@ -641,7 +699,10 @@ def _format_policy_impact_memory(memory: List[Dict[str, Any]]) -> str:
             f"happiness {short.get('mean_happiness_delta_pp', 'n/a')}pp, "
             f"health {short.get('mean_health_delta_pp', 'n/a')}pp, "
             f"gov_cash {short.get('government_cash_delta', 'n/a')}, "
-            f"net_flow {short.get('net_fiscal_flow_delta', 'n/a')} | "
+            f"net_flow {short.get('net_fiscal_flow_delta', 'n/a')}"
+            + (f", public_debt {short.get('public_debt_delta', 'n/a')}, "
+               f"net_position {short.get('net_position_delta', 'n/a')}" if _public_debt_visible() else "")
+            + " | "
             f"mature={mature.get('status', 'pending')}@{mature.get('evaluation_tick', mature.get('available_at_tick', 'n/a'))}"
         )
     return "\n".join(lines) if lines else "No accepted policy impact available yet."
@@ -688,8 +749,13 @@ def _decision_summary_reasoning(
 
 
 def computed_fiscal_mode_from_state(government: Any, recent_gdp: float, fiscal_pressure: float = 0.0) -> str:
-    """Classify fiscal state for evaluation logging without overriding the LLM."""
-    cash = float(getattr(government, "cash_balance", 0.0) or 0.0)
+    """Classify fiscal state for evaluation logging without overriding the LLM.
+
+    Reads the treasury net position (cash minus public debt), not cash: with
+    public debt the bank lends the shortfall, so cash sits near zero while
+    the treasury is in deficit.
+    """
+    cash = treasury_net_position(government)
     reserve = fiscal_reserve_floor(max(1.0, float(recent_gdp or 0.0)))
     debt_ratio = annualized_debt_to_gdp(government, max(1.0, float(recent_gdp or 0.0)))
     pressure = float(fiscal_pressure or 0.0)
@@ -888,6 +954,10 @@ def _build_data_seen_snapshot(raw_metrics: Dict[str, Any], budget_state: Optiona
         "mean_happiness": _round_metric(raw_metrics.get("mean_happiness"), 4),
         "mean_health": _round_metric(raw_metrics.get("mean_health"), 4),
         "government_cash": _round_metric(raw_metrics.get("government_cash", budget_state.get("cash_balance")), 2),
+        # None (so not rendered) with public debt off, as on main.
+        "government_net_position": _round_metric(
+            raw_metrics.get("government_net_position", budget_state.get("net_position")), 2
+        ) if _public_debt_visible(raw_metrics) else None,
         "gov_revenue_this_tick": round(revenue, 2),
         "gov_spending_this_tick": round(spending, 2),
         "gov_net_flow_this_tick": round(net_flow, 2),
@@ -912,6 +982,7 @@ def _format_data_seen(data_seen: Dict[str, Any]) -> str:
         "mean_happiness",
         "mean_health",
         "government_cash",
+        "government_net_position",
         "gov_revenue_this_tick",
         "gov_spending_this_tick",
         "gov_net_flow_this_tick",
@@ -949,18 +1020,53 @@ def _format_fiscal_context(
     spending = _safe_float(budget_state.get("last_tick_spending", raw_metrics.get("gov_spending_this_tick")))
     net_flow = _safe_float(budget_state.get("net_flow", raw_metrics.get("gov_net_flow_this_tick", revenue - spending)))
     cash = _safe_float(budget_state.get("cash_balance", raw_metrics.get("government_cash")))
+    net_position = _safe_float(
+        budget_state.get("net_position", raw_metrics.get("government_net_position", cash))
+    )
     breakdown = _spending_breakdown_from_metrics(raw_metrics, budget_state)
     return (
         f"- Revenue this tick/window: {_format_money(revenue)}\n"
         f"- Spending this tick/window: {_format_money(spending)}\n"
         f"- Net fiscal flow: {_format_money(net_flow)}\n"
         f"- Current cash balance: {_format_money(cash)}\n"
-        f"- fiscal_pressure_ratio: {_safe_float(budget_state.get('fiscal_pressure')):.4f}\n"
+        + (f"- Net position (cash minus public debt): {_format_money(net_position)}\n"
+           if _public_debt_visible(raw_metrics) else "")
+        + f"- fiscal_pressure_ratio: {_safe_float(budget_state.get('fiscal_pressure')):.4f}\n"
         f"- instant_deficit_to_gdp_ratio: {_safe_float(budget_state.get('fiscal_pressure_instant_ratio')):.4f}\n"
         f"- fiscal_pressure_denominator_gdp: {_format_money(budget_state.get('fiscal_pressure_denominator_gdp'))}\n"
         f"- Spending efficiency: {_safe_float(budget_state.get('spending_efficiency'), 1.0):.3f}\n"
         "Spending Breakdown:\n"
         f"{_format_spending_breakdown(breakdown)}"
+    )
+
+
+PUBLIC_DEBT_TREND_TICKS = 13  # one quarter of weekly ticks
+
+
+def _format_public_debt_lines(raw_metrics: Dict[str, Any]) -> str:
+    """Render debt service and the debt trend for the prompt (G1).
+
+    Shows the weekly interest and its annual rate, this tick's borrowing,
+    repayment and unfunded overdraft, and the change in public debt over the
+    last ``PUBLIC_DEBT_TREND_TICKS`` ticks of ``_metrics_history``. Borrowing
+    is financing, not revenue, so it is listed apart from the fiscal flow.
+    """
+    debt_now = _safe_float(raw_metrics.get("public_debt"))
+    history = list(raw_metrics.get("_metrics_history", []) or [])
+    past = None
+    if len(history) >= PUBLIC_DEBT_TREND_TICKS:
+        past = history[-PUBLIC_DEBT_TREND_TICKS].get("metrics", {}).get("public_debt")
+    if isinstance(past, (int, float)):
+        trend = f"{'+' if debt_now - float(past) >= 0 else '-'}{_format_money(abs(debt_now - float(past)))} over the last {PUBLIC_DEBT_TREND_TICKS} ticks"
+    else:
+        trend = "n/a (fewer than 13 ticks of history)"
+    return (
+        f"- Debt Service: interest {_format_money(raw_metrics.get('gov_debt_interest_this_tick', 0.0))} last tick "
+        f"at {_safe_float(raw_metrics.get('gov_debt_rate_annual')) * 100.0:.2f}% a year\n"
+        f"- Financing this tick (not revenue): borrowed {_format_money(raw_metrics.get('gov_debt_borrowed_this_tick', 0.0))}, "
+        f"repaid {_format_money(raw_metrics.get('gov_debt_repaid_this_tick', 0.0))}, "
+        f"unfunded overdraft {_format_money(raw_metrics.get('gov_debt_unfunded_this_tick', 0.0))}\n"
+        f"- Public Debt Trend: {trend}"
     )
 
 
@@ -1237,6 +1343,16 @@ def _build_user_prompt(
     households = int(raw_metrics.get("total_households", 0) or 0)
     gdp = float(raw_metrics.get("gdp_this_tick", 0.0) or 0.0)
     gov_cash = float(raw_metrics.get("government_cash", budget_state.get("cash_balance", 0.0)) or 0.0)
+    gov_net_position = float(
+        raw_metrics.get("government_net_position", budget_state.get("net_position", gov_cash)) or 0.0
+    )
+    # Public-debt lines only when debt is on or still owed; otherwise main's text.
+    if _public_debt_visible(raw_metrics):
+        net_position_line = f"- Treasury Net Position (cash minus public debt): {_format_money(gov_net_position)}\n"
+        debt_lines = _format_public_debt_lines(raw_metrics) + "\n"
+    else:
+        net_position_line = ""
+        debt_lines = ""
     deficit = float(budget_state.get("last_tick_revenue", 0.0) or 0.0) - float(budget_state.get("last_tick_spending", 0.0) or 0.0)
     unemployment_pct = float(raw_metrics.get("unemployment_rate", 0.0) or 0.0) * 100.0
     labor_force_unemployment_pct = float(raw_metrics.get("labor_force_unemployment_rate", raw_metrics.get("unemployment_rate", 0.0)) or 0.0) * 100.0
@@ -1279,8 +1395,8 @@ MACRO INDICATORS:
 - Jobless Total Population: {jobless_total_pct:.1f}%
 - Cannot Work: {cannot_work_pct:.1f}% ({cannot_work_count} households) | Labor Force Size: {labor_force_size}
 - Government Cash: {_format_money(gov_cash)} (Deficit/Surplus last tick: {_format_money(deficit)})
-- Public Debt: {_format_money(raw_metrics.get('public_debt', budget_state.get('public_debt', 0.0)))} (Debt/GDP annualized: {float(raw_metrics.get('annualized_debt_to_gdp', budget_state.get('annualized_debt_to_gdp', 0.0)) or 0.0):.3f})
-- Subsidy Cap: {_format_money(raw_metrics.get('gov_subsidy_cap_this_tick', 0.0))} (denied by cap: {_format_money(raw_metrics.get('gov_subsidy_denied_by_cap_this_tick', 0.0))})
+{net_position_line}- Public Debt: {_format_money(raw_metrics.get('public_debt', budget_state.get('public_debt', 0.0)))} (Debt/GDP annualized: {float(raw_metrics.get('annualized_debt_to_gdp', budget_state.get('annualized_debt_to_gdp', 0.0)) or 0.0):.3f})
+{debt_lines}- Subsidy Cap: {_format_money(raw_metrics.get('gov_subsidy_cap_this_tick', 0.0))} (denied by cap: {_format_money(raw_metrics.get('gov_subsidy_denied_by_cap_this_tick', 0.0))})
 - Public Works Budget Denied: {_format_money(raw_metrics.get('gov_public_works_denied_by_budget_this_tick', 0.0))}
 - Post-Warmup Stimulus: {_format_money(raw_metrics.get('gov_post_warmup_stimulus_this_tick', 0.0))}
 - Mean Health: {mean_health:.3f}
@@ -1453,6 +1569,9 @@ def _build_recent_policy_memory(
                 "mean_happiness_delta_pp": delta_pp("mean_happiness"),
                 "government_cash_delta": delta_abs("government_cash"),
                 "net_fiscal_flow_delta": net_flow_delta,
+                # Public debt (G1): cash alone hides a financed deficit.
+                "public_debt_delta": delta_abs("public_debt"),
+                "net_position_delta": delta_abs("government_net_position"),
                 # Percent change in job seekers whose reservation wage is
                 # above every open offer. Named for what it measures; it was
                 # "consumer_distress_delta_pct", but metrics rows carry no
@@ -1561,6 +1680,7 @@ def observe_node(state: GovernmentState, economy: Any) -> Dict[str, Any]:
     spending_breakdown = _spending_breakdown_from_metrics(metrics)
     budget_state = {
         "cash_balance": float(gov.cash_balance),
+        "net_position": float(treasury_net_position(gov)),
         "last_tick_revenue": float(gov.last_tick_revenue),
         "last_tick_spending": float(gov.last_tick_spending),
         "net_flow": float(gov.last_tick_revenue) - float(gov.last_tick_spending),
@@ -2316,6 +2436,7 @@ async def decide_node(state: GovernmentState, provider: LLMProvider, config: Any
         philosophy,
         num_households=int(state["raw_metrics"].get("total_households", 0)),
         num_firms=int(state["raw_metrics"].get("total_firms", 0)),
+        raw_metrics=state["raw_metrics"],
     )
     user_prompt = _build_user_prompt(
         raw_metrics=state["raw_metrics"],

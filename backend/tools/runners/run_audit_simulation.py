@@ -256,7 +256,11 @@ class AuditAnalyticsTracker:
         )
 
         gdp_denom = max(1.0, gdp)
-        negative_cash_pct_gdp = max(0.0, -float(getattr(economy.government, "cash_balance", 0.0))) / gdp_denom * 100.0
+        # Net of public debt (G1): the bank lends the shortfall, so cash alone sits near zero.
+        net_position = float(getattr(economy.government, "cash_balance", 0.0)) - max(
+            0.0, float(getattr(economy.government, "public_debt", 0.0) or 0.0)
+        )
+        negative_cash_pct_gdp = max(0.0, -net_position) / gdp_denom * 100.0
         negative_flow_pct_gdp = max(0.0, -fiscal_balance) / gdp_denom * 100.0
         fiscal_stress_score = self._clamp(negative_cash_pct_gdp * 0.6 + negative_flow_pct_gdp * 0.4)
         inequality_pressure_score = self._clamp(
@@ -1143,6 +1147,9 @@ def serialize_bank(bank: Optional[BankAgent]) -> Optional[Dict[str, Any]]:
         "cash_reserves": round(bank.cash_reserves, 2),
         "total_deposits": round(bank.total_deposits, 2),
         "total_loans_outstanding": round(bank.total_loans_outstanding, 2),
+        "public_debt_held": round(bank.public_debt_held, 2),
+        "total_assets": round(bank.total_assets, 2),
+        "equity": round(bank.equity, 2),
         "base_interest_rate": round(bank.base_interest_rate, 4),
         "deposit_rate": round(bank.deposit_rate, 4),
         "reserve_ratio": round(bank.reserve_ratio, 4),

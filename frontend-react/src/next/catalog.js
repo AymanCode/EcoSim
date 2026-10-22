@@ -52,7 +52,7 @@ export const METRICS = {
   },
   townHallCash: {
     name: 'Town hall cash',
-    meaning: 'What the town hall has in the bank; below zero, it owes.',
+    meaning: 'What the town hall has in the bank, minus its debt; below zero, it owes.',
     format: 'money',
     better: null,
     // A balance below zero reads "owes $11,276" (formatMetric).

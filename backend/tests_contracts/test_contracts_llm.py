@@ -6,7 +6,7 @@ import pytest
 
 from agents import GovernmentAgent
 import server
-from config import CONFIG, use_config
+from config import CONFIG, clone_config, use_config
 from policy_schema import POLICY_SCHEMA, PROMPT_POLICY_LEVERS, normalize_current_policy
 from tools.llm.llm_government import (
     LLMGovernmentAdvisor,
@@ -333,6 +333,11 @@ _UNEMPLOYMENT_OBJECTIVE = (
     "(labor_force_unemployment_rate) about 10-40% in the long run, and maintaining a sustainable "
     "government cash balance. Above 40% is a red flag, and well under 10% is off-target."
 )
+_UNEMPLOYMENT_OBJECTIVE_DEBT = (
+    "OBJECTIVE: Maximize GDP and mean happiness while keeping labour-force unemployment "
+    "(labor_force_unemployment_rate) about 10-40% in the long run, and maintaining a sustainable "
+    "treasury net position (cash minus public debt). Above 40% is a red flag, and well under 10% is off-target."
+)
 
 
 def _response_format_example(prompt: str) -> str:
@@ -350,14 +355,30 @@ def _response_format_example(prompt: str) -> str:
     raise AssertionError("response-format example did not close")
 
 
-def test_contract_government_objective_uses_long_run_unemployment_band():
-    prompt = _build_system_prompt("balanced", num_households=20, num_firms=4)
-    assert _UNEMPLOYMENT_OBJECTIVE in prompt
+@pytest.mark.parametrize("public_debt_enabled", [False, True], ids=["debt_off", "debt_on"])
+def test_contract_government_objective_uses_long_run_unemployment_band(public_debt_enabled):
+    with use_config(clone_config()):
+        CONFIG.government.public_debt_enabled = public_debt_enabled
+        CONFIG.payment_sequence = "legacy"
+        prompt = _build_system_prompt("balanced", num_households=20, num_firms=4)
+        user = _build_user_prompt({}, {})
+    if public_debt_enabled:
+        assert _UNEMPLOYMENT_OBJECTIVE_DEBT in prompt
+        assert _UNEMPLOYMENT_OBJECTIVE not in prompt
+    else:
+        assert _UNEMPLOYMENT_OBJECTIVE in prompt
+        assert "public debt" not in prompt.lower()
     assert "keeping unemployment low" not in prompt
     assert "healthy range" not in prompt
     rules = prompt.split("CRITICAL SIMULATION RULES:", 1)[1].split("POLICY SCHEMA:", 1)[0]
-    assert _UNEMPLOYMENT_BAND_LINE in rules
+    assert "\n7. UNEMPLOYMENT BAND: " + _UNEMPLOYMENT_BAND_LINE in rules
     assert "labor_force_unemployment_rate" in rules
+    if public_debt_enabled:
+        assert "\n8. PUBLIC DEBT:" in rules
+        assert "\n9. OUTPUT:" in rules
+    else:
+        assert "PUBLIC DEBT" not in rules
+        assert "\n8. OUTPUT:" in rules
     example = _response_format_example(prompt)
     parsed = json.loads(example)
     assert _UNEMPLOYMENT_BAND_LINE not in example
@@ -365,7 +386,6 @@ def test_contract_government_objective_uses_long_run_unemployment_band():
     assert set(parsed) == {"fiscal_mode", "primary_goal", "rationale", "evidence", "changes"}
     assert "reduce_unemployment" in parsed["primary_goal"]
 
-    user = _build_user_prompt({}, {})
     labor_notes = user.split("[LABOR METRIC DEFINITIONS]", 1)[1].split("[SECTOR DIAGNOSTICS]", 1)[0]
     assert _UNEMPLOYMENT_BAND_LINE in labor_notes
     assert "labor_force_unemployment_rate" in labor_notes
