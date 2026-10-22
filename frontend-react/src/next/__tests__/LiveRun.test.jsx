@@ -5,7 +5,7 @@ import NextApp from '../NextApp.jsx'
 import { createArm, ingest, isFrame, parseSession } from '../data/session.js'
 import { leadSentence } from '../narration.js'
 import { fakeSocketFactory } from './fakeSocket.js'
-import { FIXTURE_TEXT } from './fixture.js'
+import { FIXTURE_TEXT, WHOLE_SCREEN_MS } from './fixture.js'
 
 // The recorded fixture's weeks, fed to every live town.
 const FRAMES = parseSession(FIXTURE_TEXT).messages.filter(isFrame)
@@ -56,7 +56,7 @@ const numbersToggle = () => within(screen.getByRole('region', { name: 'Timeline'
 const numbers = () => screen.queryByRole('dialog', { name: 'All the numbers' })
 const townChips = dialog => within(dialog).getAllByRole('listitem').filter(item => item.classList.contains('nx-tchip'))
 
-describe('NextApp live', () => {
+describe('NextApp live', { timeout: WHOLE_SCREEN_MS }, () => {
   beforeEach(() => vi.useFakeTimers())
   afterEach(() => vi.useRealTimers())
 
