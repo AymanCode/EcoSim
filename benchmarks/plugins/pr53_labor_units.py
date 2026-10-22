@@ -1,9 +1,12 @@
 """Mechanism metrics for the effective-labour evidence panel.
 
 ``food_labor_units_per_head`` and ``services_labor_units_per_head`` divide
-full labour units by employed heads at private firms. A checkout without
-``_labor_units_for_headcount`` (current main) counts each head as 1, which is
-also what that method returns when weights are unbound.
+full labour units by employed heads at private firms. A tick with no private
+heads in that category is recorded as 0, so a window mean includes those
+zero-staff ticks. ``*_labor_units_per_head_staffed`` is omitted on those ticks
+so the panel mean skips them. A checkout without ``_labor_units_for_headcount``
+(current main) counts each head as 1, which is also what that method returns
+when weights are unbound.
 """
 
 
@@ -23,6 +26,8 @@ def extra_metrics(economy):
             else:
                 units += float(measure(float(len(firm.employees)), skill_only=False))
         out[f"{cat}_labor_units_per_head"] = units / heads if heads else 0.0
+        if heads:
+            out[f"{cat}_labor_units_per_head_staffed"] = units / heads
     food = [
         firm for firm in economy.firms
         if (firm.good_category or "").lower() == "food" and not firm.is_baseline
