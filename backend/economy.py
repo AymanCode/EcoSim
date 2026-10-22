@@ -4754,8 +4754,14 @@ class Economy:
             float(getattr(firm, "service_infrastructure_loan_payment_per_tick", 0.0)),
         )
         break_even_price = (wage_bill + service_debt_service) / max(float(available_supply), 1e-6)
-        markup = max(0.0, float(getattr(firm, "markup", 0.0)))
-        service_floor = break_even_price * (1.0 + markup)
+        # Flag off is main: full cost times (1 + markup). Flag on, the floor is
+        # cost recovery only. The stepped margin reaches buyers through the
+        # planned quote, not by lifting a slump quote in the same tick.
+        if services_demand_margin_enabled():
+            service_floor = break_even_price
+        else:
+            markup = max(0.0, float(getattr(firm, "markup", 0.0)))
+            service_floor = break_even_price * (1.0 + markup)
         return max(price, service_floor)
 
     def _withdraw_deposits_to_cash(self, household: HouseholdAgent, amount: float) -> float:

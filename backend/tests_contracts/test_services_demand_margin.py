@@ -252,6 +252,76 @@ def test_price_cap_limits_the_posted_price_and_keeps_a_stepped_margin():
         assert plan["markup_next"] == pytest.approx(0.32)
 
 
+def _post_clearing_price(firm, *, payment: bool) -> float:
+    """firm.price immediately after the clearing write, before the later apply."""
+    government = make_government()
+    economy = Economy(households=[], firms=[firm], government=government)
+    if payment:
+        from payment_sectors import PaymentGoodsMarket
+        from payments import PaymentBook
+
+        economy.payment_book = PaymentBook(economy)
+        PaymentGoodsMarket(economy, {}, [firm])
+    else:
+        economy._clear_goods_market({}, [firm])
+    return float(firm.price)
+
+
+def test_switch_on_clearing_keeps_a_slump_quote_and_floors_at_break_even():
+    """Posted firm.price after clearing. The stepped margin does not lift it."""
+    wage_plan = {"wage_offer_next": 40.0}
+    break_even = 10.0
+    with use_config(clone_config()):
+        _enable()
+        # Quote between cost and cost times (1 + the stepped target).
+        sample = _services_firm(price=12.0)
+        sample_plan = _plan(sample, utilization=0.40)
+        sample.apply_price_and_wage_updates(sample_plan, wage_plan)
+        quote = float(sample.price)
+        target = float(sample.markup)
+        full_cost_markup = break_even * (1.0 + target)
+        assert quote == pytest.approx(0.8 * 12.0 + 0.2 * break_even)
+        assert target == pytest.approx(0.28)
+        assert break_even < quote < full_cost_markup
+        for payment in (False, True):
+            firm = _services_firm(price=12.0)
+            firm.apply_price_and_wage_updates(_plan(firm, utilization=0.40), wage_plan)
+            posted = _post_clearing_price(firm, payment=payment)
+            assert posted == pytest.approx(quote)
+            assert posted < full_cost_markup
+            assert posted >= break_even
+
+        # A quote under cost is lifted to break-even, not to break-even times (1 + target).
+        low = _services_firm(price=4.0)
+        low.apply_price_and_wage_updates(_plan(low, utilization=0.40), wage_plan)
+        low_quote = float(low.price)
+        assert low_quote == pytest.approx(0.8 * 4.0 + 0.2 * break_even)
+        assert low_quote < break_even
+        for payment in (False, True):
+            firm = _services_firm(price=4.0)
+            firm.apply_price_and_wage_updates(_plan(firm, utilization=0.40), wage_plan)
+            posted = _post_clearing_price(firm, payment=payment)
+            assert posted == pytest.approx(break_even)
+            assert posted < break_even * (1.0 + firm.markup)
+
+
+def test_switch_off_clearing_floor_still_includes_the_markup():
+    """Flag off is main: a quote under full cost times (1 + markup) is lifted to that floor."""
+    break_even = 10.0
+    markup = 0.28
+    quote = 11.6
+    with use_config(clone_config()):
+        from config import CONFIG
+
+        CONFIG.firms.services_demand_margin_enabled = False
+        assert services_demand_margin_enabled() is False
+        for payment in (False, True):
+            firm = _services_firm(price=quote, markup=markup)
+            posted = _post_clearing_price(firm, payment=payment)
+            assert posted == pytest.approx(break_even * (1.0 + markup))
+            assert posted > quote
+
+
 def test_food_pricing_is_not_the_services_margin():
     food = make_firm(firm_id=2, category="Food", is_baseline=False, seed=2)
     food.markup = 0.30
