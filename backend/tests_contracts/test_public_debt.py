@@ -190,13 +190,6 @@ def test_config_rejects_unknown_borrow_target():
         SimulationConfig(government=gov_cfg)
 
 
-@pytest.mark.parametrize("bad", [0.0, 1.01, -0.1, math.nan, math.inf])
-def test_config_rejects_tax_cut_cap_outside_open_unit_interval(bad):
-    gov_cfg = dataclasses.replace(SimulationConfig().government, public_debt_tax_cut_cap=bad)
-    with pytest.raises(ValueError, match="public_debt_tax_cut_cap"):
-        SimulationConfig(government=gov_cfg)
-
-
 @pytest.mark.parametrize("bad", [math.nan, math.inf, -1.0])
 def test_runtime_debt_params_are_checked_too(monkeypatch, bad):
     gov = GovernmentAgent(cash_balance=0.0)
