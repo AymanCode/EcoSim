@@ -35,7 +35,7 @@ from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 import numpy as np
 
-from config import CONFIG
+from config import CONFIG, services_demand_margin_enabled
 from policy_schema import ORDERED_LEVERS as POLICY_ORDERED_LEVERS, SIMPLE_ENUM_LEVERS, TAX_LIMITS
 
 
@@ -1909,7 +1909,8 @@ _PLANNER_DIAGNOSTIC_KEYS = frozenset((
     "healthcare_break_even_price", "healthcare_queue_overload_ratio",
     "healthcare_surge_multiplier", "healthcare_target_price",
     "service_break_even_price", "service_capacity_for_pricing", "service_debt_service_for_pricing",
-    "service_markup_next", "service_total_cost_per_unit", "service_utilization",
+    "service_markup_next", "service_realized_markup", "service_target_markup",
+    "service_total_cost_per_unit", "service_utilization",
     "service_utilization_for_wage_recovery", "service_variable_cost_per_unit",
     "service_wage_bill_for_pricing", "service_wage_recovery_cut", "service_weak_demand_streak",
 ))
@@ -4041,6 +4042,50 @@ class FirmAgent(AgentMixin):
         """Markup over unit cost implied by ``price``; the current markup when unit cost is not positive."""
         return (price / self.unit_cost - 1.0) if self.unit_cost > 0 else self.markup
 
+    def _services_demand_markup_next(self, sell_through_rate: float) -> Optional[float]:
+        """Bounded demand-responsive margin, or None when the switch is off.
+
+        None leaves the caller's ``markup_next`` on main's write-back. Copied
+        from the scratch rule: step up when sell-through is at least 0.95 and
+        the firm's latest unmet share is above 0.05, step down when
+        sell-through is below 0.85, otherwise hold, then clamp. The baseline
+        Services firm is held at 0 (cost recovery).
+        """
+        if not self._is_generic_services_firm() or not services_demand_margin_enabled():
+            return None
+        if self.is_baseline:
+            return 0.0
+        firms = self._firm_config()
+        lo = float(firms.services_margin_min)
+        hi = float(firms.services_margin_max)
+        step = float(firms.services_margin_step)
+        m = float(self.markup)
+        if not math.isfinite(m):
+            m = lo
+        window = self.service_unmet_demand_window
+        unmet = float(window[-1]) if window else 0.0
+        if not math.isfinite(unmet) or unmet < 0.0:
+            unmet = 0.0
+        sold = max(0.0, float(self.last_units_sold))
+        share = unmet / (sold + unmet) if (sold + unmet) > 0.0 else 0.0
+        st = float(sell_through_rate)
+        if math.isfinite(st) and st >= 0.95 and share > 0.05:
+            m += step
+        elif not math.isfinite(st) or st < 0.85:
+            m -= step
+        if not math.isfinite(m):
+            m = lo
+        return min(hi, max(lo, m))
+
+    def _with_services_demand_markup(self, plan: Dict[str, float], sell_through_rate: float) -> Dict[str, float]:
+        """Replace ``markup_next`` when rule C is on. Flag off returns ``plan`` unchanged."""
+        demand_markup = self._services_demand_markup_next(sell_through_rate)
+        if demand_markup is None:
+            return plan
+        plan["markup_next"] = demand_markup
+        self.decision_diagnostics["service_markup_next"] = demand_markup
+        return plan
+
     def plan_pricing(
         self,
         sell_through_rate: float,
@@ -4076,10 +4121,11 @@ class FirmAgent(AgentMixin):
             # Inflate the 5% markup so the after-tax margin still clears 5%.
             gross_markup = 0.05 / max(1.0 - float(profit_tax_rate), 0.10)
             target_price = labor_cost_per_unit * (1.0 + gross_markup)
-            return {
+            markup_next = self._markup_for_price(target_price)
+            return self._with_services_demand_markup({
                 "price_next": target_price,
-                "markup_next": self._markup_for_price(target_price),
-            }
+                "markup_next": markup_next,
+            }, sell_through_rate)
 
         # Baseline Food post-warmup: tiered liquidation pricing aligned with
         # the production-side liquidation tiers. A public food agency CAN sell
@@ -4123,7 +4169,10 @@ class FirmAgent(AgentMixin):
             if not self.is_baseline and not CONFIG.inflation.enabled:
                 price_next = max(self.min_price * 0.5, price_next * 1.02)
             markup_next = self._markup_for_price(price_next)
-            return {"price_next": price_next, "markup_next": markup_next}
+            return self._with_services_demand_markup(
+                {"price_next": price_next, "markup_next": markup_next},
+                sell_through_rate,
+            )
 
         # Housing pricing: monopoly landlord scales rent to cover wage bill +
         # debt service rather than perpetually skipping loan payments. Old
@@ -4243,8 +4292,17 @@ class FirmAgent(AgentMixin):
             if utilization >= 0.85:
                 # Boom market: full cost recovery + markup + surge premium.
                 # Inflate gross margin so after-tax margin matches the targeted markup + surge.
+                # With the demand-margin switch on, that tax gross-up does not
+                # apply: the price uses the current margin plus the surge, and
+                # the margin stored for next week is the step below, not this price.
                 surge = (utilization - 0.85) * 0.5
-                gross_margin = (float(self.markup) + surge) / max(1.0 - float(profit_tax_rate), 0.10)
+                if services_demand_margin_enabled() and self._is_generic_services_firm():
+                    base_markup = 0.0 if self.is_baseline else float(self.markup)
+                    if not math.isfinite(base_markup) or base_markup < 0.0:
+                        base_markup = 0.0
+                    gross_margin = base_markup + surge
+                else:
+                    gross_margin = (float(self.markup) + surge) / max(1.0 - float(profit_tax_rate), 0.10)
                 target_price = total_cost_per_unit * (1.0 + gross_margin)
             else:
                 # Downturn: smooth interpolation between variable and total cost.
@@ -4273,11 +4331,11 @@ class FirmAgent(AgentMixin):
             self.decision_diagnostics["service_utilization"] = utilization
             self.decision_diagnostics["service_markup_next"] = markup_next
             self.decision_diagnostics["pricing_reason"] = "marginal_cost_interpolation"
-            return {
+            return self._with_services_demand_markup({
                 "price_next": price_next,
                 "markup_next": markup_next,
                 "pricing_reason": "marginal_cost_interpolation",
-            }
+            }, sell_through_rate)
 
         if not self.is_baseline:
             price_next = self.price

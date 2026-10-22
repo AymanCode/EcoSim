@@ -38,7 +38,7 @@ from dataclasses import dataclass, fields
 from collections import deque
 from typing import TYPE_CHECKING, Dict, List, Tuple, Optional
 
-from config import CONFIG, get_config
+from config import CONFIG, get_config, services_demand_margin_enabled
 from fiscal_guards import (
     annualized_debt_to_gdp,
     fiscal_reserve_floor,
@@ -423,7 +423,11 @@ class Economy:
         limited = min(proposed, max_allowed)
         if limited + 1e-9 < proposed:
             price_plan["price_next"] = limited
-            price_plan["markup_next"] = max(0.0, (limited / unit_cost) - 1.0) if unit_cost > 0 else 0.0
+            # The cap still limits the posted price. It must not replace a
+            # demand-responsive Services margin with the capped margin, or the
+            # boom rule ratchets off the cap.
+            if not (category == "services" and services_demand_margin_enabled()):
+                price_plan["markup_next"] = max(0.0, (limited / unit_cost) - 1.0) if unit_cost > 0 else 0.0
             self.price_increase_limited_count += 1
             firm.decision_diagnostics["price_stabilization_limited"] = True
             firm.decision_diagnostics["price_stabilization_level"] = level
@@ -4750,8 +4754,14 @@ class Economy:
             float(getattr(firm, "service_infrastructure_loan_payment_per_tick", 0.0)),
         )
         break_even_price = (wage_bill + service_debt_service) / max(float(available_supply), 1e-6)
-        markup = max(0.0, float(getattr(firm, "markup", 0.0)))
-        service_floor = break_even_price * (1.0 + markup)
+        # Flag off is main: full cost times (1 + markup). Flag on, the floor is
+        # cost recovery only. The stepped margin reaches buyers through the
+        # planned quote, not by lifting a slump quote in the same tick.
+        if services_demand_margin_enabled():
+            service_floor = break_even_price
+        else:
+            markup = max(0.0, float(getattr(firm, "markup", 0.0)))
+            service_floor = break_even_price * (1.0 + markup)
         return max(price, service_floor)
 
     def _withdraw_deposits_to_cash(self, household: HouseholdAgent, amount: float) -> float:
