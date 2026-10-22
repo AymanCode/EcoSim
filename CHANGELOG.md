@@ -4,6 +4,18 @@ Notable changes and decisions for EcoSim, newest first. The project does not use
 
 ## Unreleased
 
+### 2026-10-22: Legacy firm exits no longer create money (exit-deficit settlement, default on)
+
+Owner decision 2026-10-22: split #57. Keep the accounting correction behind `market.settle_legacy_exit_deficit` (default `True`), and restore main's firm-exit rules. Baseline Food, Housing, Services and Healthcare providers stay protected. The original baseline-shutdown code is preserved at `archive/pr57-baseline-shutdown` (`a14fa51`); gradual retirement requires a separate proposal and approval.
+
+- On the town's `payment_sequence="legacy"`, full payroll can leave a failing private firm overdrawn. Removing its negative balance used to create that much money. The exit now settles that deficit once; it does not change the payroll rule or prevent private Housing/Healthcare exits.
+- Loss allocation retains the 2026-10-20 owner decision: a private firm's lenders pay in proportion to outstanding bank-funded and treasury-funded claims; without lenders the bank pays. The bank contributes at most `BankAgent.lendable_cash` (reserves above required reserves); the treasury pays the remainder, even if its cash becomes negative. PublicWorks deficits fall on the treasury that capitalized them. This is an exit payment, not a recurring provider bailout. Loan write-offs still happen separately, after the cash settlement.
+- The treasury share (`last_tick_gov_exit_deficit_cover`) enters the same tick's spending, fiscal balance and fiscal-pressure update, retaining the pre-exit GDP denominator and updating the pressure EMA once. Cumulative bank and treasury shares are recorded in `legacy_exit_deficit_bank_total` and `legacy_exit_deficit_treasury_total`.
+- `market.settle_legacy_exit_deficit=False` restores main's accounting and behavior for controlled comparisons. The named payment sequences (`income_first`, `income_late`) ignore this switch and retain their own funded-payroll and exit settlement.
+- Rules v1.9 records these changes. Baseline providers' operating overdrafts remain visible and unsettled; this narrow fix is not a claim that all model finance paths conserve money.
+
+Evidence: `backend/tests_contracts/test_conservation_leaks.py` covers legacy loan write-off, lender shares, bank reserve protection, PublicWorks, protected baseline firms, switch-off reproduction, absent bank, private provider exits, full-tick conservation, and same-tick fiscal recognition. A 1,500 exit deficit creates 1,500 with the switch off; with the switch on and only 200 of lendable bank reserves, the bank pays 200 and treasury pays 1,300 with no money drift. The matched five-seed, 312-week panel compares main/off/on on all three payment sequences; its uncommitted artifact is `benchmarks/results/pr57-panel/panel.md`.
+
 ### 2026-10-21: Skills learned on the job wear off out of work, never below week-1 skill (households, default on)
 
 Rebuild of #39 from `main`, after Claude's round-2 review (2026-10-21). Ayman approved it default on (2026-10-22): skill should decrease over time while not working. Rules v1.8 records it. His earlier rule stands: *"skill loss needs a floor... the floor is where a household starts in week 1."*

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test, vi } from 'vitest'
-import { fireEvent, render, screen, within } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import NextApp from '../NextApp.jsx'
 import { FIXTURE_TEXT, WHOLE_SCREEN_MS } from './fixture.js'
 
@@ -62,7 +62,8 @@ describe('NextApp', { timeout: WHOLE_SCREEN_MS }, () => {
     const { container } = render(<NextApp search="?view=next&demo&numbers" />)
     // The sheet is the heaviest screen to draw; give it time on a busy machine.
     const dialog = await screen.findByRole('dialog', { name: 'All the numbers' }, { timeout: 4000 })
-    expect(within(dialog).getByRole('heading', { level: 2, name: 'All the numbers' })).toHaveFocus()
+    // The dialog can be found before the sheet's focus effect has committed.
+    await waitFor(() => expect(within(dialog).getByRole('heading', { level: 2, name: 'All the numbers' })).toHaveFocus())
     const toggle = within(screen.getByRole('region', { name: 'Timeline' })).getByRole('button', { name: 'Show me all the numbers' })
     expect(toggle).toHaveAttribute('aria-pressed', 'true')
     // The same clock: the timeline above moves the sheet.
