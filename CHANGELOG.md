@@ -4,6 +4,16 @@ Notable changes and decisions for EcoSim, newest first. The project does not use
 
 ## Unreleased
 
+### 2026-10-22: Remove healthcare R&D; keep payroll pricing opt-in
+
+Owner decision (Ayman): "There is no reason for R&D for healthcare.. it actually does nothing." Healthcare unconditionally returns zero from `FirmAgent.apply_rd_and_quality_update`; other sectors keep their R&D. This removes the phase-11.6 clinic debit that paid investment tax to the treasury and routed the after-tax remainder through miscellaneous revenue, leaves those funds with the clinic, and adds no replacement payment, subsidy, credit or money creation. Existing bonus/dividend rules remain in force. Rules v1.12 records this change and the default-off pricing experiment in M03.
+
+`CONFIG.firms.fix_healthcare_price_covers_payroll` now defaults to **False**. With it off, healthcare keeps main's full-slot pricing, generic baseline warmup pricing and capital behavior. Server sessions and town policy presets inherit that default. Explicit opt-in retains expected-request pricing, the 15% weekly price limit, visit-slot warmup pricing and the healthcare capital exclusion.
+
+The earlier five-seed panel (historical main; weeks 261-312, off -> on) found household harm: on the town's `payment_sequence="legacy"`, care refusals rose 0 -> 0.26/week, poverty 23.1% -> 27.4% and happiness fell 0.71 -> 0.65; on `income_late`, funding denials rose 25 -> 61/week and medical debt 46 -> 411. Clinic solvency alone is not household safety. A price cap or a gap funded by an existing mechanism needs a separate owner decision; neither is implemented here.
+
+Evidence: healthcare contracts explicitly enable the experimental branch, check both omitted/default and explicit-off pricing/warmup/capital, and verify zero healthcare R&D with either flag value. Server tests cover lean/classic frame profiles, all three payment sequences and an initial healthcare policy vector. The requested main-versus-PR defaults panel uses main `8da5a1c`; a second panel checks the merged current-main snapshot `e1fa559`, both with sequences legacy/income_first/income_late, seeds 42-46 and 312 ticks; its artifacts and complete results are linked in PR #56. OpenWiki regeneration remains due (local approved CLI/provider unavailable).
+
 ### 2026-10-22: Owner-approved evidence-panel corrections (#59)
 
 The GitHub-hosted full tier is the reference environment; local and fast-smoke runs are labelled non-reference, and only paired comparisons within one run are supported. Platform/CPU, base evaluator commit and LF-normalized runtime lock hashes are recorded. Digest diagnostics include global Python/NumPy RNG state, loan records, mortgages and payment-ledger totals. Mutation overlays copy when Windows denies symlinks; locked integration tests skip with a clear reason on mismatched local runtimes.
@@ -90,16 +100,6 @@ Evidence: `test_contract_government_objective_uses_long_run_unemployment_band`.
 The bot PRs each brought their own study script, with different household and firm counts, payment sequences, run lengths, seed sets and real-GDP deflators, so reviews kept stalling on numbers that could not be compared or reproduced. `backend/tools/benchmarks/run_evidence_panel.py` is one command that runs every arm on every payment sequence and seed at the dashboard's defaults (1,000 households, 5 firms per category, `income_first` first, seeds 42-46, 260 ticks), one process per run, and writes a paired table by tick window with identity, determinism and money checks. Arms can come from different checkouts, so a PR's flag-off state is compared with `main` directly. Tooling only: no simulation code, config default or flag changes.
 
 Evidence: `backend/tests_contracts/test_evidence_panel.py` (7 tests).
-
-### 2026-10-22: Remove healthcare R&D; keep payroll pricing opt-in
-
-Owner decision (Ayman): "There is no reason for R&D for healthcare.. it actually does nothing." Healthcare unconditionally returns zero from `FirmAgent.apply_rd_and_quality_update`; other sectors keep their R&D. This removes the phase-11.6 clinic debit that paid investment tax to the treasury and routed the after-tax remainder through miscellaneous revenue, leaves those funds with the clinic, and adds no replacement payment, subsidy, credit or money creation. Existing bonus/dividend rules remain in force.
-
-`CONFIG.firms.fix_healthcare_price_covers_payroll` now defaults to **False**. With it off, healthcare keeps main's full-slot pricing, generic baseline warmup pricing and capital behavior. Server sessions and town policy presets inherit that default. Explicit opt-in retains expected-request pricing, the 15% weekly price limit, visit-slot warmup pricing and the healthcare capital exclusion.
-
-The earlier five-seed panel (historical main; weeks 261-312, off -> on) found household harm: on the town's `payment_sequence="legacy"`, care refusals rose 0 -> 0.26/week, poverty 23.1% -> 27.4% and happiness fell 0.71 -> 0.65; on `income_late`, funding denials rose 25 -> 61/week and medical debt 46 -> 411. Clinic solvency alone is not household safety. A price cap or a gap funded by an existing mechanism needs a separate owner decision; neither is implemented here.
-
-Evidence: healthcare contracts explicitly enable the experimental branch, check both omitted/default and explicit-off pricing/warmup/capital, and verify zero healthcare R&D with either flag value. Server tests cover lean/classic frame profiles, all three payment sequences and an initial healthcare policy vector. The requested main-versus-PR defaults panel uses main `8da5a1c`; a second panel checks the merged current-main snapshot `e1fa559`, both with sequences legacy/income_first/income_late, seeds 42-46 and 312 ticks; its artifacts and complete results are linked in PR #56. OpenWiki regeneration remains due (local approved CLI/provider unavailable).
 
 ### 2026-10-20: Read-only estimate of what a queued healthcare visit will cost the household
 
