@@ -41,6 +41,7 @@ from fiscal_guards import (
     can_fund_public_works_startup,
     fiscal_reserve_floor,
     projected_public_works_startup_cost,
+    public_debt_can_borrow,
     trailing_gdp,
     treasury_net_position,
 )
@@ -363,11 +364,13 @@ def _is_meaningful(indicator: str, value: Any) -> bool:
 def _public_debt_visible(raw_metrics: Optional[Dict[str, Any]] = None) -> bool:
     """Whether the prompt shows public-debt lines (G1).
 
-    True with ``public_debt_enabled``, or while debt from an earlier part of
-    the run is still owed. Otherwise every prompt, memory and data-seen line
-    is main's text exactly, so AI-government runs with debt off match main.
+    True when the treasury can borrow (``public_debt_can_borrow``: the flag on
+    the ``legacy`` sequence), or while debt from an earlier part of the run is
+    still owed. Otherwise every prompt, memory and data-seen line is main's
+    text exactly, so AI-government runs with debt off, or on ``income_first``
+    and ``income_late`` where nothing is borrowed, match main.
     """
-    if bool(getattr(CONFIG.government, "public_debt_enabled", False)):
+    if public_debt_can_borrow():
         return True
     return _safe_float((raw_metrics or {}).get("public_debt")) > 0.0
 
@@ -381,9 +384,11 @@ def _build_system_prompt(
     """Build the system prompt for the government agent.
 
     The debt objective and rule 8 (PUBLIC DEBT, so OUTPUT becomes rule 9) are
-    included when the flag is on, or while ``public_debt`` is still above zero
-    after the flag is turned off mid-run. With the flag off and nothing owed
-    this is main's prompt exactly (objective on cash, rules 1-8).
+    included when the treasury can borrow (the flag on the ``legacy``
+    sequence), or while ``public_debt`` is still above zero after the flag is
+    turned off mid-run. Otherwise, including ``income_first`` and
+    ``income_late`` with the flag on, this is main's prompt exactly
+    (objective on cash, rules 1-8).
     """
 
     philosophy_label = str(philosophy or "balanced").strip() or "balanced"

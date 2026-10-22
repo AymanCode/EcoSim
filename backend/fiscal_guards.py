@@ -39,6 +39,21 @@ def trailing_gdp(economy: Any) -> float:
     return max(1.0, households * 25.0)
 
 
+def public_debt_can_borrow() -> bool:
+    """Whether the treasury can take on new public debt in this run (G1).
+
+    True with ``public_debt_enabled`` on the ``legacy`` payment sequence.
+    ``income_first`` and ``income_late`` ration outlays to free treasury cash,
+    so their treasury never goes negative and never borrows; there the flag
+    changes nothing.
+    """
+
+    return (
+        bool(getattr(CONFIG.government, "public_debt_enabled", False))
+        and str(getattr(CONFIG, "payment_sequence", "legacy")) == "legacy"
+    )
+
+
 def annualized_debt_to_gdp(government: Any, recent_gdp: float) -> float:
     """Debt/GDP using annualized tick GDP and public_debt when available."""
 

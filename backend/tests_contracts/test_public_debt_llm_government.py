@@ -397,33 +397,78 @@ def test_deficit_ratio_metric_is_net_of_debt(runs):
 MAIN_FLAG_OFF_PROMPT_SHA256 = "e3ae0f513ef5a30e4d7ec069405ef0ed7adb623f92a13fa4a63886b1d2c66762"
 
 
+def _prompt_bundle(economy, tick):
+    """System and user prompts, fiscal context and policy memory at ``tick``, under the active CONFIG."""
+    from tools.llm.llm_government import _format_policy_impact_memory
+
+    raw = economy.get_economic_metrics()
+    raw["_metrics_history"] = list(economy.metrics_history)
+    memory = _build_recent_policy_memory(
+        [{"tick": 4, "decisions": {"benefit_level": "high"}, "data_seen": _build_data_seen_snapshot(raw)}],
+        economy, target_tick=tick, lookback=3, impact_horizon=13,
+    )
+    return "\n=====\n".join([
+        _build_system_prompt("balanced", 100, 10),
+        _build_user_prompt(raw, {}, tick=tick, recent_policy_memory=memory),
+        _format_fiscal_context(raw, {}),
+        _format_recent_policy_memory(memory),
+        _format_policy_impact_memory(memory),
+    ])
+
+
+def _seeded_economy(ticks):
+    _set_seed(42)
+    with contextlib.redirect_stdout(io.StringIO()):
+        economy = create_large_economy(100, 3)
+        for _ in range(ticks):
+            economy.step()
+            economy.append_metrics_snapshot(economy.get_economic_metrics())
+    return economy
+
+
 def test_flag_off_prompt_bundle_matches_main_byte_for_byte():
     import hashlib
 
-    from tools.llm.llm_government import _format_policy_impact_memory
-
     with use_config(clone_config()):
         CONFIG.government.public_debt_enabled = False
-        _set_seed(42)
-        with contextlib.redirect_stdout(io.StringIO()):
-            economy = create_large_economy(100, 3)
-            for _ in range(20):
-                economy.step()
-                economy.append_metrics_snapshot(economy.get_economic_metrics())
-        raw = economy.get_economic_metrics()
-        raw["_metrics_history"] = list(economy.metrics_history)
-        memory = _build_recent_policy_memory(
-            [{"tick": 4, "decisions": {"benefit_level": "high"}, "data_seen": _build_data_seen_snapshot(raw)}],
-            economy, target_tick=20, lookback=3, impact_horizon=13,
-        )
-        text = "\n=====\n".join([
-            _build_system_prompt("balanced", 100, 10),
-            _build_user_prompt(raw, {}, tick=20, recent_policy_memory=memory),
-            _format_fiscal_context(raw, {}),
-            _format_recent_policy_memory(memory),
-            _format_policy_impact_memory(memory),
-        ])
+        economy = _seeded_economy(20)
+        text = _prompt_bundle(economy, 20)
     assert hashlib.sha256(text.encode()).hexdigest() == MAIN_FLAG_OFF_PROMPT_SHA256
+
+
+@pytest.mark.parametrize("sequence", ["income_first", "income_late"])
+def test_flag_on_prompt_is_the_flag_off_prompt_where_the_treasury_cannot_borrow(sequence):
+    """income_first and income_late ration outlays to cash and never borrow.
+
+    There, turning debt on must change nothing the AI government reads: the
+    prompts, fiscal context, policy memory and data-seen snapshot are the
+    flag-off bundle byte for byte. On legacy, from the same state, the flag
+    adds the debt lines.
+    """
+    import json
+
+    def bundle():
+        raw = economy.get_economic_metrics()
+        return _prompt_bundle(economy, 20) + "\n=====\n" + json.dumps(
+            _build_data_seen_snapshot(raw), sort_keys=True, default=str
+        )
+
+    with use_config(clone_config()):
+        CONFIG.payment_sequence = sequence
+        CONFIG.government.public_debt_enabled = True
+        economy = _seeded_economy(20)
+        assert economy.payment_sequence == sequence
+        assert economy.government.public_debt == 0.0
+        flag_on = bundle()
+        CONFIG.government.public_debt_enabled = False
+        flag_off = bundle()
+        CONFIG.payment_sequence = "legacy"
+        CONFIG.government.public_debt_enabled = True
+        legacy_on = bundle()
+    assert flag_on == flag_off
+    assert "PUBLIC DEBT" not in flag_on
+    assert legacy_on != flag_off
+    assert "\n8. PUBLIC DEBT:" in legacy_on
 
 
 def test_interest_moves_money_to_the_bank_without_destroying_it(runs):
