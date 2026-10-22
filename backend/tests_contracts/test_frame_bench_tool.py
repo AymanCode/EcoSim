@@ -226,3 +226,31 @@ def test_each_arm_setup_names_the_frame_profile_lean_by_default(monkeypatch, pro
                                    deadline_seconds=5.0, **extra)
     assert stub.sent[0]["command"] == "SETUP" and stub.sent[0]["config"]["frame_profile"] == (profile or "lean")
     assert stub.sent[0]["config"]["horizon_ticks"] == 2 and stub.sent[0]["config"]["tracked_households"] == 40
+
+
+@pytest.mark.parametrize("sequence", [None, "income_first", "income_late", "legacy"])
+def test_each_arm_setup_names_the_payment_sequence_income_first_by_default(monkeypatch, sequence):
+    stub = _StubSocket([{"type": "SESSION"}, {"type": "SETUP_COMPLETE"}, _frame(1), _frame(2),
+                        {"type": "HORIZON_REACHED", "tick": 2}, {"type": "FINISHED"}])
+    monkeypatch.setattr(run_frame_bench, "connect", lambda url, **kwargs: stub)
+    extra = {} if sequence is None else {"payment_sequence": sequence}
+    run_frame_bench.run_experiment(base_url="http://127.0.0.1:1", arms=[{"label": "Town A", "initial_policy": {}}],
+                                   households=10, ticks=2, seed=1, warehouse=False, quiet_seconds=1.0,
+                                   deadline_seconds=5.0, **extra)
+    assert stub.sent[0]["config"]["payment_sequence"] == (sequence or "income_first")
+
+
+def test_equivalence_runs_the_smoke_runner_on_the_same_payment_sequence(monkeypatch):
+    from backend.tools.benchmarks import run_newcomer_smoke
+
+    seen = []
+    rows = [{"tick": t, "unemployment_rate": 0.05} for t in range(13)]
+
+    def fake_run_arm(*args, **kwargs):
+        seen.append(kwargs["payment_sequence"])
+        return rows, {}
+
+    monkeypatch.setattr(run_newcomer_smoke, "run_arm", fake_run_arm)
+    for extra in ({}, {"payment_sequence": "legacy"}):
+        run_frame_bench.equivalence(records_for_baseline=[], households=10, ticks=13, seed=1, **extra)
+    assert seen == ["income_first", "legacy"]

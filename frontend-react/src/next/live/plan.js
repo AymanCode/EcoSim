@@ -54,7 +54,9 @@ export function policyChanges(vector) {
 }
 
 // One SETUP config per town, in town order. Every town shares the world
-// (households, seed, horizon); only its rules differ.
+// (households, seed, horizon, payment sequence); only its rules differ.
+// Towns run the income_first sequence: pay arrives before bills, and each bill
+// is paid only from money on hand. The server default stays legacy.
 export function setupConfigs(plan, { experimentId, owner }) {
   return plan.towns.map(town => ({
     num_households: plan.households,
@@ -62,6 +64,7 @@ export function setupConfigs(plan, { experimentId, owner }) {
     horizon_ticks: plan.years * WEEKS_PER_YEAR,
     initial_policy: policyChanges(town.policy),
     frame_profile: 'lean',
+    payment_sequence: 'income_first',
     enable_llm_government: false,
     experiment_id: experimentId,
     arm_label: town.label,

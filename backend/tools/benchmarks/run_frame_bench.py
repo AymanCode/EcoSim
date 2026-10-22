@@ -10,7 +10,8 @@ that the session path reproduces the headless newcomer smoke runner for the same
     .venv/bin/python -m backend.tools.benchmarks.run_frame_bench --households 2500 --ticks 52 --arms 4
     .venv/bin/python -m backend.tools.benchmarks.run_frame_bench --frame-profile legacy   # the old dashboard's frame
 
-Every arm's SETUP carries ``frame_profile`` (``--frame-profile``, default ``lean``).
+Every arm's SETUP carries ``frame_profile`` (``--frame-profile``, default ``lean``) and
+``payment_sequence`` (``--payment-sequence``, default ``income_first``, the sequence the town sends).
 
 Exit codes: 0 when the phase gate passes (every arm within both budgets and the
 equivalence check measured and matched); 2 for a matrix run with
@@ -170,7 +171,7 @@ async def _run_arm(ws_url: str, *, label: str, setup: Dict[str, Any], quiet_seco
 
 def run_experiment(*, base_url: str, arms: List[Dict[str, Any]], households: int, ticks: int, seed: int,
                    warehouse: bool, quiet_seconds: float = 60.0, deadline_seconds: float = 1800.0,
-                   frame_profile: str = "lean") -> Dict[str, List[Dict[str, Any]]]:
+                   frame_profile: str = "lean", payment_sequence: str = "income_first") -> Dict[str, List[Dict[str, Any]]]:
     ws_url = base_url.replace("http", "ws", 1) + "/ws"
     experiment_id = f"bench-{int(time.time())}"
 
@@ -182,7 +183,7 @@ def run_experiment(*, base_url: str, arms: List[Dict[str, Any]], households: int
                 "tracked_households": TRACKED_HOUSEHOLDS,
                 "initial_policy": dict(arm.get("initial_policy") or {}), "enable_llm_government": False,
                 "experiment_id": experiment_id, "arm_label": arm["label"], "arm_count": len(arms), "experiment_owner": "bench",
-                "frame_profile": frame_profile,
+                "frame_profile": frame_profile, "payment_sequence": payment_sequence,
             }
             tasks.append(_run_arm(ws_url, label=arm["label"], setup=setup, quiet_seconds=quiet_seconds,
                                   deadline_seconds=deadline_seconds))
@@ -225,13 +226,14 @@ def summarize(records: List[Dict[str, Any]]) -> Dict[str, Any]:
     }
 
 
-def equivalence(*, records_for_baseline: List[Dict[str, Any]], households: int, ticks: int, seed: int) -> Dict[str, Any]:
+def equivalence(*, records_for_baseline: List[Dict[str, Any]], households: int, ticks: int, seed: int,
+                payment_sequence: str = "income_first") -> Dict[str, Any]:
     """Compare the live session's unemployment with the headless smoke runner at shared checkpoints."""
     from backend.tools.benchmarks import run_newcomer_smoke
 
     baseline_arm = run_newcomer_smoke.resolve_arms(["baseline"])[0]
     smoke_rows, _meta = run_newcomer_smoke.run_arm(
-        baseline_arm, seed=seed, households=households, ticks=ticks, firms_per_category=5, payment_sequence="legacy",
+        baseline_arm, seed=seed, households=households, ticks=ticks, firms_per_category=5, payment_sequence=payment_sequence,
     )
     by_frame_tick = {r["tick"]: r["peopleOutOfWorkPer100"] for r in records_for_baseline}
     by_smoke_tick = {int(row["tick"]): float(row["unemployment_rate"]) * 100.0 for row in smoke_rows}
@@ -312,6 +314,8 @@ def main(argv: Optional[List[str]] = None) -> int:
     parser.add_argument("--skip-equivalence", action="store_true")
     parser.add_argument("--frame-profile", choices=("lean", "legacy"), default="lean",
                         help="SETUP frame_profile for every arm (lean: the new client's frame; legacy: the old dashboard's)")
+    parser.add_argument("--payment-sequence", choices=("income_first", "income_late", "legacy"), default="income_first",
+                        help="SETUP payment_sequence for every arm and the equivalence smoke run (income_first: the town's)")
     parser.add_argument("--quiet", type=float, default=60.0, help="seconds an arm may go without a message")
     parser.add_argument("--deadline", type=float, default=1800.0, help="seconds an arm may run in total")
     parser.add_argument("--output-dir", default=None)
@@ -326,22 +330,26 @@ def main(argv: Optional[List[str]] = None) -> int:
     try:
         results = run_experiment(base_url=base_url, arms=arms, households=args.households, ticks=args.ticks,
                                  seed=args.seed, warehouse=args.warehouse, quiet_seconds=args.quiet,
-                                 deadline_seconds=args.deadline, frame_profile=args.frame_profile)
+                                 deadline_seconds=args.deadline, frame_profile=args.frame_profile,
+                                 payment_sequence=args.payment_sequence)
     finally:
         stop_server(process)
     wall = time.perf_counter() - started
 
     per_arm = {label: summarize(records) for label, records in results.items()}
     equivalence_result = None if args.skip_equivalence else equivalence(
-        records_for_baseline=results[arms[0]["label"]], households=args.households, ticks=args.ticks, seed=args.seed)
+        records_for_baseline=results[arms[0]["label"]], households=args.households, ticks=args.ticks, seed=args.seed,
+        payment_sequence=args.payment_sequence)
     verdict = gate(per_arm, equivalence_result, require_equivalence=not args.skip_equivalence)
     code = exit_code(verdict)
     report = {"households": args.households, "ticks": args.ticks, "arms": args.arms, "seed": args.seed,
-              "warehouse": args.warehouse, "frameProfile": args.frame_profile, "wallClockSeconds": wall, "perArm": per_arm,
+              "warehouse": args.warehouse, "frameProfile": args.frame_profile,
+              "paymentSequence": args.payment_sequence, "wallClockSeconds": wall, "perArm": per_arm,
               "equivalence": equivalence_result, "gate": verdict, "exitCode": code}
     (out_dir / "summary.json").write_text(json.dumps(report, indent=2))
     lines = [f"# Frame bench: {args.arms} arms x {args.households} households, {args.ticks} ticks, seed {args.seed}, "
-             f"warehouse {'on' if args.warehouse else 'off'}, frame profile {args.frame_profile}", "",
+             f"warehouse {'on' if args.warehouse else 'off'}, frame profile {args.frame_profile}, "
+             f"payment sequence {args.payment_sequence}", "",
              f"- wall clock: {wall:.1f} s", ""]
     for label, summary in per_arm.items():
         lines += [f"## {label}",

@@ -56,8 +56,8 @@ describe('createExperiment', () => {
     expect(state.arms[0].horizon).toBe(52)
     t.sockets[0].receive({ type: 'SESSION', sessionId: 'a' })
     expect(t.sockets[0].sent[0].config).toEqual({
-      num_households: 200, seed: 4242, horizon_ticks: 52, initial_policy: {}, frame_profile: 'lean', enable_llm_government: false,
-      experiment_id: 'exp-t', arm_label: 'Town A', arm_count: 2, experiment_owner: 'me',
+      num_households: 200, seed: 4242, horizon_ticks: 52, initial_policy: {}, frame_profile: 'lean',
+      payment_sequence: 'income_first', enable_llm_government: false, experiment_id: 'exp-t', arm_label: 'Town A', arm_count: 2, experiment_owner: 'me',
     })
     t.sockets[0].receive({ type: 'SETUP_COMPLETE', config: { seed: 4242, horizon_ticks: 52 } })
     expect(statuses(t.exp)).toEqual(['ready', 'connecting'])

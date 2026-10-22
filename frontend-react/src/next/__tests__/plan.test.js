@@ -85,8 +85,8 @@ describe('plan', () => {
       ],
     }
     const shared = {
-      num_households: 1000, seed: 48213, horizon_ticks: 260, frame_profile: 'lean', enable_llm_government: false,
-      experiment_id: 'exp-1', arm_count: 2, experiment_owner: 'owner-1',
+      num_households: 1000, seed: 48213, horizon_ticks: 260, frame_profile: 'lean', payment_sequence: 'income_first',
+      enable_llm_government: false, experiment_id: 'exp-1', arm_count: 2, experiment_owner: 'owner-1',
     }
     expect(setupConfigs(plan, { experimentId: 'exp-1', owner: 'owner-1' })).toEqual([
       { ...shared, initial_policy: {}, arm_label: 'Town A' },
