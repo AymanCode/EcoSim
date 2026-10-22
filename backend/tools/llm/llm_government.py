@@ -380,36 +380,39 @@ def _build_system_prompt(
 ) -> str:
     """Build the system prompt for the government agent.
 
-    The debt rule is included when the flag is on, or while ``public_debt``
-    is still above zero after the flag is turned off mid-run. With the flag
-    off and nothing owed this is main's prompt exactly (objective on cash,
-    rules 1-7).
+    The debt objective and rule 8 (PUBLIC DEBT, so OUTPUT becomes rule 9) are
+    included when the flag is on, or while ``public_debt`` is still above zero
+    after the flag is turned off mid-run. With the flag off and nothing owed
+    this is main's prompt exactly (objective on cash, rules 1-8).
     """
 
     philosophy_label = str(philosophy or "balanced").strip() or "balanced"
     schema_text = render_policy_schema_for_prompt()
     if _public_debt_visible(raw_metrics):
         objective = (
-            "Maximize GDP and mean happiness while keeping unemployment low and maintaining "
-            "a sustainable treasury net position (cash minus public debt)."
+            "Maximize GDP and mean happiness while keeping labour-force unemployment "
+            "(labor_force_unemployment_rate) about 10-40% in the long run, and maintaining a sustainable "
+            "treasury net position (cash minus public debt). Above 40% is a red flag, and well under 10% "
+            "is off-target."
         )
         tax_cut_cap = float(CONFIG.government.public_debt_tax_cut_cap)
         debt_rule = (
-            "7. PUBLIC DEBT: When treasury cash runs out, the bank may lend the shortfall (public debt) "
+            "8. PUBLIC DEBT: When treasury cash runs out, the bank may lend the shortfall (public debt) "
             "and charges weekly interest. Spending increases and tax cuts while borrowing are allowed; "
             f"tax cuts are blocked once annualized debt/GDP reaches {tax_cut_cap:.2f}, and spending "
             "increases are blocked at 1.00. "
             "You are judged on the net position (cash minus public debt), the debt trend and the interest "
             "paid, not on cash alone; borrowed money is not revenue.\n"
         )
-        output_rule_number = 8
+        output_rule_number = 9
     else:
         objective = (
-            "Maximize GDP and mean happiness while keeping unemployment low and maintaining "
-            "a sustainable government cash balance."
+            "Maximize GDP and mean happiness while keeping labour-force unemployment "
+            "(labor_force_unemployment_rate) about 10-40% in the long run, and maintaining a sustainable "
+            "government cash balance. Above 40% is a red flag, and well under 10% is off-target."
         )
         debt_rule = ""
-        output_rule_number = 7
+        output_rule_number = 8
 
     return f"""ROLE: You are the AI Central Government of a simulated economy.
 PHILOSOPHY: {philosophy_label}
@@ -422,6 +425,7 @@ CRITICAL SIMULATION RULES:
 4. TAX STEP LIMIT: Tax levers may move by at most 0.05 per decision.
 5. ACTIONS: Include at most 2 substantive policy instrument changes. Mechanical corrections do not count as LLM choices.
 6. PUBLIC WORKS: public_works=on requires unemployment >= 25% and treasury cash sufficient for startup plus reserve.
+7. UNEMPLOYMENT BAND: Choose reduce_unemployment only when labor_force_unemployment_rate is above about 40%. About 10-40% in the long run is the target. Above 40% is a red flag, and well under 10% is off-target.
 {debt_rule}{output_rule_number}. OUTPUT: Return only valid JSON. Do not use markdown, comments, <think> tags, or text outside the JSON object.
 
 POLICY SCHEMA:
@@ -1405,6 +1409,7 @@ MACRO INDICATORS:
 - labor_force_unemployment_rate: can-work households without jobs divided by labor-force households.
 - jobless_rate_total_population: all households without jobs divided by total households.
 - cannot_work_rate: households unavailable for work due to health, training, or similar constraints divided by total households.
+Choose reduce_unemployment only when labor_force_unemployment_rate is above about 40%. About 10-40% in the long run is the target. Above 40% is a red flag, and well under 10% is off-target.
 
 [SECTOR DIAGNOSTICS]
 {_format_sector_diagnostics(sector_diagnostics)}

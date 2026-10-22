@@ -193,6 +193,7 @@ class HouseholdAgent(AgentMixin):
     education_cost_per_skill_point: float = 1000.0  # cost to improve skill by 0.1
     last_skill_update_tick: int = 0  # Tick when skills were last increased (for rate limiting)
     employed_ticks_since_skill_update: int = 0  # Ticks worked since the last skill grant (B31)
+    skill_floor: Optional[float] = None  # Week-1 skill; skills_dynamics never wears skill below it
     last_wage_update_tick: int = 0  # Tick when wage premiums were last increased (for rate limiting)
 
     # Wellbeing and performance factors
@@ -1756,8 +1757,19 @@ class HouseholdAgent(AgentMixin):
             # Passive skill growth through work experience (diminishing returns)
             # Only update skills once every 52 ticks (yearly), crediting the
             # ticks actually worked since the last grant (B31).
-            self.employed_ticks_since_skill_update += 1
-            if current_tick - self.last_skill_update_tick >= 52:
+            # With CONFIG.households.skills_weekly_learning (read only when
+            # skills_dynamics is on), Economy._batch_update_skills credits it
+            # weekly instead; the grant clock is held at "now" so switching
+            # weekly learning off later cannot pay out the on-weeks at once.
+            weekly_learning = bool(
+                CONFIG.households.skills_dynamics and CONFIG.households.skills_weekly_learning
+            )
+            if weekly_learning:
+                self.employed_ticks_since_skill_update = 0
+                self.last_skill_update_tick = current_tick
+            else:
+                self.employed_ticks_since_skill_update += 1
+            if not weekly_learning and current_tick - self.last_skill_update_tick >= 52:
                 skill_improvement = self.skill_growth_rate * (1.0 - self.skills_level)
                 total_improvement = skill_improvement * self.employed_ticks_since_skill_update
                 self.skills_level = min(1.0, self.skills_level + total_improvement)
@@ -1840,7 +1852,14 @@ class HouseholdAgent(AgentMixin):
         cost = 100.0
         if self.cash_balance >= cost:
             self.cash_balance -= cost
+            before = self.skills_level
             self.skills_level = min(1.0, self.skills_level + 0.005)
+            if CONFIG.households.skills_dynamics:
+                # Paid schooling is not an on-the-job gain: it raises the floor
+                # that wear-off while out of work stops at, so it is not lost.
+                if self.skill_floor is None:
+                    self.skill_floor = before
+                self.skill_floor = min(1.0, self.skill_floor + (self.skills_level - before))
             self.education_active_this_tick = True
             self.add_ledger_flow("education", -cost)
             return cost  # Return cost so caller can route it back into the economy
@@ -6417,6 +6436,61 @@ class GovernmentAgent(AgentMixin):
             True if the firm is a registered baseline firm, False otherwise
         """
         return firm_id in self.baseline_firm_ids.values()
+
+    def healthcare_visit_subsidy_share(self) -> float:
+        """Share of a healthcare visit's price the treasury is asked to pay (0..1).
+
+        The ``sector_subsidy`` lever when it targets healthcare at a positive
+        rate; otherwise ``CONFIG.government.healthcare_visit_subsidy_share``
+        (default 0). This is the requested share, before the per-tick
+        subsidy cap; ``Economy.apply_sector_subsidy_payment`` applies the cap.
+        """
+        if self.sector_subsidy_target == "healthcare" and self._sector_subsidy_rate > 0:
+            return self._sector_subsidy_rate
+        return max(0.0, min(1.0, CONFIG.government.healthcare_visit_subsidy_share))
+
+    def expected_healthcare_household_share(
+        self, visit_price: float, *, subsidy_budget_left: float
+    ) -> float:
+        """Share (0..1) of one visit at ``visit_price`` the household pays, given a subsidy budget.
+
+        The legacy visit rule in ``Economy._process_healthcare_services``:
+        the treasury is asked for ``visit_price * healthcare_visit_subsidy_share()``
+        and pays at most ``subsidy_budget_left``; the household pays the rest.
+        The cap is in dollars, so once it binds the share rises with the price.
+        Pure: reads state, charges and reserves nothing.
+
+        This prices one visit against one budget. Several queued visits draw
+        on the same budget, so in the simulation use
+        ``Economy.expected_healthcare_household_shares()``, which walks the
+        queues in service order and passes each visit the budget left after
+        the visits served before it.
+
+        Args:
+            visit_price: the provider's visit price in $. Must be finite and
+                non-negative (the charge path cannot price a NaN or infinite
+                visit either); otherwise ``ValueError``.
+            subsidy_budget_left: $ the treasury can still pay toward this
+                visit. Required, so a caller cannot get an uncapped share by
+                leaving it out. ``math.inf`` means explicitly uncapped; a
+                negative value reads as 0; NaN raises ``ValueError``.
+
+        Returns:
+            ``(price - min(price * share, budget)) / price``, clamped to
+            [0, 1]. At price 0 no dollars are needed, so the cap cannot bind
+            and the result is ``1 - healthcare_visit_subsidy_share()``.
+        """
+        price = float(visit_price)
+        if not math.isfinite(price) or price < 0.0:
+            raise ValueError(f"visit_price must be finite and non-negative, got {visit_price!r}")
+        budget = float(subsidy_budget_left)
+        if math.isnan(budget):
+            raise ValueError("subsidy_budget_left must not be NaN")
+        share = self.healthcare_visit_subsidy_share()
+        if price == 0.0:
+            return max(0.0, min(1.0, 1.0 - share))
+        paid = min(price * share, max(0.0, budget))
+        return max(0.0, min(1.0, (price - paid) / price))
 
     def get_unemployment_benefit_level(self) -> float:
         """

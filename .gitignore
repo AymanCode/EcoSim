@@ -90,11 +90,12 @@ data/
 !openwiki/data/
 !openwiki/data/*.md
 
-# Local agent / IDE settings
+# Local agent / IDE settings. The evidence-panel metrics plugins are source.
 .claude/
 .agents/
 plugins/
-# Evidence-panel metric plugins are part of the PR, not local IDE settings.
+!backend/tools/benchmarks/plugins/
+!backend/tools/benchmarks/plugins/**
 !benchmarks/plugins/
 !benchmarks/plugins/**
 benchmarks/plugins/**/__pycache__/

@@ -391,10 +391,10 @@ def test_deficit_ratio_metric_is_net_of_debt(runs):
     assert metrics["deficit_ratio"] == pytest.approx(-net / max(metrics["gdp_this_tick"], 1.0))
 
 
-# sha256 of the flag-off prompt bundle below, computed on main at f86f140 with the
+# sha256 of the flag-off prompt bundle below, computed on main at 09810f5 with the
 # same code (seed 42, 100 households, 3 firms per category, tick 20). If main's
 # prompt text changes, recompute it on main; it must still equal this branch's flag-off bundle.
-MAIN_FLAG_OFF_PROMPT_SHA256 = "6248c6f80a9995522f167d4f4bb0a63066ea9e53c32d3406fe00cd17189643ad"
+MAIN_FLAG_OFF_PROMPT_SHA256 = "e3ae0f513ef5a30e4d7ec069405ef0ed7adb623f92a13fa4a63886b1d2c66762"
 
 
 def test_flag_off_prompt_bundle_matches_main_byte_for_byte():
