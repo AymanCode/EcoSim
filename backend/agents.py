@@ -29,7 +29,9 @@ production, pricing, credit, and fiscal policy.
 # -----------------------------------------------------------------------------
 import math
 import random
+import statistics
 import zlib
+from collections import deque
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
@@ -2050,6 +2052,17 @@ class FirmAgent(AgentMixin):
     # private Food/Services). Set each tick in firm planning.
     annual_wage_control: bool = False
 
+    # This tick's taxable profit (positive and finite, else 0) and the profit
+    # tax settled against it. pricing_profit_tax_rate is the rate plan_pricing
+    # grosses up by once a valid week has been recorded; until then the gross-up
+    # uses the lever. Left at these defaults on the legacy cash-rank path with
+    # headline pricing, so a metrics plugin sees the same zeros as main.
+    last_taxable_profit: float = 0.0
+    last_profit_tax_paid: float = 0.0
+    pricing_profit_tax_rate: float = 0.20
+    pricing_profit_tax_rate_known: bool = False
+    pricing_rate_nonfinite_count: int = 0
+
     # Loan tracking (for government startup loans)
     government_loan_principal: float = 0.0  # Original loan amount
     government_loan_remaining: float = 0.0  # Remaining balance
@@ -2765,7 +2778,7 @@ class FirmAgent(AgentMixin):
         # after profit_tax_rate is applied, the realised net margin matches 15%.
         break_even = wage_bill / capacity
         target_after_tax_margin = 0.15
-        gross_margin = target_after_tax_margin / max(1.0 - float(profit_tax_rate), 0.10)
+        gross_margin = target_after_tax_margin / max(1.0 - self._gross_up_profit_tax_rate(profit_tax_rate), 0.10)
         target = break_even * (1.0 + gross_margin)
 
         current_margin = (float(self.price) - break_even) / max(float(self.price), 1e-9)
@@ -2774,6 +2787,79 @@ class FirmAgent(AgentMixin):
             "target_price": target,
             "current_margin": current_margin,
         }
+
+    def _gross_up_profit_tax_rate(self, headline_rate: float) -> float:
+        """Rate used to inflate a gross margin so the after-tax margin is the target.
+
+        ``firms.price_on_effective_profit_tax`` false (main's behavior): the lever.
+        True: this firm's last settled effective rate, or the lever when none
+        has been recorded yet or the stored rate is not finite.
+        """
+        headline = float(headline_rate)
+        enabled = CONFIG.firms.price_on_effective_profit_tax
+        if not isinstance(enabled, bool):
+            raise ValueError("firms.price_on_effective_profit_tax must be a bool")
+        if not enabled or not self.pricing_profit_tax_rate_known:
+            return headline
+        rate = float(self.pricing_profit_tax_rate)
+        if not math.isfinite(rate):
+            self.pricing_rate_nonfinite_count += 1
+            return headline
+        return min(0.60, max(0.0, rate))
+
+    def record_effective_profit_tax(
+        self,
+        taxable_profit: float,
+        tax_paid: float,
+        headline_rate: float,
+        update_pricing_rate: bool,
+    ) -> None:
+        """Remember this tick's taxable profit and profit tax, and maybe the pricing rate.
+
+        A positive finite profit with a finite tax sets the effective rate
+        (tax ÷ profit), clamped to [0, 0.60]. Zero tax on a positive profit
+        records 0. A loss keeps the last valid rate, or the lever when there
+        is none yet. A non-finite profit or tax is counted and falls back the
+        same way. ``update_pricing_rate`` is false when prices still use the lever.
+        """
+        headline = float(headline_rate)
+        try:
+            profit = float(taxable_profit)
+        except (TypeError, ValueError):
+            profit = float("nan")
+        try:
+            tax = float(tax_paid)
+        except (TypeError, ValueError):
+            tax = float("nan")
+        if not math.isfinite(profit) or profit <= 0.0:
+            self.last_taxable_profit = 0.0
+            self.last_profit_tax_paid = 0.0 if not math.isfinite(tax) else max(0.0, tax)
+            if not math.isfinite(profit):
+                self.pricing_rate_nonfinite_count += 1
+            if update_pricing_rate and not self.pricing_profit_tax_rate_known:
+                self.pricing_profit_tax_rate = headline
+            return
+        self.last_taxable_profit = profit
+        if not math.isfinite(tax):
+            self.last_profit_tax_paid = 0.0
+            self.pricing_rate_nonfinite_count += 1
+            if update_pricing_rate and not self.pricing_profit_tax_rate_known:
+                self.pricing_profit_tax_rate = headline
+            return
+        self.last_profit_tax_paid = tax
+        if not update_pricing_rate:
+            return
+        if tax == 0.0:
+            rate = 0.0
+        else:
+            rate = tax / profit
+            if not math.isfinite(rate):
+                self.pricing_rate_nonfinite_count += 1
+                if not self.pricing_profit_tax_rate_known:
+                    self.pricing_profit_tax_rate = headline
+                return
+        self.pricing_profit_tax_rate = min(0.60, max(0.0, rate))
+        self.pricing_profit_tax_rate_known = True
 
     def _profit_ema_alpha(self) -> float:
         """Approximate 4-tick smoothing window."""
@@ -4093,7 +4179,7 @@ class FirmAgent(AgentMixin):
         if self.is_baseline and in_warmup:
             labor_cost_per_unit = self.wage_offer / max(self.productivity_per_worker, 1.0)
             # Inflate the 5% markup so the after-tax margin still clears 5%.
-            gross_markup = 0.05 / max(1.0 - float(profit_tax_rate), 0.10)
+            gross_markup = 0.05 / max(1.0 - self._gross_up_profit_tax_rate(profit_tax_rate), 0.10)
             target_price = labor_cost_per_unit * (1.0 + gross_markup)
             return {
                 "price_next": target_price,
@@ -4263,7 +4349,7 @@ class FirmAgent(AgentMixin):
                 # Boom market: full cost recovery + markup + surge premium.
                 # Inflate gross margin so after-tax margin matches the targeted markup + surge.
                 surge = (utilization - 0.85) * 0.5
-                gross_margin = (float(self.markup) + surge) / max(1.0 - float(profit_tax_rate), 0.10)
+                gross_margin = (float(self.markup) + surge) / max(1.0 - self._gross_up_profit_tax_rate(profit_tax_rate), 0.10)
                 target_price = total_cost_per_unit * (1.0 + gross_margin)
             else:
                 # Downturn: smooth interpolation between variable and total cost.
@@ -4326,7 +4412,7 @@ class FirmAgent(AgentMixin):
                 )
                 unit_depreciation = fixed_depreciation_cost / stable_throughput
                 # Inflate the 5% margin floor so after-tax cushion still clears 5%.
-                cost_floor_gross_margin = 0.05 / max(1.0 - float(profit_tax_rate), 0.10)
+                cost_floor_gross_margin = 0.05 / max(1.0 - self._gross_up_profit_tax_rate(profit_tax_rate), 0.10)
                 variable_cost_floor = self.pricing_operating_unit_cost * (1.0 + cost_floor_gross_margin)
                 full_cost_floor = (self.pricing_operating_unit_cost + unit_depreciation) * (1.0 + cost_floor_gross_margin)
 
@@ -6019,7 +6105,15 @@ class GovernmentAgent(AgentMixin):
     social_happiness_multiplier: float = 1.0              # Affects worker happiness/performance
     wage_bracket_scalers: Dict[str, float] = field(default_factory=dict)
     # Fixed-seed profit-tax bracket extras, drawn once at construction (B23).
+    # Read only by the legacy_cash_rank path.
     profit_bracket_extras: Dict[str, float] = field(default_factory=dict)
+    # Trailing 13 weeks of (firm ids, positive finite profits) for the
+    # progressive anchor. Not read by legacy_cash_rank.
+    profit_tax_profit_window: deque = field(default_factory=lambda: deque(maxlen=13))
+    last_profit_tax_nonfinite_excluded: int = 0
+    last_taxable_profit_by_firm: Dict[int, float] = field(default_factory=dict)
+    last_profit_tax_anchor: float = 0.0
+    last_profit_tax_upper: float = 0.0
 
     # ── Valid options / ranges for each lever (class-level constants) ─
     VALID_TAX_RATE_RANGE = TAX_LIMITS["wage_tax_rate"]       # min, max for wage/profit tax
@@ -6586,57 +6680,153 @@ class GovernmentAgent(AgentMixin):
 
         return transfers
 
-    def plan_taxes(
-        self,
-        households: List[Dict[str, object]],
-        firms: List[Dict[str, object]]
-    ) -> Dict[str, Dict[int, float]]:
+    # UK small-profits rate is 19/25 of the main rate. The anchor is the median
+    # positive profit over this many weeks, and the main rate starts at 5x that
+    # (the UK's £50k : £250k ratio).
+    PROFIT_TAX_STYLES = ("progressive", "flat", "legacy_cash_rank")
+    PROFIT_TAX_SMALL_SHARE = 0.76
+    PROFIT_TAX_ANCHOR_WEEKS = 13
+    PROFIT_TAX_UPPER_MULTIPLE = 5.0
+    PROFIT_TAX_MIN_ANCHORED_FIRMS = 4
+
+    def _profit_tax_style(self) -> str:
+        style = CONFIG.government.profit_tax_style
+        if style not in self.PROFIT_TAX_STYLES:
+            raise ValueError(
+                "government.profit_tax_style must be 'progressive', 'flat', or "
+                f"'legacy_cash_rank', got {style!r}"
+            )
+        return style
+
+    def _note_taxable_profits(
+        self, firms: List[Dict[str, object]], *, weekly_profit_assessment: bool,
+    ) -> Dict[int, float]:
+        """Map firm id to positive finite profit, else 0.
+
+        A NaN or infinite profit is excluded (stored as 0, so it owes nothing)
+        and counted. Only the weekly assessment records settlement diagnostics;
+        wage-only and exit assessments must not replace that weekly snapshot.
         """
-        Plan taxes on wages and profits.
+        taxable: Dict[int, float] = {}
+        nonfinite = 0
+        for firm in firms:
+            firm_id = firm["firm_id"]
+            raw = firm.get("profit_before_tax", 0.0)
+            try:
+                profit = float(raw)
+            except (TypeError, ValueError):
+                nonfinite += 1
+                taxable[firm_id] = 0.0
+                continue
+            if not math.isfinite(profit):
+                nonfinite += 1
+                taxable[firm_id] = 0.0
+                continue
+            taxable[firm_id] = profit if profit > 0.0 else 0.0
+        if weekly_profit_assessment:
+            self.last_profit_tax_nonfinite_excluded = nonfinite
+            self.last_taxable_profit_by_firm = taxable
+        return taxable
 
-        Does not mutate state; returns a plan dict.
-
-        Args:
-            households: List of dicts with household_id and wage_income
-            firms: List of dicts with firm_id and profit_before_tax
-
-        Returns:
-            Dict with "wage_taxes" and "profit_taxes", each mapping ID -> tax amount
-        """
-        wage_taxes: Dict[int, float] = {}
-        profit_taxes: Dict[int, float] = {}
-
-        # Band cut-points over households with a positive wage (B23): unemployed
-        # zero-wage households pay no wage tax and do not set the bands.
-        wages = [w for w in (h.get("wage_income", 0.0) for h in households) if w > 0.0]
-        if wages:
-            p25, p50, p60, p70, p90 = np.percentile(wages, [25, 50, 60, 70, 90])
+    def _marginal_relief_rate(
+        self, profit: float, lower: float, upper: float, small: float, main: float,
+    ) -> float:
+        """UK marginal relief. Continuous at L and U, and clamped to [S, M]."""
+        if not upper > lower or profit >= upper:
+            rate = main
+        elif profit <= lower:
+            rate = small
         else:
-            p25 = p50 = p60 = p70 = p90 = 0.0
+            relief_fraction = (main - small) * lower / (upper - lower)
+            rate = main - relief_fraction * (upper - profit) / profit
+        if rate < small:
+            return small
+        if rate > main:
+            return main
+        return rate
 
-        for household in households:
-            household_id = household["household_id"]
-            wage_income = household.get("wage_income", 0.0)
+    def _progressive_anchor(
+        self, firms: List[Dict[str, object]], taxable: Dict[int, float],
+        *, weekly_profit_assessment: bool,
+    ) -> tuple:
+        """Return (anchored, L, U, S, M), advancing only for a weekly assessment.
 
-            if wage_income <= p25:
-                rate = self.wage_tax_rate * self.wage_bracket_scalers.get("low", 0.8)
-            elif wage_income <= p50:
-                rate = self.wage_tax_rate * self.wage_bracket_scalers.get("median", 1.0)
-            elif wage_income <= p60:
-                rate = self.wage_tax_rate * self.wage_bracket_scalers.get("p60", 1.1)
-            elif wage_income <= p70:
-                rate = self.wage_tax_rate * self.wage_bracket_scalers.get("p70", 1.15)
-            elif wage_income <= p90:
-                rate = self.wage_tax_rate * self.wage_bracket_scalers.get("p90", 1.2)
-            else:
-                rate = self.wage_tax_rate * (self.wage_bracket_scalers.get("p90", 1.2) + 0.03)
+        The weekly window includes this tick, even if no firm made a profit.
+        Other assessments use the existing window. No anchor (empty window, L <= 0, or
+        fewer than four distinct profitable firms in the window) means every
+        profitable firm pays the main rate.
+        """
+        if weekly_profit_assessment:
+            ids = []
+            profits = []
+            for firm in firms:
+                profit = taxable.get(firm["firm_id"], 0.0)
+                if profit > 0.0:
+                    ids.append(firm["firm_id"])
+                    profits.append(profit)
+            self.profit_tax_profit_window.append((tuple(ids), tuple(profits)))
+        window_ids: set = set()
+        window_profits: List[float] = []
+        for tick_ids, tick_profits in self.profit_tax_profit_window:
+            window_ids.update(tick_ids)
+            window_profits.extend(tick_profits)
+        main = float(self.profit_tax_rate)
+        small = self.PROFIT_TAX_SMALL_SHARE * main
+        if len(window_ids) < self.PROFIT_TAX_MIN_ANCHORED_FIRMS or not window_profits:
+            self.last_profit_tax_anchor = 0.0
+            self.last_profit_tax_upper = 0.0
+            return False, 0.0, 0.0, small, main
+        lower = float(statistics.median(window_profits))
+        if not math.isfinite(lower) or lower <= 0.0:
+            self.last_profit_tax_anchor = 0.0
+            self.last_profit_tax_upper = 0.0
+            return False, 0.0, 0.0, small, main
+        upper = self.PROFIT_TAX_UPPER_MULTIPLE * lower
+        self.last_profit_tax_anchor = lower
+        self.last_profit_tax_upper = upper
+        return True, lower, upper, small, main
 
-            wage_taxes[household_id] = max(wage_income * rate, 0.0)
+    def _progressive_profit_taxes(
+        self, firms: List[Dict[str, object]], taxable: Dict[int, float],
+        *, weekly_profit_assessment: bool,
+    ) -> Dict[int, float]:
+        anchored, lower, upper, small, main = self._progressive_anchor(
+            firms, taxable, weekly_profit_assessment=weekly_profit_assessment,
+        )
+        taxes: Dict[int, float] = {}
+        for firm in firms:
+            firm_id = firm["firm_id"]
+            profit = taxable.get(firm_id, 0.0)
+            if profit <= 0.0:
+                taxes[firm_id] = 0.0
+                continue
+            rate = (
+                self._marginal_relief_rate(profit, lower, upper, small, main)
+                if anchored else main
+            )
+            taxes[firm_id] = profit * rate if profit * rate > 0.0 else 0.0
+        return taxes
 
-        # WEALTH-BASED PROGRESSIVE TAXATION FOR FIRMS
-        # Use quartiles of firm cash balance to determine tax brackets
-        # This ensures consistent progressive taxation regardless of absolute wealth levels
+    def _flat_profit_taxes(
+        self, firms: List[Dict[str, object]], taxable: Dict[int, float],
+    ) -> Dict[int, float]:
+        """Every positive profit pays the lever. Losses and non-finite profits owe 0."""
+        main = float(self.profit_tax_rate)
+        return {
+            firm["firm_id"]: (taxable.get(firm["firm_id"], 0.0) * main
+                              if taxable.get(firm["firm_id"], 0.0) > 0.0 else 0.0)
+            for firm in firms
+        }
 
+    def _legacy_cash_rank_profit_taxes(self, firms: List[Dict[str, object]]) -> Dict[int, float]:
+        """Main's cash-ranked profit tax (B23), unchanged.
+
+        Quartiles of firm ``cash_balance``. On the legacy payment sequence the
+        tax snapshot omits cash, so every firm reads 0 and lands in the bottom
+        bracket, which is main's result. This path stays byte-for-byte that
+        calculation so ``legacy_cash_rank`` with headline pricing matches main.
+        """
+        profit_taxes: Dict[int, float] = {}
         firm_cash = [f.get("cash_balance", 0.0) for f in firms]
 
         if firm_cash and len(firm_cash) >= 4:
@@ -6697,6 +6887,76 @@ class GovernmentAgent(AgentMixin):
 
             # Calculate total profit tax
             profit_taxes[firm_id] = max(profit_before_tax * rate, 0.0)
+        return profit_taxes
+
+    def plan_taxes(
+        self,
+        households: List[Dict[str, object]],
+        firms: List[Dict[str, object]],
+        *,
+        weekly_profit_assessment: bool = False,
+    ) -> Dict[str, Dict[int, float]]:
+        """
+        Plan taxes on wages and profits.
+
+        Does not move money. The phase-7 weekly profit assessment owns the
+        rolling anchor window and settlement diagnostics. Other calls assess
+        tax without advancing the window or replacing the weekly snapshot.
+        The legacy cash-rank tax calculation is unchanged.
+
+        Args:
+            households: List of dicts with household_id and wage_income
+            firms: List of dicts with firm_id and profit_before_tax
+            weekly_profit_assessment: True only for the weekly phase-7 call,
+                including weeks with no positive profit; False for wages and exits.
+
+        Returns:
+            Dict with "wage_taxes" and "profit_taxes", each mapping ID -> tax amount
+        """
+        wage_taxes: Dict[int, float] = {}
+        profit_taxes: Dict[int, float] = {}
+
+        # Band cut-points over households with a positive wage (B23): unemployed
+        # zero-wage households pay no wage tax and do not set the bands.
+        wages = [w for w in (h.get("wage_income", 0.0) for h in households) if w > 0.0]
+        if wages:
+            p25, p50, p60, p70, p90 = np.percentile(wages, [25, 50, 60, 70, 90])
+        else:
+            p25 = p50 = p60 = p70 = p90 = 0.0
+
+        for household in households:
+            household_id = household["household_id"]
+            wage_income = household.get("wage_income", 0.0)
+
+            if wage_income <= p25:
+                rate = self.wage_tax_rate * self.wage_bracket_scalers.get("low", 0.8)
+            elif wage_income <= p50:
+                rate = self.wage_tax_rate * self.wage_bracket_scalers.get("median", 1.0)
+            elif wage_income <= p60:
+                rate = self.wage_tax_rate * self.wage_bracket_scalers.get("p60", 1.1)
+            elif wage_income <= p70:
+                rate = self.wage_tax_rate * self.wage_bracket_scalers.get("p70", 1.15)
+            elif wage_income <= p90:
+                rate = self.wage_tax_rate * self.wage_bracket_scalers.get("p90", 1.2)
+            else:
+                rate = self.wage_tax_rate * (self.wage_bracket_scalers.get("p90", 1.2) + 0.03)
+
+            wage_taxes[household_id] = max(wage_income * rate, 0.0)
+
+        # Profit tax. progressive (default) is the UK-style schedule;
+        # flat charges the lever; legacy_cash_rank is main's cash bands.
+        style = self._profit_tax_style()
+        taxable = self._note_taxable_profits(
+            firms, weekly_profit_assessment=weekly_profit_assessment,
+        )
+        if style == "legacy_cash_rank":
+            profit_taxes = self._legacy_cash_rank_profit_taxes(firms)
+        elif style == "flat":
+            profit_taxes = self._flat_profit_taxes(firms, taxable)
+        else:
+            profit_taxes = self._progressive_profit_taxes(
+                firms, taxable, weekly_profit_assessment=weekly_profit_assessment,
+            )
 
         # Calculate property taxes for housing firms
         property_taxes = {}

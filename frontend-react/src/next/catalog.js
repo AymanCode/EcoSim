@@ -330,10 +330,10 @@ export const LEVERS = {
   },
   profit_tax_rate: {
     name: 'the tax on profits',
-    help: 'Sets the tax on business profits, with richer businesses paying a larger share.',
+    help: 'Sets the main tax rate on business profits. Smaller profits pay a lower rate (about three quarters of it), rising smoothly to the main rate.',
     kind: 'rate',
     values: {},
-    policy: rate => `a ${percent(rate)} tax on profits`,
+    policy: rate => `a ${percent(rate)} main rate on business profits`,
   },
   investment_tax_rate: {
     name: 'the tax on investment',

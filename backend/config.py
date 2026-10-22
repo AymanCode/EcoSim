@@ -458,6 +458,9 @@ class FirmBehaviorConfig:
     min_private_firms_per_competing_sector: int = 2  # floor for food + services; prevents monopoly in small sims
 
     # Pricing & Costs
+    # True (default): a firm grosses its price up by its own last-week effective
+    # profit-tax rate. False: the headline lever, as on main.
+    price_on_effective_profit_tax: bool = True
     default_unit_cost: float = 5.0
     default_markup: float = 0.3
     default_price: float = 6.5
@@ -822,6 +825,13 @@ class GovernmentPolicyConfig:
     rent_stabilization_soft_max_increase: float = 1.02
     rent_stabilization_strict_max_increase: float = 1.005
 
+    # Profit-tax schedule. "progressive" (default): UK-style small and main
+    # rates with marginal relief, ranked by taxable profit. "flat": every
+    # profitable firm pays profit_tax_rate (the comparison folded in from #49).
+    # "legacy_cash_rank": main's cash-ranked bands, so this value with
+    # firms.price_on_effective_profit_tax False reproduces main. Read each tick.
+    profit_tax_style: str = "progressive"
+
     # Public debt held by the bank (round 1 G1). True (default): when the
     # treasury ends its spending with negative cash, it borrows from the bank,
     # up to the bank's lendable cash (reserves above the reserve requirement),
@@ -1092,6 +1102,14 @@ class SimulationConfig:
             raise ValueError("ticks_per_year must be positive")
         if self.time.warmup_ticks < 0:
             raise ValueError("warmup_ticks cannot be negative")
+
+        if self.government.profit_tax_style not in {"progressive", "flat", "legacy_cash_rank"}:
+            raise ValueError(
+                "government.profit_tax_style must be 'progressive', 'flat', or "
+                f"'legacy_cash_rank', got {self.government.profit_tax_style!r}"
+            )
+        if not isinstance(self.firms.price_on_effective_profit_tax, bool):
+            raise ValueError("firms.price_on_effective_profit_tax must be a bool")
 
         # Validate the inflation model switch and review assumptions
         inflation = self.inflation

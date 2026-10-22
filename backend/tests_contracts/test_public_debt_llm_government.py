@@ -394,6 +394,9 @@ def test_flag_off_prompt_bundle_matches_main_byte_for_byte():
 
     with use_config(clone_config()):
         CONFIG.government.public_debt_enabled = False
+        # The stored pre-tax-reform trajectory isolates public-debt changes.
+        CONFIG.government.profit_tax_style = "legacy_cash_rank"
+        CONFIG.firms.price_on_effective_profit_tax = False
         economy = _seeded_economy(20)
         text = _prompt_bundle(economy, 20)
     assert hashlib.sha256(text.encode()).hexdigest() == MAIN_FLAG_OFF_PROMPT_SHA256

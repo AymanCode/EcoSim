@@ -48,8 +48,8 @@ def test_step_uses_employer_floor_for_payroll_tax_and_receipt_then_keeps_late_cu
     tax_records = []
     original_taxes = government.plan_taxes
 
-    def record_taxes(households, firms):
-        plan = original_taxes(households, firms)
+    def record_taxes(households, firms, *, weekly_profit_assessment=False):
+        plan = original_taxes(households, firms, weekly_profit_assessment=weekly_profit_assessment)
         if households:  # Wage assessment now precedes the separate profit assessment.
             tax_records.append((households[0]["wage_income"], plan["wage_taxes"][1]))
         return plan
