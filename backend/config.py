@@ -371,7 +371,7 @@ class HouseholdBehaviorConfig:
     # no writer uses (so they always fell back to default_price_level).
     fix_category_price_beliefs: bool = False
     # skill_decay_unemployment_threshold / skill_decay_rate_per_tick /
-    # skill_decay_floor were retired 2026-10-20 (households skills PR): no code
+    # skill_decay_floor were retired 2026-10-21 (households skills PR): no code
     # read them, and skills_dynamics below is the one skill-loss mechanism
     # (rule R12). Their old values (26 ticks, 0.002/tick, floor 0.1) are
     # recorded in the CHANGELOG entry of that date.
