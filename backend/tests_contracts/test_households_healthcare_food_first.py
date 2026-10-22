@@ -110,14 +110,65 @@ def test_stock_less_seller_does_not_set_the_food_cost():
     assert economy._min_food_cost()[0] == pytest.approx(h.min_food_per_tick * FOOD_PRICE)
 
 
-def test_all_food_sellers_out_of_stock_gives_zero_not_nan():
+def test_all_food_sellers_out_of_stock_uses_the_highest_posted_price():
+    # Round-4 review B1: income_first and income_late plan before production.
+    # A tick that opens with every Food firm sold out still has posted prices.
     h = _worker(1, 100.0)
     empty = _firm(902, "Food", 40.0)
     empty.inventory_units = 0.0
     economy, _ = _economy([h], extra_firms=[empty])
     economy.firm_lookup[901].inventory_units = 0.0
     cost = economy._min_food_cost()
-    assert cost[0] == 0.0 and np.all(np.isfinite(cost))
+    assert cost[0] == pytest.approx(h.min_food_per_tick * 40.0)
+    assert np.all(np.isfinite(cost))
+    economy.firms = [firm for firm in economy.firms if (firm.good_category or "").lower() != "food"]
+    assert economy._min_food_cost()[0] == 0.0  # no Food firms at all
+
+
+def test_stock_present_keeps_the_in_stock_price():
+    # The no-stock fallback does not change the price when anyone has stock.
+    h = _worker(1, 100.0)
+    empty = _firm(902, "Food", 40.0)
+    empty.inventory_units = 0.0
+    economy, _ = _economy([h], extra_firms=[empty])
+    with_stock = economy._min_food_cost()[0]
+    assert with_stock == pytest.approx(h.min_food_per_tick * FOOD_PRICE)
+    economy.firm_lookup[901].inventory_units = 0.0
+    assert economy._min_food_cost()[0] == pytest.approx(h.min_food_per_tick * 40.0)
+    assert economy._min_food_cost()[0] != pytest.approx(with_stock)
+
+
+def test_income_first_sold_out_food_is_not_spent_on_the_visit(on, monkeypatch):
+    # Behavior: under income_first, every Food firm at inventory 0 with a
+    # posted price, the queued household's food claim is still positive and
+    # the visit reserve does not spend the money needed for minimum food.
+    queued = _worker(1, 0.0)
+    posted = 9.0
+    cfg = clone_config()
+    cfg.payment_sequence = "income_first"
+    cfg.households.healthcare_food_first_reserve = True
+    with use_config(cfg):
+        economy, clinic = _economy([queued], extra_firms=[_firm(902, "Food", posted)])
+        _queue(queued, clinic)
+        for firm in economy.firms:
+            if (firm.good_category or "").lower() == "food":
+                firm.inventory_units = 0.0
+        food = float(economy._min_food_cost()[0])
+        assert food == pytest.approx(queued.min_food_per_tick * posted)
+        assert food > 0.0
+        queued.cash_balance = food
+
+        def planning_inputs(economy_arg):
+            wages = [h.wage if h.is_employed else 0.0 for h in economy_arg.households]
+            liquidity = [max(0.0, h.cash_balance) for h in economy_arg.households]
+            return wages, liquidity, {}
+
+        monkeypatch.setattr("payment_behavior.planning_inputs", planning_inputs)
+        assert economy.payment_sequence == "income_first"
+        reserve = float(economy._healthcare_food_first_reserves(np.array([food]))[0])
+        budget = _budgets(economy)[0]
+    assert reserve == pytest.approx(0.0)
+    assert budget == pytest.approx(food)
 
 
 def test_one_high_price_seller_with_one_unit_sets_the_food_cost():

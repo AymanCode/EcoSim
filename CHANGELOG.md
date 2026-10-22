@@ -10,7 +10,7 @@ Ayman's decision on #47: the doctor's visit comes after food, on every payment s
 
 - **Claim order** in `Economy._household_consumption_budgets`, on every payment sequence:
   1. rent and loan installments (`_legacy_obligations_due` on legacy, `planning_inputs` on the payment arms, both as before);
-  2. minimum food, `min_food_per_tick` x the highest posted price among Food sellers with stock (`_min_food_cost`; Q6-B; sellers with `inventory_units <= 0` are left out, and with none in stock the food claim is 0);
+  2. minimum food, `min_food_per_tick` x the highest posted price among Food sellers with stock (`_min_food_cost`; Q6-B; sellers with `inventory_units <= 0` are left out while anyone has stock). When none have stock, the claim uses the highest posted price among all active Food firms. `income_first` and `income_late` plan before production, so a tick that opens with every Food firm sold out would otherwise price food at 0 and let the visit reserve take that money. The claim is 0 only when no Food firm posts a positive finite price;
   3. the queued visit's expected out-of-pocket cost, capped at what food leaves (`_healthcare_food_first_reserves`);
   4. the rest of the budget.
 - **Drawdown before the reserve (round-2 item 54.1):** the savings and desperation drawdowns are computed on the liquidity before the reserve, and the reserve only caps the result: budget = min(flag-off budget, liquidity - reserve). So the budget never falls below min(flag-off budget, minimum-food cost).
@@ -20,7 +20,7 @@ Ayman's decision on #47: the doctor's visit comes after food, on every payment s
 - **Unchanged:** nothing is charged or moved before service, and the charge at service is unchanged.
 - **Known limitation (government's, not fixed here):** settlement still charges a stale queue entry that the getter prices at $0.
 
-Evidence: `test_households_healthcare_food_first.py` (unit tests, a 200-case property test of the budget rule, the stock-less and one-unit sellers, and live `Economy.step()` runs on all three sequences). Evidence panel (#58), 3 sequences x 5 seeds, arms main / off / on: see the PR.
+Evidence: `test_households_healthcare_food_first.py` (unit tests, a 200-case property test of the budget rule, the stock-less and one-unit sellers, the sold-out income_first claim, and live `Economy.step()` runs on all three sequences). Evidence panel (#58), 3 sequences x 5 seeds, arms main / off / on: see the PR.
 
 ### 2026-10-21: Shared evidence panel for behavior-changing PRs
 

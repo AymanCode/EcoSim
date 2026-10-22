@@ -1131,22 +1131,42 @@ class Economy:
     def _min_food_cost(self) -> np.ndarray:
         """Each household's minimum-food cost this tick, in self.households order.
 
-        ``min_food_per_tick`` x the highest posted price among Food firms that
-        have stock (``inventory_units > 0``) and a positive finite price. The
-        highest price, not the mean the planner's set-aside uses, because the
-        household buys from the seller its purchase style picks: at the mean
-        price, a budget held to the food cost bought only about 91% of minimum
-        food on income_first (seed 42). Sellers with no stock are left out:
-        nobody can buy from them, and one stock-less $40 seller raised the
-        food claim from 6 to 61 (round-2 review 54.2). All zeros when no Food
-        firm with stock posts a positive price.
+        ``min_food_per_tick`` times the highest positive finite posted price
+        among Food firms that have stock (``inventory_units > 0``). When none
+        have stock, the same highest price among all active Food firms (those
+        still in the economy), ignoring stock. All zeros only when no Food
+        firm posts a positive finite price.
+
+        The highest price, not the mean, because this reserve is a ceiling:
+        the minimum-food basket must not come up short at whichever seller
+        the household's purchase style picks. Queued food-first planning sets
+        aside the mean posted Food price as the expected spend
+        (``HouseholdAgent._plan_category_purchases``). Sellers with no stock
+        are left out while anyone has stock: nobody can buy from an empty
+        seller, and one stock-less $40 seller raised the food claim from 6 to
+        61 (round-2 review 54.2).
+
+        ``income_first`` and ``income_late`` plan consumption before
+        production. If every Food firm sold out last tick, a stock-only price
+        is 0 and the visit reserve takes the food money. The no-stock
+        fallback prices the claim at the posted prices those firms will
+        produce into. Legacy replans after production, so it already sees
+        this tick's stock.
         """
-        prices = [
-            float(f.price) for f in self.firms
-            if (f.good_category or "").lower() == "food"
-            and math.isfinite(float(f.price)) and f.price > 0
-            and float(f.inventory_units) > 0.0
-        ]
+        def posted(require_stock: bool) -> list[float]:
+            prices: list[float] = []
+            for firm in self.firms:
+                if (firm.good_category or "").lower() != "food":
+                    continue
+                price = float(firm.price)
+                if not (math.isfinite(price) and price > 0.0):
+                    continue
+                if require_stock and not (float(firm.inventory_units) > 0.0):
+                    continue
+                prices.append(price)
+            return prices
+
+        prices = posted(True) or posted(False)
         if not prices:
             return np.zeros(len(self.households), dtype=np.float64)
         need = np.fromiter((h.min_food_per_tick for h in self.households), dtype=np.float64, count=len(self.households))
