@@ -38,7 +38,7 @@ The dashboard connects to `ws://localhost:8002/ws` through the Vite or Nginx pro
 Stable backend gate:
 
 ```bash
-python -m pip install -c backend/requirements.lock -e ".[test,ml]"
+python -m pip install -c backend/requirements.lock -c backend/requirements-test.lock -e ".[test,ml]"
 python -m pytest
 ```
 

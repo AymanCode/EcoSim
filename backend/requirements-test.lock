@@ -1,0 +1,27 @@
+#
+# Test and lint tools, layered on backend/requirements.lock.
+#
+# The Docker image installs backend/requirements.lock only. CI and the
+# evidence panel workflow install both files:
+#
+#    pip install -c backend/requirements.lock -c backend/requirements-test.lock -e ".[test,ml]"
+#
+# Pins come from the Python 3.11 resolution of
+#    pip-compile --extra=ml --extra=test --strip-extras pyproject.toml
+# minus every pin already in backend/requirements.lock. A package must not
+# appear in both files; test_evidence_panel.py checks that.
+#
+iniconfig==2.3.1
+    # via pytest
+pluggy==1.7.0
+    # via pytest
+pygments==2.21.0
+    # via pytest
+pytest==9.1.1
+    # via
+    #   ecosim (pyproject.toml)
+    #   pytest-asyncio
+pytest-asyncio==1.4.0
+    # via ecosim (pyproject.toml)
+ruff==0.17.1
+    # via ecosim (pyproject.toml)

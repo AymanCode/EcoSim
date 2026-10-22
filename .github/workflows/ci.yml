@@ -29,9 +29,10 @@ jobs:
           cache-dependency-path: |
             pyproject.toml
             backend/requirements.lock
+            backend/requirements-test.lock
 
       - name: Install dependencies
-        run: pip install -c backend/requirements.lock -e ".[test,ml]"
+        run: pip install -c backend/requirements.lock -c backend/requirements-test.lock -e ".[test,ml]"
 
       - name: Python correctness lint
         run: python -m ruff check .
