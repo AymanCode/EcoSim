@@ -1,4 +1,4 @@
-"""#58 evidence-panel metrics plugin for skills wear-off with a week-1 floor.
+"""#58 evidence-panel metrics plugin for #51 (skills wear-off with a week-1 floor).
 
 extra_metrics(economy) is called after each tick. Read-only: it reads
 household attributes and keeps its own week-1 record; it changes no model

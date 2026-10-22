@@ -44,6 +44,7 @@ benchmarks/results/*
 screenshots/
 testing_screenshots/
 frontend-react/test-results/
+frontend-react/playwright-report/
 *.pdf
 
 # SQLite/data outputs
@@ -89,11 +90,10 @@ data/
 !openwiki/data/
 !openwiki/data/*.md
 
-# Local agent / IDE settings
+# Local agent / IDE settings. The evidence-panel metrics plugins are source.
 .claude/
 .agents/
 plugins/
-# Panel metrics live under the benchmark tools; the rule above is for IDE plugins.
 !backend/tools/benchmarks/plugins/
 !backend/tools/benchmarks/plugins/**
 
