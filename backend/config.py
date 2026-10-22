@@ -101,7 +101,8 @@ class HouseholdBehaviorConfig:
     #   kept as a kill-switch). While a household is queued for a healthcare
     #   visit, its weekly consumption budget holds back the visit's expected
     #   out-of-pocket cost (government's
-    #   Economy.expected_healthcare_out_of_pocket_all(), #45), after minimum
+    #   Economy.expected_healthcare_out_of_pocket_all(), #45; a provider with
+    #   a NaN or infinite price reserves $0), after minimum
     #   food. Claim order on accessible liquidity L, every payment sequence:
     #   rent and loan installments -> minimum food (min_food_per_tick x the
     #   highest posted price among Food sellers with stock, or among all

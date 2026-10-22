@@ -1200,6 +1200,12 @@ class Economy:
         seller, and one stock-less $40 seller raised the food claim from 6 to
         61 (round-2 review 54.2).
 
+        Weak spot of the maximum: one high-priced seller with very little
+        stock (a fringe seller, not a dominant one) sets every household's
+        food claim. That errs toward food: the claim goes up, so the visit
+        reserve goes down and households hold back less for the doctor.
+        Food money is never under-claimed by it.
+
         ``income_first`` and ``income_late`` plan consumption before
         production. If every Food firm sold out last tick, a stock-only price
         is 0 and the visit reserve takes the food money. The no-stock
@@ -1232,9 +1238,13 @@ class Economy:
         ``reserve = min(out_of_pocket, max(0, liquidity - min_food_cost))``,
         per household in self.households order, where ``liquidity`` is what is
         left after rent and loan installments and ``out_of_pocket`` comes from
-        government's ``expected_healthcare_out_of_pocket_all()`` (one queue
-        walk per pass; $0 for a household that is not validly queued, and $0
-        when care is covered). So the visit never takes minimum-food money and
+        government's queue walk, the body of
+        ``expected_healthcare_out_of_pocket_all()`` (one walk per pass; $0
+        for a household that is not validly queued, and $0 when care is
+        covered). A provider with a NaN or infinite price is skipped, so its
+        households reserve $0 and the budget pass does not raise; the getter
+        itself still raises on legacy. The legacy charge reads a NaN price
+        as $0 (``max(0, price)``). So the visit never takes minimum-food money and
         never more than is left. Read-only: nothing is charged or moved; the
         charge at service is unchanged.
 
@@ -1246,7 +1256,7 @@ class Economy:
         little food.
         """
         reserves = np.zeros(len(self.households), dtype=np.float64)
-        out_of_pocket = self.expected_healthcare_out_of_pocket_all()
+        out_of_pocket = self._healthcare_out_of_pocket_by_household(skip_non_finite_price=True)
         self._healthcare_food_first_ids = frozenset(
             household_id for household_id, cost in out_of_pocket.items() if cost > 0.0
         )
@@ -1703,7 +1713,9 @@ class Economy:
             visit_price, subsidy_budget_left=budget_before_visit
         )
 
-    def _healthcare_quote_walk(self) -> Dict[int, Tuple[FirmAgent, float]]:
+    def _healthcare_quote_walk(
+        self, *, skip_non_finite_price: bool = False
+    ) -> Dict[int, Tuple[FirmAgent, float]]:
         """One queue walk: ``{household_id: (provider, estimated share 0..1)}`` for every queued household.
 
         Read-only: nothing is charged, reserved, reordered or recorded.
@@ -1738,6 +1750,13 @@ class Economy:
             ValueError: a queued provider's price is NaN or infinite.
             A negative price is clamped to 0, as the charge does
             (``max(0, price)``).
+
+        ``skip_non_finite_price`` (private; the food-first budget pass,
+        ``_healthcare_food_first_reserves``): instead of raising, leave a
+        provider with a NaN or infinite price out of the walk, so its queued
+        households get no quote. It takes nothing off the subsidy budget, as
+        a $0 visit would not, so the other providers' quotes are unchanged.
+        The legacy charge reads a NaN price as ``max(0, nan) = 0``.
         """
         walk: Dict[int, Tuple[FirmAgent, float]] = {}
         if self.payment_sequence != "legacy":
@@ -1745,6 +1764,8 @@ class Economy:
 
             share = 0.0 if payment_care_covered(self) else 1.0
             for firm in self._healthcare_firms():
+                if skip_non_finite_price and not math.isfinite(float(firm.price)):
+                    continue
                 for household_id in firm.healthcare_queue:
                     household = self.household_lookup.get(household_id)
                     if household is not None and household.queued_healthcare_firm_id == firm.firm_id:
@@ -1776,6 +1797,8 @@ class Economy:
             slots = int(math.floor(capacity + 1e-9))
             price = float(firm.price)
             if not math.isfinite(price):
+                if skip_non_finite_price:
+                    continue
                 raise ValueError(f"healthcare firm {firm.firm_id} price must be finite, got {firm.price!r}")
             price = max(0.0, price)  # the charge reads max(0, price)
             served = 0
@@ -1814,8 +1837,21 @@ class Economy:
         legacy, firm exits do not clear the queue id and ids are reused, so
         such stale entries do occur.
         """
+        return self._healthcare_out_of_pocket_by_household()
+
+    def _healthcare_out_of_pocket_by_household(
+        self, *, skip_non_finite_price: bool = False
+    ) -> Dict[int, float]:
+        """``expected_healthcare_out_of_pocket_all()``'s body, with the walk's private option.
+
+        ``skip_non_finite_price=True`` (the food-first budget pass): a
+        household queued at a provider with a NaN or infinite price is left
+        out ($0) rather than raising on legacy or coming back as ``inf`` or
+        ``nan`` on the payment sequences.
+        """
         dollars: Dict[int, float] = {}
-        for household_id, (firm, share) in self._healthcare_quote_walk().items():
+        walk = self._healthcare_quote_walk(skip_non_finite_price=skip_non_finite_price)
+        for household_id, (firm, share) in walk.items():
             household = self.household_lookup.get(household_id)
             if household is None or household.queued_healthcare_firm_id != firm.firm_id:
                 continue

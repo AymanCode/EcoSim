@@ -172,9 +172,11 @@ def test_income_first_sold_out_food_is_not_spent_on_the_visit(on, monkeypatch):
 
 
 def test_one_high_price_seller_with_one_unit_sets_the_food_cost():
-    # Business review: the max over in-stock sellers lets one high-price seller
-    # with a single unit set every household's food claim. Recorded here as the
-    # current rule (Q6-B); hardening it (option D) is a follow-up.
+    # Business review: the max over in-stock sellers lets one fringe seller
+    # (high price, a single unit) set every household's food claim. The claim
+    # goes up, so the visit reserve goes down; food is not under-claimed.
+    # Recorded here as the current rule (Q6-B); hardening it (option D) is a
+    # follow-up.
     h = _worker(1, 100.0)
     pricey = _firm(902, "Food", 12.0)
     pricey.inventory_units = 1.0
@@ -295,6 +297,49 @@ def test_bad_inputs_and_edges(on):
     assert economy2._healthcare_food_first_reserves(np.array([-5.0]))[0] == 0.0
     economy2.firm_lookup[901].price = float("nan")
     assert economy2._min_food_cost()[0] == 0.0  # non-finite Food price ignored
+
+
+def _two_clinics(bad_price):
+    """Household 1 queued at the $60 clinic, household 2 at a clinic posting ``bad_price``."""
+    fine, stuck = _worker(1, 200.0), _worker(2, 200.0)
+    bad = _firm(902, "Healthcare", VISIT)
+    economy, clinic = _economy([stuck, fine], extra_firms=[bad])
+    economy.firms = [bad, clinic, *[f for f in economy.firms if f not in (bad, clinic)]]
+    _queue(fine, clinic)
+    _queue(stuck, bad)
+    bad.price = bad_price
+    return economy
+
+
+@pytest.mark.parametrize("bad_price", [float("nan"), float("inf")])
+def test_non_finite_clinic_price_reserves_nothing_on_legacy(on, bad_price):
+    # #45's quote walk raises on a NaN or infinite provider price. The budget
+    # pass skips that one provider instead, so it cannot fail every tick: its
+    # household reserves $0 (the legacy charge reads a NaN price as
+    # max(0, nan) = 0), and the other clinic's household keeps its reserve.
+    economy = _two_clinics(bad_price)
+    budgets = _budgets(economy)
+    assert budgets[0] == pytest.approx(200.0)  # at the bad clinic: no reserve
+    assert budgets[1] == pytest.approx(200.0 - VISIT)  # at the $60 clinic: reserve kept
+    assert economy._healthcare_food_first_ids == frozenset({1})
+    with pytest.raises(ValueError):
+        economy.expected_healthcare_out_of_pocket_all()  # the public getter still raises
+
+
+@pytest.mark.parametrize("bad_price", [float("nan"), float("inf")])
+def test_non_finite_clinic_price_reserves_nothing_on_payment_sequences(bad_price):
+    # The payment-sequence walk has no price check, so the public getter
+    # returns inf (or 0 for NaN) for that household. The budget pass leaves
+    # the provider out: no inf reserve.
+    cfg = clone_config()
+    cfg.payment_sequence = "income_first"
+    cfg.households.healthcare_food_first_reserve = True
+    with use_config(cfg):
+        economy = _two_clinics(bad_price)
+        reserves = economy._healthcare_food_first_reserves(np.array([200.0, 200.0]))
+    assert reserves[0] == 0.0
+    assert reserves[1] == pytest.approx(VISIT)
+    assert economy._healthcare_food_first_ids == frozenset({1})
 
 
 def _live(sequence, ticks, flag, *, covered=False, seed=42):
