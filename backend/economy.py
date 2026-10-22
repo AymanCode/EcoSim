@@ -34,7 +34,7 @@ Performance optimizations:
 import logging
 import os
 import random
-from dataclasses import dataclass, fields
+from dataclasses import dataclass, fields, replace
 from collections import deque
 from typing import TYPE_CHECKING, Dict, List, Tuple, Optional
 
@@ -61,6 +61,7 @@ from agents import (
 from utils.category_utils import build_good_category_lookup
 from inflation import ConsumerPriceIndex, WageReview
 from payments import PaymentBook, MONEY_EPS, proportional
+from worker_effectiveness import load_spec, worker_weights
 
 if TYPE_CHECKING:  # typing only; the payment arm imports it lazily at run time
     from payment_sectors import PaymentGoodsMarket
@@ -1949,6 +1950,10 @@ class Economy:
 
         # Advance simulation clock after completing the tick
         self.current_tick += 1
+        # Week-1 employed Food and Services mean skill. Flag off never
+        # computes it, and later ticks do not recompute it.
+        if CONFIG.firms.effective_labor_enabled and self.current_tick == 1:
+            self._record_effective_labor_anchor()
         if self.post_warmup_cooldown > 0:
             self.post_warmup_cooldown -= 1
 
@@ -2165,8 +2170,15 @@ class Economy:
         # A plain attribute read; only GovernmentAgent.apply_policy_levers changes it.
         planning_minimum_wage = self.government.get_minimum_wage()
         inflation_enabled = bool(CONFIG.inflation.enabled)
+        # One config read for the whole planning pass. Flag off leaves the
+        # spec unset, so no firm binds weights and capacity stays headcount.
+        effective_spec = None
+        if CONFIG.firms.effective_labor_enabled:
+            effective_spec = self._effective_labor_spec()
 
         for firm in self.firms:
+            if effective_spec is not None:
+                firm.bind_effective_labor(self.household_lookup, effective_spec)
             firm.clear_planner_diagnostics()
             firm.policy_minimum_wage = planning_minimum_wage
             health_snapshot = firm.refresh_health_snapshot(
@@ -2551,8 +2563,16 @@ class Economy:
             for hh in self.households
         }
 
+        # Roster changed in matching, so rebind before production. One config
+        # read for the pass. Flag off does not bind and does not call the module.
+        effective_spec = None
+        if CONFIG.firms.effective_labor_enabled:
+            effective_spec = self._effective_labor_spec()
+
         # Phase 5: Firms apply production and costs
         for firm in self.firms:
+            if effective_spec is not None:
+                firm.bind_effective_labor(self.household_lookup, effective_spec)
             production_plan = firm_production_plans[firm.firm_id]
             planned_production_units = production_plan["planned_production_units"]
 
@@ -5637,7 +5657,12 @@ class Economy:
             if assigned_id is not None:
                 workers = [hid for hid in firm.employees if hid != assigned_id]
         if len(workers) == 0:
+            if CONFIG.firms.effective_labor_enabled:
+                firm._last_effective_labor_capacity = 0.0
             return 0.0
+
+        if CONFIG.firms.effective_labor_enabled:
+            return self._effective_labor_production(firm, planned_production_units, workers)
 
         if firm.good_category.lower() == "services":
             config_low, config_high = CONFIG.firms.services_units_per_worker_range
@@ -5719,6 +5744,103 @@ class Economy:
         )
 
         return actual_production
+
+    def _effective_labor_spec(self):
+        """Firm spec for this tick. After week 1, the stored anchor is the reference skill."""
+        spec = load_spec(CONFIG.firms, CONFIG.households)
+        anchor = getattr(self, "effective_labor_anchor_skill", None)
+        if anchor is None:
+            return spec
+        return replace(spec, reference_skill=float(anchor))
+
+    def _record_effective_labor_anchor(self) -> None:
+        """Store the week-1 reference skill. A flag-off run never calls this.
+
+        The value is the mean skill of employed Food and Services workers.
+        Non-finite skills are left out. With none left, the fallback is the
+        week-1 population median of finite skills, then ``worker_reference_skill``.
+        The result is clamped to [0, 1] and is not recomputed.
+        """
+        if not CONFIG.firms.effective_labor_enabled:
+            return
+        if getattr(self, "effective_labor_anchor_skill", None) is not None:
+            return
+
+        def finite_skill(household: object) -> Optional[float]:
+            try:
+                value = float(getattr(household, "skills_level"))
+            except (TypeError, ValueError):
+                return None
+            if not math.isfinite(value):
+                return None
+            return value
+
+        employed: List[float] = []
+        for firm in self.firms:
+            category = (firm.good_category or "").lower()
+            if category not in ("food", "services"):
+                continue
+            for employee_id in firm.employees:
+                household = self.household_lookup.get(employee_id)
+                if household is None:
+                    continue
+                skill = finite_skill(household)
+                if skill is not None:
+                    employed.append(skill)
+        if employed:
+            value = sum(employed) / len(employed)
+        else:
+            population = [skill for skill in (finite_skill(h) for h in self.households) if skill is not None]
+            if population:
+                population.sort()
+                mid = len(population) // 2
+                if len(population) % 2:
+                    value = population[mid]
+                else:
+                    value = (population[mid - 1] + population[mid]) / 2.0
+            else:
+                value = float(CONFIG.firms.worker_reference_skill)
+        if not math.isfinite(value):
+            value = float(CONFIG.firms.worker_reference_skill)
+        self.effective_labor_anchor_skill = min(1.0, max(0.0, value))
+
+    def _effective_labor_production(
+        self, firm: FirmAgent, planned_production_units: float, workers: List[int],
+    ) -> float:
+        """Realized units are the plan clipped by effective-labour capacity.
+
+        The worker multiplier is not also applied on top of the plan. Main's
+        below-cap path produced plan times the average multiplier, which sat
+        near 1.6, so this path is lower whenever the plan was under capacity.
+        A reference worker is 1 labour unit. Services output per labour unit
+        is the firm's units per worker, not the 1-7 wellbeing blend.
+        """
+        weights = firm._effective_labor_weights or {}
+        if firm.good_category.lower() == "services":
+            slots = max(0, int(firm.production_capacity_units))
+            active = list(workers[:slots])
+            labor_units = 0.0
+            for employee_id in active:
+                pair = weights.get(employee_id)
+                if pair is not None:
+                    labor_units += float(pair[1])
+            capacity = firm._service_units_per_worker() * labor_units * firm.supply_shock_multiplier
+            firm._last_effective_labor_capacity = capacity
+            return min(max(0.0, float(planned_production_units)), max(0.0, capacity))
+
+        firm._last_effective_labor_capacity = None
+        labor_units = 0.0
+        for employee_id in workers:
+            pair = weights.get(employee_id)
+            if pair is not None:
+                labor_units += float(pair[1])
+        worker_capacity = firm._capacity_for_labor_units(labor_units)
+        scaled = (
+            float(planned_production_units)
+            * self.government.infrastructure_productivity_multiplier
+            * firm.supply_shock_multiplier
+        )
+        return min(max(0.0, scaled), firm.production_capacity_units, worker_capacity)
 
     def _payment_collect_pending_services_exit_tax(self, firm: FirmAgent, amount: float) -> float:
         """Tax a completed project's receipt on exit before paying creditors."""
@@ -7880,17 +8002,47 @@ class Economy:
 
         Uses worker medical skill if available, otherwise falls back to firm-level
         capacity-per-worker for deterministic test scaffolding.
+
+        Visit capacity already includes skill. With effective labour on, each
+        visit is scaled by the wellbeing ratio (full weight / observable
+        weight) so health is not dropped and skill is not counted twice.
         """
+        if not CONFIG.firms.effective_labor_enabled:
+            capacity = 0.0
+            known_worker_count = 0
+            for employee_id in firm.employees:
+                worker = self.household_lookup.get(employee_id)
+                if worker is None:
+                    continue
+                known_worker_count += 1
+                capacity += max(0.0, worker.medical_visit_capacity())
+
+            if capacity <= 0.0:
+                capacity = len(firm.employees) * max(0.1, firm.healthcare_capacity_per_worker)
+            elif known_worker_count < len(firm.employees):
+                unknown_workers = len(firm.employees) - known_worker_count
+                capacity += unknown_workers * max(0.1, firm.healthcare_capacity_per_worker)
+
+            return max(0.0, capacity)
+
+        spec = self._effective_labor_spec()
         capacity = 0.0
         known_worker_count = 0
+        had_visit_skill = False
         for employee_id in firm.employees:
             worker = self.household_lookup.get(employee_id)
             if worker is None:
                 continue
             known_worker_count += 1
-            capacity += max(0.0, worker.medical_visit_capacity())
+            visit = max(0.0, worker.medical_visit_capacity())
+            if visit > 0.0:
+                had_visit_skill = True
+                observable, full = worker_weights(worker, firm.good_category, spec)
+                wellbeing = 0.0 if observable <= 0.0 else full / observable
+                visit *= wellbeing
+            capacity += visit
 
-        if capacity <= 0.0:
+        if capacity <= 0.0 and not had_visit_skill:
             capacity = len(firm.employees) * max(0.1, firm.healthcare_capacity_per_worker)
         elif known_worker_count < len(firm.employees):
             unknown_workers = len(firm.employees) - known_worker_count

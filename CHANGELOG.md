@@ -10,11 +10,23 @@ Tooling only (`frontend-react/e2e/`); the app is unchanged. Before: each Playwri
 
 Evidence: with every Google Fonts request held back 1.5 s, 10 of 25 specs failed on `main` (c93db40) and 26 of 26 pass now. The new `e2e/fonts.spec.js` fails against the old wait and passes against the new one, and the normal suite passes 26 of 26.
 
+### 2026-10-21: Effective labour round 3, still off by default
+
+The flag stays off. With it on, the reference skill is no longer the frozen population median for the whole run. At the end of tick 1 the economy stores the mean skill of employed Food and Services workers and uses that afterwards. An empty or non-finite group falls back to the week-1 population median, then `worker_reference_skill`, and the result is clamped to [0, 1]. A flag-off run does not compute it. The per-worker cap is removed. Services stay on the goods labour unit (units per worker times labour units). The payment-sequence capital gate measures the next unit of capital in those same labour units, so a Food firm whose workers count as more than one head is not told it has no extra output to sell. The rules record is provisional, renumber at merge.
+
 ### 2026-10-21: Shared evidence panel for behavior-changing PRs
 
 The bot PRs each brought their own study script, with different household and firm counts, payment sequences, run lengths, seed sets and real-GDP deflators, so reviews kept stalling on numbers that could not be compared or reproduced. `backend/tools/benchmarks/run_evidence_panel.py` is one command that runs every arm on every payment sequence and seed at the dashboard's defaults (1,000 households, 5 firms per category, `income_first` first, seeds 42-46, 260 ticks), one process per run, and writes a paired table by tick window with identity, determinism and money checks. Arms can come from different checkouts, so a PR's flag-off state is compared with `main` directly. Tooling only: no simulation code, config default or flag changes.
 
 Evidence: `backend/tests_contracts/test_evidence_panel.py` (7 tests).
+
+### 2026-10-20: Effective labour, off by default
+
+Firm capacity counted every worker as one head, so skill and effort were clipped by the headcount cap. `firms.effective_labor_enabled` (default false) builds Food and Services capacity from effective labour: each worker's skill, category experience, and health channel, divided by one fixed reference worker. The hire count uses skill and category experience only. Realized output is the plan clipped by that capacity; it does not pay the old above-plan multiplier. Healthcare visits keep their skill term and, with the flag on, scale by the wellbeing ratio. Flag off is the previous headcount path.
+
+Health on the flag-on path defaults to `main_weight` (main's performance multiplier, normalized at a frozen employed state) so the health channel is not dropped. `absence` and `presenteeism` are config options and are not the default. The round-3 entry above replaces the frozen reference for later ticks and removes the per-worker cap.
+
+The paired window panel, including long unemployment spells, is in the pull request. The skill-ordered hiring queue is unchanged. The rules record for this change is provisional, renumber at merge.
 
 ### 2026-10-16: Poverty and wealth-loss terms read liquid wealth
 

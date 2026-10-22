@@ -90,10 +90,10 @@ data/
 !openwiki/data/
 !openwiki/data/*.md
 
-# Local agent / IDE settings
+# Local agent / IDE settings. The leading slash keeps benchmarks/plugins tracked.
 .claude/
 .agents/
-plugins/
+/plugins/
 
 # LLM test runs and scratch status dumps
 experiments/**/*.json
