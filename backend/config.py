@@ -475,6 +475,9 @@ class FirmBehaviorConfig:
     min_private_firms_per_competing_sector: int = 2  # floor for food + services; prevents monopoly in small sims
 
     # Pricing & Costs
+    # True (default): a firm grosses its price up by its own last-week effective
+    # profit-tax rate. False: the headline lever, as on main.
+    price_on_effective_profit_tax: bool = True
     default_unit_cost: float = 5.0
     default_markup: float = 0.3
     default_price: float = 6.5
@@ -631,6 +634,13 @@ class FirmBehaviorConfig:
     healthcare_price_decrease_rate: float = 0.03
     healthcare_price_ceiling_multiplier: float = 6.0
     healthcare_target_profit_margin: float = 0.15
+    # Experimental opt-in: the visit price
+    # spreads the doctors' wage bill over expected visits (smoothed requests,
+    # capped at the visit slots) instead of every slot, moves at most 15% a week,
+    # warmup prices visit slots instead of goods units, and Healthcare buys no
+    # capital. Default off: the evidence panel found worse household access and
+    # wellbeing with it on. Healthcare R&D is removed independently of this flag.
+    fix_healthcare_price_covers_payroll: bool = False
     healthcare_staff_population_ratio: float = 0.02   # 2% of households are doctors (economy-wide)
     healthcare_training_enrollment_interval_ticks: int = 52
     healthcare_training_enrollment_interval_after_cap_ticks: int = 104
@@ -839,6 +849,40 @@ class GovernmentPolicyConfig:
     rent_stabilization_soft_max_increase: float = 1.02
     rent_stabilization_strict_max_increase: float = 1.005
 
+    # Profit-tax schedule. "progressive" (default): UK-style small and main
+    # rates with marginal relief, ranked by taxable profit. "flat": every
+    # profitable firm pays profit_tax_rate (the comparison folded in from #49).
+    # "legacy_cash_rank": main's cash-ranked bands, so this value with
+    # firms.price_on_effective_profit_tax False reproduces main. Read each tick.
+    profit_tax_style: str = "progressive"
+
+    # Public debt held by the bank (round 1 G1). True (default): when the
+    # treasury ends its spending with negative cash, it borrows from the bank,
+    # up to the bank's lendable cash (reserves above the reserve requirement),
+    # pays weekly interest on what it owes, and repays from cash above its
+    # working balance. Whatever the bank cannot lend stays as negative treasury
+    # cash. False: no new borrowing, identical to main. Debt already owed when
+    # the flag is turned off mid-run keeps paying interest and is repaid from
+    # surplus; it is never frozen or forgiven.
+    public_debt_enabled: bool = True
+    # How much the treasury borrows once it is short:
+    # "buffer" (default): borrow back up to the working balance
+    # (public_debt_cash_buffer_weeks of spending), as the US Treasury's
+    # one-week cash policy does, so cash-limited programs next week see that
+    # balance. "zero" remains valid: borrow only the shortfall, back to $0 of
+    # cash. Under "zero", cash-gated programs spend $0 while borrowing.
+    public_debt_borrow_target: str = "buffer"
+    # Risk premium on public debt, added to the bank's current lending rate,
+    # per unit of annualized debt/GDP (0.035 = 3.5 basis points per percentage
+    # point). Midpoint of Laubach (2009, JEEA 7(4):858-885): a 1 pp rise in
+    # projected debt/GDP raises long-term yields 3-4 bp. Range >= 0.
+    public_debt_risk_premium: float = 0.035
+    # Working balance the treasury keeps before repaying debt, in weeks of its
+    # own spending (last tick's outlays). US Treasury policy since May 2015 is
+    # a cash balance that covers one week of outflows (Treasury Quarterly
+    # Refunding Statement, 6 May 2015). Adaptive: it follows spending. Range >= 0.
+    public_debt_cash_buffer_weeks: float = 1.0
+
 
 @dataclass
 class LaborMarketConfig:
@@ -921,6 +965,16 @@ class MarketMechanicsConfig:
     # Firm Exit/Entry
     bankruptcy_threshold: float = -1000.0
     zero_cash_max_streak: int = 12  # Ticks at zero/negative cash before exit
+    # Legacy payment path only (payment_sequence="legacy"). True (default): a
+    # firm that exits with negative cash has that balance paid before it is
+    # removed (Economy._settle_legacy_exit_deficit): a PublicWorks firm's by
+    # the treasury, which capitalized it; a private firm's by its lenders in proportion to what each is
+    # owed, the bank no further than its cash above required reserves, the
+    # treasury the rest. False: the negative balance leaves with the firm,
+    # creating that much money (behavior before the 2026-10-22 fix); kept for
+    # before/after runs. Which firms exit, and when, is the same either way.
+    # The named payment arms settle exits their own way and ignore this key.
+    settle_legacy_exit_deficit: bool = True
     max_private_competitors: int = 5
     new_firm_demand_threshold: float = 1000.0  # Min household cash
 
@@ -1073,6 +1127,14 @@ class SimulationConfig:
         if self.time.warmup_ticks < 0:
             raise ValueError("warmup_ticks cannot be negative")
 
+        if self.government.profit_tax_style not in {"progressive", "flat", "legacy_cash_rank"}:
+            raise ValueError(
+                "government.profit_tax_style must be 'progressive', 'flat', or "
+                f"'legacy_cash_rank', got {self.government.profit_tax_style!r}"
+            )
+        if not isinstance(self.firms.price_on_effective_profit_tax, bool):
+            raise ValueError("firms.price_on_effective_profit_tax must be a bool")
+
         # Validate the inflation model switch and review assumptions
         inflation = self.inflation
         if not isinstance(inflation.enabled, bool):
@@ -1103,6 +1165,13 @@ class SimulationConfig:
             raise ValueError("food_elasticity must be non-negative")
         if self.households.services_elasticity < 0:
             raise ValueError("services_elasticity must be non-negative")
+        gov = self.government
+        if gov.public_debt_borrow_target not in {"zero", "buffer"}:
+            raise ValueError("public_debt_borrow_target must be 'zero' or 'buffer'")
+        for name in ("public_debt_risk_premium", "public_debt_cash_buffer_weeks"):
+            value = getattr(gov, name)
+            if not (math.isfinite(float(value)) and float(value) >= 0.0):
+                raise ValueError(f"government.{name} must be finite and >= 0")
         if not (math.isfinite(self.households.tie_break_scale) and self.households.tie_break_scale >= 0.0):
             raise ValueError("tie_break_scale must be finite and non-negative")
         if self.labor_market.switcher_vacancy_cap_per_firm < 0:

@@ -157,7 +157,7 @@ Run the Compose commands from the same checkout and with the same project name (
 
 ## Dependency Reproducibility
 
-`pyproject.toml` defines supported dependency ranges. `backend/requirements.lock` pins the backend and warehouse runtime used by Docker and can be supplied as a constraints file for local development. The forecasting package keeps its separate, frozen research environment in `policy_forecasting/requirements.txt`; the frontend is pinned by `frontend-react/package-lock.json`.
+`pyproject.toml` defines supported dependency ranges. `backend/requirements.lock` pins the backend and warehouse runtime used by Docker and can be supplied as a constraints file for local development. `backend/requirements-test.lock` pins the test and lint tools (pytest, ruff) on top of it; CI installs both, Docker installs only the runtime lock. The forecasting package keeps its separate, frozen research environment in `policy_forecasting/requirements.txt`; the frontend is pinned by `frontend-react/package-lock.json`.
 
 ## Performance Notes
 
@@ -179,7 +179,7 @@ ECOSIM_UNEMPLOYED_CLAMP_TICKS=8
 Stable backend:
 
 ```bash
-python -m pip install -c backend/requirements.lock -e ".[test,ml]"
+python -m pip install -c backend/requirements.lock -c backend/requirements-test.lock -e ".[test,ml]"
 python -m pytest
 ```
 

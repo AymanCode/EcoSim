@@ -1,5 +1,8 @@
 from types import SimpleNamespace
 
+import pytest
+
+from config import CONFIG
 from frame_projection import build_curated_metrics, build_firm_list, firm_state, sector_mean_prices
 
 
@@ -146,3 +149,26 @@ def test_new_curated_numbers_match_a_stepped_economy(tiny_economy_factory):
     assert curated["familySupportPaid"] == economy.last_tick_gov_transfers + economy.last_tick_gov_post_warmup_stimulus
     assert abs(curated["topTenthShare"] - 100.0 * econ["top_10_percent_share"]) < 1e-9
     assert abs(curated["bottomHalfShare"] - 100.0 * econ["bottom_50_percent_share"]) < 1e-9
+
+
+@pytest.mark.parametrize("cash,debt,expected", [(250.0, 1000.0, -750.0), (1250.0, 1000.0, 250.0),
+                                               (-250.0, 1000.0, -1250.0), (1000.0, 1000.0, 0.0)])
+def test_town_hall_reports_net_position_even_with_money_in_the_bank(cash, debt, expected):
+    economy = _economy([], [])
+    economy.government.cash_balance = cash
+    economy.government.public_debt = debt
+    curated = build_curated_metrics(economy=economy, econ_metrics={}, tick=1, wealth_as_of_tick=1)
+    assert curated["townHallCash"] == expected
+
+
+def test_town_hall_flag_off_matches_main_cash_projection(tiny_economy_factory, monkeypatch):
+    """Main projects cash directly. With borrowing off, debt stays zero, even in deficit."""
+    monkeypatch.setattr(CONFIG.government, "public_debt_enabled", False)
+    economy = tiny_economy_factory(num_households=30, government_cash=-50000.0)
+    for tick in range(1, 7):
+        economy.step()
+        curated = build_curated_metrics(economy=economy, econ_metrics=economy.get_economic_metrics(),
+                                        tick=tick, wealth_as_of_tick=tick)
+        assert economy.government.public_debt == 0.0
+        assert curated["townHallCash"] == float(economy.government.cash_balance)
+    assert curated["townHallCash"] < 0.0

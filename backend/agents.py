@@ -29,7 +29,9 @@ production, pricing, credit, and fiscal policy.
 # -----------------------------------------------------------------------------
 import math
 import random
+import statistics
 import zlib
+from collections import deque
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
@@ -2050,6 +2052,17 @@ class FirmAgent(AgentMixin):
     # private Food/Services). Set each tick in firm planning.
     annual_wage_control: bool = False
 
+    # This tick's taxable profit (positive and finite, else 0) and the profit
+    # tax settled against it. pricing_profit_tax_rate is the rate plan_pricing
+    # grosses up by once a valid week has been recorded; until then the gross-up
+    # uses the lever. Left at these defaults on the legacy cash-rank path with
+    # headline pricing, so a metrics plugin sees the same zeros as main.
+    last_taxable_profit: float = 0.0
+    last_profit_tax_paid: float = 0.0
+    pricing_profit_tax_rate: float = 0.20
+    pricing_profit_tax_rate_known: bool = False
+    pricing_rate_nonfinite_count: int = 0
+
     # Loan tracking (for government startup loans)
     government_loan_principal: float = 0.0  # Original loan amount
     government_loan_remaining: float = 0.0  # Remaining balance
@@ -2741,10 +2754,15 @@ class FirmAgent(AgentMixin):
             self.decision_diagnostics[f"survival_turnaround_{key}"] = value
         return allowed, payload
 
-    def _healthcare_labor_price_targets(self, profit_tax_rate: float = 0.0) -> Dict[str, float]:
+    def _healthcare_labor_price_targets(
+        self, profit_tax_rate: float = 0.0, in_warmup: bool = False
+    ) -> Dict[str, float]:
         """Return healthcare break-even and target visit price from labor costs.
 
-        Strict (total_wage / capacity) * 1.15 formula. Effective per-doctor wage
+        By default, divide the wage bill by all doctor visit slots. The
+        experimental payroll-price flag instead uses smoothed weekly requests
+        (``healthcare_arrivals_ema``), capped at slots; warmup still uses slots.
+        Effective per-doctor wage
         is floored at the higher of the config floor and the policy minimum
         (``_minimum_wage``) so wage_offer drift below minimum cannot underprice
         the visit. Gross margin is inflated by the
@@ -2755,6 +2773,10 @@ class FirmAgent(AgentMixin):
 
         firm_config = self._firm_config()
         capacity = max(1.0, len(self.employees) * max(self.healthcare_capacity_per_worker, 0.1))
+        if in_warmup or not firm_config.fix_healthcare_price_covers_payroll:
+            expected_visits = capacity
+        else:
+            expected_visits = min(capacity, max(1.0, float(self.healthcare_arrivals_ema)))
 
         # Enforce the minimum wage on the per-worker wage used for pricing.
         min_wage_floor = self._minimum_wage()
@@ -2763,9 +2785,9 @@ class FirmAgent(AgentMixin):
 
         # Flat 15% after-tax margin over labor cost. Inflate gross margin so that
         # after profit_tax_rate is applied, the realised net margin matches 15%.
-        break_even = wage_bill / capacity
+        break_even = wage_bill / expected_visits
         target_after_tax_margin = 0.15
-        gross_margin = target_after_tax_margin / max(1.0 - float(profit_tax_rate), 0.10)
+        gross_margin = target_after_tax_margin / max(1.0 - self._gross_up_profit_tax_rate(profit_tax_rate), 0.10)
         target = break_even * (1.0 + gross_margin)
 
         current_margin = (float(self.price) - break_even) / max(float(self.price), 1e-9)
@@ -2773,7 +2795,81 @@ class FirmAgent(AgentMixin):
             "break_even_price": break_even,
             "target_price": target,
             "current_margin": current_margin,
+            "expected_visits": expected_visits,
         }
+
+    def _gross_up_profit_tax_rate(self, headline_rate: float) -> float:
+        """Rate used to inflate a gross margin so the after-tax margin is the target.
+
+        ``firms.price_on_effective_profit_tax`` false (main's behavior): the lever.
+        True: this firm's last settled effective rate, or the lever when none
+        has been recorded yet or the stored rate is not finite.
+        """
+        headline = float(headline_rate)
+        enabled = CONFIG.firms.price_on_effective_profit_tax
+        if not isinstance(enabled, bool):
+            raise ValueError("firms.price_on_effective_profit_tax must be a bool")
+        if not enabled or not self.pricing_profit_tax_rate_known:
+            return headline
+        rate = float(self.pricing_profit_tax_rate)
+        if not math.isfinite(rate):
+            self.pricing_rate_nonfinite_count += 1
+            return headline
+        return min(0.60, max(0.0, rate))
+
+    def record_effective_profit_tax(
+        self,
+        taxable_profit: float,
+        tax_paid: float,
+        headline_rate: float,
+        update_pricing_rate: bool,
+    ) -> None:
+        """Remember this tick's taxable profit and profit tax, and maybe the pricing rate.
+
+        A positive finite profit with a finite tax sets the effective rate
+        (tax ÷ profit), clamped to [0, 0.60]. Zero tax on a positive profit
+        records 0. A loss keeps the last valid rate, or the lever when there
+        is none yet. A non-finite profit or tax is counted and falls back the
+        same way. ``update_pricing_rate`` is false when prices still use the lever.
+        """
+        headline = float(headline_rate)
+        try:
+            profit = float(taxable_profit)
+        except (TypeError, ValueError):
+            profit = float("nan")
+        try:
+            tax = float(tax_paid)
+        except (TypeError, ValueError):
+            tax = float("nan")
+        if not math.isfinite(profit) or profit <= 0.0:
+            self.last_taxable_profit = 0.0
+            self.last_profit_tax_paid = 0.0 if not math.isfinite(tax) else max(0.0, tax)
+            if not math.isfinite(profit):
+                self.pricing_rate_nonfinite_count += 1
+            if update_pricing_rate and not self.pricing_profit_tax_rate_known:
+                self.pricing_profit_tax_rate = headline
+            return
+        self.last_taxable_profit = profit
+        if not math.isfinite(tax):
+            self.last_profit_tax_paid = 0.0
+            self.pricing_rate_nonfinite_count += 1
+            if update_pricing_rate and not self.pricing_profit_tax_rate_known:
+                self.pricing_profit_tax_rate = headline
+            return
+        self.last_profit_tax_paid = tax
+        if not update_pricing_rate:
+            return
+        if tax == 0.0:
+            rate = 0.0
+        else:
+            rate = tax / profit
+            if not math.isfinite(rate):
+                self.pricing_rate_nonfinite_count += 1
+                if not self.pricing_profit_tax_rate_known:
+                    self.pricing_profit_tax_rate = headline
+                return
+        self.pricing_profit_tax_rate = min(0.60, max(0.0, rate))
+        self.pricing_profit_tax_rate_known = True
 
     def _profit_ema_alpha(self) -> float:
         """Approximate 4-tick smoothing window."""
@@ -3987,6 +4083,10 @@ class FirmAgent(AgentMixin):
         self.needs_investment_loan = False
         self.investment_loan_amount = 0.0
 
+        # Healthcare visit capacity is doctors x visits; capital adds none.
+        if self.good_category.lower() == "healthcare" and config.fix_healthcare_price_covers_payroll:
+            return
+
         if CONFIG.payment_sequence != "legacy" and self.payment_wage_arrears > 1e-6:
             self.decision_diagnostics["capital_denial_reason"] = "worker_arrears"
             return
@@ -4090,10 +4190,16 @@ class FirmAgent(AgentMixin):
                 sell_through_rate=sell_through_rate,
                 category_wage_anchor_p75=self.wage_offer,
             )
-        if self.is_baseline and in_warmup:
+        # Healthcare prices visits in its own branch below; productivity_per_worker
+        # counts goods units, so this branch set a 36/week doctor's visit at 3.21.
+        healthcare_price_fix = (
+            self.good_category.lower() == "healthcare"
+            and firm_config.fix_healthcare_price_covers_payroll
+        )
+        if self.is_baseline and in_warmup and not healthcare_price_fix:
             labor_cost_per_unit = self.wage_offer / max(self.productivity_per_worker, 1.0)
             # Inflate the 5% markup so the after-tax margin still clears 5%.
-            gross_markup = 0.05 / max(1.0 - float(profit_tax_rate), 0.10)
+            gross_markup = 0.05 / max(1.0 - self._gross_up_profit_tax_rate(profit_tax_rate), 0.10)
             target_price = labor_cost_per_unit * (1.0 + gross_markup)
             return {
                 "price_next": target_price,
@@ -4191,7 +4297,9 @@ class FirmAgent(AgentMixin):
             }
 
         if self.good_category.lower() == "healthcare":
-            price_targets = self._healthcare_labor_price_targets(profit_tax_rate=profit_tax_rate)
+            price_targets = self._healthcare_labor_price_targets(
+                profit_tax_rate=profit_tax_rate, in_warmup=in_warmup
+            )
             break_even_price = price_targets["break_even_price"]
             target_price = max(self.min_price, price_targets["target_price"])
 
@@ -4210,6 +4318,7 @@ class FirmAgent(AgentMixin):
                 target_price = max(self.min_price, target_price * surge_multiplier)
 
             self.decision_diagnostics["healthcare_break_even_price"] = break_even_price
+            self.decision_diagnostics["healthcare_expected_visits"] = price_targets["expected_visits"]
             self.decision_diagnostics["healthcare_target_margin"] = firm_config.healthcare_target_profit_margin
             self.decision_diagnostics["healthcare_target_price"] = target_price
             self.decision_diagnostics["healthcare_current_profit_margin"] = price_targets["current_margin"]
@@ -4220,7 +4329,14 @@ class FirmAgent(AgentMixin):
                 else "healthcare_labor_margin_target"
             )
 
+            # Move at most 15% a week toward the target, as housing rent does.
+            # Expected visits start at zero, so the first weeks' target is high.
             price_next = target_price
+            if healthcare_price_fix:
+                price_next = max(
+                    self.min_price,
+                    min(self.price * 1.15, max(self.price * 0.85, target_price)),
+                )
             markup_next = self._markup_for_price(price_next)
             return {
                 "price_next": price_next,
@@ -4263,7 +4379,7 @@ class FirmAgent(AgentMixin):
                 # Boom market: full cost recovery + markup + surge premium.
                 # Inflate gross margin so after-tax margin matches the targeted markup + surge.
                 surge = (utilization - 0.85) * 0.5
-                gross_margin = (float(self.markup) + surge) / max(1.0 - float(profit_tax_rate), 0.10)
+                gross_margin = (float(self.markup) + surge) / max(1.0 - self._gross_up_profit_tax_rate(profit_tax_rate), 0.10)
                 target_price = total_cost_per_unit * (1.0 + gross_margin)
             else:
                 # Downturn: smooth interpolation between variable and total cost.
@@ -4326,7 +4442,7 @@ class FirmAgent(AgentMixin):
                 )
                 unit_depreciation = fixed_depreciation_cost / stable_throughput
                 # Inflate the 5% margin floor so after-tax cushion still clears 5%.
-                cost_floor_gross_margin = 0.05 / max(1.0 - float(profit_tax_rate), 0.10)
+                cost_floor_gross_margin = 0.05 / max(1.0 - self._gross_up_profit_tax_rate(profit_tax_rate), 0.10)
                 variable_cost_floor = self.pricing_operating_unit_cost * (1.0 + cost_floor_gross_margin)
                 full_cost_floor = (self.pricing_operating_unit_cost + unit_depreciation) * (1.0 + cost_floor_gross_margin)
 
@@ -5278,6 +5394,12 @@ class FirmAgent(AgentMixin):
         if self.survival_mode:
             return 0.0
 
+        # Healthcare does no R&D: no care decision reads quality (care is not
+        # in the shopping snapshots, provider choice reads queue and price, and
+        # healing reads the patient's missing health). Owner decision 2026-10-20.
+        if self.good_category.lower() == "healthcare":
+            return 0.0
+
         # Feature 4: Pro-Cyclical R&D — tied to net profit margin
         # Unprofitable firms spend nothing on R&D. Profitable firms scale up
         # R&D with margin, capped at a reasonable maximum.
@@ -5450,6 +5572,10 @@ class BankAgent:
     cash_reserves: float = 500_000.0
     total_deposits: float = 0.0
     total_loans_outstanding: float = 0.0
+    # Public debt principal the treasury owes the bank ($, G1). A bank asset
+    # kept apart from total_loans_outstanding, which the payment arm checks
+    # against its registered household/firm claims.
+    public_debt_held: float = 0.0
 
     # Rate policy
     base_interest_rate: float = 0.03                    # 3% annual
@@ -5525,6 +5651,21 @@ class BankAgent:
     def required_reserves(self) -> float:
         """Minimum cash the bank must hold against deposits."""
         return self.total_deposits * self.reserve_ratio
+
+    @property
+    def loan_book(self) -> float:
+        """$ owed to the bank: household and firm loans plus public debt."""
+        return self.total_loans_outstanding + self.public_debt_held
+
+    @property
+    def total_assets(self) -> float:
+        """Reserves plus everything owed to the bank, in $."""
+        return self.cash_reserves + self.loan_book
+
+    @property
+    def equity(self) -> float:
+        """Assets minus deposits, in $. Negative means the bank is insolvent on its books."""
+        return self.total_assets - self.total_deposits
 
     @property
     def lendable_cash(self) -> float:
@@ -5823,9 +5964,9 @@ class BankAgent:
         # Spread cap: deposit rate never exceeds 1.25× the nominal share of lending rate
         new_rate = min(new_rate, self.base_interest_rate * self.savings_rate_share_of_lending_rate * 1.25)
 
-        # Thin loan book adjustment
+        # Thin loan book adjustment (public debt is part of the loan book)
         if self.total_deposits > 0:
-            loan_to_deposit = self.total_loans_outstanding / self.total_deposits
+            loan_to_deposit = self.loan_book / self.total_deposits
             if loan_to_deposit < 0.05:
                 new_rate *= 0.25
 
@@ -5879,6 +6020,18 @@ class BankAgent:
 # -----------------------------------------------------------------------------
 # Section: GovernmentAgent policy levers and fiscal planning
 # -----------------------------------------------------------------------------
+def _public_debt_param(name: str) -> float:
+    """Read a public-debt config value, rejecting NaN, inf and negatives.
+
+    ``SimulationConfig`` validates these at construction; this also catches
+    values set on ``CONFIG`` at runtime, which bypass that check.
+    """
+    value = float(getattr(CONFIG.government, name))
+    if not (math.isfinite(value) and value >= 0.0):
+        raise ValueError(f"government.{name} must be finite and >= 0, got {value!r}")
+    return value
+
+
 @dataclass(slots=True)
 class GovernmentAgent(AgentMixin):
     """Represents the government in the economic simulation.
@@ -5939,6 +6092,16 @@ class GovernmentAgent(AgentMixin):
     last_tick_revenue: float = 0.0            # total tax revenue last tick
     last_tick_spending: float = 0.0           # total govt spending last tick
 
+    # ── Public debt (round 1 G1) ─────────────────────────────────────
+    # Principal owed to the bank ($). Negative treasury cash the bank could
+    # not lend stays in cash_balance, as before G1.
+    public_debt: float = 0.0
+    last_tick_debt_rate: float = 0.0        # annual rate charged this tick
+    last_tick_debt_interest: float = 0.0    # $ interest paid this tick
+    last_tick_debt_borrowed: float = 0.0    # $ lent by the bank this tick
+    last_tick_debt_repaid: float = 0.0      # $ principal repaid this tick
+    last_tick_debt_unfunded: float = 0.0    # $ shortfall the bank could not lend this tick
+
     # ── Legacy fields (kept for compatibility) ───────────────────────
     ubi_amount: float = 0.0
     wealth_tax_threshold: float = 1_000_000.0
@@ -5978,7 +6141,15 @@ class GovernmentAgent(AgentMixin):
     social_happiness_multiplier: float = 1.0              # Affects worker happiness/performance
     wage_bracket_scalers: Dict[str, float] = field(default_factory=dict)
     # Fixed-seed profit-tax bracket extras, drawn once at construction (B23).
+    # Read only by the legacy_cash_rank path.
     profit_bracket_extras: Dict[str, float] = field(default_factory=dict)
+    # Trailing 13 weeks of (firm ids, positive finite profits) for the
+    # progressive anchor. Not read by legacy_cash_rank.
+    profit_tax_profit_window: deque = field(default_factory=lambda: deque(maxlen=13))
+    last_profit_tax_nonfinite_excluded: int = 0
+    last_taxable_profit_by_firm: Dict[int, float] = field(default_factory=dict)
+    last_profit_tax_anchor: float = 0.0
+    last_profit_tax_upper: float = 0.0
 
     # ── Valid options / ranges for each lever (class-level constants) ─
     VALID_TAX_RATE_RANGE = TAX_LIMITS["wage_tax_rate"]       # min, max for wage/profit tax
@@ -6353,6 +6524,7 @@ class GovernmentAgent(AgentMixin):
             "spending_efficiency": self.spending_efficiency,
             "last_tick_revenue": self.last_tick_revenue,
             "last_tick_spending": self.last_tick_spending,
+            "public_debt": self.public_debt,
             # Multipliers
             "infrastructure_productivity_multiplier": self.infrastructure_productivity_multiplier,
             "technology_quality_multiplier": self.technology_quality_multiplier,
@@ -6544,57 +6716,153 @@ class GovernmentAgent(AgentMixin):
 
         return transfers
 
-    def plan_taxes(
-        self,
-        households: List[Dict[str, object]],
-        firms: List[Dict[str, object]]
-    ) -> Dict[str, Dict[int, float]]:
+    # UK small-profits rate is 19/25 of the main rate. The anchor is the median
+    # positive profit over this many weeks, and the main rate starts at 5x that
+    # (the UK's £50k : £250k ratio).
+    PROFIT_TAX_STYLES = ("progressive", "flat", "legacy_cash_rank")
+    PROFIT_TAX_SMALL_SHARE = 0.76
+    PROFIT_TAX_ANCHOR_WEEKS = 13
+    PROFIT_TAX_UPPER_MULTIPLE = 5.0
+    PROFIT_TAX_MIN_ANCHORED_FIRMS = 4
+
+    def _profit_tax_style(self) -> str:
+        style = CONFIG.government.profit_tax_style
+        if style not in self.PROFIT_TAX_STYLES:
+            raise ValueError(
+                "government.profit_tax_style must be 'progressive', 'flat', or "
+                f"'legacy_cash_rank', got {style!r}"
+            )
+        return style
+
+    def _note_taxable_profits(
+        self, firms: List[Dict[str, object]], *, weekly_profit_assessment: bool,
+    ) -> Dict[int, float]:
+        """Map firm id to positive finite profit, else 0.
+
+        A NaN or infinite profit is excluded (stored as 0, so it owes nothing)
+        and counted. Only the weekly assessment records settlement diagnostics;
+        wage-only and exit assessments must not replace that weekly snapshot.
         """
-        Plan taxes on wages and profits.
+        taxable: Dict[int, float] = {}
+        nonfinite = 0
+        for firm in firms:
+            firm_id = firm["firm_id"]
+            raw = firm.get("profit_before_tax", 0.0)
+            try:
+                profit = float(raw)
+            except (TypeError, ValueError):
+                nonfinite += 1
+                taxable[firm_id] = 0.0
+                continue
+            if not math.isfinite(profit):
+                nonfinite += 1
+                taxable[firm_id] = 0.0
+                continue
+            taxable[firm_id] = profit if profit > 0.0 else 0.0
+        if weekly_profit_assessment:
+            self.last_profit_tax_nonfinite_excluded = nonfinite
+            self.last_taxable_profit_by_firm = taxable
+        return taxable
 
-        Does not mutate state; returns a plan dict.
-
-        Args:
-            households: List of dicts with household_id and wage_income
-            firms: List of dicts with firm_id and profit_before_tax
-
-        Returns:
-            Dict with "wage_taxes" and "profit_taxes", each mapping ID -> tax amount
-        """
-        wage_taxes: Dict[int, float] = {}
-        profit_taxes: Dict[int, float] = {}
-
-        # Band cut-points over households with a positive wage (B23): unemployed
-        # zero-wage households pay no wage tax and do not set the bands.
-        wages = [w for w in (h.get("wage_income", 0.0) for h in households) if w > 0.0]
-        if wages:
-            p25, p50, p60, p70, p90 = np.percentile(wages, [25, 50, 60, 70, 90])
+    def _marginal_relief_rate(
+        self, profit: float, lower: float, upper: float, small: float, main: float,
+    ) -> float:
+        """UK marginal relief. Continuous at L and U, and clamped to [S, M]."""
+        if not upper > lower or profit >= upper:
+            rate = main
+        elif profit <= lower:
+            rate = small
         else:
-            p25 = p50 = p60 = p70 = p90 = 0.0
+            relief_fraction = (main - small) * lower / (upper - lower)
+            rate = main - relief_fraction * (upper - profit) / profit
+        if rate < small:
+            return small
+        if rate > main:
+            return main
+        return rate
 
-        for household in households:
-            household_id = household["household_id"]
-            wage_income = household.get("wage_income", 0.0)
+    def _progressive_anchor(
+        self, firms: List[Dict[str, object]], taxable: Dict[int, float],
+        *, weekly_profit_assessment: bool,
+    ) -> tuple:
+        """Return (anchored, L, U, S, M), advancing only for a weekly assessment.
 
-            if wage_income <= p25:
-                rate = self.wage_tax_rate * self.wage_bracket_scalers.get("low", 0.8)
-            elif wage_income <= p50:
-                rate = self.wage_tax_rate * self.wage_bracket_scalers.get("median", 1.0)
-            elif wage_income <= p60:
-                rate = self.wage_tax_rate * self.wage_bracket_scalers.get("p60", 1.1)
-            elif wage_income <= p70:
-                rate = self.wage_tax_rate * self.wage_bracket_scalers.get("p70", 1.15)
-            elif wage_income <= p90:
-                rate = self.wage_tax_rate * self.wage_bracket_scalers.get("p90", 1.2)
-            else:
-                rate = self.wage_tax_rate * (self.wage_bracket_scalers.get("p90", 1.2) + 0.03)
+        The weekly window includes this tick, even if no firm made a profit.
+        Other assessments use the existing window. No anchor (empty window, L <= 0, or
+        fewer than four distinct profitable firms in the window) means every
+        profitable firm pays the main rate.
+        """
+        if weekly_profit_assessment:
+            ids = []
+            profits = []
+            for firm in firms:
+                profit = taxable.get(firm["firm_id"], 0.0)
+                if profit > 0.0:
+                    ids.append(firm["firm_id"])
+                    profits.append(profit)
+            self.profit_tax_profit_window.append((tuple(ids), tuple(profits)))
+        window_ids: set = set()
+        window_profits: List[float] = []
+        for tick_ids, tick_profits in self.profit_tax_profit_window:
+            window_ids.update(tick_ids)
+            window_profits.extend(tick_profits)
+        main = float(self.profit_tax_rate)
+        small = self.PROFIT_TAX_SMALL_SHARE * main
+        if len(window_ids) < self.PROFIT_TAX_MIN_ANCHORED_FIRMS or not window_profits:
+            self.last_profit_tax_anchor = 0.0
+            self.last_profit_tax_upper = 0.0
+            return False, 0.0, 0.0, small, main
+        lower = float(statistics.median(window_profits))
+        if not math.isfinite(lower) or lower <= 0.0:
+            self.last_profit_tax_anchor = 0.0
+            self.last_profit_tax_upper = 0.0
+            return False, 0.0, 0.0, small, main
+        upper = self.PROFIT_TAX_UPPER_MULTIPLE * lower
+        self.last_profit_tax_anchor = lower
+        self.last_profit_tax_upper = upper
+        return True, lower, upper, small, main
 
-            wage_taxes[household_id] = max(wage_income * rate, 0.0)
+    def _progressive_profit_taxes(
+        self, firms: List[Dict[str, object]], taxable: Dict[int, float],
+        *, weekly_profit_assessment: bool,
+    ) -> Dict[int, float]:
+        anchored, lower, upper, small, main = self._progressive_anchor(
+            firms, taxable, weekly_profit_assessment=weekly_profit_assessment,
+        )
+        taxes: Dict[int, float] = {}
+        for firm in firms:
+            firm_id = firm["firm_id"]
+            profit = taxable.get(firm_id, 0.0)
+            if profit <= 0.0:
+                taxes[firm_id] = 0.0
+                continue
+            rate = (
+                self._marginal_relief_rate(profit, lower, upper, small, main)
+                if anchored else main
+            )
+            taxes[firm_id] = profit * rate if profit * rate > 0.0 else 0.0
+        return taxes
 
-        # WEALTH-BASED PROGRESSIVE TAXATION FOR FIRMS
-        # Use quartiles of firm cash balance to determine tax brackets
-        # This ensures consistent progressive taxation regardless of absolute wealth levels
+    def _flat_profit_taxes(
+        self, firms: List[Dict[str, object]], taxable: Dict[int, float],
+    ) -> Dict[int, float]:
+        """Every positive profit pays the lever. Losses and non-finite profits owe 0."""
+        main = float(self.profit_tax_rate)
+        return {
+            firm["firm_id"]: (taxable.get(firm["firm_id"], 0.0) * main
+                              if taxable.get(firm["firm_id"], 0.0) > 0.0 else 0.0)
+            for firm in firms
+        }
 
+    def _legacy_cash_rank_profit_taxes(self, firms: List[Dict[str, object]]) -> Dict[int, float]:
+        """Main's cash-ranked profit tax (B23), unchanged.
+
+        Quartiles of firm ``cash_balance``. On the legacy payment sequence the
+        tax snapshot omits cash, so every firm reads 0 and lands in the bottom
+        bracket, which is main's result. This path stays byte-for-byte that
+        calculation so ``legacy_cash_rank`` with headline pricing matches main.
+        """
+        profit_taxes: Dict[int, float] = {}
         firm_cash = [f.get("cash_balance", 0.0) for f in firms]
 
         if firm_cash and len(firm_cash) >= 4:
@@ -6655,6 +6923,76 @@ class GovernmentAgent(AgentMixin):
 
             # Calculate total profit tax
             profit_taxes[firm_id] = max(profit_before_tax * rate, 0.0)
+        return profit_taxes
+
+    def plan_taxes(
+        self,
+        households: List[Dict[str, object]],
+        firms: List[Dict[str, object]],
+        *,
+        weekly_profit_assessment: bool = False,
+    ) -> Dict[str, Dict[int, float]]:
+        """
+        Plan taxes on wages and profits.
+
+        Does not move money. The phase-7 weekly profit assessment owns the
+        rolling anchor window and settlement diagnostics. Other calls assess
+        tax without advancing the window or replacing the weekly snapshot.
+        The legacy cash-rank tax calculation is unchanged.
+
+        Args:
+            households: List of dicts with household_id and wage_income
+            firms: List of dicts with firm_id and profit_before_tax
+            weekly_profit_assessment: True only for the weekly phase-7 call,
+                including weeks with no positive profit; False for wages and exits.
+
+        Returns:
+            Dict with "wage_taxes" and "profit_taxes", each mapping ID -> tax amount
+        """
+        wage_taxes: Dict[int, float] = {}
+        profit_taxes: Dict[int, float] = {}
+
+        # Band cut-points over households with a positive wage (B23): unemployed
+        # zero-wage households pay no wage tax and do not set the bands.
+        wages = [w for w in (h.get("wage_income", 0.0) for h in households) if w > 0.0]
+        if wages:
+            p25, p50, p60, p70, p90 = np.percentile(wages, [25, 50, 60, 70, 90])
+        else:
+            p25 = p50 = p60 = p70 = p90 = 0.0
+
+        for household in households:
+            household_id = household["household_id"]
+            wage_income = household.get("wage_income", 0.0)
+
+            if wage_income <= p25:
+                rate = self.wage_tax_rate * self.wage_bracket_scalers.get("low", 0.8)
+            elif wage_income <= p50:
+                rate = self.wage_tax_rate * self.wage_bracket_scalers.get("median", 1.0)
+            elif wage_income <= p60:
+                rate = self.wage_tax_rate * self.wage_bracket_scalers.get("p60", 1.1)
+            elif wage_income <= p70:
+                rate = self.wage_tax_rate * self.wage_bracket_scalers.get("p70", 1.15)
+            elif wage_income <= p90:
+                rate = self.wage_tax_rate * self.wage_bracket_scalers.get("p90", 1.2)
+            else:
+                rate = self.wage_tax_rate * (self.wage_bracket_scalers.get("p90", 1.2) + 0.03)
+
+            wage_taxes[household_id] = max(wage_income * rate, 0.0)
+
+        # Profit tax. progressive (default) is the UK-style schedule;
+        # flat charges the lever; legacy_cash_rank is main's cash bands.
+        style = self._profit_tax_style()
+        taxable = self._note_taxable_profits(
+            firms, weekly_profit_assessment=weekly_profit_assessment,
+        )
+        if style == "legacy_cash_rank":
+            profit_taxes = self._legacy_cash_rank_profit_taxes(firms)
+        elif style == "flat":
+            profit_taxes = self._flat_profit_taxes(firms, taxable)
+        else:
+            profit_taxes = self._progressive_profit_taxes(
+                firms, taxable, weekly_profit_assessment=weekly_profit_assessment,
+            )
 
         # Calculate property taxes for housing firms
         property_taxes = {}
@@ -6836,6 +7174,132 @@ class GovernmentAgent(AgentMixin):
         )
         return investment
 
+    def public_debt_annual_rate(self, bank: "BankAgent", debt_to_gdp: float) -> float:
+        """Annual interest rate on public debt (fraction per year).
+
+        The bank's current lending rate plus ``public_debt_risk_premium`` per
+        unit of annualized debt/GDP. Nothing moves the bank's rate during a
+        run yet, so today the rate changes only through debt/GDP.
+
+        Args:
+            bank: the lender.
+            debt_to_gdp: public debt / annualized GDP (unitless, >= 0).
+        """
+        premium = _public_debt_param("public_debt_risk_premium") * max(0.0, float(debt_to_gdp))
+        return max(0.0, float(bank.current_annual_rate)) + premium
+
+    def pay_public_debt_interest(self, bank: Optional["BankAgent"], recent_gdp: float) -> float:
+        """Pay one week of interest on public debt to the bank (G1).
+
+        Runs at the start of the institutional-close phase, before the bank
+        pays deposit interest, so the payment counts in the bank's interest
+        income for the tick: depositors are paid from it at the bank's deposit
+        rate, and the rest stays in bank reserves. Paid from treasury cash; if
+        that leaves cash negative, ``settle_public_debt`` borrows the gap later
+        in the tick, if the bank can lend.
+
+        Args:
+            bank: the lender, or None (no interest without a lender).
+            recent_gdp: trailing weekly GDP in $/tick, for debt/GDP.
+
+        Returns:
+            Interest paid in $.
+        """
+        self.last_tick_debt_interest = 0.0
+        self.last_tick_debt_rate = 0.0
+        # Runs whenever debt is owed, even with public_debt_enabled turned off
+        # mid-run: interest on existing debt is owed regardless of the flag.
+        # The reported rate is 0 with no debt.
+        if bank is None or self.public_debt <= 0.0:
+            return 0.0
+        ticks_per_year = max(1, int(CONFIG.time.ticks_per_year))
+        annual_gdp = max(0.0, float(recent_gdp or 0.0)) * ticks_per_year
+        debt_to_gdp = self.public_debt / annual_gdp if annual_gdp > 0.0 else 0.0
+        self.last_tick_debt_rate = self.public_debt_annual_rate(bank, debt_to_gdp)
+        interest = self.public_debt * self.last_tick_debt_rate / ticks_per_year
+        self.cash_balance -= interest
+        bank.cash_reserves += interest
+        bank.last_tick_interest_income += interest
+        self.last_tick_debt_interest = interest
+        return interest
+
+    def public_debt_cash_buffer(self) -> float:
+        """Treasury working balance in $ kept before any debt is repaid.
+
+        ``public_debt_cash_buffer_weeks`` weeks of last tick's government
+        spending (``last_tick_spending``), so it scales with what the treasury
+        actually pays out.
+        """
+        weeks = _public_debt_param("public_debt_cash_buffer_weeks")
+        return weeks * max(0.0, float(self.last_tick_spending))
+
+    def settle_public_debt(self, bank: Optional["BankAgent"]) -> Dict[str, float]:
+        """Borrow this tick's shortfall from the bank, or repay debt from surplus (G1).
+
+        Call once per tick after discretionary spending and before
+        ``make_investments``.
+
+        1. Borrow (only with ``public_debt_enabled``): if cash is negative,
+           the bank lends up to the borrow target, at most
+           ``bank.lendable_cash`` and only when ``bank.can_lend()``. The
+           target is $0 of cash (``public_debt_borrow_target="zero"``) or
+           ``public_debt_cash_buffer()`` (``"buffer"``; while debt is owed,
+           cash below the buffer is also topped up). Lending moves bank
+           reserves to the treasury, so money is conserved. Any part the bank
+           cannot lend stays as negative cash, as on main.
+        2. Repay (whenever debt is owed, flag on or off): free cash above
+           ``public_debt_cash_buffer()`` and ``payment_reserved_cash`` repays
+           principal, back into bank reserves.
+
+        Runs with ``stabilization_disabled`` too: financing is not a
+        stabilizer, and switching it off with the stabilizers would mix two
+        changes in one comparison (owner question Q4).
+
+        Args:
+            bank: the lender, or None (then nothing is borrowed, as on main).
+
+        Returns:
+            Dict of $ this tick: ``borrowed``, ``repaid``, ``unfunded``
+            (shortfall left as negative cash).
+        """
+        self.last_tick_debt_borrowed = 0.0
+        self.last_tick_debt_repaid = 0.0
+        self.last_tick_debt_unfunded = 0.0
+        result = {"borrowed": 0.0, "repaid": 0.0, "unfunded": 0.0}
+
+        # New borrowing needs the flag. Repayment of debt already owed does
+        # not: with the flag turned off mid-run, existing debt keeps being
+        # repaid from surplus (and pays interest), never frozen.
+        borrowed = 0.0
+        if CONFIG.government.public_debt_enabled and bank is not None:
+            target = 0.0
+            if CONFIG.government.public_debt_borrow_target == "buffer":
+                target = self.public_debt_cash_buffer()
+            short = self.cash_balance < 0.0 or (self.public_debt > 0.0 and self.cash_balance < target)
+            need = max(0.0, target - self.cash_balance) if short else 0.0
+            if need > 0.0 and bank.can_lend():
+                borrowed = min(need, bank.lendable_cash)
+                self.public_debt += borrowed
+                self.cash_balance += borrowed
+                bank.cash_reserves -= borrowed
+                bank.public_debt_held += borrowed
+        unfunded = max(0.0, -self.cash_balance)
+
+        repaid = 0.0
+        if self.public_debt > 0.0 and bank is not None:
+            free_cash = self.cash_balance - self.payment_reserved_cash - self.public_debt_cash_buffer()
+            repaid = min(self.public_debt, max(0.0, free_cash))
+            if repaid > 0.0:
+                self.public_debt -= repaid
+                self.cash_balance -= repaid
+                bank.cash_reserves += repaid
+                bank.public_debt_held = max(0.0, bank.public_debt_held - repaid)
+
+        self.last_tick_debt_borrowed = result["borrowed"] = borrowed
+        self.last_tick_debt_repaid = result["repaid"] = repaid
+        self.last_tick_debt_unfunded = result["unfunded"] = unfunded
+        return result
+
     def make_investments(self) -> Dict[str, float]:
         """
         Government bond purchases with surplus funds.
@@ -6848,6 +7312,11 @@ class GovernmentAgent(AgentMixin):
         The purchase amount is 12% of the surplus (cash_balance - baseline_reserve),
         capped at the available surplus.
 
+        Nothing is bought while public debt is owed: ``settle_public_debt``
+        runs first and has already used surplus cash to repay it. A later
+        payout change (K06-1, pro rata) must keep this guard ahead of the
+        surplus calculation.
+
         Returns:
             Dict with "bonds" key containing amount spent on bond purchases
 
@@ -6858,6 +7327,11 @@ class GovernmentAgent(AgentMixin):
         investments = {"bonds": 0.0}
 
         if self.stabilization_disabled:
+            return investments
+
+        # G1: while the treasury owes the bank, settle_public_debt has already
+        # used the surplus to repay principal, so there is no bond buy.
+        if self.public_debt > 0.0:
             return investments
 
         # Define surplus threshold as percentage of cash balance

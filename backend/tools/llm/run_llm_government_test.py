@@ -1128,10 +1128,27 @@ async def main():
         values = [float(row.get(key, 0.0) or 0.0) for row in summary_rows]
         return min(values) if values else 0.0
 
+    def max_metric(key: str) -> float:
+        values = [float(row.get(key, 0.0) or 0.0) for row in summary_rows]
+        return max(values) if values else 0.0
+
+    def sum_metric(key: str) -> float:
+        return sum(float(row.get(key, 0.0) or 0.0) for row in summary_rows)
+
     final_metrics = summary_rows[-1] if summary_rows else {}
+    # Debt lines only when public debt is on or was used; a debt-off summary is main's.
+    debt_visible = bool(getattr(CONFIG.government, "public_debt_enabled", False)) or max_metric("public_debt") > 0.0
     print("\nECONOMIC SUMMARY")
     print(f"  final_gov_cash:     ${float(final_metrics.get('government_cash', 0.0)):,.0f}")
     print(f"  min_gov_cash:       ${min_metric('government_cash'):,.0f}")
+    if debt_visible:
+        # Public debt (G1): judge the run on net position, debt and interest.
+        print(f"  final_net_position: ${float(final_metrics.get('government_net_position', 0.0)):,.0f}")
+        print(f"  min_net_position:   ${min_metric('government_net_position'):,.0f}")
+        print(f"  final_public_debt:  ${float(final_metrics.get('public_debt', 0.0)):,.0f}")
+        print(f"  peak_public_debt:   ${max_metric('public_debt'):,.0f}")
+        print(f"  debt_interest_paid: ${sum_metric('gov_debt_interest_this_tick'):,.0f}")
+        print(f"  debt_borrowed:      ${sum_metric('gov_debt_borrowed_this_tick'):,.0f}")
     print(f"  avg_gdp:            ${avg_metric('gdp_this_tick'):,.0f}")
     print(f"  final_gdp:          ${float(final_metrics.get('gdp_this_tick', 0.0)):,.0f}")
     print(f"  avg_unemployment:   {avg_metric('unemployment_rate') * 100.0:.1f}%")
@@ -1485,6 +1502,14 @@ async def main():
         economic_summary = {
             "final_gov_cash": float(final_metrics.get("government_cash", 0.0) or 0.0),
             "min_gov_cash": min_metric("government_cash"),
+            **({
+                "final_net_position": float(final_metrics.get("government_net_position", 0.0) or 0.0),
+                "min_net_position": min_metric("government_net_position"),
+                "final_public_debt": float(final_metrics.get("public_debt", 0.0) or 0.0),
+                "peak_public_debt": max_metric("public_debt"),
+                "debt_interest_paid": sum_metric("gov_debt_interest_this_tick"),
+                "debt_borrowed": sum_metric("gov_debt_borrowed_this_tick"),
+            } if debt_visible else {}),
             "avg_gdp": avg_metric("gdp_this_tick"),
             "final_gdp": float(final_metrics.get("gdp_this_tick", 0.0) or 0.0),
             "avg_unemployment_rate": avg_metric("unemployment_rate"),
@@ -1611,6 +1636,12 @@ async def main():
             "",
             f"- Final gov cash: `${economic_summary['final_gov_cash']:,.0f}`",
             f"- Min gov cash: `${economic_summary['min_gov_cash']:,.0f}`",
+            *([
+                f"- Final net position (cash - public debt): `${economic_summary['final_net_position']:,.0f}`",
+                f"- Min net position: `${economic_summary['min_net_position']:,.0f}`",
+                f"- Final / peak public debt: `${economic_summary['final_public_debt']:,.0f}` / `${economic_summary['peak_public_debt']:,.0f}`",
+                f"- Debt interest paid / borrowed: `${economic_summary['debt_interest_paid']:,.0f}` / `${economic_summary['debt_borrowed']:,.0f}`",
+            ] if debt_visible else []),
             f"- Avg GDP: `${economic_summary['avg_gdp']:,.0f}`",
             f"- Final GDP: `${economic_summary['final_gdp']:,.0f}`",
             f"- Avg unemployment: `{economic_summary['avg_unemployment_rate'] * 100.0:.1f}%`",

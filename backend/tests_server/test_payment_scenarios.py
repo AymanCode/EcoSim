@@ -93,3 +93,26 @@ def test_websocket_reports_selected_setup_and_recovers_from_rejected_config(monk
         assert "fixed at SETUP" in ws.receive_json()["error"]
         ws.send_json({"command": "STOP"})
         assert ws.receive_json()["type"] == "STOPPED"
+
+
+@pytest.mark.parametrize("sequence", ["legacy", "income_first", "income_late"])
+@pytest.mark.parametrize("profile", ["lean", "legacy"])
+def test_setup_policy_presets_keep_experimental_clinic_price_off(sequence, profile, monkeypatch):
+    """Town/classic setups and initial policy vectors inherit safe firm defaults."""
+    original = server.create_large_economy
+    factory_seen = []
+
+    def observed_factory(*args, **kwargs):
+        factory_seen.append(CONFIG.firms.fix_healthcare_price_covers_payroll)
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(server, "create_large_economy", observed_factory)
+    manager = server.SimulationManager(session_id="safe-clinic-default")
+    manager.initialize({"num_households": 3, "num_firms": 1, "seed": 42,
+                        "frame_profile": profile, "payment_sequence": sequence,
+                        "initial_policy": {"sector_subsidy_target": "healthcare", "sector_subsidy_level": 25}})
+    assert factory_seen == [False]
+    assert manager.config.firms.fix_healthcare_price_covers_payroll is False
+    with server.use_config(manager.config):
+        manager.economy.step()
+    assert manager.config.firms.fix_healthcare_price_covers_payroll is False
