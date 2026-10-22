@@ -1,7 +1,7 @@
-import { Activity, useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from 'react'
+import { Activity, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { COPY, STAT_METRICS, STORY_METRICS, describePolicy, townTextColor } from './catalog.js'
-import { rulesAt, rulesDiff } from './data/derive.js'
-import { leadSentence, verdict } from './narration.js'
+import { commonTicks, rulesAt, rulesDiff } from './data/derive.js'
+import { leadSentence, moments, verdict } from './narration.js'
 import BusinessList from './components/BusinessList.jsx'
 import EndPanel from './components/EndPanel.jsx'
 import Feed from './components/Feed.jsx'
@@ -11,13 +11,18 @@ import HowToRead from './components/HowToRead.jsx'
 import LostPanel from './components/LostPanel.jsx'
 import Moments from './components/Moments.jsx'
 import NumbersSheet from './numbers/NumbersSheet.jsx'
+import StableText from './components/StableText.jsx'
 import StatCard from './components/StatCard.jsx'
 import StoryChart from './components/StoryChart.jsx'
-import Town from './components/Town.jsx'
 import TownHall from './components/TownHall.jsx'
+import Legend from './town/Legend.jsx'
+import MainStreetCard from './town/MainStreetCard.jsx'
+import TownCard from './town/TownCard.jsx'
 import './next.css'
 
 const escapeRegExp = text => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+const HTML_ESCAPES = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }
+const escapeHtml = text => String(text).replace(/[&<>"']/g, char => HTML_ESCAPES[char])
 
 // Why the Town hall cannot change rules in this phase of a live run, or null.
 const HALL_LOCKS = {
@@ -27,37 +32,58 @@ const HALL_LOCKS = {
   lost: COPY.hall.locked.lost,
 }
 
-// The lead sentence with each town's name in its colour.
-function Lead({ text, arms }) {
+// The lead sentence in parts: plain text, and each town's name with its
+// colour. <Lead> renders them and leadMarkup writes the same as HTML for the
+// lead's measuring copy, so the two cannot drift apart.
+function leadParts(text, arms) {
   const labels = arms.map(arm => arm.label).filter(Boolean)
-  if (!labels.length) return text
+  if (!labels.length) return [{ text }]
   const colors = Object.fromEntries(arms.map(arm => [arm.label, townTextColor(arm.color)]))
-  const parts = text.split(new RegExp(`(${labels.map(escapeRegExp).join('|')})`))
-  return parts.map((part, i) => (colors[part] && i % 2 === 1
-    ? <span key={i} className="nx-tname" style={{ color: colors[part] }}>{part}</span>
-    : part))
+  return text.split(new RegExp(`(${labels.map(escapeRegExp).join('|')})`))
+    .map((part, i) => (colors[part] && i % 2 === 1 ? { text: part, color: colors[part] } : { text: part }))
 }
 
-// A column head names the rules the town has in force at the week shown. A
-// live town keeps an (empty) status line for the server's notices, so a
-// notice is announced when it arrives.
+// The lead sentence with each town's name in its colour.
+function Lead({ text, arms }) {
+  return leadParts(text, arms).map((part, i) => (part.color
+    ? <span key={i} className="nx-tname" style={{ color: part.color }}>{part.text}</span>
+    : part.text))
+}
+
+// The HTML <Lead> renders for `text`. A town's name is its own inline box, and
+// the browser measures each box's text separately and rounds each width, so a
+// line with names can come out a fraction of a pixel wider than the same
+// words as plain text and wrap one word sooner: the lead's room is measured
+// with this markup, not the plain sentence.
+function leadMarkup(text, arms) {
+  return leadParts(text, arms).map(part => (part.color
+    ? `<span class="nx-tname" style="color: ${escapeHtml(part.color)}">${escapeHtml(part.text)}</span>`
+    : escapeHtml(part.text))).join('')
+}
+
+// A column head names the rules the town has in force at the week shown, on
+// one line (the full wording in its title). A live town keeps an (empty)
+// status line for the server's notices, so a notice is announced when it
+// arrives. The town itself is drawn in its card above the columns; a single
+// town's column puts its businesses beside its households.
 function TownColumn({ arm, tick, single, live, notice, onTrack, canReshuffle }) {
-  const town = <Town arm={arm} tick={tick} />
   const businesses = <BusinessList arm={arm} tick={tick} />
+  const households = <HouseholdCards arm={arm} tick={tick} onTrack={onTrack} canReshuffle={canReshuffle} />
+  const rules = describePolicy(rulesDiff(rulesAt(arm, tick)))
   return (
     <section className="nx-col" aria-label={arm.label}>
-      <div className="nx-colhead">
+      <div className="nx-colhead" data-stable={`town-rules:${arm.label}`}>
         <i style={{ background: arm.color }} aria-hidden="true" />
         <h2>{arm.label}</h2>
-        <span>{describePolicy(rulesDiff(rulesAt(arm, tick)))}</span>
+        <span title={rules}>{rules}</span>
       </div>
       {live && (
-        <p className="nx-notice" role="status">
+        <p className="nx-notice" role="status" data-stable={`notice:${arm.label}`}
+          title={notice ? `${COPY.live.notice} ${COPY.app.detail(notice)}` : undefined}>
           {notice ? `${COPY.live.notice} ${COPY.app.detail(notice)}` : null}
         </p>
       )}
-      {single ? <div className="nx-solo">{town}{businesses}</div> : <>{town}{businesses}</>}
-      <HouseholdCards arm={arm} tick={tick} onTrack={onTrack} canReshuffle={canReshuffle} />
+      {single ? <div className="nx-solo">{businesses}{households}</div> : <>{businesses}{households}</>}
     </section>
   )
 }
@@ -67,8 +93,11 @@ const changedRules = arms => arms.some(arm => (arm.receipts ?? []).some(receipt 
   receipt.status === 'applied' && Object.keys(receipt.applied ?? {}).length > 0
 )))
 
+// The live phases in which a run has stopped for good, not paused.
+const END_PHASES = new Set(['horizon', 'finished', 'lost'])
+
 // A live run's end or lost panel, or nothing while it runs.
-function LivePanel({ live, arms, maxTick, horizon }) {
+function LivePanel({ live, arms, maxTick, horizon, onFollow }) {
   if (live.phase === 'lost') {
     const lostLabel = live.error?.town ?? live.towns?.find(town => town.status === 'lost')?.label
     const lost = live.towns?.find(town => town.label === lostLabel)
@@ -93,7 +122,7 @@ function LivePanel({ live, arms, maxTick, horizon }) {
         arms={arms}
         tick={maxTick}
         following={live.following !== false}
-        onFollow={live.onFollow}
+        onFollow={onFollow}
         onExtend={live.onExtend}
         onNewExperiment={live.onNewExperiment}
       />
@@ -136,12 +165,55 @@ export default function RunScreen({
   const [hallFocus, setHallFocus] = useState(false)
   const hallId = `${useId()}-hall`
   const single = arms.length === 1
+  // Enlarge shows one town on its own (by label) until the viewer shows them all again.
+  const [focused, setFocused] = useState(null)
+  const focus = arms.some(arm => arm.label === focused) ? focused : null
+  // Which town Main Street shows (by index): the picker's choice, or the town
+  // last enlarged. Showing all the towns again leaves it there.
+  const [streetTown, setStreetTown] = useState(0)
   // A live run shows its towns from the first week every town has reached.
   const building = Boolean(live) && maxTick < 1
-  const panel = live ? <LivePanel live={live} arms={arms} maxTick={maxTick} horizon={horizon} /> : null
+  // The towns move while the clock plays forward: a live run held on a past
+  // week does not, though its towns run on. Every move on the timeline is
+  // counted, so the drawings never take a scrubbed week for a step forward.
+  const moving = playing && (!live || live.following !== false)
+  // A run that has stopped at its end (the replay's last week, or a live run
+  // at its horizon, finished or lost) rather than paused by the viewer: what
+  // is in flight in the drawings lands instead of freezing.
+  const ended = !moving && (live ? live.following !== false && END_PHASES.has(live.phase) : tick >= maxTick)
+  const [scrubs, setScrubs] = useState(0)
+  const scrub = week => {
+    setScrubs(count => count + 1)
+    onScrub(week)
+  }
+  const follow = () => {
+    setScrubs(count => count + 1)
+    live.onFollow()
+  }
+  const panel = live ? <LivePanel live={live} arms={arms} maxTick={maxTick} horizon={horizon} onFollow={follow} /> : null
   // New families appear in the live week only, so meeting them waits for a
   // running town and the viewer on the newest week.
   const canReshuffle = live?.phase === 'running' && live.following !== false
+
+  // Every lead, verdict and row of moments the towns can show, so their boxes
+  // keep one height as the week changes (spec section 6). A live run's arms
+  // can grow in place, so the weeks also follow each town's week count.
+  const ticksKey = arms.map(arm => arm.ticks.length).join(',')
+  const isLive = Boolean(live)
+  const weeks = useMemo(() => commonTicks(arms), [arms, ticksKey]) // eslint-disable-line react-hooks/exhaustive-deps
+  const leadTexts = useMemo(() => [...new Set(weeks.map(week => leadSentence(arms, week)))], [arms, weeks])
+  const leadHtml = useCallback(text => leadMarkup(text, arms), [arms])
+  const verdictTexts = useMemo(() => [...new Set(weeks.map(week => verdict(arms, week)))], [arms, weeks])
+  const momentRows = useMemo(() => {
+    if (isLive) return []
+    const rows = new Map()
+    for (const week of weeks) {
+      const row = moments(arms, week)
+      const key = row.map(moment => moment.text).join('\n')
+      if (row.length && !rows.has(key)) rows.set(key, row)
+    }
+    return [...rows.values()]
+  }, [arms, weeks, isLive])
 
   // The numbers sheet: whether it is open, what opened it (focus goes back
   // there when the viewer closes it, else to the timeline's button), and the
@@ -207,12 +279,12 @@ export default function RunScreen({
         maxTick={maxTick}
         playing={playing}
         onToggle={onToggle}
-        onScrub={onScrub}
+        onScrub={scrub}
         speed={speed}
         onSpeed={onSpeed}
         live={live}
         following={live?.following}
-        onFollow={live?.onFollow}
+        onFollow={live ? follow : undefined}
         hallToggleRef={hallToggleRef}
         hallId={hallId}
         onHallToggle={live ? toggleHall : undefined}
@@ -257,9 +329,44 @@ export default function RunScreen({
             </>
           ) : (
             <>
-              <p className="nx-lead"><Lead text={leadSentence(arms, tick)} arms={arms} /></p>
-              <Moments arms={arms} tick={tick} />
+              <StableText className="nx-lead" texts={leadTexts} stable="lead" markup={leadHtml}>
+                <Lead text={leadSentence(arms, tick)} arms={arms} />
+              </StableText>
+              <Moments arms={arms} tick={tick} rows={momentRows} live={isLive} />
               {panel}
+
+              <section className={`lt-towns is-${arms.length}${focus ? ' is-focus' : ''}`} data-stable="towns">
+                {arms.map((arm, i) => (
+                  <TownCard
+                    key={arm.label}
+                    arm={arm}
+                    tick={tick}
+                    towns={arms.length}
+                    playing={moving}
+                    speed={speed}
+                    scrubs={scrubs}
+                    ended={ended}
+                    canFocus={!single}
+                    focused={focus === arm.label}
+                    hidden={Boolean(focus) && focus !== arm.label}
+                    onFocus={() => {
+                      if (focus !== arm.label) setStreetTown(i)
+                      setFocused(focus === arm.label ? null : arm.label)
+                    }}
+                  />
+                ))}
+              </section>
+              <Legend arms={arms} tick={tick} />
+              <MainStreetCard
+                arms={arms}
+                tick={tick}
+                playing={moving}
+                speed={speed}
+                scrubs={scrubs}
+                ended={ended}
+                selected={Math.min(streetTown, arms.length - 1)}
+                onSelect={setStreetTown}
+              />
 
               <div className={`nx-cols${single ? ' is-single' : ''}`}>
                 {arms.map((arm, i) => (
@@ -286,11 +393,11 @@ export default function RunScreen({
                   playing={playing}
                 />
                 <div className="nx-side">
-                  <p className="nx-verdict">{verdict(arms, tick)}</p>
+                  <StableText className="nx-verdict" texts={verdictTexts} stable="verdict">{verdict(arms, tick)}</StableText>
                   <div className="nx-stats">
                     {STAT_METRICS.map(key => <StatCard key={key} metricKey={key} arms={arms} tick={tick} />)}
                   </div>
-                  <p className="nx-morestats">
+                  <p className="nx-morestats" data-stable="morestats">
                     {COPY.numbers.more}{' '}
                     <button type="button" className="nx-more" onClick={event => openNumbers(event.currentTarget)}>
                       {COPY.numbers.open}

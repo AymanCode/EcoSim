@@ -44,6 +44,7 @@ benchmarks/results/*
 screenshots/
 testing_screenshots/
 frontend-react/test-results/
+frontend-react/playwright-report/
 *.pdf
 
 # SQLite/data outputs

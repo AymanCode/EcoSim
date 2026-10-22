@@ -32,6 +32,14 @@ describe('HorizonBar', () => {
     expect([...container.querySelectorAll('.nx-marks span')].map(mark => mark.textContent)).toEqual(['Year 1', 'Year 2'])
   })
 
+  test('the clock keeps hidden room for the run\'s longest week label', () => {
+    const { container } = bar({ tick: 3 })
+    const room = container.querySelector('.nx-week-room')
+    expect(room).toHaveAttribute('aria-hidden', 'true')
+    expect(room.textContent).toHaveLength('Year 2, week 52'.length)
+    expect(container.querySelector('.nx-week')).toHaveTextContent('Year 1, week 3')
+  })
+
   test('play and pause', () => {
     const { onToggle, rerender } = bar()
     fireEvent.click(screen.getByRole('button', { name: 'Play' }))

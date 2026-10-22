@@ -287,3 +287,27 @@ describe('lever groups, help and question cards', () => {
     expect(capitalise('')).toBe('')
   })
 })
+
+describe('COPY.diorama words', () => {
+  const { summary, card } = COPY.diorama
+
+  test('counts agree with their nouns', () => {
+    expect(summary.overflow(1)).toBe('1 more business than lots; it is not drawn.')
+    expect(summary.overflow(3)).toBe('3 more businesses than lots; they are not drawn.')
+  })
+
+  test('the weather matches the picture: snow in winter whatever the mood, else rain, cloud or sun', () => {
+    for (const mood of ['thriving', 'okay', 'struggling', 'hard']) expect(summary.weather('winter', mood)).toBe('It is winter; it is snowing.')
+    expect(summary.weather('summer', 'hard')).toBe('It is summer; it is raining.')
+    expect(summary.weather('autumn', 'struggling')).toBe('It is autumn; it is cloudy.')
+    expect(summary.weather('spring', 'thriving')).toBe('It is spring; the sun is out.')
+  })
+
+  test('the queue line counts no one and the money words are plain', () => {
+    expect(card.queue).toBe('A queue of families is waiting for help.')
+    expect(card.hasSavings).toBe('Has savings')
+    expect(card.help).toBe('Help paid to families this week')
+    expect(card.word(null)).toBe('not measured')
+    expect([card.word(0.7), card.word(0.4), card.word(0.1)]).toEqual(['good', 'so-so', 'low'])
+  })
+})

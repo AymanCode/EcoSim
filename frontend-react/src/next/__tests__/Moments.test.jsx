@@ -3,7 +3,7 @@ import { render, screen, within } from '@testing-library/react'
 import Moments from '../components/Moments.jsx'
 import RunScreen from '../RunScreen.jsx'
 import { moments } from '../narration.js'
-import { fixtureArm, TOWN_A, TOWN_B } from './fixture.js'
+import { fixtureArm, TOWN_A, TOWN_B, WHOLE_SCREEN_MS } from './fixture.js'
 
 const noop = () => {}
 const rgb = hex => `rgb(${[1, 3, 5].map(i => parseInt(hex.slice(i, i + 2), 16)).join(', ')})`
@@ -14,6 +14,15 @@ const rgb = hex => `rgb(${[1, 3, 5].map(i => parseInt(hex.slice(i, i + 2), 16)).
 const WEEK = 15
 
 describe('Moments', () => {
+  test('live room exists before moments arrive and keeps no growing historical measuring rows', () => {
+    const arms = [fixtureArm(TOWN_A), fixtureArm(TOWN_B)]
+    const { container, rerender } = render(<Moments arms={arms} tick={1} live />)
+    expect(container.querySelector('.nx-moments')).toHaveClass('is-live')
+    expect(container.querySelector('.nx-moments > ul')).toBeEmptyDOMElement()
+    rerender(<Moments arms={arms} tick={WEEK} rows={[moments(arms, WEEK)]} live />)
+    expect(container.querySelector('.nx-moments-room')).toBeNull()
+    expect(container.querySelectorAll('.nx-moment')).toHaveLength(3)
+  })
   test('renders the chips with each town\'s colour', () => {
     const arms = [fixtureArm(TOWN_A), fixtureArm(TOWN_B)]
     const expected = moments(arms, WEEK)
@@ -35,6 +44,16 @@ describe('Moments', () => {
     expect(region.querySelector('ul')).toBeInTheDocument()
   })
 
+  test('keeps room for every row of chips the towns can show, without reading it out', () => {
+    const arms = [fixtureArm(TOWN_A), fixtureArm(TOWN_B)]
+    render(<Moments arms={[fixtureArm(TOWN_A)]} tick={24} rows={[moments(arms, WEEK)]} />)
+    const region = screen.getByRole('log', { name: 'What just happened' })
+    expect(within(region).queryAllByRole('listitem')).toHaveLength(0)
+    const room = region.querySelector('.nx-moments-room')
+    expect(room).toHaveAttribute('aria-hidden', 'true')
+    expect([...room.querySelectorAll('.nx-moment')].map(chip => chip.textContent)).toEqual(moments(arms, WEEK).map(moment => moment.text))
+  })
+
   test('announces only the chips that arrive, politely', () => {
     render(<Moments arms={[fixtureArm(TOWN_A)]} tick={24} />)
     const region = screen.getByRole('log', { name: 'What just happened' })
@@ -43,7 +62,7 @@ describe('Moments', () => {
     expect(region).toHaveAttribute('aria-relevant', 'additions')
   })
 
-  test('sits under the lead on the Run screen, recorded and live', () => {
+  test('sits under the lead on the Run screen, recorded and live', { timeout: WHOLE_SCREEN_MS }, () => {
     const arms = [fixtureArm(TOWN_A), fixtureArm(TOWN_B)]
     const props = { arms, tick: WEEK, maxTick: 24, playing: false, onToggle: noop, onScrub: noop, speed: 1, onSpeed: noop }
     const live = {
