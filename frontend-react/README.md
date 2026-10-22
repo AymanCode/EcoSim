@@ -1,6 +1,11 @@
 # EcoSim Dashboard
 
-React/Vite dashboard for the EcoSim simulation.
+React/Vite frontends for the EcoSim simulation. This package holds two apps:
+
+- **Town Run screen (current).** `src/next/`, opened at `/?view=next`. New UI work goes here.
+- **Classic dashboard (legacy, frozen).** `src/App.jsx`, `src/screens/`, `src/shell/`, `src/ui/`, `src/index.css`, opened at `/`. It is still the URL default, but it gets no new features unless the owner asks.
+
+`src/next/pickView.js` picks the app. See "Current and legacy surfaces" in the repository's `AGENTS.md`.
 
 ## Recommended Startup
 
