@@ -5376,7 +5376,9 @@ class FirmAgent(AgentMixin):
         self.decision_diagnostics["service_upgrade_requested"] = True
         return True
 
-    def apply_rd_and_quality_update(self, revenue: float) -> float:
+    def apply_rd_and_quality_update(
+        self, revenue: float, available_cash: Optional[float] = None
+    ) -> float:
         """
         Invest in R&D and update quality level.
 
@@ -5384,6 +5386,8 @@ class FirmAgent(AgentMixin):
 
         Args:
             revenue: Revenue from this tick (used to compute R&D spending)
+            available_cash: Optional nonnegative spending budget after prior
+                obligations. Omit to retain the legacy overdraft convention.
 
         Returns:
             Amount spent on R&D (to be redirected to Misc firm)
@@ -5412,6 +5416,8 @@ class FirmAgent(AgentMixin):
 
         # Compute R&D spending
         rd_spending = revenue * rd_rate
+        if available_cash is not None:
+            rd_spending = min(rd_spending, max(0.0, available_cash))
         self.accumulated_rd_investment += rd_spending
 
         # Deduct R&D spending from cash
