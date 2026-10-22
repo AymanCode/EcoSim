@@ -93,6 +93,9 @@ data/
 .claude/
 .agents/
 plugins/
+# Panel metrics live under the benchmark tools; the rule above is for IDE plugins.
+!backend/tools/benchmarks/plugins/
+!backend/tools/benchmarks/plugins/**
 
 # LLM test runs and scratch status dumps
 experiments/**/*.json
