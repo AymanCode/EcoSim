@@ -445,7 +445,7 @@ def enqueue_payment_care_requests(economy):
         price = float(provider.price)
         if not math.isfinite(price) or price < 0:
             raise ValueError("Care posted price must be finite and nonnegative")
-        charge = 0.0 if economy.payment_care_mode == "covered" else price
+        charge = 0.0 if payment_care_covered(economy) else price
         ratio = 0.0 if charge <= EPS else min(1.0, charge / max(liquidity, 1.0))
         probability = max(0.0, min(1.0, 1.0 - slope * ratio))
         critical = household.health <= float(household.healthcare_critical_threshold)
@@ -470,13 +470,27 @@ def enqueue_payment_care_requests(economy):
         firm.healthcare_arrivals_ema = alpha * arrivals + (1.0 - alpha) * max(0.0, firm.healthcare_arrivals_ema)
 
 
+def payment_care_covered(economy):
+    """True when care visits on the payment sequences are publicly covered.
+
+    The one definition of coverage: ``payment_care_mode == "covered"``
+    (config allows only ``"covered"`` and the default ``"patient_pay"``).
+    A covered visit is paid in full from the care budget and costs the
+    household nothing; otherwise the household pays the full price (part may
+    be a medical loan). There is no fractional split. The enqueue quote,
+    ``settle_payment_care`` and ``Economy.expected_healthcare_household_shares``
+    all read this, so the estimate and the charge share one rule.
+    """
+    return getattr(economy, "payment_care_mode", "patient_pay") == "covered"
+
+
 def settle_payment_care(economy, per_firm_sales):
     """Offer only qualified slots; a denied quote leaves the due episode alive."""
     from payment_loans import fund_medical_loan, quote_medical_loan, rollback_medical_loan
 
     economy.payment_care_physical_waits_this_tick = getattr(economy, "payment_care_physical_waits_this_tick", 0)
     economy.payment_care_funding_denials_this_tick = getattr(economy, "payment_care_funding_denials_this_tick", 0)
-    covered = getattr(economy, "payment_care_mode", "patient_pay") == "covered"
+    covered = payment_care_covered(economy)
     for firm in economy._healthcare_firms():
         firm.inventory_units = 0.0
         economy._prioritize_healthcare_queue(firm)

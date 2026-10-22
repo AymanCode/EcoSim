@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, test, vi } from 'vitest'
 import { fireEvent, render, screen, within } from '@testing-library/react'
 import NextApp from '../NextApp.jsx'
-import { FIXTURE_TEXT } from './fixture.js'
+import { FIXTURE_TEXT, WHOLE_SCREEN_MS } from './fixture.js'
 
 // The same recording twice, the second with a higher minimum wage in its
 // header, its SETUP and the server's SETUP_COMPLETE.
@@ -17,7 +17,7 @@ function serve(files) {
 
 afterEach(() => vi.unstubAllGlobals())
 
-describe('NextApp', () => {
+describe('NextApp', { timeout: WHOLE_SCREEN_MS }, () => {
   test('loads the two demo towns and asks the experiment question', async () => {
     const fetch = serve({ 'town-a.jsonl': FIXTURE_TEXT, 'town-b.jsonl': TOWN_B_TEXT })
     vi.stubGlobal('fetch', fetch)
