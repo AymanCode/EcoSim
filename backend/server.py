@@ -498,7 +498,10 @@ class SimulationManager:
         self.cached_mean_prices = None
         self.cached_supplies = None
         self.cached_total_net_worth = None
-        self.prev_gov_cash: float = 0.0  # Initialize to avoid hasattr check
+        # Treasury net position (cash minus public debt) at the last frame;
+        # the dashboard fiscal balance is its change, so borrowing and
+        # repayment are financing, not revenue or spending.
+        self.prev_gov_net_position: float = 0.0
         self.enable_warehouse = os.getenv("ECOSIM_ENABLE_WAREHOUSE", "0").strip().lower() in {"1", "true", "yes", "on"}
         self.warehouse_backend = os.getenv("ECOSIM_WAREHOUSE_BACKEND", "sqlite").strip().lower()
         self.warehouse_manager = None
@@ -1161,7 +1164,10 @@ class SimulationManager:
         )
 
         gdp = max(1.0, float(getattr(tick_metric, "gdp", 0.0) or 0.0))
-        negative_cash_pct_gdp = max(0.0, -float(getattr(tick_metric, "gov_cash_balance", 0.0) or 0.0)) / gdp * 100.0
+        # Net of public debt (G1): with debt the bank lends the shortfall and cash sits near zero.
+        public_debt = max(0.0, float(getattr(self.economy.government, "public_debt", 0.0) or 0.0))
+        net_position = float(getattr(tick_metric, "gov_cash_balance", 0.0) or 0.0) - public_debt
+        negative_cash_pct_gdp = max(0.0, -net_position) / gdp * 100.0
         negative_flow_pct_gdp = max(0.0, -float(getattr(tick_metric, "gov_profit", 0.0) or 0.0)) / gdp * 100.0
         fiscal_stress_score = self._clamp_feature(
             negative_cash_pct_gdp * 0.6 + negative_flow_pct_gdp * 0.4
@@ -1511,6 +1517,31 @@ class SimulationManager:
             "wealth_tax_rate": float(getattr(gov, "wealth_tax_rate", 0.0)),
             "target_inflation_rate": float(getattr(gov, "target_inflation_rate", 0.0)),
             "birth_rate": float(getattr(gov, "birth_rate", 0.0)),
+        }
+
+    def _treasury_flow_this_tick(self) -> Dict[str, float]:
+        """Treasury figures for the dashboard frame, in $ (G1 public debt).
+
+        ``fiscal_balance`` is the change in the treasury net position (cash
+        minus public debt) since the last frame. Bank loans to the treasury
+        raise cash and debt by the same amount and repayments lower both, so
+        neither counts as revenue or spending; interest on the debt does count
+        (it lowers cash). With no public debt this is the change in cash, as
+        before. ``debt`` is public debt plus any negative cash the bank did
+        not lend. Updates the stored net position. Financing flows remain in
+        the economic metrics and LLM observations; there are no separate
+        financing fields for the frozen classic dashboard.
+        """
+        gov = self.economy.government
+        cash = float(gov.cash_balance)
+        public_debt = max(0.0, float(getattr(gov, "public_debt", 0.0) or 0.0))
+        net_position = cash - public_debt
+        fiscal_balance = net_position - self.prev_gov_net_position
+        self.prev_gov_net_position = net_position
+        return {
+            "fiscal_balance": fiscal_balance,
+            "net_position": net_position,
+            "debt": public_debt + max(0.0, -cash),
         }
 
     def _snapshot_government_levers(self) -> Dict[str, Any]:
@@ -2637,10 +2668,10 @@ class SimulationManager:
                 # Calculate GDP (sum of revenue)
                 gdp = sum(self.economy.last_tick_revenue.values())
                 
-                # Calculate Fiscal Balance (Gov Profit)
+                # Calculate Fiscal Balance (Gov Profit), excluding public-debt financing
                 current_gov_cash = self.economy.government.cash_balance
-                fiscal_balance = current_gov_cash - self.prev_gov_cash
-                self.prev_gov_cash = current_gov_cash
+                treasury_flow = self._treasury_flow_this_tick()
+                fiscal_balance = treasury_flow["fiscal_balance"]
                 
                 # Fetch detailed government budget from economy
                 gov_revenue = self.economy.government.last_tick_revenue
@@ -2655,6 +2686,7 @@ class SimulationManager:
                     {
                         "current_tick": int(self.tick),
                         "government_cash": float(current_gov_cash),
+                        "government_net_position": float(treasury_flow["net_position"]),
                         "gov_revenue_this_tick": float(gov_revenue),
                         "gov_spending_this_tick": float(gov_spending),
                         "gov_net_flow_this_tick": float(gov_revenue - gov_spending),
@@ -2919,7 +2951,7 @@ class SimulationManager:
                     self.happiness_history.append({"tick": self.tick, "value": stats["mean_happiness"] * 100})
                     self.health_history.append({"tick": self.tick, "value": stats["mean_health"] * 100})
                     self.gov_profit_history.append({"tick": self.tick, "value": fiscal_balance / 1000000.0})
-                    self.gov_debt_history.append({"tick": self.tick, "value": -current_gov_cash / 1000000.0 if current_gov_cash < 0 else 0})
+                    self.gov_debt_history.append({"tick": self.tick, "value": treasury_flow["debt"] / 1000000.0})
                     self.firm_count_history.append({"tick": self.tick, "value": len(self.economy.firms)})
                     self.net_worth_history.append({"tick": self.tick, "value": total_net_worth / 1000000.0})
 
@@ -3030,7 +3062,7 @@ class SimulationManager:
                     "metrics": {
                         "unemployment": stats["unemployment_rate"] * 100,
                         "gdp": gdp / 1000000.0,
-                        "govDebt": -self.economy.government.cash_balance / 1000000.0 if self.economy.government.cash_balance < 0 else 0,
+                        "govDebt": treasury_flow["debt"] / 1000000.0,
                         "govProfit": fiscal_balance / 1000000.0,
                         "govRevenue": gov_revenue / 1000000.0,
                         "govTransfers": gov_transfers / 1000000.0,

@@ -708,6 +708,20 @@ def test_digest_detects_rng_loans_and_payment_ledger_changes():
     assert before['payments'] != after['payments'] and before['combined'] != after['combined']
 
 
+@pytest.mark.parametrize("component,field", [("government", "public_debt"), ("bank", "public_debt_held")])
+def test_digest_detects_public_debt_without_a_cash_change(component, field):
+    economy = SimpleNamespace(
+        households=[], firms=[], queued_firms=[],
+        government=SimpleNamespace(cash_balance=0.0, wage_tax_rate=0.0, profit_tax_rate=0.0),
+        bank=SimpleNamespace(), payment_sequence="legacy",
+    )
+    before = state_components(economy)
+    setattr(getattr(economy, component), field, 100.0)
+    after = state_components(economy)
+    assert before[component] != after[component]
+    assert before["combined"] != after["combined"]
+
+
 def test_runtime_probe_stamps_host_cpu_and_tools_do_not_enter_runtime_lock():
     runtime = panel.probe_runtime(sys.executable)
     assert runtime['platform'] and runtime['cpu_model'] and runtime['system']

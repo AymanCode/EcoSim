@@ -8,6 +8,7 @@ holds, a run that ended with cash in one reported it as a leak.
 
 import pytest
 
+from agents import BankAgent
 from config import clone_config, use_config
 from payments import PaymentBook
 from tests_contracts.conftest import payment_holds, total_money_net_of_injections
@@ -85,3 +86,39 @@ def test_legacy_has_no_holds(factory):
     economy.payment_state["recovery_holds"][1] = 99.0
     assert economy.payment_sequence == "legacy"
     assert payment_holds(economy) == 0.0
+
+
+@pytest.mark.parametrize("target", ["zero", "buffer"])
+def test_public_debt_borrow_interest_and_repayment_conserve_shared_money(factory, target):
+    cfg = clone_config()
+    cfg.payment_sequence = "legacy"
+    cfg.government.public_debt_enabled = True
+    cfg.government.public_debt_borrow_target = target
+    with use_config(cfg):
+        govt = factory.government(cash_balance=-10_000.0)
+        economy = factory.economy(government=govt)
+        bank = economy.bank = BankAgent(cash_reserves=100_000.0, base_interest_rate=0.03)
+        govt.last_tick_spending = 4_000.0
+        before = total_money_net_of_injections(economy)
+
+        def assert_stock():
+            assert total_money_net_of_injections(economy) == pytest.approx(before)
+            assert economy.get_economic_metrics()["total_economy_cash"] == pytest.approx(
+                before + economy.external_injection_total
+            )
+            assert govt.public_debt == pytest.approx(bank.public_debt_held)
+
+        result = govt.settle_public_debt(bank)
+        assert result["borrowed"] == pytest.approx(14_000.0 if target == "buffer" else 10_000.0)
+        assert_stock()
+        assert govt.pay_public_debt_interest(bank, 30_000.0) > 0.0
+        assert_stock()
+
+        # Supply repayment cash through a transfer, without introducing outside money.
+        bank.cash_reserves -= 20_000.0
+        govt.cash_balance += 20_000.0
+        assert_stock()
+        result = govt.settle_public_debt(bank)
+        assert result["repaid"] > 0.0
+        assert govt.public_debt == pytest.approx(0.0)
+        assert_stock()

@@ -46,6 +46,7 @@ from fiscal_guards import (
     projected_public_works_startup_cost,
     public_works_affordable_budget,
     trailing_gdp,
+    treasury_net_position,
 )
 import numpy as np
 import math
@@ -284,12 +285,18 @@ class Economy:
         self.last_tick_gov_public_works_affordable_budget: float = 0.0
         self.last_tick_gov_public_works_jobs_authorized: int = 0
         self.last_tick_gov_post_warmup_stimulus: float = 0.0
+        # Treasury's share of legacy exit deficits this tick (phase 12; see
+        # _settle_legacy_exit_deficit), counted in this tick's spending.
+        self.last_tick_gov_exit_deficit_cover: float = 0.0
         self.sector_subsidy_cap_this_tick: float = 0.0
         self.sector_subsidy_remaining_this_tick: float = 0.0
         self.last_tick_gov_subsidy_requested: float = 0.0
         self.last_tick_gov_subsidy_denied_by_cap: float = 0.0
         self.last_fiscal_pressure_instant_ratio: float = 0.0
         self.last_fiscal_pressure_denominator_gdp: float = 1.0
+        # Fiscal pressure before this tick's phase 11.7 update, so a later
+        # phase-12 outflow can be folded into the same tick's update.
+        self.last_fiscal_pressure_prior: float = 0.0
         self.bailout_eligible_firms_by_sector: Dict[str, int] = {}
         self.bailout_denied_firms_by_reason: Dict[str, int] = {}
         self.bailout_received_by_firm_id: Dict[int, float] = {}
@@ -319,6 +326,10 @@ class Economy:
         # (owner decision 2026-09-29, rules doc K02).
         self.external_injection_this_tick: float = 0.0
         self.external_injection_total: float = 0.0
+        # Negative cash that legacy firms exited with, by who paid it
+        # (cumulative, currency; market.settle_legacy_exit_deficit).
+        self.legacy_exit_deficit_treasury_total: float = 0.0
+        self.legacy_exit_deficit_bank_total: float = 0.0
         self.misc_firm_beneficiaries: List[int] = []  # household_ids who receive payouts
         self._initialize_misc_firm_beneficiaries()
         self.post_warmup_stimulus_ticks: int = 0
@@ -2224,6 +2235,7 @@ class Economy:
         self.last_tick_gov_public_works_affordable_budget = 0.0
         self.last_tick_gov_public_works_jobs_authorized = 0
         self.last_tick_gov_post_warmup_stimulus = 0.0
+        self.last_tick_gov_exit_deficit_cover = 0.0
         self.last_tick_gov_subsidy_requested = 0.0
         self.last_tick_gov_subsidy_denied_by_cap = 0.0
         self.bailout_eligible_firms_by_sector = {}
@@ -3110,6 +3122,10 @@ class Economy:
         total_price_ceiling_taxes = tick.total_price_ceiling_taxes
         total_property_taxes = tick.total_property_taxes
         total_transfers = tick.total_transfers
+        # Phase 11.2: Interest on public debt (G1), before deposit interest so
+        # it counts in the bank's interest income this tick.
+        self.government.pay_public_debt_interest(self.bank, trailing_gdp(self))
+
         # Phase 11.3: Bank deposit sweep & interest (households → bank)
         if self.bank is not None:
             self.bank.update_deposit_rate()  # Fix 22: adjust rate based on reserve ratio
@@ -3137,6 +3153,11 @@ class Economy:
         self.last_tick_gov_social_spending = social_spent
         if social_spent > 0:
             self._collect_misc_revenue(social_spent)
+
+        # Public debt (G1): borrow the shortfall from the bank or repay from
+        # surplus. Runs before the bond buy, which is skipped while debt is
+        # owed. A K06-1 payout change must keep that guard ahead of the surplus.
+        self.government.settle_public_debt(self.bank)
 
         # Bond purchases with surplus — redirect to Misc firm
         govt_investments = self.government.make_investments()
@@ -3185,6 +3206,7 @@ class Economy:
             + self.last_tick_gov_bailouts
             + self.last_tick_gov_public_works_capitalization
             + self.last_tick_gov_post_warmup_stimulus
+            + self.government.last_tick_debt_interest
         )
         self._update_budget_pressure(tick_revenue, tick_spending)
 
@@ -3195,6 +3217,10 @@ class Economy:
         firm_labor_outcomes = tick.firm_labor_outcomes
         # Phase 12: Handle firm bankruptcies and exits
         tick.bankruptcies_this_tick = self._handle_firm_exits()
+        if self.last_tick_gov_exit_deficit_cover > 0.0:
+            # Phase 11.7 ran before exits; count the treasury's exit-deficit
+            # payments in this tick's spending and budget pressure.
+            self._add_spending_to_budget_pressure(self.last_tick_gov_exit_deficit_cover)
 
         # Phase 13: Potentially create new firms
         self._maybe_create_new_firms()
@@ -6006,17 +6032,63 @@ class Economy:
             firm.cash_balance = 0.0
             self._collect_misc_revenue(residual)
 
+    def _settle_legacy_exit_deficit(self, firm: FirmAgent) -> None:
+        """Pay an exiting legacy firm's negative cash so it does not leave with the firm.
+
+        Legacy payroll debits the full wage bill whatever the firm's cash, so a
+        failing firm exits overdrawn. That balance is money already paid out;
+        dropping it with the firm would create the same amount. Who pays (owner
+        decision 2026-10-20): a PublicWorks firm's deficit falls on the
+        treasury, which capitalized it (``_ensure_public_works_capacity``) and
+        is its only funder; so would a registered baseline firm's, but those
+        never exit. Any other firm's falls on its lenders in proportion to
+        what each is still owed: bank-funded loans charge the bank,
+        treasury-funded ones (government-backed bank loans, direct treasury
+        loans) the treasury; with no lender owed anything, the bank. The bank pays no more than its cash above required
+        reserves (``BankAgent.lendable_cash``), the same limit as its lending;
+        the treasury pays the rest. Call before loan write-offs, which read the
+        same balances. Gated by ``CONFIG.market.settle_legacy_exit_deficit``.
+        """
+        deficit = -firm.cash_balance
+        firm.cash_balance = 0.0
+        bank = self.bank
+        bank_share = 0.0
+        public_works = (firm.good_category or "").lower() == "publicworks"
+        if not (public_works or self.government.is_baseline_firm(firm.firm_id)):
+            bank_owed = 0.0
+            treasury_owed = max(0.0, firm.government_loan_remaining)
+            if bank is not None:
+                for loan in bank.loans_for("firm", firm.firm_id):
+                    owed = max(0.0, float(loan["remaining"]))
+                    if loan["govt_backed"]:
+                        treasury_owed += owed
+                    else:
+                        bank_owed += owed
+            total_owed = bank_owed + treasury_owed
+            bank_share = deficit * bank_owed / total_owed if total_owed > MONEY_EPS else deficit
+        bank_paid = min(bank_share, bank.lendable_cash) if bank is not None else 0.0
+        if bank_paid > 0.0:
+            bank.cash_reserves -= bank_paid
+            self.legacy_exit_deficit_bank_total += bank_paid
+        treasury_paid = deficit - bank_paid
+        self.government.cash_balance -= treasury_paid
+        self.legacy_exit_deficit_treasury_total += treasury_paid
+        self.last_tick_gov_exit_deficit_cover += treasury_paid
+
     def _handle_firm_exits(self) -> int:
         """
         Remove bankrupt firms from the economy.
 
         Firms with negative cash below a threshold are removed.
-        Their employees are laid off.
+        Their employees are laid off. On legacy, an exiting firm's negative
+        cash is paid first (``_settle_legacy_exit_deficit``) unless
+        ``CONFIG.market.settle_legacy_exit_deficit`` is off.
 
         Mutates state.
         """
         bankruptcy_threshold = CONFIG.market.bankruptcy_threshold
         zero_cash_max_streak = CONFIG.market.zero_cash_max_streak
+        settle_legacy_deficit = self.payment_sequence == "legacy" and bool(CONFIG.market.settle_legacy_exit_deficit)
         registered_by_firm = {}
         if self.payment_sequence != "legacy" and self.bank is not None:
             for loan in self.bank.active_loans:
@@ -6118,6 +6190,9 @@ class Economy:
             # Clean up firm cache
             if firm.firm_id in self.firm_lookup:
                 del self.firm_lookup[firm.firm_id]
+
+            if settle_legacy_deficit and firm.cash_balance < 0.0:
+                self._settle_legacy_exit_deficit(firm)
 
             # Write off bank loans on bankruptcy
             if self.bank is not None and self.payment_sequence == "legacy":
@@ -8339,6 +8414,7 @@ class Economy:
         self,
         revenue: float,
         spending: float,
+        gdp: Optional[float] = None,
     ) -> None:
         """Update the government's soft budget constraint each tick.
 
@@ -8360,8 +8436,11 @@ class Economy:
         Args:
             revenue: Total government revenue this tick (taxes + loan repayments).
             spending: Total government spending this tick (transfers + investments + subsidies).
+            gdp: GDP denominator to use; by default it is read from current state.
         """
-        gdp = max(self._fiscal_pressure_denominator_gdp(), 1.0)
+        if gdp is None:
+            gdp = max(self._fiscal_pressure_denominator_gdp(), 1.0)
+        self.last_fiscal_pressure_prior = self.government.fiscal_pressure
 
         deficit_this_tick = spending - revenue
         instant_ratio = deficit_this_tick / gdp
@@ -8392,6 +8471,23 @@ class Economy:
         else:
             # Austerity: hard floor at 0.5
             self.government.spending_efficiency = 0.5
+
+    def _add_spending_to_budget_pressure(self, amount: float) -> None:
+        """Redo this tick's budget-pressure update with ``amount`` more spending.
+
+        For a treasury outflow that happens after phase 11.7 (legacy exit
+        deficits at phase 12). Starts again from the pressure before the 11.7
+        update, with 11.7's revenue and GDP denominator (exits remove firms
+        from that denominator), so the result equals counting ``amount`` at
+        11.7. Nothing reads the pressure between the two phases.
+        """
+        government = self.government
+        government.fiscal_pressure = self.last_fiscal_pressure_prior
+        self._update_budget_pressure(
+            government.last_tick_revenue,
+            government.last_tick_spending + amount,
+            gdp=self.last_fiscal_pressure_denominator_gdp,
+        )
 
     # ── Bank integration methods ──────────────────────────────────────
 
@@ -9073,6 +9169,7 @@ class Economy:
 
         # Government metrics — derived numeric parameters
         metrics["government_cash"] = gov.cash_balance
+        metrics["government_net_position"] = treasury_net_position(gov)
         metrics["wage_tax_rate"] = gov.wage_tax_rate
         metrics["profit_tax_rate"] = gov.profit_tax_rate
         metrics["unemployment_benefit"] = gov.unemployment_benefit_level
@@ -9084,7 +9181,8 @@ class Economy:
         metrics["external_injection_total"] = float(self.external_injection_total)
 
         # Government metrics — budget pressure
-        metrics["deficit_ratio"] = max(0.0, -gov.cash_balance) / max(metrics["gdp_this_tick"], 1.0)
+        # Net of public debt (G1): with no debt this is negative cash, as before.
+        metrics["deficit_ratio"] = max(0.0, -treasury_net_position(gov)) / max(metrics["gdp_this_tick"], 1.0)
         metrics["fiscal_pressure"] = gov.fiscal_pressure
         metrics["fiscal_pressure_instant_ratio"] = self.last_fiscal_pressure_instant_ratio
         metrics["fiscal_pressure_denominator_gdp"] = self.last_fiscal_pressure_denominator_gdp
@@ -9124,6 +9222,11 @@ class Economy:
         metrics["recent_gdp"] = recent_gdp
         metrics["public_debt"] = float(getattr(gov, "public_debt", 0.0))
         metrics["annualized_debt_to_gdp"] = annualized_debt_to_gdp(gov, recent_gdp)
+        metrics["gov_debt_rate_annual"] = float(gov.last_tick_debt_rate)
+        metrics["gov_debt_interest_this_tick"] = float(gov.last_tick_debt_interest)
+        metrics["gov_debt_borrowed_this_tick"] = float(gov.last_tick_debt_borrowed)
+        metrics["gov_debt_repaid_this_tick"] = float(gov.last_tick_debt_repaid)
+        metrics["gov_debt_unfunded_this_tick"] = float(gov.last_tick_debt_unfunded)
         metrics["bailout_budget_remaining"] = float(gov.bailout_budget_remaining)
         metrics["bailout_cycle_disbursed"] = float(gov.bailout_cycle_disbursed)
         metrics["bailout_cycle_firms_assisted"] = float(gov.bailout_cycle_firms_assisted)
@@ -9156,6 +9259,9 @@ class Economy:
             metrics["bank_cash_reserves"] = bank.cash_reserves
             metrics["bank_total_deposits"] = bank.total_deposits
             metrics["bank_total_loans_outstanding"] = bank.total_loans_outstanding
+            metrics["bank_public_debt_held"] = bank.public_debt_held
+            metrics["bank_total_assets"] = bank.total_assets
+            metrics["bank_equity"] = bank.equity
             metrics["bank_base_interest_rate"] = bank.base_interest_rate
             metrics["bank_deposit_rate"] = bank.deposit_rate
             metrics["bank_loan_loss_provision"] = bank.loan_loss_provision

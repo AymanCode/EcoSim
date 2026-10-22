@@ -12,6 +12,8 @@ CI installs separate runtime/test locks; Docker installs only the runtime lock. 
 
 The shared money-stock helper now includes PaymentBook clearing cash, late income, medical funding and recovery/CEO/housing/capital holds, matching `total_economy_cash`; regression tests move cash into and out of these holds without reporting a leak. No simulation behavior, UI, or economic-rule version changes.
 
+Integration with default-on public debt (#43) retains both sides' debt balances in identity digests. Shared-money regressions cover borrowing, interest and repayment with both borrow targets; debt claims are not counted as extra cash. Rules remain v1.10 from main; #59 takes no rules number.
+
 ### 2026-10-22: Evidence panel branch is mergeable with main
 
 `ci.yml` runs on pull requests to `main`, and GitHub only starts that workflow when it can build the merge commit. The branch conflicted with `main` in `CHANGELOG.md`, so the workflow never started for `e354a53`. There was no path filter, skip marker, or cancelled run. This merge keeps both histories.
@@ -23,6 +25,30 @@ The full-tier job has `pull-requests: read` so `/eval` can call `pulls.get`. It 
 ### 2026-10-22: Evidence panel fails closed on the money and reference checks
 
 A NaN or inf final drift fails the money check in both modes, including legacy. income_first and income_late must conserve on the baseline arm as well, so the nightly main-only run fails if those sequences start leaking; legacy stays report-only until #57. A missing or empty `requirements.lock` refuses to run unless `--allow-nonref` stamps the output not comparable. Gaps smaller than 0.001 print in scientific notation so a 1e-5 dollar gap stays visible. The workflow job that runs the panel has `contents: read` only. Posting `panel.md` is a separate job that reads the uploaded artifact and is the only job with `pull-requests: write`. `eval:full` uses `pull_request_target` (the workflow file from the default branch, read-only, no secrets) and does nothing until that file is on the default branch. Only `workflow_dispatch` accepts `set`, `off_set`, and `seeds`.
+
+### 2026-10-22: Bank-financed public debt and the town hall's net position
+
+Owner-approved by Ayman (2026-10-22): borrowing is on by default; the AI government may cut taxes while borrowing; the town hall shows cash minus public debt; no classic-dashboard UI is added. This keeps the 2026-10-20 owner decision allowing spending while borrowing, with debt, interest and the true balance visible.
+
+- `government.public_debt_enabled=True` finances legacy treasury shortfalls from bank reserves above their requirement, only when the bank can lend. `public_debt_borrow_target="buffer"` restores a one-week working balance; `"zero"` remains valid. The unlendable remainder stays as negative cash. `income_first` and `income_late` never borrow.
+- Treasury `public_debt` equals bank `public_debt_held`. Weekly interest goes to the bank before deposit interest. Cash above the working balance repays principal, and the misc bond buy is skipped while debt is owed. Switching borrowing off mid-run still services outstanding debt. Financing creates no money and also runs with stabilizers disabled.
+- Tax cuts and spending increases share the existing unfunded-overdraft or annualized debt/GDP >= 1 brake. The redundant separate tax-cut cap is removed. Debt-visible prompt rules are 6 PUBLIC WORKS, 7 UNEMPLOYMENT BAND, 8 PUBLIC DEBT and 9 OUTPUT; the objective evaluates GDP, happiness, the 10-40% labour-force unemployment band and a sustainable net treasury position. With borrowing off and no debt owed, or on a non-borrowing payment sequence, the prompt matches main.
+- Reporting and evaluation use cash minus debt: fiscal mode, debt trend, policy memory, run summaries, fiscal stress, fiscal balance and the town's `curated.townHallCash`. The town's existing red IOU/"owes" display now survives a bank-financed deficit even when treasury cash is positive. Fresh borrowing-off runs retain main's cash projection. Classic Finance rows/tests and the unused `govBorrowed`/`govRepaid` frame fields are removed.
+- The evidence panel supersedes the old public-debt comparison script and report. Contracts cover paired accounting, lending limits, debt service, the single fiscal brake, prompt identity and legacy-only visibility, and the town's lean frames. The short main/off/on evidence panel compares all three sequences on the exact merged main revision; results remain under ignored `benchmarks/results/pr43-identity`.
+- Model limitation: most public-debt interest remains in bank reserves/equity; there is no bank owner dividend or expense. Household and firm borrowers share lendable reserves with the treasury. Borrowing can improve household wellbeing while lowering output and private profits; earlier stress-panel effects are documented with their baseline and limits in the PR evidence.
+- Rules: `docs/ECONOMIC_AGENT_RULES.md` M06, Government row and tick-order rows 11/11.5 are **v1.10**. OpenWiki refresh remains due through the approved integration workflow.
+
+### 2026-10-22: Legacy firm exits no longer create money (exit-deficit settlement, default on)
+
+Owner decision 2026-10-22: split #57. Keep the accounting correction behind `market.settle_legacy_exit_deficit` (default `True`), and restore main's firm-exit rules. Baseline Food, Housing, Services and Healthcare providers stay protected. The original baseline-shutdown code is preserved at `archive/pr57-baseline-shutdown` (`a14fa51`); gradual retirement requires a separate proposal and approval.
+
+- On the town's `payment_sequence="legacy"`, full payroll can leave a failing private firm overdrawn. Removing its negative balance used to create that much money. The exit now settles that deficit once; it does not change the payroll rule or prevent private Housing/Healthcare exits.
+- Loss allocation retains the 2026-10-20 owner decision: a private firm's lenders pay in proportion to outstanding bank-funded and treasury-funded claims; without lenders the bank pays. The bank contributes at most `BankAgent.lendable_cash` (reserves above required reserves); the treasury pays the remainder, even if its cash becomes negative. PublicWorks deficits fall on the treasury that capitalized them. This is an exit payment, not a recurring provider bailout. Loan write-offs still happen separately, after the cash settlement.
+- The treasury share (`last_tick_gov_exit_deficit_cover`) enters the same tick's spending, fiscal balance and fiscal-pressure update, retaining the pre-exit GDP denominator and updating the pressure EMA once. Cumulative bank and treasury shares are recorded in `legacy_exit_deficit_bank_total` and `legacy_exit_deficit_treasury_total`.
+- `market.settle_legacy_exit_deficit=False` restores main's accounting and behavior for controlled comparisons. The named payment sequences (`income_first`, `income_late`) ignore this switch and retain their own funded-payroll and exit settlement.
+- Rules v1.9 records these changes. Baseline providers' operating overdrafts remain visible and unsettled; this narrow fix is not a claim that all model finance paths conserve money.
+
+Evidence: `backend/tests_contracts/test_conservation_leaks.py` covers legacy loan write-off, lender shares, bank reserve protection, PublicWorks, protected baseline firms, switch-off reproduction, absent bank, private provider exits, full-tick conservation, and same-tick fiscal recognition. A 1,500 exit deficit creates 1,500 with the switch off; with the switch on and only 200 of lendable bank reserves, the bank pays 200 and treasury pays 1,300 with no money drift. The matched five-seed, 312-week panel compares main/off/on on all three payment sequences; its uncommitted artifact is `benchmarks/results/pr57-panel/panel.md`.
 
 ### 2026-10-21: Evidence panel money check follows the baseline
 

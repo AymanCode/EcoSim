@@ -589,8 +589,9 @@ Current implementation notes:
 - `healthcare_pressure` is queue depth per healthcare staff member
 - `consumer_distress_score` is a weighted score from unemployment, low cash,
   low health, and low happiness
-- `fiscal_stress_score` is a weighted score from negative government cash and
-  negative fiscal flow relative to current GDP
+- `fiscal_stress_score` is a weighted score from a negative treasury net
+  position (cash minus public debt) and negative fiscal flow relative to
+  current GDP
 - `inequality_pressure_score` combines Gini with the `top10 - bottom50` wealth
   concentration gap
 

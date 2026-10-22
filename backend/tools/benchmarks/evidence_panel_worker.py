@@ -269,6 +269,7 @@ def state_components(economy: Any) -> dict[str, str]:
     government = economy.government
     government_payload = [
         _num(government.cash_balance),
+        _num(getattr(government, "public_debt", 0.0)),
         _num(government.wage_tax_rate),
         _num(government.profit_tax_rate),
         _num(getattr(government, "investment_tax_rate", 0.0)),
@@ -302,6 +303,7 @@ def state_components(economy: Any) -> dict[str, str]:
         bank_payload = [
             _num(getattr(bank, "cash_reserves", 0.0)),
             _num(getattr(bank, "total_deposits", 0.0)),
+            _num(getattr(bank, "public_debt_held", 0.0)),
             len(loans),
             loan_rows,
         ]

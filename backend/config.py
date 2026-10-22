@@ -822,6 +822,33 @@ class GovernmentPolicyConfig:
     rent_stabilization_soft_max_increase: float = 1.02
     rent_stabilization_strict_max_increase: float = 1.005
 
+    # Public debt held by the bank (round 1 G1). True (default): when the
+    # treasury ends its spending with negative cash, it borrows from the bank,
+    # up to the bank's lendable cash (reserves above the reserve requirement),
+    # pays weekly interest on what it owes, and repays from cash above its
+    # working balance. Whatever the bank cannot lend stays as negative treasury
+    # cash. False: no new borrowing, identical to main. Debt already owed when
+    # the flag is turned off mid-run keeps paying interest and is repaid from
+    # surplus; it is never frozen or forgiven.
+    public_debt_enabled: bool = True
+    # How much the treasury borrows once it is short:
+    # "buffer" (default): borrow back up to the working balance
+    # (public_debt_cash_buffer_weeks of spending), as the US Treasury's
+    # one-week cash policy does, so cash-limited programs next week see that
+    # balance. "zero" remains valid: borrow only the shortfall, back to $0 of
+    # cash. Under "zero", cash-gated programs spend $0 while borrowing.
+    public_debt_borrow_target: str = "buffer"
+    # Risk premium on public debt, added to the bank's current lending rate,
+    # per unit of annualized debt/GDP (0.035 = 3.5 basis points per percentage
+    # point). Midpoint of Laubach (2009, JEEA 7(4):858-885): a 1 pp rise in
+    # projected debt/GDP raises long-term yields 3-4 bp. Range >= 0.
+    public_debt_risk_premium: float = 0.035
+    # Working balance the treasury keeps before repaying debt, in weeks of its
+    # own spending (last tick's outlays). US Treasury policy since May 2015 is
+    # a cash balance that covers one week of outflows (Treasury Quarterly
+    # Refunding Statement, 6 May 2015). Adaptive: it follows spending. Range >= 0.
+    public_debt_cash_buffer_weeks: float = 1.0
+
 
 @dataclass
 class LaborMarketConfig:
@@ -904,6 +931,16 @@ class MarketMechanicsConfig:
     # Firm Exit/Entry
     bankruptcy_threshold: float = -1000.0
     zero_cash_max_streak: int = 12  # Ticks at zero/negative cash before exit
+    # Legacy payment path only (payment_sequence="legacy"). True (default): a
+    # firm that exits with negative cash has that balance paid before it is
+    # removed (Economy._settle_legacy_exit_deficit): a PublicWorks firm's by
+    # the treasury, which capitalized it; a private firm's by its lenders in proportion to what each is
+    # owed, the bank no further than its cash above required reserves, the
+    # treasury the rest. False: the negative balance leaves with the firm,
+    # creating that much money (behavior before the 2026-10-22 fix); kept for
+    # before/after runs. Which firms exit, and when, is the same either way.
+    # The named payment arms settle exits their own way and ignore this key.
+    settle_legacy_exit_deficit: bool = True
     max_private_competitors: int = 5
     new_firm_demand_threshold: float = 1000.0  # Min household cash
 
@@ -1086,6 +1123,13 @@ class SimulationConfig:
             raise ValueError("food_elasticity must be non-negative")
         if self.households.services_elasticity < 0:
             raise ValueError("services_elasticity must be non-negative")
+        gov = self.government
+        if gov.public_debt_borrow_target not in {"zero", "buffer"}:
+            raise ValueError("public_debt_borrow_target must be 'zero' or 'buffer'")
+        for name in ("public_debt_risk_premium", "public_debt_cash_buffer_weeks"):
+            value = getattr(gov, name)
+            if not (math.isfinite(float(value)) and float(value) >= 0.0):
+                raise ValueError(f"government.{name} must be finite and >= 0")
         if not (math.isfinite(self.households.tie_break_scale) and self.households.tie_break_scale >= 0.0):
             raise ValueError("tie_break_scale must be finite and non-negative")
         if self.labor_market.switcher_vacancy_cap_per_firm < 0:
