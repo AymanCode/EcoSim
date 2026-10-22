@@ -10,6 +10,15 @@ Tooling only (`frontend-react/e2e/`); the app is unchanged. Before: each Playwri
 
 Evidence: with every Google Fonts request held back 1.5 s, 10 of 25 specs failed on `main` (c93db40) and 26 of 26 pass now. The new `e2e/fonts.spec.js` fails against the old wait and passes against the new one, and the normal suite passes 26 of 26.
 
+### 2026-10-21: AI government objective uses the long-run unemployment band
+
+The AI government's system prompt told the model to keep unemployment low. The charter (2026-10-21) says labour-force unemployment of about 10-40% in the long run is the target, above 40% is a red flag, and well under 10% is off-target. The objective line now says that. The system-prompt rules, and the user prompt's labour-metric notes, say to choose `reduce_unemployment` only when `labor_force_unemployment_rate` is above about 40%. That sentence sits outside the JSON response example. The goal label is unchanged, so the dashboard headline that maps it is unchanged. Rule-based simulation does not read this text. Historical AI-government scores in `docs/experiments/AI_GOVERNMENT_EXPERIMENT.md` were made under the old objective on a 200-tick run. That page no longer says lower unemployment is better, and it does not apply the long-run band to that 200-tick table.
+
+- Before: `OBJECTIVE: Maximize GDP and mean happiness while keeping unemployment low and maintaining a sustainable government cash balance.`
+- After: `OBJECTIVE: Maximize GDP and mean happiness while keeping labour-force unemployment (labor_force_unemployment_rate) about 10-40% in the long run, and maintaining a sustainable government cash balance. Above 40% is a red flag, and well under 10% is off-target.`
+
+Evidence: `test_contract_government_objective_uses_long_run_unemployment_band`.
+
 ### 2026-10-21: Shared evidence panel for behavior-changing PRs
 
 The bot PRs each brought their own study script, with different household and firm counts, payment sequences, run lengths, seed sets and real-GDP deflators, so reviews kept stalling on numbers that could not be compared or reproduced. `backend/tools/benchmarks/run_evidence_panel.py` is one command that runs every arm on every payment sequence and seed at the dashboard's defaults (1,000 households, 5 firms per category, `income_first` first, seeds 42-46, 260 ticks), one process per run, and writes a paired table by tick window with identity, determinism and money checks. Arms can come from different checkouts, so a PR's flag-off state is compared with `main` directly. Tooling only: no simulation code, config default or flag changes.
