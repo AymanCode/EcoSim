@@ -907,6 +907,7 @@ class Economy:
         """
         households = self.households
         preference_once = bool(CONFIG.households.fix_preference_applied_once)
+        skills_key = bool(CONFIG.households.skills_dynamics)
         cached = self._household_static_traits_cache
         # Holding the list itself (not its id) means a replaced list can never
         # match through a reused id.
@@ -914,7 +915,7 @@ class Economy:
             cached is not None
             and cached[0] is households
             and cached[1] == len(households)
-            and cached[2] == preference_once
+            and cached[2] == (preference_once, skills_key)
         ):
             return cached[3]
 
@@ -959,8 +960,61 @@ class Economy:
             "drawdown_rates": drawdown_rates,
             "precomputed_fractions": precomputed_fractions,
         }
-        self._household_static_traits_cache = (households, len(households), preference_once, traits)
+        if skills_key:
+            # skills_dynamics: the per-household learning trait, read by the
+            # weekly grant (skills_weekly_learning).
+            traits["skill_growth_rates"] = np.array(
+                [float(h.skill_growth_rate) for h in households], dtype=np.float64
+            )
+        self._household_static_traits_cache = (
+            households, len(households), (preference_once, skills_key), traits
+        )
         return traits
+
+    def _batch_update_skills(self) -> None:
+        """Weekly skill update under ``CONFIG.households.skills_dynamics``.
+
+        Runs once per tick after labor outcomes and roster sync.
+
+        - Out of work: on-the-job skill wears off at a fixed rate, never below
+          the household's week-1 skill ``f`` (``HouseholdAgent.skill_floor``):
+          ``s = max(f, s - a / 52)`` with ``a =
+          skill_loss_per_year_out_of_work``. At or below ``f`` nothing changes.
+        - Employed: nothing here by default; learning stays main's yearly
+          grant in ``HouseholdAgent``. With ``skills_weekly_learning`` on,
+          ``s += g * (1 - s)`` each week, ``g`` the household's
+          ``skill_growth_rate`` trait.
+
+        ``skill_floor`` is the household's skill before its first update (its
+        starting skill, or its skill the week the flag is switched on). Paid
+        education (``maybe_active_education``) raises the floor by the skill
+        it buys, so schooling is not worn off. Result is clipped to [0, 1].
+        """
+        households = self.households
+        n = len(households)
+        if n == 0:
+            return
+        weekly_learning = bool(CONFIG.households.skills_weekly_learning)
+        weekly_loss = float(CONFIG.households.skill_loss_per_year_out_of_work) / 52.0
+        for household in households:
+            if household.skill_floor is None:
+                household.skill_floor = float(household.skills_level)
+        skills = np.fromiter((h.skills_level for h in households), dtype=np.float64, count=n)
+        floors = np.fromiter((h.skill_floor for h in households), dtype=np.float64, count=n)
+        employed = np.fromiter((h.employer_id is not None for h in households), dtype=bool, count=n)
+        if weekly_learning:
+            learn = self._household_static_traits()["skill_growth_rates"]
+            employed_next = skills + learn * (1.0 - skills)
+        else:
+            employed_next = skills
+        updated = np.where(
+            employed,
+            employed_next,
+            np.where(skills > floors, np.maximum(floors, skills - weekly_loss), skills),
+        )
+        np.clip(updated, 0.0, 1.0, out=updated)
+        for household, value in zip(households, updated.tolist()):
+            household.skills_level = value
 
     def _household_consumption_budgets(
         self,
@@ -2688,6 +2742,9 @@ class Economy:
         # Keep firm-side employee rosters aligned with household employment outcomes.
         # This prevents stale counts in firm telemetry versus unemployment metrics.
         self._sync_firm_employee_rosters()
+        if CONFIG.households.skills_dynamics:
+            # After roster sync, so employment status is final for the week.
+            self._batch_update_skills()
         if payment_arm:
             self.payment_project_worker_by_firm = {}
             if self.config.payment_services_project_enabled:
