@@ -393,9 +393,12 @@ def _build_system_prompt(
             "Maximize GDP and mean happiness while keeping unemployment low and maintaining "
             "a sustainable treasury net position (cash minus public debt)."
         )
+        tax_cut_cap = float(CONFIG.government.public_debt_tax_cut_cap)
         debt_rule = (
             "7. PUBLIC DEBT: When treasury cash runs out, the bank may lend the shortfall (public debt) "
-            "and charges weekly interest. Spending increases and tax cuts while borrowing are both allowed. "
+            "and charges weekly interest. Spending increases and tax cuts while borrowing are allowed; "
+            f"tax cuts are blocked once annualized debt/GDP reaches {tax_cut_cap:.2f}, and spending "
+            "increases are blocked at 1.00. "
             "You are judged on the net position (cash minus public debt), the debt trend and the interest "
             "paid, not on cash alone; borrowed money is not revenue.\n"
         )
@@ -2001,9 +2004,11 @@ def _validate_one_lever_value(
     """Validate one raw lever value without applying cross-lever invariants.
 
     ``fiscal_stress`` gates spending increases. ``tax_cut_stress`` gates tax
-    cuts and defaults to ``fiscal_stress``. Callers set them equal: both fire
-    for an unfunded overdraft or debt/GDP >= 1 (see
-    ``sanitize_llm_government_changes_detailed``).
+    cuts and defaults to ``fiscal_stress``. The sanitizer sets it when
+    ``fiscal_stress`` is true or annualized debt/GDP is at or above
+    ``public_debt_tax_cut_cap``. A cut blocked only by that cap is
+    ``tax_cut_over_debt_cap``; a cut blocked by ``fiscal_stress`` stays
+    ``tax_cut_during_fiscal_stress``.
     """
     if tax_cut_stress is None:
         tax_cut_stress = fiscal_stress
@@ -2026,7 +2031,8 @@ def _validate_one_lever_value(
         if abs(proposed - current_float) > TAX_MAX_STEP + 1e-9:
             return False, proposed, "tax_step_too_large"
         if tax_cut_stress and is_tax_decrease(lever, current_float, proposed):
-            return False, proposed, "tax_cut_during_fiscal_stress"
+            reason = "tax_cut_during_fiscal_stress" if fiscal_stress else "tax_cut_over_debt_cap"
+            return False, proposed, reason
         return True, proposed, ""
 
     if lever in ORDERED_LEVERS:
@@ -2149,13 +2155,15 @@ def sanitize_llm_government_changes_detailed(
     recent_gdp = max(float(gdp or 0.0), 1.0)
     debt_to_gdp = annualized_debt_to_gdp(government, recent_gdp)
     # Shared guard (charter, 2026-10-21): spending increases and tax cuts
-    # while borrowing are both allowed. The guard fires for an unfunded
+    # while borrowing are allowed. fiscal_stress fires for an unfunded
     # overdraft (cash below zero after this tick's financing) or debt/GDP >= 1.
-    # With public debt off, debt/GDP is 0 unless debt is already owed, so this
-    # is main's cash check. Debt and interest reach the model through the
-    # prompt, fiscal mode and policy memory instead of a harder brake.
+    # Tax cuts also stop once annualized debt/GDP reaches public_debt_tax_cut_cap.
+    # A cut blocked only by that cap is tax_cut_over_debt_cap. With the flag
+    # off and nothing owed, debt/GDP is 0, so the cap does not fire and this
+    # is main's cash check.
     fiscal_stress = float(getattr(government, "cash_balance", 0.0) or 0.0) < 0.0 or debt_to_gdp >= 1.0
-    tax_cut_stress = fiscal_stress
+    tax_cut_cap = float(CONFIG.government.public_debt_tax_cut_cap)
+    tax_cut_stress = fiscal_stress or debt_to_gdp >= tax_cut_cap
     firms = getattr(economy, "firms", []) if economy is not None else []
 
     for group, raw_group in _group_raw_changes(raw_changes or {}):

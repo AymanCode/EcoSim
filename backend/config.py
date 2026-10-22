@@ -820,6 +820,14 @@ class GovernmentPolicyConfig:
     # a cash balance that covers one week of outflows (Treasury Quarterly
     # Refunding Statement, 6 May 2015). Adaptive: it follows spending. Range >= 0.
     public_debt_cash_buffer_weeks: float = 1.0
+    # AI tax cuts stop once annualized debt/GDP reaches this cap. The 13-seed
+    # O9 panel (seeds 42-54, 312 weeks, income_first first, dashboard levers,
+    # 2026-10-22) had a highest on-arm per-seed peak of 0, so 0 x 1.5 rounded
+    # up to the next 0.05 is 0.00, and the 0.10 floor applies so ordinary
+    # buffer borrowing does not trip the cap. The EU Maastricht / Stability
+    # and Growth Pact 60% debt reference value is context only; it is not
+    # this cap. Range (0, 1].
+    public_debt_tax_cut_cap: float = 0.10
 
 
 @dataclass
@@ -1092,6 +1100,9 @@ class SimulationConfig:
             value = getattr(gov, name)
             if not (math.isfinite(float(value)) and float(value) >= 0.0):
                 raise ValueError(f"government.{name} must be finite and >= 0")
+        tax_cut_cap = float(gov.public_debt_tax_cut_cap)
+        if not (math.isfinite(tax_cut_cap) and 0.0 < tax_cut_cap <= 1.0):
+            raise ValueError("government.public_debt_tax_cut_cap must be finite and in (0, 1]")
         if not (math.isfinite(self.households.tie_break_scale) and self.households.tie_break_scale >= 0.0):
             raise ValueError("tie_break_scale must be finite and non-negative")
         if self.labor_market.switcher_vacancy_cap_per_firm < 0:

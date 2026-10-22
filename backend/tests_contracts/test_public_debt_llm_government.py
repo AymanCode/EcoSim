@@ -141,7 +141,7 @@ def test_system_prompt_states_the_debt_rule():
     with use_config(clone_config()):
         CONFIG.government.public_debt_enabled = True
         prompt = _build_system_prompt("balanced", 100, 10)
-    assert "Spending increases and tax cuts while borrowing are both allowed" in prompt
+    assert "Spending increases and tax cuts while borrowing are allowed" in prompt
     assert "judged on the net position" in prompt
     assert "debt trend" in prompt
     assert "interest paid" in prompt
@@ -157,7 +157,7 @@ def test_system_prompt_keeps_the_debt_rule_while_debt_is_owed_with_the_flag_off(
         clear = _build_system_prompt("balanced", 100, 10, {"public_debt": 0.0})
         main = _build_system_prompt("balanced", 100, 10)
     assert "PUBLIC DEBT:" in owed
-    assert "Spending increases and tax cuts while borrowing are both allowed" in owed
+    assert "Spending increases and tax cuts while borrowing are allowed" in owed
     assert "sustainable treasury net position" in owed
     assert clear == main
     assert "PUBLIC DEBT:" not in clear
@@ -228,6 +228,54 @@ def _three_moves(gov, gdp):
     profit, profit_reasons = _review_profit_tax_cut(gov, gdp)
     spending, spending_reasons = _review(gov, INFRASTRUCTURE_UP, gdp)
     return (wage, wage_reasons), (profit, profit_reasons), (spending, spending_reasons)
+
+
+def _debt_for_ratio(ratio: float, gdp: float = 1_000.0) -> float:
+    """Public debt that annualized_debt_to_gdp reports as ``ratio`` at this weekly GDP."""
+    return ratio * gdp * CONFIG.time.ticks_per_year
+
+
+def test_tax_cut_accepted_below_the_debt_cap():
+    """Cash >= 0 and debt/GDP just under the cap: the tax cut is accepted."""
+    gdp = 1_000.0
+    gov = GovernmentAgent(cash_balance=1_000.0)
+    gov.public_debt = _debt_for_ratio(0.09, gdp)
+    with use_config(clone_config()):
+        CONFIG.government.public_debt_enabled = True
+        applied, reasons = _review_tax_cut(gov, gdp)
+    assert reasons == [] and applied["wage_tax_rate"] == pytest.approx(gov.wage_tax_rate - 0.05)
+
+
+def test_tax_cut_rejected_over_the_debt_cap():
+    """Cash >= 0 and debt/GDP just over the cap: the tax cut is the cap reason, not fiscal stress."""
+    gdp = 1_000.0
+    gov = GovernmentAgent(cash_balance=1_000.0)
+    gov.public_debt = _debt_for_ratio(0.11, gdp)
+    with use_config(clone_config()):
+        CONFIG.government.public_debt_enabled = True
+        applied, reasons = _review_tax_cut(gov, gdp)
+    assert applied == {} and reasons == ["tax_cut_over_debt_cap"]
+
+
+def test_spending_increase_still_accepted_over_the_tax_cut_cap():
+    """The cap blocks tax cuts only. A spending increase at the same debt/GDP is accepted."""
+    gdp = 1_000.0
+    gov = GovernmentAgent(cash_balance=1_000.0)
+    gov.public_debt = _debt_for_ratio(0.11, gdp)
+    gov.set_lever("infrastructure_spending", "low")
+    with use_config(clone_config()):
+        CONFIG.government.public_debt_enabled = True
+        applied, reasons = _review(gov, INFRASTRUCTURE_UP, gdp)
+    assert reasons == [] and applied == INFRASTRUCTURE_UP
+
+
+def test_system_prompt_states_the_tax_cut_cap_when_debt_is_on():
+    with use_config(clone_config()):
+        CONFIG.government.public_debt_enabled = True
+        cap = CONFIG.government.public_debt_tax_cut_cap
+        prompt = _build_system_prompt("balanced", 100, 10)
+    assert f"tax cuts are blocked once annualized debt/GDP reaches {cap:.2f}" in prompt
+    assert "spending increases are blocked at 1.00" in prompt
 
 
 def test_funded_borrowing_accepts_tax_cuts_and_infrastructure():
