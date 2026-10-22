@@ -38,7 +38,9 @@ function linesFor(arm, tick, limit) {
 }
 
 // Newest first across towns. Within a week the towns take turns, so one busy
-// town cannot crowd the others out.
+// town cannot crowd the others out. The list keeps room for `limit` rows, each
+// one line of when and two of what (the full sentence in its title), so the
+// page does not move as weeks add or drop lines (spec section 6).
 export default function Feed({ arms, tick, limit = 8 }) {
   const rows = arms
     .flatMap((arm, order) => linesFor(arm, tick, limit).map((line, rank) => ({ arm, line, order, rank })))
@@ -46,28 +48,35 @@ export default function Feed({ arms, tick, limit = 8 }) {
     .slice(0, limit)
 
   return (
-    <section className="nx-sect">
+    <section className="nx-sect nx-feedsect">
       <h3>{COPY.feed.title} <span>{COPY.feed.subtitle}</span></h3>
-      {rows.length === 0 ? (
-        <p className="nx-empty">{COPY.feed.empty}</p>
-      ) : (
-        <ul className="nx-feed">
-          {rows.map(({ arm, line }) => (
-            <li
-              key={`${arm.label}:${line.key}`}
-              className={line.town ? 'is-town' : undefined}
-              data-tick={line.tick}
-              data-count={line.events?.length ?? 0}
-            >
-              <i style={{ background: arm.color }} aria-hidden="true" />
-              <div>
-                <span className="w">{COPY.feed.when(weekLabel(line.tick), arm.label)}</span>
-                {line.town ?? eventGroupSentence(line.events, { firmName: firm => firmDisplayName(arm.firmDirectory?.byId?.[firm.id] ?? firm) })}
-              </div>
-            </li>
-          ))}
-        </ul>
-      )}
+      <div className="nx-feedbox" data-stable="feed" style={{ '--nx-rows': limit }}>
+        {rows.length === 0 ? (
+          <p className="nx-empty">{COPY.feed.empty}</p>
+        ) : (
+          <ul className="nx-feed">
+            {rows.map(({ arm, line }) => {
+              const when = COPY.feed.when(weekLabel(line.tick), arm.label)
+              const text = line.town ?? eventGroupSentence(line.events, { firmName: firm => firmDisplayName(arm.firmDirectory?.byId?.[firm.id] ?? firm) })
+              return (
+                <li
+                  key={`${arm.label}:${line.key}`}
+                  className={line.town ? 'is-town' : undefined}
+                  data-tick={line.tick}
+                  data-count={line.events?.length ?? 0}
+                  data-fits="feed-row"
+                >
+                  <i style={{ background: arm.color }} aria-hidden="true" />
+                  <div>
+                    <span className="w" title={when}>{when}</span>
+                    <span className="t" title={text} data-fits="feed-text">{text}</span>
+                  </div>
+                </li>
+              )
+            })}
+          </ul>
+        )}
+      </div>
     </section>
   )
 }
