@@ -1,6 +1,6 @@
 """Contract tests for household deposit liquidity (EcoSim 2.0).
 
-Households can access household_deposit_access_rate (0.90) of bank deposits
+Households can access DEPOSIT_ACCESS_SHARE (0.90, household_liquidity) of bank deposits
 as liquid wealth for consumption budgets and rent. Withdrawals reduce both
 household.bank_deposit and bank.cash_reserves (money conservation).
 """
@@ -8,15 +8,12 @@ import pytest
 from unittest.mock import MagicMock
 
 from agents import HouseholdAgent, BankAgent, GovernmentAgent
-from config import CONFIG
 from economy import Economy
+from household_liquidity import DEPOSIT_ACCESS_SHARE
 from tests_contracts.factories import make_household, make_households
 
 
-ACCESS_RATE_CONSUMPTION = 0.90  # hard-coded in _batch_plan_consumption
-
-
-ACCESS_RATE = CONFIG.households.household_deposit_access_rate  # 0.90
+ACCESS_RATE = DEPOSIT_ACCESS_SHARE  # 0.90
 
 
 def _batch_plan(hh: HouseholdAgent, market_prices, unemployment_rate: float = 0.0) -> dict:
@@ -102,7 +99,7 @@ def _make_minimal_economy_for_rent(household, rent, bank=None):
                 and household.bank_deposit > 0.0
                 and self.bank is not None
             ):
-                accessible = CONFIG.households.household_deposit_access_rate * household.bank_deposit
+                accessible = DEPOSIT_ACCESS_SHARE * household.bank_deposit
                 if household.cash_balance + accessible >= rent_due:
                     shortfall = rent_due - household.cash_balance
                     withdraw_amount = min(shortfall, accessible)

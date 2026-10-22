@@ -49,7 +49,7 @@ Deposit behavior:
 - if cash falls below the household liquidity floor, deposits can be withdrawn back to cash
 - before goods and healthcare purchases, the economy can withdraw a configured accessible share of deposits to cover planned spending shortfalls
 
-The current accessible deposit share is configured by `CONFIG.households.household_deposit_access_rate` and is `0.90` by default.
+The accessible deposit share is `DEPOSIT_ACCESS_SHARE = 0.90` in `backend/household_liquidity.py`, the one definition every household reader uses. It is not a config setting (the unused `household_deposit_access_rate` setting was removed).
 
 ## Loan Products
 

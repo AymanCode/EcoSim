@@ -62,6 +62,12 @@ from agents import (
 from utils.category_utils import build_good_category_lookup
 from inflation import ConsumerPriceIndex, WageReview
 from payments import PaymentBook, MONEY_EPS, proportional
+from household_liquidity import (
+    accessible_liquidity as household_accessible_liquidity,
+    accessible_liquidity_array,
+    liquid_wealth as household_liquid_wealth,
+    withdrawable_deposit,
+)
 
 if TYPE_CHECKING:  # typing only; the payment arm imports it lazily at run time
     from payment_sectors import PaymentGoodsMarket
@@ -223,7 +229,9 @@ class Economy:
         if self.payment_sequence != "legacy":
             for household in self.households:
                 if household.renting_from_firm_id is not None:
-                    household.payment_pre_policy_liquidity = max(0.0, household.cash_balance) + 0.9 * max(0.0, household.bank_deposit)
+                    household.payment_pre_policy_liquidity = household_accessible_liquidity(
+                        max(0.0, household.cash_balance), household.bank_deposit
+                    )
         self.queued_firms: List[FirmAgent] = queued_firms or []
         self.target_total_firms = 0
         self._refresh_target_total_firms()
@@ -309,6 +317,7 @@ class Economy:
         self.avg_sector_price_to_median_wage: float = 0.0
         self.housing_rent_to_median_wage: float = 0.0
         self.performance_mode = False
+        self._healthcare_food_first_ids: frozenset = frozenset()
         self._cached_consumption_plans: Dict[int, Dict] = {}
 
         # Set initial defaults
@@ -1043,6 +1052,12 @@ class Economy:
         wage and CEO pay after wage tax) and ``last_transfer_income``. Without it
         they are the forecast inputs every direct caller and the named payment
         arms use: the contract wage when employed and the benefit level when not.
+
+        With ``CONFIG.households.healthcare_food_first_reserve`` on, the money
+        is claimed in this order on every payment sequence: rent and loan
+        installments (already netted from the liquidity above), minimum food,
+        a queued healthcare visit's expected out-of-pocket cost capped at what
+        food leaves (``_healthcare_food_first_reserves``), then the budget.
         """
         # Extract household attributes as NumPy arrays
         # SOLID: DIP Violation - Directly accesses household internals
@@ -1061,7 +1076,7 @@ class Economy:
             wages = np.array([h.wage for h in self.households], dtype=np.float64)
         if self.payment_sequence != "legacy":
             from payment_behavior import planning_inputs
-            net_wages, payment_liquidity, _pressure = planning_inputs(self)
+            net_wages, payment_liquidity, pressure = planning_inputs(self)
             wages = np.asarray(net_wages, dtype=np.float64)
         drawdown_rates = static_traits["drawdown_rates"]
         dividend_incomes = np.array(
@@ -1128,8 +1143,7 @@ class Economy:
 
         # Accessible liquidity: cash + 90% of bank deposits (can be withdrawn pre-purchase)
         bank_deposits = np.array([h.bank_deposit for h in self.households], dtype=np.float64)
-        deposit_liquidity = 0.90 * np.maximum(bank_deposits, 0.0)
-        accessible_liquidity = np.maximum(cash_balances, 0.0) + deposit_liquidity
+        accessible_liquidity = accessible_liquidity_array(np.maximum(cash_balances, 0.0), bank_deposits)
         if self.payment_sequence != "legacy":
             accessible_liquidity = np.asarray(payment_liquidity, dtype=np.float64)
         elif settled_income:
@@ -1138,6 +1152,24 @@ class Economy:
             accessible_liquidity = np.maximum(
                 accessible_liquidity - self._legacy_obligations_due(), 0.0
             )
+        if cfg.healthcare_food_first_reserve:
+            # Claim order on what is left after rent and loan installments:
+            # minimum food first, then the queued visit's expected cost
+            # (capped at what food leaves), then everything else.
+            # The reserve caps the budget at the end; it does not shrink the
+            # liquidity the drawdown below is computed on, so a low-income
+            # household's drawdown (and its food) is what it is with the flag
+            # off, up to the cap (round-2 review 54.1).
+            reserves = self._healthcare_food_first_reserves(accessible_liquidity)
+            if self.payment_sequence != "legacy":
+                # Diagnostics only: the planner's discretionary estimate shows the hold-back.
+                for household, reserve in zip(self.households, reserves.tolist()):
+                    entry = pressure.get(household.household_id)
+                    if entry is not None:
+                        entry["healthcare_reserve"] = reserve
+                        entry["estimated_discretionary_liquidity"] = max(
+                            0.0, entry["estimated_discretionary_liquidity"] - reserve
+                        )
 
         # Savings drawdown: personality-derived fraction of accessible liquidity (slow trickle)
         drawdown = drawdown_rates * accessible_liquidity
@@ -1153,7 +1185,100 @@ class Economy:
         )
         drawdown = np.where(in_desperation, np.maximum(drawdown, desperation_drawdown), drawdown)
 
-        return np.minimum(base_budget + drawdown, accessible_liquidity)
+        budget = np.minimum(base_budget + drawdown, accessible_liquidity)
+        if cfg.healthcare_food_first_reserve:
+            # Flag-off budget on the pre-reserve liquidity L, then capped at
+            # L - reserve. reserve <= max(0, L - min food), so the budget never
+            # drops below min(flag-off budget, min-food cost).
+            budget = np.minimum(budget, accessible_liquidity - reserves)
+        return budget
+
+    def _min_food_cost(self) -> np.ndarray:
+        """Each household's minimum-food cost this tick, in self.households order.
+
+        ``min_food_per_tick`` times the highest positive finite posted price
+        among Food firms that have stock (``inventory_units > 0``). When none
+        have stock, the same highest price among all active Food firms (those
+        still in the economy), ignoring stock. All zeros only when no Food
+        firm posts a positive finite price.
+
+        The highest price, not the mean, because this reserve is a ceiling:
+        the minimum-food basket must not come up short at whichever seller
+        the household's purchase style picks. Queued food-first planning sets
+        aside the mean posted Food price as the expected spend
+        (``HouseholdAgent._plan_category_purchases``). Sellers with no stock
+        are left out while anyone has stock: nobody can buy from an empty
+        seller, and one stock-less $40 seller raised the food claim from 6 to
+        61 (round-2 review 54.2).
+
+        Weak spot of the maximum: one high-priced seller with very little
+        stock (a fringe seller, not a dominant one) sets every household's
+        food claim. That errs toward food: the claim goes up, so the visit
+        reserve goes down and households hold back less for the doctor.
+        Food money is never under-claimed by it.
+
+        ``income_first`` and ``income_late`` plan consumption before
+        production. If every Food firm sold out last tick, a stock-only price
+        is 0 and the visit reserve takes the food money. The no-stock
+        fallback prices the claim at the posted prices those firms will
+        produce into. Legacy replans after production, so it already sees
+        this tick's stock.
+        """
+        def posted(require_stock: bool) -> list[float]:
+            prices: list[float] = []
+            for firm in self.firms:
+                if (firm.good_category or "").lower() != "food":
+                    continue
+                price = float(firm.price)
+                if not (math.isfinite(price) and price > 0.0):
+                    continue
+                if require_stock and not (float(firm.inventory_units) > 0.0):
+                    continue
+                prices.append(price)
+            return prices
+
+        prices = posted(True) or posted(False)
+        if not prices:
+            return np.zeros(len(self.households), dtype=np.float64)
+        need = np.fromiter((h.min_food_per_tick for h in self.households), dtype=np.float64, count=len(self.households))
+        return np.maximum(need, 0.0) * max(prices)
+
+    def _healthcare_food_first_reserves(self, liquidity: np.ndarray) -> np.ndarray:
+        """Money each household holds back for its queued visit, after minimum food.
+
+        ``reserve = min(out_of_pocket, max(0, liquidity - min_food_cost))``,
+        per household in self.households order, where ``liquidity`` is what is
+        left after rent and loan installments and ``out_of_pocket`` comes from
+        government's queue walk, the body of
+        ``expected_healthcare_out_of_pocket_all()`` (one walk per pass; $0
+        for a household that is not validly queued, and $0 when care is
+        covered). A provider with a NaN or infinite price is skipped, so its
+        households reserve $0 and the budget pass does not raise; the getter
+        itself still raises on legacy. The legacy charge reads a NaN price
+        as $0 (``max(0, price)``). So the visit never takes minimum-food money and
+        never more than is left. Read-only: nothing is charged or moved; the
+        charge at service is unchanged.
+
+        Also records ``_healthcare_food_first_ids``, the households with a
+        visit to pay for, which ``_batch_plan_consumption`` plans with
+        minimum food first on every payment sequence (legacy already does for
+        everyone). Without it the payment-sequence planner splits the budget
+        by preference, and a budget held to the food cost still buys too
+        little food.
+        """
+        reserves = np.zeros(len(self.households), dtype=np.float64)
+        out_of_pocket = self._healthcare_out_of_pocket_by_household(skip_non_finite_price=True)
+        self._healthcare_food_first_ids = frozenset(
+            household_id for household_id, cost in out_of_pocket.items() if cost > 0.0
+        )
+        if not out_of_pocket:
+            return reserves
+        after_food = np.maximum(np.asarray(liquidity, dtype=np.float64) - self._min_food_cost(), 0.0)
+        for idx, household in enumerate(self.households):
+            cost = out_of_pocket.get(household.household_id, 0.0)
+            if cost > 0.0:
+                reserves[idx] = min(cost, float(after_food[idx]))
+        return reserves
 
     def _legacy_obligations_due(self) -> np.ndarray:
         """Known household payments that fall due later in this legacy tick.
@@ -1175,7 +1300,7 @@ class Economy:
             provider = firm_lookup.get(household.renting_from_firm_id)
             if provider is not None and provider.good_category == "Housing":
                 income = household.wage if household.employer_id is not None else benefit
-                liquidity = household.cash_balance + 0.90 * max(0.0, household.bank_deposit)
+                liquidity = household_accessible_liquidity(household.cash_balance, household.bank_deposit)
                 rent = self._lease_rent_due(household, provider)
                 if not (rent > self._max_affordable_rent(income, liquidity) or liquidity < rent):
                     amount += rent
@@ -1294,6 +1419,13 @@ class Economy:
         precomputed_fractions = static_traits["precomputed_fractions"]
         # The live legacy decision buys minimum food before splitting by preference.
         min_food_first = settled_income and self.payment_sequence == "legacy"
+        # Food first, then the visit (healthcare_food_first_reserve): a household
+        # with a queued visit to pay for buys minimum food first on every
+        # payment sequence, so the visit's hold-back never comes out of food.
+        food_first_ids = (
+            self._healthcare_food_first_ids
+            if CONFIG.households.healthcare_food_first_reserve else frozenset()
+        )
 
         # Build consumption plans (fallback to Python loop for now due to complex logic)
         household_consumption_plans = {}
@@ -1351,7 +1483,7 @@ class Economy:
                     price_cache,
                     category_fraction_override=precomputed_fractions[idx],
                     category_array_cache=category_array_cache,
-                    min_food_first=min_food_first,
+                    min_food_first=min_food_first or household.household_id in food_first_ids,
                 )
                 household_consumption_plans[household.household_id] = {
                     "household_id": household.household_id,
@@ -1592,7 +1724,9 @@ class Economy:
             visit_price, subsidy_budget_left=budget_before_visit
         )
 
-    def _healthcare_quote_walk(self) -> Dict[int, Tuple[FirmAgent, float]]:
+    def _healthcare_quote_walk(
+        self, *, skip_non_finite_price: bool = False
+    ) -> Dict[int, Tuple[FirmAgent, float]]:
         """One queue walk: ``{household_id: (provider, estimated share 0..1)}`` for every queued household.
 
         Read-only: nothing is charged, reserved, reordered or recorded.
@@ -1627,6 +1761,13 @@ class Economy:
             ValueError: a queued provider's price is NaN or infinite.
             A negative price is clamped to 0, as the charge does
             (``max(0, price)``).
+
+        ``skip_non_finite_price`` (private; the food-first budget pass,
+        ``_healthcare_food_first_reserves``): instead of raising, leave a
+        provider with a NaN or infinite price out of the walk, so its queued
+        households get no quote. It takes nothing off the subsidy budget, as
+        a $0 visit would not, so the other providers' quotes are unchanged.
+        The legacy charge reads a NaN price as ``max(0, nan) = 0``.
         """
         walk: Dict[int, Tuple[FirmAgent, float]] = {}
         if self.payment_sequence != "legacy":
@@ -1634,6 +1775,8 @@ class Economy:
 
             share = 0.0 if payment_care_covered(self) else 1.0
             for firm in self._healthcare_firms():
+                if skip_non_finite_price and not math.isfinite(float(firm.price)):
+                    continue
                 for household_id in firm.healthcare_queue:
                     household = self.household_lookup.get(household_id)
                     if household is not None and household.queued_healthcare_firm_id == firm.firm_id:
@@ -1665,6 +1808,8 @@ class Economy:
             slots = int(math.floor(capacity + 1e-9))
             price = float(firm.price)
             if not math.isfinite(price):
+                if skip_non_finite_price:
+                    continue
                 raise ValueError(f"healthcare firm {firm.firm_id} price must be finite, got {firm.price!r}")
             price = max(0.0, price)  # the charge reads max(0, price)
             served = 0
@@ -1703,8 +1848,21 @@ class Economy:
         legacy, firm exits do not clear the queue id and ids are reused, so
         such stale entries do occur.
         """
+        return self._healthcare_out_of_pocket_by_household()
+
+    def _healthcare_out_of_pocket_by_household(
+        self, *, skip_non_finite_price: bool = False
+    ) -> Dict[int, float]:
+        """``expected_healthcare_out_of_pocket_all()``'s body, with the walk's private option.
+
+        ``skip_non_finite_price=True`` (the food-first budget pass): a
+        household queued at a provider with a NaN or infinite price is left
+        out ($0) rather than raising on legacy or coming back as ``inf`` or
+        ``nan`` on the payment sequences.
+        """
         dollars: Dict[int, float] = {}
-        for household_id, (firm, share) in self._healthcare_quote_walk().items():
+        walk = self._healthcare_quote_walk(skip_non_finite_price=skip_non_finite_price)
+        for household_id, (firm, share) in walk.items():
             household = self.household_lookup.get(household_id)
             if household is None or household.queued_healthcare_firm_id != firm.firm_id:
                 continue
@@ -5063,7 +5221,7 @@ class Economy:
             if planned_spend <= current_cash:
                 continue
             needed = planned_spend - current_cash
-            max_withdrawable = 0.90 * max(0.0, household.bank_deposit)
+            max_withdrawable = withdrawable_deposit(household.bank_deposit)
             withdraw = min(needed, max_withdrawable)
             if withdraw <= 0.0:
                 continue
@@ -5078,7 +5236,7 @@ class Economy:
             return
         for hh in self.households:
             needed = max(0.0, float(quotes.get(hh.household_id, 0.0)))
-            amount = min(needed, 0.90 * max(0.0, hh.bank_deposit))
+            amount = min(needed, withdrawable_deposit(hh.bank_deposit))
             if amount <= MONEY_EPS:
                 continue
             actual = self.bank.withdraw(hh.household_id, amount)
@@ -5573,10 +5731,11 @@ class Economy:
         # within the tick, so reading cash alone scored saving as a loss and
         # parked savers below the poverty line (PR7 investigation, item 3).
         liquid_wealth = np.fromiter(
-            (h.cash_balance + max(0.0, h.bank_deposit) for h in households), dtype=np.float64, count=n
+            (household_liquid_wealth(h.cash_balance, h.bank_deposit) for h in households),
+            dtype=np.float64, count=n,
         )
         liquid_prev = np.fromiter(
-            (h.last_tick_cash_start + max(0.0, h.last_tick_deposit_start) for h in households),
+            (household_liquid_wealth(h.last_tick_cash_start, h.last_tick_deposit_start) for h in households),
             dtype=np.float64, count=n,
         )
         housing_met = np.fromiter((h.met_housing_need for h in households), dtype=np.bool_, count=n)
@@ -7703,7 +7862,7 @@ class Economy:
         if self.bank is None or household.bank_deposit <= 0.0:
             return False
         shortfall = amount - household.cash_balance
-        max_withdrawable = 0.90 * max(0.0, household.bank_deposit)
+        max_withdrawable = withdrawable_deposit(household.bank_deposit)
         if max_withdrawable <= 0.0:
             return False
         withdraw = min(shortfall, max_withdrawable)
@@ -7828,7 +7987,7 @@ class Economy:
                 # liquidity (cash + 90% of bank deposits). Households with savings
                 # are not evicted just because their cash buffer dipped low.
                 income = household.wage if household.employer_id is not None else self.government.get_unemployment_benefit_level()
-                accessible_liquidity = household.cash_balance + 0.90 * max(0.0, household.bank_deposit)
+                accessible_liquidity = household_accessible_liquidity(household.cash_balance, household.bank_deposit)
                 max_affordable_rent = self._max_affordable_rent(income, accessible_liquidity)
 
                 if household.monthly_rent > max_affordable_rent or accessible_liquidity < household.monthly_rent:
@@ -7887,7 +8046,7 @@ class Economy:
         for household in homeless_households:
             income = household.wage if household.employer_id is not None else gov_benefit
             income_ceiling = income * rent_share
-            accessible_liquidity = household.cash_balance + 0.90 * max(0.0, household.bank_deposit)
+            accessible_liquidity = household_accessible_liquidity(household.cash_balance, household.bank_deposit)
             cash_ceiling = accessible_liquidity * 0.25
             max_affordable_rent = income_ceiling + cash_ceiling
 
@@ -8316,7 +8475,7 @@ class Economy:
                     # Pay with savings first: withdraw up to 90% of bank deposits
                     # (money-conserving via bank.withdraw) before falling back to a loan.
                     shortfall = household_cost - household.cash_balance
-                    max_withdrawable = 0.90 * max(0.0, household.bank_deposit)
+                    max_withdrawable = withdrawable_deposit(household.bank_deposit)
                     if max_withdrawable > 0.0 and self.bank is not None:
                         withdraw_amount = min(shortfall, max_withdrawable)
                         self._withdraw_deposits_to_cash(household, withdraw_amount)

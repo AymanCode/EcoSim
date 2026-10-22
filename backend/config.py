@@ -97,6 +97,22 @@ class HouseholdBehaviorConfig:
     subsistence_min_cash: float = 50.0  # Always spend at least this much if available
     max_spend_fraction: float = 0.9  # Upper bound on discretionary spending fraction
 
+    # healthcare_food_first_reserve (households; re-cut of #47; default on,
+    #   kept as a kill-switch). While a household is queued for a healthcare
+    #   visit, its weekly consumption budget holds back the visit's expected
+    #   out-of-pocket cost (government's
+    #   Economy.expected_healthcare_out_of_pocket_all(), #45; a provider with
+    #   a NaN or infinite price reserves $0), after minimum
+    #   food. Claim order on accessible liquidity L, every payment sequence:
+    #   rent and loan installments -> minimum food (min_food_per_tick x the
+    #   highest posted price among Food sellers with stock, or among all
+    #   active Food firms when none have stock) -> the reserve,
+    #   capped at what is left -> the rest. The budget is the flag-off budget
+    #   (drawdown on L) capped at L - reserve. Covered care reserves $0. No
+    #   money moves; the charge at service is unchanged. No new parameter.
+    #   Off: identical to main.
+    healthcare_food_first_reserve: bool = True
+
     # Job acceptance (H1 - no job worse than benefits)
     min_job_premium_over_unemployment: float = 1.05  # Jobs must pay 5% more than unemployment benefits
 
@@ -407,8 +423,9 @@ class HouseholdBehaviorConfig:
     price_alpha_up: float = 0.4  # Fast adjustment to price increases (loss aversion)
     price_alpha_down: float = 0.1  # Slow adjustment to price decreases
 
-    # Deposit liquidity: fraction of bank_deposit treated as accessible for consumption planning
-    household_deposit_access_rate: float = 0.90
+    # household_deposit_access_rate (0.90) was retired 2026-10-21 (households
+    # 29a, folded into #54): no code read it. The accessible share of a deposit
+    # is household_liquidity.DEPOSIT_ACCESS_SHARE (0.90), the one definition.
 
     # Safety Checks
     extreme_negative_cash_threshold: float = -1e6

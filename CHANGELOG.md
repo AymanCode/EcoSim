@@ -4,6 +4,24 @@ Notable changes and decisions for EcoSim, newest first. The project does not use
 
 ## Unreleased
 
+### 2026-10-22: Food first, then the queued doctor's visit (households, default on; re-cut of #47)
+
+Ayman's decision on #47: the doctor's visit comes after food, on every payment setting. New switch `CONFIG.households.healthcare_food_first_reserve`, default `True`. Ayman approved the order and default on (2026-10-22: the visit "makes sense to be later than food"); the switch stays as a kill-switch. Rules v1.13 records it. With the switch off, runs are identical to `main` (see the PR's panel checks).
+
+- **Claim order** in `Economy._household_consumption_budgets`, on every payment sequence:
+  1. rent and loan installments (`_legacy_obligations_due` on legacy, `planning_inputs` on the payment arms, both as before);
+  2. minimum food, `min_food_per_tick` x the highest posted price among Food sellers with stock (`_min_food_cost`; crew charter Q6-B, 2026-10-21; sellers with `inventory_units <= 0` are left out while anyone has stock). When none have stock, the claim uses the highest posted price among all active Food firms. `income_first` and `income_late` plan before production, so a tick that opens with every Food firm sold out would otherwise price food at 0 and let the visit reserve take that money. The claim is 0 only when no Food firm posts a positive finite price;
+  3. the queued visit's expected out-of-pocket cost, capped at what food leaves (`_healthcare_food_first_reserves`);
+  4. the rest of the budget.
+- **Drawdown before the reserve (round-2 item 54.1):** the savings and desperation drawdowns are computed on the liquidity before the reserve, and the reserve only caps the result: budget = min(flag-off budget, liquidity - reserve). So the budget never falls below min(flag-off budget, minimum-food cost).
+- **Visit cost:** read once per budget pass from government's queue walk, the body of `Economy.expected_healthcare_out_of_pocket_all()` (#45). It gives $0 for covered care and for a household that is not validly queued (missing or non-Healthcare firm, not in the queue). A provider with a NaN or infinite price is left out of the budget pass's walk, so its households reserve $0 instead of the getter's `ValueError` failing every budget pass (main's legacy charge reads a NaN price as $0). On the legacy payment sequence, the public getters still raise for a non-finite provider price.
+- **Planner:** households with a visit to pay for plan minimum food first on every payment sequence (legacy already does this for everyone; food-first for every household is not built, crew charter Q5). Without that, the payment-sequence planner splits a budget held at the food cost by preference: in the first cut, queued households short of minimum food on income_first rose from 10% to 26% in ticks 101-200.
+- **Diagnostics:** on the payment arms, `payment_book.obligation_pressure` gains `healthcare_reserve`, and `estimated_discretionary_liquidity` is net of it.
+- **Unchanged:** nothing is charged or moved before service, and the charge at service is unchanged.
+- **Food-price limitation (Q6-B):** a high-priced Food seller with even one unit in stock sets every household's minimum-food claim. This raises the food claim and lowers the doctor reserve; it can leave too little held back for the visit.
+- **Known limitation (government's, not fixed here):** settlement still charges a stale queue entry that the getter prices at $0.
+
+Evidence: `test_households_healthcare_food_first.py` (unit tests, a 200-case property test of the budget rule, the stock-less and one-unit sellers, the sold-out income_first claim, a NaN or infinite clinic price, and live `Economy.step()` runs on all three sequences). Final main / off / on evidence panel: pending PR #56 merging, then 3 sequences x 5 seeds over 312 ticks. Earlier panels predate that integration and are provisional.
 ### 2026-10-22: Remove healthcare R&D; keep payroll pricing opt-in
 
 Owner decision (Ayman): "There is no reason for R&D for healthcare.. it actually does nothing." Healthcare unconditionally returns zero from `FirmAgent.apply_rd_and_quality_update`; other sectors keep their R&D. This removes the phase-11.6 clinic debit that paid investment tax to the treasury and routed the after-tax remainder through miscellaneous revenue, leaves those funds with the clinic, and adds no replacement payment, subsidy, credit or money creation. Existing bonus/dividend rules remain in force. Rules v1.12 records this change and the default-off pricing experiment in M03.
@@ -120,6 +138,19 @@ Households had no way to know what a queued visit would cost them before the cha
 - `payment_sectors.payment_care_covered(economy)`: the one coverage rule on the payment sequences (`payment_care_mode == "covered"`). The enqueue quote, `settle_payment_care` and the estimate read it; settlement keeps `main`'s exact `public = price if covered else 0.0`.
 
 Evidence: `tests_contracts/test_expected_healthcare_share.py` (unit, including the three-visit shared-cap case and every bound) and `tests_contracts/test_expected_healthcare_share_live.py` (`Economy.step()` runs: the estimate read at the household's budget phase against every visit charged later in the tick, on legacy and on both payment sequences in both care modes). `tools/benchmarks/run_healthcare_share_snapshot.py` runs each configuration in its own process with `_set_seed` and hashes the metrics by window. `benchmarks/plugins/pr45_healthcare_quote.py` is the panel metric (quote versus `HouseholdAgent.last_healthcare_spend`). The `openwiki/backend/public-institutions.md` page predates these getters and needs a regeneration.
+
+### 2026-10-20: One shared definition of household liquid money (households 29a)
+
+Refactor with no behavior change, requested in the review of #29 (Ayman's item 3, Claude's item 8): every household reader of cash plus deposits now goes through one module, `backend/household_liquidity.py`. The rule is unchanged: the same floating-point operations run in the same order, so runs are bit-identical to `main`.
+
+- `liquid_wealth(cash, deposit)` = `cash + max(0, deposit)`: #32's definition, liquid net worth before loans (loans are not netted). Read by the wellbeing poverty and wealth-loss terms (current balances and the phase-8 snapshot).
+- `accessible_liquidity(cash, deposit)` = `cash + 0.90 * max(0, deposit)`: what can be spent this tick, because the bank pays out 90% of a deposit on demand (`DEPOSIT_ACCESS_SHARE`). Read by the legacy consumption budget, `_legacy_obligations_due`'s rent test, the legacy housing eviction and homeless-search rent tests, `payment_behavior.planning_inputs` (`nominal_access`), `payment_sectors` care-planning liquidity, and the payment arms' `payment_pre_policy_liquidity` (each caller that floors cash at 0 still does so explicitly).
+- `withdrawable_deposit(deposit)` = `0.90 * max(0, deposit)`: the bank's per-call withdrawal limit, read by the pre-purchase, payment-arm, shopping-reserve and legacy healthcare withdrawals.
+- Not migrated, by design: readers of cash alone (the `households_below_poverty` metric, the cash Gini in `run_evidence`, the price-cap heuristic in `HouseholdAgent`, the deposit sweep's cash floor). They measure cash, not liquid money; moving them would change behavior and is a separate decision.
+
+Evidence: `regression_snapshot` comparisons against `main` (f86f140), 1,000 households, seeds 42/7/1/3/11, legacy at 260 ticks (snapshots at ticks 1, 50, 100, 150, 200 and 260, or 1, 25, 50, 75, 100 and 260), income_first and income_late at 104 ticks: every snapshot matches exactly. New `test_household_liquidity.py` (definitions, edges, scalar/array bit-parity, a source scan for leftover inline 0.9 x deposit copies, and a live `Economy.step` check that realized pre-purchase withdrawals stay within the withdrawable share).
+
+Also removes the unused `CONFIG.households.household_deposit_access_rate` setting (was `0.90`; no code read it). `DEPOSIT_ACCESS_SHARE` in `household_liquidity.py` is the one definition; `docs/BANKING_SYSTEM.md` and `test_contracts_deposits.py` now point at it. Folded into the food-first PR (#54), the helper's first consumer; the by-window panel tools that came with #50 are dropped in favour of #58's evidence panel.
 
 ### 2026-10-16: Poverty and wealth-loss terms read liquid wealth
 
