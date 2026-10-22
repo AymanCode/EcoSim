@@ -19,13 +19,41 @@ def seed_everything(seed: int) -> None:
     np.random.seed(seed)
 
 
+def payment_holds(economy: Economy) -> float:
+    """Cash the income_first / income_late sequences hold outside every balance.
+
+    These are the hold terms ``Economy.get_economic_metrics`` adds to
+    ``total_economy_cash`` (``backend/economy.py``, "Money supply and drift").
+    A firm that exits with wage arrears moves the recovered gross into
+    ``recovery_holds`` and the next tick's settlement pays it out, so a run
+    that ends on that tick is short by the held amount unless it is counted
+    here. Legacy has no holds.
+    """
+    if getattr(economy, "payment_sequence", "legacy") == "legacy":
+        return 0.0
+    state = getattr(economy, "payment_state", None) or {}
+    held = sum((state.get("recovery_holds") or {}).values())
+    held += float(state.get("housing_equal_distribution_hold", 0.0))
+    if not state.get("capital_routes_released", True):
+        held += sum(row["amount"] for row in state.get("capital_routes", ()))
+    book = getattr(economy, "payment_book", None)
+    if book is not None:
+        held += (
+            book.clearing_cash
+            + sum((state.get("ceo_holds") or {}).values())
+            + sum(book.late_income.values())
+            + sum(book.medical_funding_pending.values())
+        )
+    return float(held)
+
+
 def total_money(economy: Economy) -> float:
     household_cash = sum(h.cash_balance for h in economy.households)
     firm_cash = sum(f.cash_balance for f in economy.firms)
     queued_firm_cash = sum(f.cash_balance for f in getattr(economy, "queued_firms", []))
     government_cash = economy.government.cash_balance
     misc_pool = getattr(economy, "misc_firm_revenue", 0.0)
-    return household_cash + firm_cash + queued_firm_cash + government_cash + misc_pool
+    return household_cash + firm_cash + queued_firm_cash + government_cash + misc_pool + payment_holds(economy)
 
 
 def total_money_with_bank(economy: Economy) -> float:
