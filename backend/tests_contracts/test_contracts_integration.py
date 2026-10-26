@@ -730,6 +730,7 @@ def test_contract_services_full_utilization_requests_slot_upgrade_after_five_tic
     fake_econ = SimpleNamespace(services_unmet_demand_by_firm={firm.firm_id: 3.0})
 
     for tick in range(4):
+        firm.age_in_ticks += 1
         firm.last_units_produced = 10.0
         firm.last_units_sold = 9.5
         firm.last_sell_through_rate = 0.95
@@ -737,6 +738,7 @@ def test_contract_services_full_utilization_requests_slot_upgrade_after_five_tic
         assert firm.needs_service_infrastructure_loan is False
         assert firm.service_full_utilization_streak == tick + 1
 
+    firm.age_in_ticks += 1
     firm.last_units_produced = 10.0
     firm.last_units_sold = 9.5
     firm.last_sell_through_rate = 0.95
@@ -750,6 +752,7 @@ def test_contract_services_upgrade_not_requested_below_utilization_threshold():
     firm.cash_runway_ticks = math.inf
 
     for _ in range(5):
+        firm.age_in_ticks += 1
         firm.last_units_produced = 10.0
         firm.last_units_sold = 9.0
         firm.last_sell_through_rate = 0.90
@@ -765,6 +768,7 @@ def test_contract_services_upgrade_not_requested_in_survival_mode():
     firm.survival_mode = True
 
     for _ in range(5):
+        firm.age_in_ticks += 1
         firm.last_units_produced = 10.0
         firm.last_units_sold = 10.0
         firm.last_sell_through_rate = 1.0
@@ -784,6 +788,8 @@ def test_contract_services_infrastructure_loan_adds_employee_slots_only():
     firm.last_units_produced = 16.0
     firm.needs_service_infrastructure_loan = True
     firm.service_infrastructure_loan_amount = 7_000.0
+    firm.service_full_utilization_streak = 5
+    firm.service_unmet_demand_window = [1.0] * 5
     bank = BankAgent(cash_reserves=100_000.0)
     government = GovernmentAgent(cash_balance=10_000.0, transfer_budget=0.0, unemployment_benefit_level=0.0)
     economy = Economy(households=[], firms=[firm], government=government, bank=bank)
@@ -817,6 +823,9 @@ def test_contract_services_infrastructure_gate_uses_the_loan_installment(revenue
     firm.last_revenue = firm.revenue_ema = threshold + revenue_offset
     firm.needs_service_infrastructure_loan = True
     firm.service_infrastructure_loan_amount = principal
+    firm.last_units_produced = 35.0
+    firm.service_full_utilization_streak = 5
+    firm.service_unmet_demand_window = [1.0] * 5
     government = GovernmentAgent(cash_balance=10_000.0, transfer_budget=0.0, unemployment_benefit_level=0.0)
     economy = Economy(households=[], firms=[firm], government=government, bank=bank)
 
@@ -844,6 +853,8 @@ def test_contract_services_debt_service_is_included_in_pricing_and_market_floor(
     firm.actual_wages = {1: 40.0, 2: 40.0}
     firm.last_units_produced = 10.0
     firm.service_infrastructure_loan_payment_per_tick = 20.0
+    firm.bank_loan_payment_per_tick = 20.0  # The real bank mirror includes infrastructure.
+    firm.bank_loan_remaining = 2000.0
     firm.markup = 0.0
 
     price_plan = firm.plan_pricing(sell_through_rate=1.0, unemployment_rate=0.1, in_warmup=False)
@@ -2051,6 +2062,7 @@ def test_contract_services_upgrade_blocked_when_firm_specific_unmet_demand_zero(
     fake_econ = SimpleNamespace(services_unmet_demand_by_firm={})  # zero unmet
 
     for _ in range(6):
+        firm.age_in_ticks += 1
         firm.last_units_produced = 10.0
         firm.last_units_sold = 10.0
         firm.last_sell_through_rate = 1.0
@@ -2073,11 +2085,13 @@ def test_contract_services_upgrade_triggers_when_utilization_and_firm_unmet_dema
     fake_econ = SimpleNamespace(services_unmet_demand_by_firm={firm.firm_id: 2.5})
 
     for _ in range(4):
+        firm.age_in_ticks += 1
         firm.last_units_produced = 10.0
         firm.last_units_sold = 9.6
         firm.last_sell_through_rate = 0.96
         firm.consider_service_infrastructure_upgrade(economy=fake_econ)
 
+    firm.age_in_ticks += 1
     firm.last_units_produced = 10.0
     firm.last_units_sold = 9.6
     firm.last_sell_through_rate = 0.96

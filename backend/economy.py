@@ -433,6 +433,13 @@ class Economy:
         current_price = max(0.0, float(getattr(firm, "price", 0.0) or 0.0))
         proposed = max(float(getattr(firm, "min_price", 0.0) or 0.0), float(price_plan.get("price_next", current_price)))
         unit_cost = max(0.0, float(getattr(firm, "unit_cost", 0.0) or 0.0))
+        markup_cost_basis = unit_cost
+        if category == "services":
+            markup_cost_basis = price_plan.get("service_pricing_cost_basis")
+            if markup_cost_basis is None:
+                capacity, wages, debt = firm._service_pricing_costs()
+                markup_cost_basis = (wages + debt) / capacity
+            markup_cost_basis = max(0.0, float(markup_cost_basis))
         cost_recovery_floor = max(float(getattr(firm, "min_price", 0.0) or 0.0), unit_cost)
         max_allowed = max(
             float(getattr(firm, "min_price", 0.0) or 0.0),
@@ -443,7 +450,7 @@ class Economy:
         limited = min(proposed, max_allowed)
         if limited + 1e-9 < proposed:
             price_plan["price_next"] = limited
-            price_plan["markup_next"] = max(0.0, (limited / unit_cost) - 1.0) if unit_cost > 0 else 0.0
+            price_plan["markup_next"] = max(0.0, (limited / markup_cost_basis) - 1.0) if markup_cost_basis > 0 else 0.0
             self.price_increase_limited_count += 1
             firm.decision_diagnostics["price_stabilization_limited"] = True
             firm.decision_diagnostics["price_stabilization_level"] = level
@@ -3005,7 +3012,10 @@ class Economy:
         if not payment_arm:
             for firm in self.firms:
                 if (firm.good_category or "").lower() == "services":
-                    firm.consider_service_infrastructure_upgrade(economy=self)
+                    firm.consider_service_infrastructure_upgrade(
+                        economy=self,
+                        current_units_sold=tick.per_firm_sales.get(firm.firm_id, {}).get("units_sold", 0.0),
+                    )
             if self.bank is not None:
                 self._offer_service_infrastructure_loans()
 
@@ -4745,6 +4755,10 @@ class Economy:
         synthetic_vacancies: Dict[int, int] = {}
         if job_switch_count > 0:
             for firm_id in private_non_hiring_firm_ids:
+                if self.firm_lookup[firm_id]._is_generic_services_firm():
+                    # A synthetic vacancy would bypass the firm's staffing
+                    # patience, space cap, or cash-distress hiring decision.
+                    continue
                 if fix_switchers:
                     if firm_production_plans[firm_id]["planned_layoffs_ids"]:
                         continue
@@ -6928,6 +6942,8 @@ class Economy:
         category = (firm.good_category or "").lower()
         if category not in {"services", "housing"}:
             return False
+        if category == "services" and not firm._service_space_expansion_supported():
+            return False
         if category == "services" and self.payment_sequence == "legacy":
             # Firm-level demand trigger (owner 2026-10-02): every worker slot is
             # filled and recent unmet demand is a large share of output.
@@ -7048,7 +7064,7 @@ class Economy:
                 firm.cash_balance -= loan_amount
                 self._payment_record_capital_spend(firm, loan_amount, "long_term_services")
             capacity_added = loan_amount / float(cfg.services_capacity_cost_per_unit)
-            firm.production_capacity_units = float(firm.production_capacity_units) + capacity_added
+            firm._add_service_worker_slots(capacity_added)
             firm.capital_stock += capacity_added
         elif category == "housing":
             if self.payment_sequence != "legacy":
@@ -7323,7 +7339,8 @@ class Economy:
                 firm.service_infrastructure_loan_amount = 0.0
 
             if (
-                firm.survival_mode
+                not firm._service_space_expansion_supported()
+                or firm.survival_mode
                 or firm.zero_cash_streak > 0
                 or firm.service_infrastructure_loan_remaining > 1e-6
                 or (self.payment_sequence != "legacy" and firm.payment_wage_arrears > MONEY_EPS)
@@ -7380,7 +7397,7 @@ class Economy:
             self._collect_misc_revenue(principal)
 
             slots_gained = self._service_slot_upgrade_gain(firm)
-            firm.production_capacity_units += float(slots_gained)
+            firm._add_service_worker_slots(float(slots_gained))
             firm.inventory_units = 0.0
             firm.service_full_utilization_streak = 0
             firm.decision_diagnostics["service_upgrade_slots_gained"] = slots_gained

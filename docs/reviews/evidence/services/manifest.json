@@ -1,0 +1,100 @@
+{
+  "baseline_commit": "d71485e7276cb2bf988eee6ff8ae9ecada3b73be",
+  "data_scope": "Compact aggregates transcribed by script from validated external manifests; raw cases and observer scripts are retained outside repository, not bundled here.",
+  "normal_mode": true,
+  "ticks_per_run": 80,
+  "warmup_ticks": 10,
+  "payment_sequences": [
+    "income_first",
+    "income_late"
+  ],
+  "panels": {
+    "services01": {
+      "runs": 48,
+      "paired_runs": 24,
+      "distinct_seeds": [
+        42,
+        43,
+        44
+      ],
+      "timing_repeats_per_seed": 2
+    },
+    "components": {
+      "factorial_runs": 24,
+      "loan_replays": 2,
+      "distinct_seeds": [
+        42,
+        43,
+        44
+      ],
+      "households": 1000,
+      "payment_sequence": "income_first"
+    },
+    "repayment": {
+      "runs": 16,
+      "paired_runs": 8,
+      "seeds_1000": [
+        42,
+        43,
+        44
+      ],
+      "seeds_10000": [
+        42
+      ],
+      "timing_repeats_per_seed": 1
+    }
+  },
+  "source_hashes": {
+    "main": {
+      "backend/agents.py": "d22929875075e34bddd1d9c17b6eb8658143d3b167ebfe9c3bb60825190b4a8d",
+      "backend/economy.py": "e204a976e0caee3186777582cf4d4e1a2590ff3c548e9e9613ffcf2cfaaa94d1",
+      "backend/payment_government.py": "883ef3c336e1f7fe7f2b94cc69f1a1cf3ec3c031701df5008ae495fd5ac7e11f"
+    },
+    "services01": {
+      "backend/agents.py": "f05853c6ee09af7bc940897a233525ab4b606e6cdb2b92f065ded92cd3760e26",
+      "backend/economy.py": "a522fcc4c4913bc78a7bbd71858374dde272b6742248294fc2a784dc952d8d30",
+      "backend/payment_government.py": "5ce0de32a74593f10667456cc40e3ba0d3ca966aea4a0450f45de87f02fa0cdb"
+    },
+    "services02": {
+      "agents.py": "55c0c0345dbf3e8038d1941e3c0dbdf8d0b14c1b96c70c5b1df709f59f7b7928",
+      "economy.py": "a522fcc4c4913bc78a7bbd71858374dde272b6742248294fc2a784dc952d8d30",
+      "payment_government.py": "5ce0de32a74593f10667456cc40e3ba0d3ca966aea4a0450f45de87f02fa0cdb"
+    }
+  },
+  "external_analysis_hashes": {
+    "services01": {
+      "filename": "services-implementation-performance/analysis.json",
+      "sha256": "38088a982bff1f0dbc59a25f5d5c2ec6668d9624c646a61b50a26e4dfc75b072"
+    },
+    "components": {
+      "filename": "services-component-experiment/analysis.json",
+      "sha256": "d3c8f0960534b7bd256a0f79304ed3b490bae90c2c18230c4d24746f88886f79"
+    },
+    "repayment": {
+      "filename": "services-repayment-experiment/analysis.json",
+      "sha256": "f8c63b003ea529b5afa05d991176a72cd73087ef4917df6e1f887119efce9f43"
+    }
+  },
+  "csv_hashes": {
+    "component-comparison.csv": "68e2b2b87cca6ab1bc16b4ca9d1aa30fd6202d8c4b4b84bef5c0c582baa63273",
+    "repayment-comparison.csv": "c67739b056a6cace881b355c9b06ce4b265db3b609ccee6d4a51cfab04d09a9c",
+    "services01-main-comparison.csv": "edbe1797a396f4e852944875b5717011c108db4c7b33139b2dc20ea4bae2f139"
+  },
+  "limits": [
+    "Synthetic horizons, not calibrated welfare effects",
+    "Repayment panel does not establish a5percent runtime-budget pass",
+    "Only one10k seed in repayment comparison",
+    "Existing checkout-price floor and noisy unmet-order signal remain"
+  ],
+  "final_validation": {
+    "passed": 1221,
+    "skipped": 2,
+    "research_deselected": 8,
+    "xfailed": 1,
+    "new_services_cases": 55,
+    "runtime": "Ubuntu24.04/WSL Python3.12.3",
+    "command": "python -m pytest -m 'not research' -q -o addopts= --tb=short --durations=5",
+    "log_sha256": "0ba042c09892f0031e15cc689adfaf10a988080079e202020ac6f81813998d51",
+    "lint": "changed Python files Ruff passed"
+  }
+}

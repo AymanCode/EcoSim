@@ -29,6 +29,7 @@ def _services_firm(*, slots, unmet_per_week, produced=12.0):
     firm.lost_sales_streak = 5
     firm.price = 20.0  # the marginal worker pays (the unchanged MRPL gate)
     firm.service_unmet_demand_window = [unmet_per_week] * 5
+    firm.service_full_utilization_streak = 5
     return economy, firm
 
 

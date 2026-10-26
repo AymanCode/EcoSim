@@ -4,6 +4,18 @@ Notable changes and decisions for EcoSim, newest first. The project does not use
 
 ## Unreleased
 
+### 2026-10-26: Services planned prices account for existing repayments
+
+Owner-selected SERVICES-02, rules v1.16. Services' planned-price cash base now includes scheduled bank and direct Treasury installments, bounded by their outstanding balances. Infrastructure dues are already inside the bank mirror and are counted once. Paid-off schedules stop affecting the quote. The existing asking-price smoothing, customer choice, transaction-floor institution, bank coverage rule, accounting/tax profit and SERVICES-01 hiring/space rules remain. See [the small-change contract](docs/reviews/SERVICES_REPAYMENT_CONTRACT.md) and [validation/results](docs/reviews/SERVICES_REPAYMENT_RESULTS.md).
+
+### 2026-10-26: Services prices, space and staffing retain their intended meaning
+
+Owner-selected SERVICES-01, under economic-agent rules v1.15. Services now keeps a desired after-tax markup separate from measured quote markup, preventing repeated tax gross-up from compounding a price target. Stabilization measures Services quote markup against the Services cost basis while preserving its existing accounting-cost distress exception and the transaction-floor institution.
+
+Both bank-funded slot expansion routes require fully staffed existing space, five fully staffed observations at 95% sell-through or higher, and positive firm-specific unmet demand in at least two of the last five observations. Installation resets this evidence. Public-funded installation uses the same staffing-target lifecycle so a retained installer remains employable.
+
+Private Services retains its intended staff level after a reduction. The owner chose **three consecutive strong-sales weeks** (at least 90% of current output sold) as the first recovery experiment before one trial increase. Original five-observation weak-loss/wage-floor cuts and cash emergencies remain. Failed recruitment can still fill the existing target; speculative switcher vacancies cannot bypass it. Installation restarts recovery evidence and excludes lagged output from the old staffing level. Customer choice, household information, normal/performance-mode cadence, wage-contract freezing, loan funders and Food strategy are unchanged. See [the implementation contract](docs/reviews/SERVICES_DECISION_CONTRACT.md) for scope and evidence limits.
+
 ### 2026-10-22: Food first, then the queued doctor's visit (households, default on; re-cut of #47)
 
 Ayman's decision on #47: the doctor's visit comes after food, on every payment setting. New switch `CONFIG.households.healthcare_food_first_reserve`, default `True`. Ayman approved the order and default on (2026-10-22: the visit "makes sense to be later than food"); the switch stays as a kill-switch. Rules v1.13 records it. With the switch off, runs are identical to `main` (see the PR's panel checks).

@@ -142,7 +142,7 @@ def activate_payment_services_slots(economy):
         firm = economy.firm_lookup.get(entry["firm_id"])
         if firm is None or (firm.good_category or "").lower() != "services":
             continue
-        firm.production_capacity_units += float(entry["units"])
+        firm._add_service_worker_slots(float(entry["units"]))
         opened += entry["units"]
     state["services_future_slots"] = remaining
     return opened
