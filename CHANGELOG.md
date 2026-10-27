@@ -4,6 +4,10 @@ Notable changes and decisions for EcoSim, newest first. The project does not use
 
 ## Unreleased
 
+### 2026-10-27: Post-payment cash research experiment
+
+Owner-selected QUALITY-CASH-01 adds an opt-in research program funded from actual cash left above protected operating and debt reserves. It removes the recent-profit funding cap and fixed small project ceiling while preserving long, uncertain quality progress and existing payment recipients. Controls and the default remain unchanged while local comparisons measure cash circulation, repayment safety and household outcomes.
+
 ### 2026-10-27: Food and Services quality research experiment
 
 Owner-selected QUALITY-RESEARCH-01 defines basic baseline quality, bounded private entry quality and two funded multi-month research alternatives under rules v1.18. Research pauses during cash trouble, preserves the existing recipients and leaves Housing/Healthcare rules and unrelated business mechanisms unchanged. The default remains `instant`; local comparisons met the quality goal but reduced jobs and Services delivery, with a severe housing-access loss in one seed.
