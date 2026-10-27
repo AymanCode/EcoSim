@@ -128,6 +128,27 @@ def test_piecewise_subsidy_math_handles_exact_cap_boundary():
     assert _sale_quantity(0.0, 8.0, 3.0, 0.0, 0.5, 0.0) == pytest.approx(3.0)
 
 
+@pytest.mark.parametrize("category", ("Food", "Services"))
+@pytest.mark.parametrize("by_name", (False, True))
+@pytest.mark.parametrize("share", (0.0, 0.5, 1.0))
+def test_sub_delivery_threshold_stock_retains_fundable_shortage(category, by_name, share):
+    # Supply below delivery tolerance does not erase an order above tolerance,
+    # even when the difference between wanted and stock is itself below EPS.
+    hh = _household(1, 10.0)
+    firm = _firm(7, "TinyGood", category, 1.0, 0.75e-6)
+    econ = _economy([hh], [firm], subsidy=100.0)
+    econ.government.sector_subsidy_target = category.lower()
+    econ.government._sector_subsidy_rate = share
+    target = firm.good_name if by_name else firm.firm_id
+    market = PaymentGoodsMarket(econ, {1: {"planned_purchases": {target: 1.5e-6}}}, [firm])
+    market.first_pass()
+    market.second_pass()
+    market.finish()
+    assert market.accepted[1][target] == 0.0
+    assert hh.cash_balance == 10.0
+    assert econ.food_unmet_demand + econ.services_unmet_demand == pytest.approx(1.5e-6)
+
+
 @pytest.mark.parametrize("category", ["Food", "Services"])
 def test_one_residual_budget_cannot_back_two_sellers_or_two_passes(category):
     hh = _household(1, 50.0)

@@ -127,7 +127,7 @@ class PaymentGoodsMarket:
             if fundable <= EPS:
                 continue
             qty = min(stock, fundable)
-            if fundable - qty > EPS:
+            if qty <= EPS or qty < fundable:
                 self.considered[hid][target] = max(
                     self.considered[hid][target], self.accepted[hid][target] + bought + fundable,
                 )
