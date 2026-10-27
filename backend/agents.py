@@ -5498,9 +5498,11 @@ class FirmAgent(AgentMixin):
             risk_tolerance=self.risk_tolerance,
         )
         state = self.research_state or ResearchState(CONFIG.random_seed, f"initial:{self.firm_id}")
+        funding_variant = state.project.variant if state.project is not None else variant
         result = state.advance(
             tick=tick, quality=self.quality_level, variant=variant, budget=budget,
-            blocked=blocked or self.survival_mode or self.payment_wage_arrears > 1e-6,
+            blocked=(blocked or self.payment_wage_arrears > 1e-6
+                     or (funding_variant != "project_cash" and self.survival_mode)),
         )
         self.research_state = state
         self.cash_balance -= result.spending

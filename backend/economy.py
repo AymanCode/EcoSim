@@ -3461,9 +3461,13 @@ class Economy:
                 failed_before = previous.failed if previous is not None else 0
                 pauses_before = previous.paused_ticks if previous is not None else 0
                 quality_before = firm.quality_level
+                funding_variant = (previous.project.variant if previous is not None
+                                   and previous.project is not None else research_model)
+                reserve_costs = (firm.last_tick_total_costs + ceo_pay
+                                 if funding_variant == "project_cash" else costs_with_ceo)
                 rd_spending = firm.advance_research(
                     tick=self.current_tick, operating_cash_generation=generation,
-                    operating_costs=costs_with_ceo,
+                    operating_costs=reserve_costs,
                     available_cash=min(firm.cash_balance, settlement.available_cash),
                     blocked=settlement.blocked,
                 )

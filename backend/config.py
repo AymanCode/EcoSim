@@ -1098,7 +1098,9 @@ class SimulationConfig:
 
     def __post_init__(self):
         """Validation and derived values."""
-        if self.firms.quality_research_model not in {"instant", "scale_only", "project_outcome", "project_cost"}:
+        if self.firms.quality_research_model not in {
+            "instant", "scale_only", "project_outcome", "project_cost", "project_cash",
+        }:
             raise ValueError("unsupported firm quality research model")
         if self.payment_sequence not in {"legacy", "income_first", "income_late"}:
             raise ValueError("unsupported payment sequence")

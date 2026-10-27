@@ -6,12 +6,14 @@ from dataclasses import asdict, dataclass, field
 from typing import Literal, Optional, Sequence
 
 import numpy as np
+from payments import MONEY_EPS
 
 
-ResearchVariant = Literal["project_outcome", "project_cost"]
-PROJECT_MODELS = frozenset({"project_outcome", "project_cost"})
+ResearchVariant = Literal["project_outcome", "project_cost", "project_cash"]
+PROJECT_MODELS = frozenset({"project_outcome", "project_cost", "project_cash"})
 QUALITY_MODELS = frozenset({"instant", "scale_only", *PROJECT_MODELS})
 RESEARCH_CATEGORIES = frozenset({"food", "services"})
+MIN_CASH_PROJECT_BUDGET = 1200.0
 
 
 def _finite(value: float, name: str, *, nonnegative: bool = False) -> None:
@@ -80,10 +82,13 @@ class ResearchBudget:
     def reserve(self) -> float:
         return 6.0 * self.operating_costs + self.debt_reserve
 
+    @property
+    def spendable_cash(self) -> float:
+        return max(0.0, min(self.cash, self.available_cash) - self.reserve)
+
     def allowance(self, cash_ema: float) -> float:
         share = 0.15 + 0.25 * max(0.0, min(1.0, self.risk_tolerance))
-        headroom = max(0.0, min(self.cash, self.available_cash) - self.reserve)
-        return min(share * max(0.0, cash_ema), headroom)
+        return min(share * max(0.0, cash_ema), self.spendable_cash)
 
 
 @dataclass(slots=True)
@@ -99,10 +104,20 @@ class ResearchProject:
     status: Literal["active", "paused"] = "active"
 
     @classmethod
-    def quote(cls, variant: ResearchVariant, quality: float, tick: int, sequence: int) -> "ResearchProject":
+    def quote(
+        cls, variant: ResearchVariant, quality: float, tick: int, sequence: int,
+        *, cash_budget: Optional[float] = None,
+    ) -> "ResearchProject":
         _quality(quality)
         if variant not in PROJECT_MODELS:
             raise ValueError("unsupported research project variant")
+        if variant == "project_cash":
+            if cash_budget is None:
+                raise ValueError("cash research requires a quoted budget")
+            _finite(cash_budget, "cash research budget", nonnegative=True)
+            if cash_budget < MIN_CASH_PROJECT_BUDGET:
+                raise ValueError("cash research budget is below the minimum")
+            return cls(variant, sequence, tick, quality, 40, cash_budget / 40.0)
         duration = 40 if variant == "project_outcome" else int(round(36.0 + 2.0 * quality))
         cost = 1200.0 if variant == "project_outcome" else 1200.0 * math.exp(0.25 * quality)
         return cls(variant, sequence, tick, quality, duration, cost / duration)
@@ -111,7 +126,7 @@ class ResearchProject:
         rng = _rng(seed, identity, "outcome", self.sequence)
         roll = rng.random()
         difficulty = max(0.0, 1.0 - self.start_quality / 10.0)
-        if self.variant == "project_outcome":
+        if self.variant in {"project_outcome", "project_cash"}:
             if roll < 0.15:
                 return 0.0, True
             return 0.35 * difficulty ** 1.5 * min(3.0, math.exp(rng.gauss(0.0, 0.5))), False
@@ -159,29 +174,39 @@ class ResearchState:
         # Weighted terms avoid overflow from subtracting large opposite-signed inputs.
         cash_ema = (6.0 / 7.0) * self.cash_ema + (1.0 / 7.0) * budget.generation
         _finite(cash_ema, "research cash EMA")
-        allowance = budget.allowance(cash_ema)
+        funding_variant = self.project.variant if self.project is not None else variant
+        cash_funded = funding_variant == "project_cash"
+        allowance = budget.spendable_cash if cash_funded else budget.allowance(cash_ema)
         self.cash_ema = cash_ema
         self.last_tick = tick
         self.last_spend = self.last_gain = 0.0
         self.gains = [(at, gain) for at, gain in self.gains if at > tick - 52]
         if self.project is None and quality < 10.0 and not blocked:
-            candidate = ResearchProject.quote(variant, quality, tick, self.sequence + 1)
-            if allowance >= candidate.installment:
-                self.sequence += 1
-                self.project = candidate
+            if not cash_funded or allowance >= MIN_CASH_PROJECT_BUDGET:
+                candidate = ResearchProject.quote(
+                    variant, quality, tick, self.sequence + 1,
+                    cash_budget=allowance if cash_funded else None,
+                )
+                if allowance >= candidate.installment:
+                    self.sequence += 1
+                    self.project = candidate
         project = self.project
         if project is None:
             return ResearchResult()
-        if blocked or allowance < project.installment:
+        final_cash_remainder = (cash_funded and project.funded_ticks == project.required_ticks - 1
+                                and math.isclose(allowance, project.installment,
+                                                 rel_tol=1e-12, abs_tol=MONEY_EPS))
+        if blocked or (allowance < project.installment and not final_cash_remainder):
             project.status = "paused"
             self.paused_ticks += 1
             return ResearchResult()
         project.status = "active"
+        spending = min(project.installment, allowance) if cash_funded else project.installment
         project.funded_ticks += 1
-        project.spent += project.installment
-        self.last_spend = project.installment
+        project.spent += spending
+        self.last_spend = spending
         if project.funded_ticks < project.required_ticks:
-            return ResearchResult(spending=project.installment)
+            return ResearchResult(spending=spending)
         raw_gain, failed = project.outcome(seed=self.seed, identity=self.identity)
         gain = max(0.0, min(raw_gain, 1.0 - sum(g for _, g in self.gains), 10.0 - quality))
         self.gains.append((tick, gain))
@@ -189,4 +214,4 @@ class ResearchState:
         self.completed += 1
         self.failed += int(failed)
         self.project = None
-        return ResearchResult(project.installment, gain, True, failed)
+        return ResearchResult(spending, gain, True, failed)
