@@ -4,7 +4,7 @@ Validation complete for the declared 28-case panel; **integrated performance acc
 
 ## Snapshot and evidence boundary
 
-Started clean on `codex/services-affordable-expansion`, docs HEAD `468c2dcd06a509282f10f5b5b2636ca50c081887`. The local `origin/main` reference was `d71485e7276cb2bf988eee6ff8ae9ecada3b73be`, with HEAD 7 ahead / 0 behind; no remote refresh was attempted under the no-network instruction. Current backend content equals combined snapshot `236773134e2a47664ee5806a9d611c139be1ca97`. PR 66 remains baseline `cca042a`; no PR action was taken.
+Started clean on `codex/services-affordable-expansion`, docs HEAD `468c2dcd06a509282f10f5b5b2636ca50c081887`. The local `origin/main` reference was `d71485e7276cb2bf988eee6ff8ae9ecada3b73be`, with HEAD 7 ahead / 0 behind; no remote refresh was attempted under the no-network instruction. Backend content at measurement equaled combined snapshot `236773134e2a47664ee5806a9d611c139be1ca97`. PR 66 remains baseline `cca042a`; no PR action was taken.
 
 | Arm | Frozen committed source | Meaning |
 | --- | --- | --- |
@@ -200,3 +200,11 @@ Final inventory: 1034 hashed artifacts. Manifest SHA256: `64680c93be42d3e7d76cb9
 | `affordable-expansion-panel/cost-diagnostic/baseline-week40.pickle` | `2e08d3638d54238c7ad831185f4285439c68c22644cf03fb3e1e31fa30db6ade` |
 
 Parent handoff: all 28 macro cases are complete and evidence is retained; functional/accounting evidence supports further integration review, with the economic tradeoffs and open performance/memory limits above. Only this result document is changed in the repository; no local commit was made by this worker. Keep performance acceptance open. A bounded follow-up may reduce measured order-processing overhead while preserving exact prices, allocations, claim ordering, shortage signals, RNG and cadence, then rerun interleaved matched 1k/10k timing with a declared uncertainty method. Do not tune economic behavior to force a 5% result. Generated OpenWiki refresh remains due because approved tooling/key is unavailable; no secret was requested and generated pages were untouched.
+
+## Subsequent parent optimization
+
+After the measurements above, the parent selected one behavior-preserving optimization pass. Zero-subsidy quotes avoid the funded-envelope lookup and use the algebraically equivalent private-cash bound. Only unresolved fundable quotes need scratch records; fully fulfilled quotes do not. The new private scratch representation is not a changed household choice or firm information channel. Positive-subsidy rules, actual-price affordability before stock, priorities, resource deduplication, RNG and cadence remain. The tables above still describe the original HF measurement, not a retimed optimized source.
+
+Independent review caught an EPS edge in the first sparse-record prototype: stock0.75e-6 with wanted1.5e-6 could suppress a shortage because delivery was skipped. The parent corrected the record condition to `qty <= EPS or qty < fundable` and added12 permanent Food/Services, ID/name and subsidy regressions. Final optimized snapshotO3 is785d326; independent round2 review found no remaining selected-scope regression, independently running30 sector tests and1800 exact market comparisons. Parent2400 exact market comparisons and135 selected tests also pass. These compare all actual purchases/receipts/cash/subsidy/inventory/demand fields while excluding fully fulfilled private quote records. Prior candidateO2 and its detected edge are retained as rejected evidence, not a final source.
+
+The declared final measurement protocol is external `affordable-expansion-panel/zero-subsidy/protocol.json`: repeat the validated common-state cost probe, then16 fresh sequential matched B/O3 macro runs at1k/10k, requiring exact old HF model rows and final RNG under O3. Add native process memory snapshots outside timing. Final full-suite, optimized macro equivalence and timing conclusions are recorded separately after completion. No economic coefficient or behavior is being tuned for a performance result.
