@@ -6,7 +6,7 @@ Notable changes and decisions for EcoSim, newest first. The project does not use
 
 ### 2026-10-27: Food and Services quality research experiment
 
-Owner-selected QUALITY-RESEARCH-01 defines basic baseline quality, bounded private entry quality and two funded multi-month research alternatives under rules v1.18. Research pauses during cash trouble, preserves the existing recipients and excludes Housing, Healthcare and unrelated business mechanisms. The existing default remains available while local tests and matched comparisons determine the tradeoffs; validation results are recorded separately.
+Owner-selected QUALITY-RESEARCH-01 defines basic baseline quality, bounded private entry quality and two funded multi-month research alternatives under rules v1.18. Research pauses during cash trouble, preserves the existing recipients and leaves Housing/Healthcare rules and unrelated business mechanisms unchanged. The default remains `instant`; local comparisons met the quality goal but reduced jobs and Services delivery, with a severe housing-access loss in one seed.
 
 ### 2026-10-26: Affordable household orders and Services expansion funding
 
