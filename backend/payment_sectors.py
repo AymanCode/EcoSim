@@ -73,8 +73,8 @@ class PaymentGoodsMarket:
         self.prices = {}
         self.desired = {hid: dict(plan.get("planned_purchases", {})) for hid, plan in plans.items()}
         self.accepted = defaultdict(lambda: defaultdict(float))
-        # Largest cumulative quantity actually fundable at a quote, across
-        # both passes. Plans (including cached ones) are only intentions.
+        # Largest cumulative fundable quote needing feedback, across both
+        # passes. Fully served quotes need no additional per-order record.
         self.considered = defaultdict(lambda: defaultdict(float))
         self.purchases = economy.payment_book.purchases
         self.sales = economy.payment_book.receipts
@@ -126,14 +126,18 @@ class PaymentGoodsMarket:
                                           _spendable(household), share, free_subsidy)
             if fundable <= EPS:
                 continue
-            self.considered[hid][target] = max(
-                self.considered[hid][target], self.accepted[hid][target] + bought + fundable,
-            )
             qty = min(stock, fundable)
+            if fundable - qty > EPS:
+                self.considered[hid][target] = max(
+                    self.considered[hid][target], self.accepted[hid][target] + bought + fundable,
+                )
             if qty <= EPS:
                 continue
             public = (min(max(0.0, share) * price * qty, free_subsidy) if share else 0.0)
             if not self.economy.payment_book.commit_sale(household, firm, qty, price, public_amount=public):
+                self.considered[hid][target] = max(
+                    self.considered[hid][target], self.accepted[hid][target] + bought + fundable,
+                )
                 continue
             self.remaining[fid] -= qty
             if self.categories[fid] != "services":
@@ -194,9 +198,12 @@ class PaymentGoodsMarket:
             household = self.economy.household_lookup.get(hid)
             if household is None:
                 continue
+            considered = self.considered.get(hid)
+            if not considered:
+                continue
             cash = _spendable(household)
             for target, wanted in targets.items():
-                residual = max(0.0, min(float(wanted), self.considered[hid][target]) - self.accepted[hid][target])
+                residual = max(0.0, min(float(wanted), considered.get(target, 0.0)) - self.accepted[hid][target])
                 if residual <= EPS:
                     continue
                 candidates = self._targets(target)
