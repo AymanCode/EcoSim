@@ -164,3 +164,26 @@ def test_risk_trait_changes_cash_contribution_through_existing_runway(world):
     firm.risk_tolerance = .9
     aggressive, _ = ec._service_expansion_funding_quote(firm, 7000.0, .05, 104, 1.0)
     assert 0.0 < conservative < aggressive < 7000.0
+
+
+@pytest.mark.parametrize("route", ("long_term", "infrastructure"))
+def test_mixed_project_survives_real_final_installment_and_reconciles_new_claim(world, route):
+    from payment_loans import collect_firm_dues, originate_v2
+
+    ec, firm, bank = world
+    old = originate_v2(ec, "firm", firm.firm_id, 100.0, .05, 1, "long_term_capital")
+    assert old is not None
+    firm.cash_balance = 4000.0
+    assert expand(ec, firm, route)
+    new = next(loan for loan in bank.active_loans if loan is not old)
+    assert 0.0 < new["principal"] < (5000.0 if route == "long_term" else 7000.0)
+    ec.current_tick += 1
+    ec.payment_book = PaymentBook(ec, timing=ec.payment_sequence)
+    before = firm.cash_balance, bank.cash_reserves
+    paid = collect_firm_dues(ec)
+    assert old["remaining"] == pytest.approx(0.0, abs=1e-6)
+    assert before[0] - firm.cash_balance == pytest.approx(paid)
+    assert bank.cash_reserves - before[1] == pytest.approx(paid)
+    assert firm.bank_loan_remaining == pytest.approx(new["remaining"])
+    _, _, due = firm._service_pricing_costs()
+    assert due == pytest.approx(new["payment_per_tick"])
