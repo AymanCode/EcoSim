@@ -61,6 +61,7 @@ from agents import (
 )
 from utils.category_utils import build_good_category_lookup
 from inflation import ConsumerPriceIndex, WageReview
+from firm_research import PROJECT_MODELS, RESEARCH_CATEGORIES, ResearchState, sample_entry_quality
 from payments import PaymentBook, MONEY_EPS, proportional
 from household_liquidity import (
     accessible_liquidity as household_accessible_liquidity,
@@ -73,6 +74,13 @@ if TYPE_CHECKING:  # typing only; the payment arm imports it lazily at run time
     from payment_sectors import PaymentGoodsMarket
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True, slots=True)
+class _ResearchSettlement:
+    debt_paid: float
+    available_cash: float
+    blocked: bool
 
 
 @dataclass(slots=True)
@@ -121,6 +129,8 @@ class _TickScratch:
     total_transfers: Optional[float] = None
     bankruptcies_this_tick: Optional[int] = None
     total_dividends_paid: Optional[float] = None
+    research_settlement: Optional[Dict[int, _ResearchSettlement]] = None
+    research_ceo_pay: Optional[Dict[int, float]] = None
 
 
 def _update_price_belief(beliefs: Dict[str, float], good: str, price: float, alpha: float) -> None:
@@ -203,6 +213,10 @@ class Economy:
         self.firms = firms
         self.government = government
         self.bank: Optional[BankAgent] = bank
+        self.research_totals = {"completed": 0, "failed": 0, "paused_ticks": 0,
+                                "spending": 0.0, "gain": 0.0}
+        self.last_tick_research_spending = 0.0
+        self.last_tick_research_gain = 0.0
         self.config = CONFIG
         self.payment_config_snapshot = {
             field.name: getattr(CONFIG, field.name)
@@ -1659,6 +1673,7 @@ class Economy:
         transfer_plan: Dict[int, float],
         wage_taxes: Dict[int, float],
         frozen_wages: Optional[Dict[int, float]] = None,
+        ceo_pay_by_firm: Optional[Dict[int, float]] = None,
     ) -> None:
         """Credit legacy wages, CEO pay and transfers and debit wage tax, once.
 
@@ -1679,6 +1694,8 @@ class Economy:
                 wages_list = [firm.actual_wages.get(e_id, firm.wage_offer) for e_id in firm.employees]
                 salary = float(np.median(wages_list)) * 3.0  # CEO earns 3x median worker
                 firm.cash_balance -= salary
+                if ceo_pay_by_firm is not None:
+                    ceo_pay_by_firm[firm.firm_id] = salary
                 ceo_pay[firm.ceo_household_id] = ceo_pay.get(firm.ceo_household_id, 0.0) + salary
 
         for household in self.households:
@@ -3046,7 +3063,14 @@ class Economy:
         household_tax_snapshots = self._build_household_tax_snapshots(frozen_wages=frozen_wages)
         tick.household_wage_taxes = self.government.plan_taxes(household_tax_snapshots, [])["wage_taxes"]
         tick.transfer_plan = self.government.plan_transfers(self._build_household_transfer_snapshots())
-        self._apply_household_income(tick.transfer_plan, tick.household_wage_taxes, frozen_wages)
+        if CONFIG.firms.quality_research_model in PROJECT_MODELS:
+            tick.research_ceo_pay = {}
+            self._apply_household_income(
+                tick.transfer_plan, tick.household_wage_taxes, frozen_wages,
+                ceo_pay_by_firm=tick.research_ceo_pay,
+            )
+        else:
+            self._apply_household_income(tick.transfer_plan, tick.household_wage_taxes, frozen_wages)
         self.government.apply_fiscal_results(
             sum(tick.household_wage_taxes.values()), 0.0, sum(tick.transfer_plan.values())
         )
@@ -3265,6 +3289,18 @@ class Economy:
         good_category_lookup = tick.good_category_lookup
         frozen_wages = tick.frozen_wages
         total_price_ceiling_taxes = tick.total_price_ceiling_taxes
+        research_before_debt = {}
+        if CONFIG.firms.quality_research_model in PROJECT_MODELS:
+            research_before_debt = {
+                firm.firm_id: (
+                    firm.cash_balance,
+                    tick.per_firm_sales.get(firm.firm_id, {}).get("revenue", 0.0),
+                    min(max(0.0, firm.loan_payment_per_tick), max(0.0, firm.government_loan_remaining)),
+                    firm.government_loan_remaining,
+                )
+                for firm in self.firms
+                if firm.good_category.lower() in RESEARCH_CATEGORIES and not firm.is_baseline
+            }
         # Phase 9.5: Bank loan repayments (firms & households → bank)
         # Runs after wages and sales so borrowers have income before repayment.
         if payment_arm:
@@ -3286,6 +3322,25 @@ class Economy:
             per_firm_sales=tick.per_firm_sales,
             income_already_settled=not payment_arm,
         )
+        if research_before_debt:
+            delinquent = ({loan["borrower_id"] for loan in self.bank.active_loans
+                           if loan["borrower_type"] == "firm" and loan.get("missed_payments", 0) > 0}
+                          if self.bank is not None else set())
+            tick.research_settlement = {}
+            for firm in self.firms:
+                before = research_before_debt.get(firm.firm_id)
+                if before is None:
+                    continue
+                cash_before, retail_before, direct_due, direct_remaining = before
+                retail_after = tick.per_firm_sales.get(firm.firm_id, {}).get("revenue", 0.0)
+                # Seller clawbacks reduce cash and revenue together; only the rest is debt.
+                clawback = 0.0 if payment_arm else max(0.0, retail_before - retail_after)
+                debt_paid = max(0.0, cash_before - firm.cash_balance - clawback)
+                direct_paid = max(0.0, direct_remaining - firm.government_loan_remaining)
+                tick.research_settlement[firm.firm_id] = _ResearchSettlement(
+                    debt_paid, firm.cash_balance,
+                    firm.firm_id in delinquent or direct_paid + MONEY_EPS < direct_due,
+                )
         if payment_arm:
             self.payment_book.release_late_income()
 
@@ -3379,9 +3434,46 @@ class Economy:
 
         # Phase 11.6: Firm R&D spending (tax and redirect to Misc firm)
         total_investment_taxes = 0.0
+        self.last_tick_research_spending = self.last_tick_research_gain = 0.0
+        research_model = CONFIG.firms.quality_research_model
         for firm in self.firms:
             revenue = per_firm_sales.get(firm.firm_id, {}).get("revenue", 0.0)
-            if revenue > 0:
+            if research_model != "instant" and firm.good_category.lower() in RESEARCH_CATEGORIES:
+                if firm.is_baseline or research_model == "scale_only":
+                    continue
+                settlement = tick.research_settlement[firm.firm_id]
+                if payment_arm:
+                    operating_costs = max(
+                        firm.last_tick_total_costs,
+                        self.payment_book.funded_wages_by_firm.get(firm.firm_id, 0.0)
+                        + firm.last_tick_operating_cash_cost_nonwage,
+                    )
+                    ceo_pay = self.payment_book.funded_ceo.get(firm.firm_id, 0.0)
+                else:
+                    operating_costs = firm.last_tick_total_costs
+                    ceo_pay = (tick.research_ceo_pay or {}).get(firm.firm_id, 0.0)
+                costs_with_ceo = operating_costs + ceo_pay
+                taxes_paid = (tick.tax_plan["profit_taxes"].get(firm.firm_id, 0.0)
+                              + tick.price_ceiling_tax_by_firm_id.get(firm.firm_id, 0.0))
+                generation = revenue - costs_with_ceo - taxes_paid - settlement.debt_paid
+                previous = firm.research_state
+                completed_before = previous.completed if previous is not None else 0
+                failed_before = previous.failed if previous is not None else 0
+                pauses_before = previous.paused_ticks if previous is not None else 0
+                quality_before = firm.quality_level
+                rd_spending = firm.advance_research(
+                    tick=self.current_tick, operating_cash_generation=generation,
+                    operating_costs=costs_with_ceo,
+                    available_cash=min(firm.cash_balance, settlement.available_cash),
+                    blocked=settlement.blocked,
+                )
+                state = firm.research_state
+                self.research_totals["completed"] += state.completed - completed_before
+                self.research_totals["failed"] += state.failed - failed_before
+                self.research_totals["paused_ticks"] += state.paused_ticks - pauses_before
+                self.last_tick_research_spending += rd_spending
+                self.last_tick_research_gain += firm.quality_level - quality_before
+            elif revenue > 0:
                 if payment_arm:
                     # Prior registered/direct debt has already collected. Fund
                     # discretionary R&D before recording investment or quality.
@@ -3390,11 +3482,14 @@ class Economy:
                     )
                 else:
                     rd_spending = firm.apply_rd_and_quality_update(revenue)
-                # Apply investment tax
-                investment_tax = rd_spending * self.government.investment_tax_rate
-                after_tax_investment = rd_spending - investment_tax
-                total_investment_taxes += investment_tax
-                self._collect_misc_revenue(after_tax_investment)
+            else:
+                continue
+            investment_tax = rd_spending * self.government.investment_tax_rate
+            after_tax_investment = rd_spending - investment_tax
+            total_investment_taxes += investment_tax
+            self._collect_misc_revenue(after_tax_investment)
+        self.research_totals["spending"] += self.last_tick_research_spending
+        self.research_totals["gain"] += self.last_tick_research_gain
 
         # Government collects investment taxes
         self.government.cash_balance += total_investment_taxes
@@ -6711,6 +6806,19 @@ class Economy:
         if founder_id is not None:
             new_firm.owners = [founder_id]
 
+        if (CONFIG.firms.quality_research_model != "instant"
+                and chosen_category.lower() in RESEARCH_CATEGORIES):
+            identity = f"entry:{new_firm_id}:{self.current_tick}"
+            peers = [firm.quality_level for firm in self.firms
+                     if firm.good_category == chosen_category and not firm.is_baseline]
+            founder = self.household_lookup.get(founder_id if founder_id is not None else ceo_id)
+            new_firm.quality_level = sample_entry_quality(
+                seed=CONFIG.random_seed, identity=identity, peer_qualities=peers,
+                founder_skill=founder.skills_level if founder is not None else None,
+            )
+            if CONFIG.firms.quality_research_model in PROJECT_MODELS:
+                new_firm.research_state = ResearchState(CONFIG.random_seed, identity)
+
         self.firms.append(new_firm)
 
         self.last_tick_sales_units[new_firm_id] = 0.0
@@ -9612,6 +9720,23 @@ class Economy:
                 )
             total_rd = sum(getattr(f, "accumulated_rd_investment", 0.0) for f in self.firms)
             metrics["total_rd_spending_lifetime"] = total_rd
+
+        if CONFIG.firms.quality_research_model != "instant":
+            states = [firm.research_state for firm in self.firms
+                      if firm.good_category.lower() in RESEARCH_CATEGORIES and not firm.is_baseline
+                      and firm.research_state is not None]
+            metrics["firm_research"] = {
+                "model": CONFIG.firms.quality_research_model,
+                "active": sum(state.project is not None and state.project.status == "active" for state in states),
+                "paused": sum(state.project is not None and state.project.status == "paused" for state in states),
+                "completed_total": self.research_totals["completed"],
+                "failed_total": self.research_totals["failed"],
+                "paused_firm_ticks_total": self.research_totals["paused_ticks"],
+                "spending_this_tick": self.last_tick_research_spending,
+                "spending_total": self.research_totals["spending"],
+                "gain_this_tick": self.last_tick_research_gain,
+                "gain_total": self.research_totals["gain"],
+            }
 
         # Fix 23: Wage dynamics
         if self.households:
