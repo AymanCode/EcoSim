@@ -31,6 +31,14 @@ def _goods_subsidy_available(economy):
     ))
 
 
+def _private_quantity(price, planned, cash):
+    """The zero-subsidy affordability bound, including the free-price case."""
+    limit = max(0.0, float(planned))
+    if limit <= EPS or price <= EPS:
+        return limit
+    return min(limit, max(0.0, float(cash)) / price)
+
+
 def _sale_quantity(price, planned, available, cash, share, subsidy):
     """Largest continuous sale that both payers can actually cover."""
     limit = max(0.0, min(float(planned), float(available)))
@@ -107,11 +115,15 @@ class PaymentGoodsMarket:
             price = self.prices[fid]
             stock = self.remaining[fid]
             share = self.subsidy_shares[fid]
-            free_subsidy = _goods_subsidy_available(self.economy)
             # Affordability bounds the attempted order BEFORE the stock test,
             # so an empty seller sees only quantities this buyer could fund.
-            fundable = _sale_quantity(price, wanted - bought, wanted - bought,
-                                      _spendable(household), share, free_subsidy)
+            if share == 0.0:
+                fundable = _private_quantity(price, wanted - bought, _spendable(household))
+                free_subsidy = 0.0
+            else:
+                free_subsidy = _goods_subsidy_available(self.economy)
+                fundable = _sale_quantity(price, wanted - bought, wanted - bought,
+                                          _spendable(household), share, free_subsidy)
             if fundable <= EPS:
                 continue
             self.considered[hid][target] = max(
@@ -120,7 +132,7 @@ class PaymentGoodsMarket:
             qty = min(stock, fundable)
             if qty <= EPS:
                 continue
-            public = min(max(0.0, share) * price * qty, free_subsidy)
+            public = (min(max(0.0, share) * price * qty, free_subsidy) if share else 0.0)
             if not self.economy.payment_book.commit_sale(household, firm, qty, price, public_amount=public):
                 continue
             self.remaining[fid] -= qty
@@ -199,8 +211,12 @@ class PaymentGoodsMarket:
                         continue
                     price = self.prices[fid]
                     share = self.subsidy_shares[fid]
-                    qty = _sale_quantity(price, residual - unmet, residual - unmet, cash, share, subsidy)
-                    public = min(max(0.0, share) * price * qty, subsidy)
+                    if share == 0.0:
+                        qty = _private_quantity(price, residual - unmet, cash)
+                        public = 0.0
+                    else:
+                        qty = _sale_quantity(price, residual - unmet, residual - unmet, cash, share, subsidy)
+                        public = min(max(0.0, share) * price * qty, subsidy)
                     cash = max(0.0, cash - max(0.0, price * qty - public))
                     subsidy = max(0.0, subsidy - public)
                     unmet += qty
