@@ -230,6 +230,7 @@ def test_both_real_loan_routes_recheck_physical_space_and_record_funding(factory
     cfg.payment_sequence = sequence
     with use_config(cfg):
         firm = salon(factory, workers=5 if staffed else 2, slots=5, price=20.0)
+        firm.cash_balance = 1000.0  # Exercise bank funding rather than a cash-only project.
         firm.last_revenue = firm.revenue_ema = 1000.0
         firm.service_full_utilization_streak = 5
         firm.service_unmet_demand_window = [2.0] * 5
@@ -351,6 +352,7 @@ def test_completed_market_observations_precede_real_infrastructure_funding(facto
     cfg.payment_sequence = sequence
     with use_config(cfg):
         firm = salon(factory, price=20.0)
+        firm.cash_balance = 1000.0  # Five real sales weeks must precede financed installation.
         households = [factory.household(household_id=hid, employer_id=90, wage=20.0,
                                        cash_balance=10000.0) for hid in range(1, 6)]
         bank = BankAgent(cash_reserves=100000.0)
@@ -373,7 +375,10 @@ def test_completed_market_observations_precede_real_infrastructure_funding(facto
         assert len(loans) == 1, (firm.service_full_utilization_streak,
             firm.service_unmet_demand_window, len(firm.employees), firm.production_capacity_units,
             economy.payment_state.get("prior_settled_firm_operating_cashflow"))
-        assert loans[0]["principal"] == 7000.0
+        assert 0.0 < loans[0]["principal"] <= 7000.0
+        assert firm.decision_diagnostics["service_expansion_project_cost"] == 7000.0
+        assert (firm.decision_diagnostics["service_expansion_cash_contribution"]
+                + loans[0]["principal"]) == pytest.approx(7000.0)
         assert firm.production_capacity_units > 5
         assert firm.service_full_utilization_streak == 0
         assert firm.service_unmet_demand_window == []

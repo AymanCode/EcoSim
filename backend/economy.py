@@ -3016,8 +3016,7 @@ class Economy:
                         economy=self,
                         current_units_sold=tick.per_firm_sales.get(firm.firm_id, {}).get("units_sold", 0.0),
                     )
-            if self.bank is not None:
-                self._offer_service_infrastructure_loans()
+            self._offer_service_infrastructure_loans()
 
     def _settle_legacy_income_and_plan_shopping(self, tick: _TickScratch) -> Dict[int, Dict]:
         """Legacy phase 5b: settle household income, then make the week's one shopping decision.
@@ -3115,8 +3114,7 @@ class Economy:
             for firm in self.firms:
                 if (firm.good_category or "").lower() == "services":
                     firm.consider_service_infrastructure_upgrade(economy=self, current_units_sold=tick.per_firm_sales.get(firm.firm_id, {}).get("units_sold", 0.0))
-            if self.bank is not None:
-                self._offer_service_infrastructure_loans()
+            self._offer_service_infrastructure_loans()
         else:
             self._process_healthcare_services(tick.per_firm_sales)
 
@@ -6965,7 +6963,9 @@ class Economy:
             return False
 
         bank = self.bank
-        if bank is None or not bank.can_lend():
+        if (category != "services" or self.payment_sequence == "legacy") and (
+            bank is None or not bank.can_lend()
+        ):
             return False
 
         loan_amount = 0.0
@@ -7028,19 +7028,29 @@ class Economy:
         else:
             loan_amount = min(float(cfg.long_term_capital_max_amount), loan_amount)
 
-        if bank.lendable_cash < loan_amount:
-            return False
-
         # Originate the loan.
-        score = bank.get_firm_credit_score(firm.firm_id)
+        score = bank.get_firm_credit_score(firm.firm_id) if bank is not None else 1.0
         rate = float(cfg.long_term_capital_annual_rate) + (1.0 - score) * 0.02
-        if self.payment_sequence != "legacy":
+        project_cost = loan_amount
+        borrowed = loan_amount
+        if category == "services" and self.payment_sequence != "legacy":
+            funded = self._fund_service_expansion(
+                firm, project_cost, rate, int(cfg.long_term_capital_term_ticks),
+                "long_term_capital", project_cost / float(cfg.services_capacity_cost_per_unit),
+            )
+            if funded is None:
+                return False
+            borrowed = funded
+            loan = None
+        elif self.payment_sequence != "legacy":
             from payment_loans import originate_v2
             loan = originate_v2(self, "firm", firm.firm_id, loan_amount, rate,
                                 int(cfg.long_term_capital_term_ticks), "long_term_capital")
             if loan is None:
                 return False
         else:
+            if bank.lendable_cash < loan_amount:
+                return False
             loan = bank.originate_loan(
                 borrower_type="firm",
                 borrower_id=firm.firm_id,
@@ -7058,11 +7068,7 @@ class Economy:
         # Apply expansion to the firm's productive capacity.
         if category == "services":
             if self.payment_sequence != "legacy":
-                # The registered principal is bank cash until it is delivered
-                # to this borrower and spent on this one capital route.
-                firm.cash_balance += loan_amount
-                firm.cash_balance -= loan_amount
-                self._payment_record_capital_spend(firm, loan_amount, "long_term_services")
+                self._payment_record_capital_spend(firm, project_cost, "long_term_services")
             capacity_added = loan_amount / float(cfg.services_capacity_cost_per_unit)
             firm._add_service_worker_slots(capacity_added)
             firm.capital_stock += capacity_added
@@ -7085,10 +7091,10 @@ class Economy:
 
         firm.last_long_term_loan_tick = int(self.current_tick)
         firm.total_long_term_loans_received = (
-            float(getattr(firm, "total_long_term_loans_received", 0.0)) + loan_amount
+            float(getattr(firm, "total_long_term_loans_received", 0.0)) + borrowed
         )
 
-        firm.decision_diagnostics["long_term_capital_loan_received"] = float(loan_amount)
+        firm.decision_diagnostics["long_term_capital_loan_received"] = float(borrowed)
         firm.decision_diagnostics["long_term_capital_category"] = category
         firm.decision_diagnostics["long_term_capital_rate"] = float(rate)
 
@@ -7313,14 +7319,67 @@ class Economy:
             growth_rate = 0.15
         return max(1, int(slots * growth_rate))
 
+    def _service_expansion_funding_quote(
+        self, firm: FirmAgent, cost: float, annual_rate: float, term_ticks: int,
+        slots_added: float,
+    ) -> tuple[float, float]:
+        """Cash above an existing risk/runway reserve; bank funds the remainder.
+
+        The reserve includes estimated payroll at the expanded staffing level
+        and existing scheduled dues. When borrowing is needed, reserving the
+        full-project installment is conservative and avoids a funding search.
+        Firms already below the reserve contribute zero; existing underwriting
+        still decides whether a wholly financed project can proceed.
+        """
+        from payment_loans import quoted_annual_rate, v2_payment
+
+        _, payroll, existing_dues = firm._service_pricing_costs()
+        payroll += max(0.0, slots_added) * firm._effective_base_wage_cost()
+        weeks = firm._expansion_runway_gate_ticks()
+        reserve = weeks * (payroll + existing_dues)
+        cash = max(0.0, firm.cash_balance)
+        if cash - cost >= reserve:
+            return cost, 0.0
+        full_installment = v2_payment(
+            cost, quoted_annual_rate(self, annual_rate), term_ticks,
+            int(self.config.time.ticks_per_year),
+        )
+        contribution = min(cost, max(0.0, cash - reserve - weeks * full_installment))
+        return contribution, cost - contribution
+
+    def _fund_service_expansion(
+        self, firm: FirmAgent, cost: float, annual_rate: float, term_ticks: int,
+        subtype: str, slots_added: float,
+    ) -> Optional[float]:
+        """Fund a named Services project atomically; return borrowed principal."""
+        from payment_loans import originate_v2
+
+        contribution, borrowed = self._service_expansion_funding_quote(
+            firm, cost, annual_rate, term_ticks, slots_added,
+        )
+        if borrowed > MONEY_EPS:
+            loan = originate_v2(
+                self, "firm", firm.firm_id, borrowed, annual_rate, term_ticks, subtype,
+            )
+            if loan is None:
+                return None
+        else:
+            # Do not leave an unfunded floating-point tail in project spending.
+            contribution, borrowed = cost, 0.0
+        firm.cash_balance -= contribution
+        firm.decision_diagnostics["service_expansion_project_cost"] = cost
+        firm.decision_diagnostics["service_expansion_cash_contribution"] = contribution
+        firm.decision_diagnostics["service_expansion_borrowed"] = borrowed
+        return borrowed
+
     def _offer_service_infrastructure_loans(self) -> None:
-        """Originate bank-financed Services upgrades that add employee slots.
+        """Fund Services upgrades with cash and/or a bank loan on named arms.
 
         Services ``production_capacity_units`` is worker slots, so the upgrade
         increases hiring capacity. Service units still come from workers each tick.
         """
         bank = self.bank
-        if bank is None:
+        if bank is None and self.payment_sequence == "legacy":
             return
 
         term_ticks = 104
@@ -7347,20 +7406,27 @@ class Economy:
             ):
                 clear_request()
                 continue
-            if not bank.can_lend() or bank.lendable_cash < principal:
+            if self.payment_sequence == "legacy" and (not bank.can_lend() or bank.lendable_cash < principal):
                 clear_request()
                 continue
 
-            credit_score = bank.get_firm_credit_score(firm.firm_id)
-            if credit_score < 0.25:
+            credit_score = bank.get_firm_credit_score(firm.firm_id) if bank is not None else 1.0
+            if self.payment_sequence == "legacy" and credit_score < 0.25:
                 clear_request()
                 continue
 
-            annual_rate = bank._risk_adjusted_rate(credit_score, spread)
+            annual_rate = (bank._risk_adjusted_rate(credit_score, spread) if bank is not None
+                           else float(firm.current_loan_rate) + spread)
             # The installment the loan below will charge (amortized on both paths).
             from payment_loans import quoted_annual_rate, v2_payment
             quote = annual_rate if self.payment_sequence == "legacy" else quoted_annual_rate(self, annual_rate)
-            projected_payment = v2_payment(principal, quote, term_ticks, int(self.config.time.ticks_per_year))
+            slots_gained = self._service_slot_upgrade_gain(firm)
+            borrowed = principal
+            if self.payment_sequence != "legacy":
+                _, borrowed = self._service_expansion_funding_quote(
+                    firm, principal, annual_rate, term_ticks, slots_gained,
+                )
+            projected_payment = v2_payment(borrowed, quote, term_ticks, int(self.config.time.ticks_per_year))
             wage_bill = max(0.0, float(firm._current_wage_bill()))
             rolling_revenue = max(0.0, float(max(firm.last_revenue, firm.revenue_ema)))
             projected_service_cost = wage_bill + firm.service_infrastructure_loan_payment_per_tick + projected_payment
@@ -7370,10 +7436,10 @@ class Economy:
                     continue
 
             if self.payment_sequence != "legacy":
-                from payment_loans import originate_v2
-                loan = originate_v2(self, "firm", firm.firm_id, principal, annual_rate,
-                                    term_ticks, "service_infrastructure")
-                if loan is None:
+                borrowed = self._fund_service_expansion(
+                    firm, principal, annual_rate, term_ticks, "service_infrastructure", slots_gained,
+                )
+                if borrowed is None:
                     clear_request()
                     continue
             else:
@@ -7391,18 +7457,16 @@ class Economy:
                 firm.bank_loan_payment_per_tick += loan["payment_per_tick"]
                 firm.service_infrastructure_loan_remaining += loan["remaining"]
                 firm.service_infrastructure_loan_payment_per_tick += loan["payment_per_tick"]
-            firm.cash_balance += principal
-
-            firm.cash_balance -= principal
+                firm.cash_balance += principal
+                firm.cash_balance -= principal
             self._collect_misc_revenue(principal)
 
-            slots_gained = self._service_slot_upgrade_gain(firm)
             firm._add_service_worker_slots(float(slots_gained))
             firm.inventory_units = 0.0
             firm.service_full_utilization_streak = 0
             firm.decision_diagnostics["service_upgrade_slots_gained"] = slots_gained
-            firm.decision_diagnostics["service_upgrade_loan_principal"] = principal
-            firm.decision_diagnostics["service_upgrade_debt_service"] = loan["payment_per_tick"]
+            firm.decision_diagnostics["service_upgrade_loan_principal"] = borrowed
+            firm.decision_diagnostics["service_upgrade_debt_service"] = projected_payment
             clear_request()
 
     def _payment_record_capital_spend(self, firm: FirmAgent, amount: float, route: str) -> None:
