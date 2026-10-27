@@ -4,6 +4,12 @@ Notable changes and decisions for EcoSim, newest first. The project does not use
 
 ## Unreleased
 
+### 2026-10-26: Affordable household orders and Services expansion funding
+
+Owner-selected continuation under rules v1.17. Named household plans distinguish expected pre-shopping income from existing savings; `income_first` can anticipate its early receipts while `income_late` cannot spend held income. Actual clearing prices, cash and funded subsidy bound attempted orders. Firm capacity feedback counts only affordable stockouts after purchases and priority payments, without reusing household or subsidy funds; unaffordable household needs still affect wellbeing. Seller choice, payment priority and update cadence remain.
+
+Qualifying named Services projects can combine available firm cash with bank financing while retaining a personality-dependent operating reserve. Only borrowed principal becomes debt; denied required borrowing spends no contribution or capacity. Existing space/demand gates, project cost/slot rules, underwriting and recipient routes remain. See [the shared contract](docs/reviews/AFFORDABLE_EXPANSION_CONTRACT.md), [household evidence](docs/reviews/HOUSEHOLD_AFFORDABILITY_RESULTS.md) and [financing evidence](docs/reviews/SERVICES_EXPANSION_FINANCING_RESULTS.md). Final matched macro/runtime evidence is recorded separately; functional tests do not establish calibration or a universal performance pass.
+
 ### 2026-10-26: Services planned prices account for existing repayments
 
 Owner-selected SERVICES-02, rules v1.16. Services' planned-price cash base now includes scheduled bank and direct Treasury installments, bounded by their outstanding balances. Infrastructure dues are already inside the bank mirror and are counted once. Paid-off schedules stop affecting the quote. The existing asking-price smoothing, customer choice, transaction-floor institution, bank coverage rule, accounting/tax profit and SERVICES-01 hiring/space rules remain. See [the small-change contract](docs/reviews/SERVICES_REPAYMENT_CONTRACT.md) and [validation/results](docs/reviews/SERVICES_REPAYMENT_RESULTS.md).
