@@ -24,6 +24,13 @@ def _spendable(household):
     return max(0.0, float(household.cash_balance))
 
 
+def _goods_subsidy_available(economy):
+    return max(0.0, min(
+        float(getattr(economy, "sector_subsidy_remaining_this_tick", 0.0)),
+        float(economy.payment_state["restrictions"].get("G", 0.0)),
+    ))
+
+
 def _sale_quantity(price, planned, available, cash, share, subsidy):
     """Largest continuous sale that both payers can actually cover."""
     limit = max(0.0, min(float(planned), float(available)))
@@ -58,11 +65,15 @@ class PaymentGoodsMarket:
         self.prices = {}
         self.desired = {hid: dict(plan.get("planned_purchases", {})) for hid, plan in plans.items()}
         self.accepted = defaultdict(lambda: defaultdict(float))
+        # Largest cumulative quantity actually fundable at a quote, across
+        # both passes. Plans (including cached ones) are only intentions.
+        self.considered = defaultdict(lambda: defaultdict(float))
         self.purchases = economy.payment_book.purchases
         self.sales = economy.payment_book.receipts
         self.combined_services_units = defaultdict(float)
         self._first_done = False
         self._second_done = False
+        self._finished = False
         for firm in self.firms:
             available = max(0.0, float(economy._estimated_firm_market_supply(firm, current_tick_capacity=True)))
             effective = max(0.0, float(economy._effective_market_price(firm, available)))
@@ -88,17 +99,25 @@ class PaymentGoodsMarket:
 
     def _buy(self, household, target, wanted):
         bought = 0.0
+        hid = household.household_id
         for firm in self._targets(target):
             if bought >= wanted - EPS:
                 break
             fid = firm.firm_id
             price = self.prices[fid]
             stock = self.remaining[fid]
-            if stock <= EPS:
-                continue
             share = self.subsidy_shares[fid]
-            free_subsidy = max(0.0, float(getattr(self.economy, "sector_subsidy_remaining_this_tick", 0.0)))
-            qty = _sale_quantity(price, wanted - bought, stock, _spendable(household), share, free_subsidy)
+            free_subsidy = _goods_subsidy_available(self.economy)
+            # Affordability bounds the attempted order BEFORE the stock test,
+            # so an empty seller sees only quantities this buyer could fund.
+            fundable = _sale_quantity(price, wanted - bought, wanted - bought,
+                                      _spendable(household), share, free_subsidy)
+            if fundable <= EPS:
+                continue
+            self.considered[hid][target] = max(
+                self.considered[hid][target], self.accepted[hid][target] + bought + fundable,
+            )
+            qty = min(stock, fundable)
             if qty <= EPS:
                 continue
             public = min(max(0.0, share) * price * qty, free_subsidy)
@@ -112,7 +131,7 @@ class PaymentGoodsMarket:
                 household.services_consumed_this_tick += qty
                 self.combined_services_units[fid] += qty
             bought += qty
-        self.accepted[household.household_id][target] += bought
+        self.accepted[hid][target] += bought
         return bought
 
     def first_pass(self):
@@ -152,13 +171,40 @@ class PaymentGoodsMarket:
     def finish(self):
         if not self._second_done:
             raise RuntimeError("Goods settlement incomplete")
+        if self._finished:
+            raise RuntimeError("Goods settlement already finalized")
+        self._finished = True
+        # All real purchases and prior obligations win over failed attempts.
+        # Allocate the remaining resources once, observationally, across the
+        # existing order sequence. No cash/subsidy is reserved or spent here.
+        subsidy = _goods_subsidy_available(self.economy)
         for hid, targets in self.desired.items():
+            household = self.economy.household_lookup.get(hid)
+            if household is None:
+                continue
+            cash = _spendable(household)
             for target, wanted in targets.items():
-                unmet = max(0.0, float(wanted) - self.accepted[hid][target])
-                if unmet <= EPS:
+                residual = max(0.0, min(float(wanted), self.considered[hid][target]) - self.accepted[hid][target])
+                if residual <= EPS:
                     continue
                 candidates = self._targets(target)
                 if not candidates:
+                    continue
+                unmet = 0.0
+                for firm in candidates:
+                    if unmet >= residual - EPS:
+                        break
+                    fid = firm.firm_id
+                    if self.remaining[fid] > EPS:
+                        continue
+                    price = self.prices[fid]
+                    share = self.subsidy_shares[fid]
+                    qty = _sale_quantity(price, residual - unmet, residual - unmet, cash, share, subsidy)
+                    public = min(max(0.0, share) * price * qty, subsidy)
+                    cash = max(0.0, cash - max(0.0, price * qty - public))
+                    subsidy = max(0.0, subsidy - public)
+                    unmet += qty
+                if unmet <= EPS:
                     continue
                 category = _category(candidates[0])
                 if category == "food":

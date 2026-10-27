@@ -161,7 +161,10 @@ def test_income_first_sold_out_food_is_not_spent_on_the_visit(on, monkeypatch):
         def planning_inputs(economy_arg):
             wages = [h.wage if h.is_employed else 0.0 for h in economy_arg.households]
             liquidity = [max(0.0, h.cash_balance) for h in economy_arg.households]
-            return wages, liquidity, {}
+            pressure = {h.household_id: {"estimated_savings_liquidity": value,
+                                       "estimated_discretionary_liquidity": value}
+                        for h, value in zip(economy_arg.households, liquidity)}
+            return wages, liquidity, pressure
 
         monkeypatch.setattr("payment_behavior.planning_inputs", planning_inputs)
         assert economy.payment_sequence == "income_first"

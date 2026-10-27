@@ -1148,7 +1148,10 @@ class Economy:
         trait_multiplier = np.clip(spending_tendencies / frugalities, 0.85, 1.15)
         base_budget = base_budget * trait_multiplier
 
-        # Accessible liquidity: cash + 90% of bank deposits (can be withdrawn pre-purchase)
+        # Accessible liquidity: cash + 90% of bank deposits (can be withdrawn pre-purchase).
+        # Named plans also account for their income timing: income_first can
+        # estimate pre-shopping receipts, but the quote must recheck actual
+        # funded cash. Income_late cannot add held receipts to this ceiling.
         bank_deposits = np.array([h.bank_deposit for h in self.households], dtype=np.float64)
         accessible_liquidity = accessible_liquidity_array(np.maximum(cash_balances, 0.0), bank_deposits)
         if self.payment_sequence != "legacy":
@@ -1178,8 +1181,16 @@ class Economy:
                             0.0, entry["estimated_discretionary_liquidity"] - reserve
                         )
 
-        # Savings drawdown: personality-derived fraction of accessible liquidity (slow trickle)
-        drawdown = drawdown_rates * accessible_liquidity
+        # Savings are an opening stock. Expected income can lift the named
+        # shopping ceiling, but already has its MPC above and must not also
+        # become a savings stock to draw down before it arrives.
+        savings_liquidity = accessible_liquidity
+        if self.payment_sequence != "legacy":
+            savings_liquidity = np.fromiter(
+                (pressure[h.household_id]["estimated_savings_liquidity"] for h in self.households),
+                dtype=np.float64, count=len(self.households),
+            )
+        drawdown = drawdown_rates * savings_liquidity
 
         # Desperation mode: when income-based budget < survival minimum, raid savings
         # faster. It raises the drawdown, never lowers it below the normal one (B27).
@@ -1187,7 +1198,7 @@ class Economy:
         in_desperation = base_budget < subsistence_min
         emergency_rates = np.minimum(drawdown_rates * 5.0, 0.20)
         desperation_drawdown = np.minimum(
-            emergency_rates * accessible_liquidity,
+            emergency_rates * savings_liquidity,
             np.maximum(0.0, subsistence_min - base_budget),
         )
         drawdown = np.where(in_desperation, np.maximum(drawdown, desperation_drawdown), drawdown)
