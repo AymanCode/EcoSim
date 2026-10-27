@@ -79,7 +79,8 @@ def test_subsidy_exhaustion_shrinks_delivered_units_and_preserves_money():
     assert food.inventory_units == pytest.approx(3.0)
     assert econ.payment_book.clearing_cash == pytest.approx(25.0)
     assert econ.payment_book.clearing_payables[7] == pytest.approx(25.0)
-    assert econ.food_unmet_demand == pytest.approx(3.0)
+    # The remaining three units cannot be funded after cash/subsidy exhaustion.
+    assert econ.food_unmet_demand == pytest.approx(0.0)
     assert econ.payment_book.release_firm_receipts(food) == pytest.approx(25.0)
     assert food.cash_balance == pytest.approx(25.0)
     assert econ.payment_book.clearing_cash == pytest.approx(0.0)
@@ -96,7 +97,8 @@ def test_failed_food_target_does_not_spend_cash_or_consume_need():
     assert hh.cash_balance == pytest.approx(0.0)
     market.second_pass()
     market.finish()
-    assert econ.food_unmet_demand == pytest.approx(2.0)
+    # The initial failed target cannot reuse cash spent at the stocked target.
+    assert econ.food_unmet_demand == pytest.approx(0.0)
 
 
 def test_partial_rent_creates_mirrored_arrears_then_expires_after_two_more_settlements():
@@ -124,6 +126,123 @@ def test_partial_rent_creates_mirrored_arrears_then_expires_after_two_more_settl
 def test_piecewise_subsidy_math_handles_exact_cap_boundary():
     assert _sale_quantity(5.0, 8.0, 8.0, 20.0, 0.5, 5.0) == pytest.approx(5.0)
     assert _sale_quantity(0.0, 8.0, 3.0, 0.0, 0.5, 0.0) == pytest.approx(3.0)
+
+
+@pytest.mark.parametrize("category", ("Food", "Services"))
+@pytest.mark.parametrize("by_name", (False, True))
+@pytest.mark.parametrize("share", (0.0, 0.5, 1.0))
+def test_sub_delivery_threshold_stock_retains_fundable_shortage(category, by_name, share):
+    # Supply below delivery tolerance does not erase an order above tolerance,
+    # even when the difference between wanted and stock is itself below EPS.
+    hh = _household(1, 10.0)
+    firm = _firm(7, "TinyGood", category, 1.0, 0.75e-6)
+    econ = _economy([hh], [firm], subsidy=100.0)
+    econ.government.sector_subsidy_target = category.lower()
+    econ.government._sector_subsidy_rate = share
+    target = firm.good_name if by_name else firm.firm_id
+    market = PaymentGoodsMarket(econ, {1: {"planned_purchases": {target: 1.5e-6}}}, [firm])
+    market.first_pass()
+    market.second_pass()
+    market.finish()
+    assert market.accepted[1][target] == 0.0
+    assert hh.cash_balance == 10.0
+    assert econ.food_unmet_demand + econ.services_unmet_demand == pytest.approx(1.5e-6)
+
+
+@pytest.mark.parametrize("category", ["Food", "Services"])
+def test_one_residual_budget_cannot_back_two_sellers_or_two_passes(category):
+    hh = _household(1, 50.0)
+    firms = [_firm(fid, f"Good{fid}", category, 10.0, 0.0) for fid in (1, 2)]
+    econ = _economy([hh], firms)
+    recorded = {}
+    econ._record_firm_unmet_demand = lambda fid, qty: recorded.update({fid: qty})
+    market = PaymentGoodsMarket(econ, {1: {"planned_purchases": {1: 5, 2: 5}}}, firms)
+    market.first_pass()
+    market.second_pass()
+    market.finish()
+    assert econ.food_unmet_demand + econ.services_unmet_demand == pytest.approx(5)
+    assert recorded == {1: pytest.approx(5)}
+    assert hh.cash_balance == 50
+    assert not econ.payment_book.clearing_payables
+    with pytest.raises(RuntimeError, match="already finalized"):
+        market.finish()
+    assert econ.food_unmet_demand + econ.services_unmet_demand == pytest.approx(5)
+
+
+def test_failed_food_quote_does_not_reserve_cash_a_later_service_can_use():
+    hh = _household(1, 50.0)
+    empty = _firm(1, "BasicFood", "Food", 10.0, 0.0)
+    stocked = _firm(2, "Service", "Services", 10.0, 5.0)
+    econ = _economy([hh], [empty, stocked])
+    market = PaymentGoodsMarket(econ, {1: {"planned_purchases": {1: 5, 2: 5}}}, [empty, stocked])
+    market.first_pass()
+    assert hh.cash_balance == 50
+    assert market.considered[1][1] == pytest.approx(2)
+    market.second_pass()
+    market.finish()
+    assert hh.services_consumed_this_tick == pytest.approx(5)
+    assert hh.cash_balance == pytest.approx(0)
+    assert econ.food_unmet_demand == 0
+
+
+@pytest.mark.parametrize("share,cash,subsidy,expected", [(0.5, 10, 20, 4), (1.0, 0, 10, 1)])
+def test_residuals_share_one_funded_subsidy_pool_across_households(share, cash, subsidy, expected):
+    households = [_household(hid, cash) for hid in (1, 2)]
+    empty = _firm(1, "BasicFood", "Food", 10.0, 0)
+    econ = _economy(households, [empty], subsidy=subsidy)
+    econ.government._sector_subsidy_rate = share
+    plans = {h.household_id: {"planned_purchases": {1: 5}} for h in households}
+    market = PaymentGoodsMarket(econ, plans, [empty])
+    market.first_pass()
+    market.second_pass()
+    market.finish()
+    assert econ.food_unmet_demand == pytest.approx(expected)
+    assert [h.cash_balance for h in households] == [cash, cash]
+    assert econ.government.cash_balance == subsidy
+    assert econ.payment_state["restrictions"]["G"] == subsidy
+    assert econ.payment_book.clearing_cash == 0
+
+
+def test_announced_subsidy_without_funded_envelope_cannot_back_stockout():
+    hh = _household(1, 0)
+    empty = _firm(1, "BasicFood", "Food", 10.0, 0)
+    econ = _economy([hh], [empty], subsidy=20)
+    econ.government._sector_subsidy_rate = 1
+    econ.payment_state["restrictions"]["G"] = 0
+    market = PaymentGoodsMarket(econ, {1: {"planned_purchases": {1: 5}}}, [empty])
+    market.first_pass()
+    market.second_pass()
+    market.finish()
+    assert econ.food_unmet_demand == 0
+    assert market.considered[1][1] == 0
+
+
+def test_real_subsidized_sale_wins_over_an_earlier_failed_order():
+    hh = _household(1, 0)
+    empty = _firm(1, "BasicFood", "Food", 5.0, 0)
+    stocked = _firm(2, "OtherFood", "Food", 5.0, 2)
+    econ = _economy([hh], [empty, stocked], subsidy=10)
+    econ.government._sector_subsidy_rate = 1
+    market = PaymentGoodsMarket(econ, {1: {"planned_purchases": {1: 2, 2: 2}}}, [empty, stocked])
+    market.first_pass()
+    market.second_pass()
+    market.finish()
+    assert hh.goods_inventory == {"OtherFood": pytest.approx(2)}
+    assert econ.payment_book.clearing_cash == pytest.approx(10)
+    assert econ.payment_state["restrictions"]["G"] == pytest.approx(0)
+    assert econ.food_unmet_demand == 0
+
+
+def test_good_name_targets_keep_same_name_routing_without_double_counting():
+    hh = _household(1, 20)
+    firms = [_firm(fid, "BasicFood", "Food", price, 0) for fid, price in ((1, 5), (2, 10))]
+    econ = _economy([hh], firms)
+    market = PaymentGoodsMarket(econ, {1: {"planned_purchases": {"BasicFood": 5}}}, firms)
+    market.first_pass()
+    market.second_pass()
+    market.finish()
+    assert econ.food_unmet_demand == pytest.approx(4)
+    assert hh.cash_balance == 20
 
 
 def test_deposit_quote_uses_same_services_effective_floor_as_goods_book():

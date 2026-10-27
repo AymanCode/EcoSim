@@ -71,11 +71,14 @@ def observe_settled_tax(economy: Any) -> None:
 
 
 def planning_inputs(economy: Any) -> tuple[list[float], list[float], dict[int, dict[str, float]]]:
-    """Return net wage signals and once-subtracted opening obligation capacity.
+    """Return net wage beliefs and estimated shopping capacity after obligations.
 
     The returned liquidity is a desired-order estimate, not escrow, a loan or
-    proof that deposits can be released.  The planner must use it in both its
-    savings drawdown and final cash ceiling.
+    proof that deposits can be released. In income_first only, include expected
+    take-home income arriving before shopping, so zero opening cash does not
+    force an empty seller basket before funded payroll arrives. Income_late
+    cannot add that future cash. PaymentGoodsMarket rechecks actual cash and
+    funded subsidy at the quote; this estimate never settles a payment.
     """
     beliefs = initialize_tax_beliefs(economy)
     book = getattr(economy, "payment_book", None)
@@ -86,25 +89,34 @@ def planning_inputs(economy: Any) -> tuple[list[float], list[float], dict[int, d
     net_wages = []
     available = []
     pressure = {}
+    early_income = economy.payment_sequence == "income_first"
+    benefit = max(0.0, _finite(economy.government.get_unemployment_benefit_level(), "announced benefit")) if early_income else 0.0
     for household in economy.households:
         hid = household.household_id
         wage = max(0.0, _finite(household.wage, "contract wage")) if household.is_employed else 0.0
-        net_wages.append(wage * (1.0 - beliefs[hid]))
+        net_wage = wage * (1.0 - beliefs[hid])
+        net_wages.append(net_wage)
         cash = _finite(household.cash_balance, "opening cash")
         deposit = max(0.0, _finite(household.bank_deposit, "deposit"))
         # A negative signed cash balance must first be repaired by any deposit
         # release before the remainder can finance an order.
-        nominal_access = max(0.0, accessible_liquidity(cash, deposit))
+        opening_access = accessible_liquidity(cash, deposit)
+        nominal_access = max(0.0, opening_access)
+        expected_income = 0.0
+        if early_income:
+            expected_income = net_wage if household.is_employed else benefit
         rent = (
             max(0.0, _finite(household.monthly_rent, "weekly contract rent"))
             if household.renting_from_firm_id is not None else 0.0
         )
         debt = max(0.0, _finite(due_by_hid.get(hid, 0.0), "indexed debt due"))
         obligations = rent + debt
-        available.append(max(0.0, nominal_access - obligations))
+        available.append(max(0.0, opening_access + expected_income - obligations))
         pressure[hid] = {
             "rent_due": rent, "loan_due": debt,
             "nominal_access": nominal_access,
+            "expected_pre_shopping_income": expected_income,
+            "estimated_savings_liquidity": max(0.0, opening_access - obligations),
             "obligation_pressure": obligations / max(nominal_access, 1.0),
             "estimated_discretionary_liquidity": available[-1],
         }

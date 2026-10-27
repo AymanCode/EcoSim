@@ -27,7 +27,7 @@ def scenario():
     gov = SimpleNamespace(wage_tax_rate=0.15, get_unemployment_benefit_level=lambda: 20.0)
     book = SimpleNamespace(loan_state={"household_due_tick": 0, "household_due_totals": {1: 10.0, 2: 10.0}},
                            paid_income=defaultdict(dict))
-    return SimpleNamespace(current_tick=0, payment_state={}, payment_book=book,
+    return SimpleNamespace(current_tick=0, payment_sequence="income_late", payment_state={}, payment_book=book,
                            government=gov, households=households,
                            household_lookup={h.household_id: h for h in households})
 
@@ -84,3 +84,16 @@ def test_rejects_missing_current_due_index():
     e.payment_book.loan_state["household_due_tick"] = -1
     with pytest.raises(ValueError, match="due index"):
         planning_inputs(e)
+
+
+def test_early_income_is_an_estimate_and_signed_opening_cash_is_not_ignored():
+    e = scenario()
+    e.payment_sequence = "income_first"
+    e.households[0].cash_balance = -10
+    e.households[0].bank_deposit = 0
+    wages, available, pressure = planning_inputs(e)
+    assert wages[0] == pytest.approx(85)
+    assert available[0] == pytest.approx(25)  # -10 cash + 85 net belief - 40 rent - 10 debt
+    assert pressure[1]["nominal_access"] == 0
+    assert pressure[1]["expected_pre_shopping_income"] == pytest.approx(85)
+    assert e.households[0].cash_balance == -10
