@@ -14,9 +14,11 @@ from payment_government import (activate_payment_services_slots,
 
 def _setup(cash=1000.0):
     worker = SimpleNamespace(household_id=1, employer_id=3)
-    firm = SimpleNamespace(firm_id=3, good_category="Services", employees=[1],
+    from agents import FirmAgent
+
+    firm = FirmAgent(firm_id=3, good_name="ServicesProject", good_category="Services", employees=[1],
                            actual_wages={1: 50.0}, cash_balance=50.0,
-                           production_capacity_units=1.0)
+                           inventory_units=0.0, production_capacity_units=1.0)
     government = SimpleNamespace(cash_balance=cash)
     economy = SimpleNamespace(current_tick=4, households=[worker], firms=[firm],
                               household_lookup={1: worker}, firm_lookup={3: firm},

@@ -212,10 +212,10 @@ def make_economy(
 
 
 def make_services_expansion_ready(economy: Economy, firm: FirmAgent) -> None:
-    """Meet the legacy Services expansion-loan demand trigger (2026-10-02).
+    """Meet Services' staffed, sustained-demand gate and the legacy ratio gate.
 
     Every worker slot filled (one slot, one hired household) and five weeks
-    of unmet demand equal to the firm's output.
+    of full sell-through and unmet demand equal to the firm's output.
     """
     worker = next(h for h in economy.households if h.employer_id is None)
     worker.employer_id = firm.firm_id
@@ -226,6 +226,7 @@ def make_services_expansion_ready(economy: Economy, firm: FirmAgent) -> None:
     firm.production_capacity_units = 1.0
     firm.last_units_produced = float(firm.productivity_per_worker)
     firm.service_unmet_demand_window = [firm.last_units_produced] * 5
+    firm.service_full_utilization_streak = 5
 
 
 def make_factory_namespace() -> SimpleNamespace:

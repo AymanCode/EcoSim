@@ -2141,6 +2141,13 @@ class FirmAgent(AgentMixin):
     housing_active_loans: List[LoanContract] = field(default_factory=list)
 
     # Services infrastructure upgrades: capacity means employee slots.
+    # Desired after-tax return is distinct from the last quote-implied markup.
+    service_target_markup_after_tax: Optional[float] = None
+    # None initializes to installed slots; later reductions retain their intent.
+    service_staffing_target: Optional[int] = None
+    service_staffing_recovery_streak: int = 0
+    service_staffing_recovery_counted_tick: int = -1
+    service_capacity_observation_tick: int = -1
     service_full_utilization_streak: int = 0
     needs_service_infrastructure_loan: bool = False
     service_infrastructure_loan_amount: float = 0.0
@@ -2280,6 +2287,9 @@ class FirmAgent(AgentMixin):
             "bank_loan_remaining": self.bank_loan_remaining,
             "bank_loan_payment_per_tick": self.bank_loan_payment_per_tick,
             "service_full_utilization_streak": self.service_full_utilization_streak,
+            "service_target_markup_after_tax": self.service_target_markup_after_tax,
+            "service_staffing_target": self.service_staffing_target,
+            "service_staffing_recovery_streak": self.service_staffing_recovery_streak,
             "needs_service_infrastructure_loan": self.needs_service_infrastructure_loan,
             "service_infrastructure_loan_amount": self.service_infrastructure_loan_amount,
             "service_infrastructure_loan_remaining": self.service_infrastructure_loan_remaining,
@@ -2484,6 +2494,63 @@ class FirmAgent(AgentMixin):
         if high < low:
             low, high = high, low
         return max(low, min(high, self.units_per_worker))
+
+    def _service_staffing_limit(self) -> int:
+        """Installed space and retained staffing intent, without advancing state."""
+        slots = max(0, int(self.production_capacity_units))
+        if self.is_baseline or self.service_staffing_target is None:
+            return slots
+        return max(0, min(slots, int(self.service_staffing_target)))
+
+    def _service_space_expansion_supported(self) -> bool:
+        """Common physical/sales evidence; subtype credit checks remain separate."""
+        slots = max(0, int(self.production_capacity_units))
+        return (
+            self._is_generic_services_firm()
+            and slots > 0
+            and len(self.employees) >= slots
+            and self.last_units_produced > 0.0
+            and self.service_full_utilization_streak >= 5
+            and sum(value > 1e-9 for value in self.service_unmet_demand_window) >= 2
+        )
+
+    def _add_service_worker_slots(self, added_slots: float) -> None:
+        """Install funded space, permit staffing it, and restart shortage evidence."""
+        old_slots = max(0, int(self.production_capacity_units))
+        self.production_capacity_units += added_slots
+        if self.service_staffing_target is not None:
+            gained = max(0, int(self.production_capacity_units) - old_slots)
+            self.service_staffing_target = min(
+                int(self.production_capacity_units), self.service_staffing_target + gained
+            )
+        self.service_staffing_recovery_streak = 0
+        # The next planner still sees production from before installation.
+        # Start recovery evidence after that stale observation has passed.
+        self.service_staffing_recovery_counted_tick = self.age_in_ticks + 1
+        self.service_full_utilization_streak = 0
+        self.service_unmet_demand_window.clear()
+
+    def _service_pricing_costs(self) -> tuple[float, float, float]:
+        """Return throughput, payroll and scheduled repayments for planned quotes."""
+        workers = max(1, len(self.employees) + int(self.planned_hires_count or 0)
+                      - len(self.planned_layoffs_ids or []))
+        capacity = max(0.0, float(self.last_units_produced))
+        if capacity <= 0.0:
+            slots = max(0, int(self.production_capacity_units))
+            if slots > 0:
+                workers = min(workers, slots)
+            capacity = self._capacity_for_workers(workers)
+        wage_bill = self._current_wage_bill()
+        if wage_bill <= 0.0:
+            wage_bill = float(self.wage_offer) * workers
+        # As in _debt_service_per_tick, the bank mirror includes infrastructure
+        # installments and direct Treasury loans are separate. Bound each mirror
+        # by its outstanding balance: collection can retain a paid-off schedule.
+        bank_due = min(max(0.0, float(self.bank_loan_payment_per_tick)),
+                       max(0.0, float(self.bank_loan_remaining)))
+        treasury_due = min(max(0.0, float(self.loan_payment_per_tick)),
+                           max(0.0, float(self.government_loan_remaining)))
+        return max(capacity, 1.0), wage_bill, bank_due + treasury_due
 
     def _refresh_service_weak_demand_streak(self) -> float:
         """Update the Services weak-demand streak once per tick.
@@ -3182,7 +3249,11 @@ class FirmAgent(AgentMixin):
         service_worker_slots = max(0, int(self.production_capacity_units))
         if total_households > 0:
             service_worker_slots = min(service_worker_slots, int(total_households))
-        target_workers = service_worker_slots
+        if not self.is_baseline and self.service_staffing_target is None:
+            self.service_staffing_target = service_worker_slots
+        elif not self.is_baseline:
+            self.service_staffing_target = max(0, min(service_worker_slots, self.service_staffing_target))
+        target_workers = min(service_worker_slots, self._service_staffing_limit())
 
         wage_bill = self._current_wage_bill()
         rolling_revenue = max(self.revenue_ema, max(self.last_revenue, 0.0))
@@ -3202,6 +3273,27 @@ class FirmAgent(AgentMixin):
                 useful_workers = min(target_workers, firm_config.min_skeleton_workers)
         elif health_snapshot.cash_runway_ticks >= firm_config.survival_mode_runway_weeks * 2.0:
             self.survival_mode = False
+
+        # Profits can recover because a cut worked, without customers returning.
+        # Only completed sales at a staffed target support one trial re-expansion.
+        if not self.is_baseline and self.service_staffing_recovery_counted_tick != self.age_in_ticks:
+            recovering = (
+                not in_warmup
+                and not survival_pressure
+                and target_workers < service_worker_slots
+                and current_workers >= target_workers
+                and self.last_units_produced > 0.0
+                and self.last_units_sold / self.last_units_produced >= 0.90
+            )
+            self.service_staffing_recovery_streak = (
+                min(3, self.service_staffing_recovery_streak + 1) if recovering else 0
+            )
+            self.service_staffing_recovery_counted_tick = self.age_in_ticks
+            if self.service_staffing_recovery_streak >= 3:
+                target_workers = min(service_worker_slots, target_workers + 1)
+                self.service_staffing_target = target_workers
+                useful_workers = target_workers
+                self.service_staffing_recovery_streak = 0
 
         minimum_wage = (
             float(minimum_wage_floor)
@@ -3262,6 +3354,9 @@ class FirmAgent(AgentMixin):
                     sell_through=sell_through,
                 )
         effective_workers = max(0, current_workers + planned_hires - len(planned_layoffs))
+        if not self.is_baseline and planned_layoffs:
+            self.service_staffing_target = min(target_workers, effective_workers)
+            self.service_staffing_recovery_streak = 0
         service_workers_planned = min(effective_workers, service_worker_slots)
         planned_capacity = self._capacity_for_workers(service_workers_planned)
 
@@ -4157,8 +4252,12 @@ class FirmAgent(AgentMixin):
             self.investment_loan_amount = investment_cost
 
     def _markup_for_price(self, price: float) -> float:
-        """Markup over unit cost implied by ``price``; the current markup when unit cost is not positive."""
-        return (price / self.unit_cost - 1.0) if self.unit_cost > 0 else self.markup
+        """Quote-implied markup on the sector's pricing cost, never a target."""
+        unit_cost = self.unit_cost
+        if self._is_generic_services_firm():
+            capacity, wages, debt = self._service_pricing_costs()
+            unit_cost = (wages + debt) / capacity
+        return (price / unit_cost - 1.0) if unit_cost > 0 else self.markup
 
     def plan_pricing(
         self,
@@ -4185,6 +4284,9 @@ class FirmAgent(AgentMixin):
         - "Better to sell at low margin than not sell at all"
         """
         firm_config = self._firm_config()
+        if self._is_generic_services_firm() and self.service_target_markup_after_tax is None:
+            # Capture intent before any early-return quote/stabilization writer.
+            self.service_target_markup_after_tax = max(0.0, float(self.markup))
         if health_snapshot is None:
             health_snapshot = self.refresh_health_snapshot(
                 sell_through_rate=sell_through_rate,
@@ -4345,25 +4447,7 @@ class FirmAgent(AgentMixin):
             }
 
         if self._is_generic_services_firm():
-            effective_workers = max(
-                1,
-                len(self.employees)
-                + int(self.planned_hires_count or 0)
-                - len(self.planned_layoffs_ids or []),
-            )
-            capacity = max(0.0, float(self.last_units_produced))
-            if capacity <= 0.0:
-                service_worker_slots = max(0, int(self.production_capacity_units))
-                if service_worker_slots > 0:
-                    effective_workers = min(effective_workers, service_worker_slots)
-                capacity = self._capacity_for_workers(effective_workers)
-            capacity = max(capacity, 1.0)
-
-            wage_bill = self._current_wage_bill()
-            if wage_bill <= 0.0:
-                wage_bill = float(self.wage_offer) * effective_workers
-
-            service_debt_service = max(0.0, float(self.service_infrastructure_loan_payment_per_tick))
+            capacity, wage_bill, service_debt_service = self._service_pricing_costs()
 
             # Fluid microeconomic pricing: interpolate between marginal (variable)
             # cost and full cost based on utilization. Boom markets surge above
@@ -4379,7 +4463,7 @@ class FirmAgent(AgentMixin):
                 # Boom market: full cost recovery + markup + surge premium.
                 # Inflate gross margin so after-tax margin matches the targeted markup + surge.
                 surge = (utilization - 0.85) * 0.5
-                gross_margin = (float(self.markup) + surge) / max(1.0 - self._gross_up_profit_tax_rate(profit_tax_rate), 0.10)
+                gross_margin = (self.service_target_markup_after_tax + surge) / max(1.0 - self._gross_up_profit_tax_rate(profit_tax_rate), 0.10)
                 target_price = total_cost_per_unit * (1.0 + gross_margin)
             else:
                 # Downturn: smooth interpolation between variable and total cost.
@@ -4407,10 +4491,12 @@ class FirmAgent(AgentMixin):
             self.decision_diagnostics["service_debt_service_for_pricing"] = service_debt_service
             self.decision_diagnostics["service_utilization"] = utilization
             self.decision_diagnostics["service_markup_next"] = markup_next
+            self.decision_diagnostics["service_target_markup_after_tax"] = self.service_target_markup_after_tax
             self.decision_diagnostics["pricing_reason"] = "marginal_cost_interpolation"
             return {
                 "price_next": price_next,
                 "markup_next": markup_next,
+                "service_pricing_cost_basis": total_cost_per_unit,
                 "pricing_reason": "marginal_cost_interpolation",
             }
 
@@ -5327,20 +5413,25 @@ class FirmAgent(AgentMixin):
             unmet_map = getattr(economy, "services_unmet_demand_by_firm", None)
             if isinstance(unmet_map, dict):
                 firm_unmet_this_tick = float(unmet_map.get(self.firm_id, 0.0))
-        self.service_unmet_demand_window.append(firm_unmet_this_tick)
-        if len(self.service_unmet_demand_window) > 5:
-            del self.service_unmet_demand_window[: len(self.service_unmet_demand_window) - 5]
-
-        if self.last_units_produced <= 0.0:
-            self.service_full_utilization_streak = 0
-            return False
-
         units_sold = self.last_units_sold if current_units_sold is None else current_units_sold
         utilization = max(0.0, float(units_sold)) / max(float(self.last_units_produced), 1e-6)
-        if utilization >= 0.95 or (current_units_sold is None and self.last_sell_through_rate >= 0.95):
-            self.service_full_utilization_streak += 1
-        else:
+        slots = max(0, int(self.production_capacity_units))
+        fully_staffed = slots > 0 and len(self.employees) >= slots
+        if self.service_capacity_observation_tick != self.age_in_ticks:
+            self.service_capacity_observation_tick = self.age_in_ticks
+            if fully_staffed:
+                self.service_unmet_demand_window.append(firm_unmet_this_tick)
+                self.service_unmet_demand_window[:] = self.service_unmet_demand_window[-5:]
+            else:
+                self.service_unmet_demand_window.clear()
+            if fully_staffed and self.last_units_produced > 0.0 and utilization >= 0.95:
+                self.service_full_utilization_streak = min(5, self.service_full_utilization_streak + 1)
+            else:
+                self.service_full_utilization_streak = 0
+        # Re-check physical eligibility even if this observation was already read.
+        if not fully_staffed:
             self.service_full_utilization_streak = 0
+            self.service_unmet_demand_window.clear()
 
         ticks_with_unmet = sum(1 for v in self.service_unmet_demand_window if v > 1e-9)
         firm_unmet_demand_recent = sum(self.service_unmet_demand_window)
@@ -5360,14 +5451,11 @@ class FirmAgent(AgentMixin):
             or self.zero_cash_streak > 0
             or self.cash_runway_ticks < self._firm_config().survival_mode_runway_weeks * 2.0
         )
-        firm_unmet_gate_failed = ticks_with_unmet < 2
-
         if (
-            self.service_full_utilization_streak < 5
+            not self._service_space_expansion_supported()
             or has_pending_request
             or has_active_upgrade_debt
             or severe_cash_distress
-            or firm_unmet_gate_failed
         ):
             return False
 

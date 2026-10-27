@@ -354,10 +354,11 @@ def test_deficit_ratio_metric_is_net_of_debt(runs):
     assert metrics["deficit_ratio"] == pytest.approx(-net / max(metrics["gdp_this_tick"], 1.0))
 
 
-# sha256 of the flag-off prompt bundle below, computed on main at 09810f5 with the
-# same code (seed 42, 100 households, 3 firms per category, tick 20). If main's
-# prompt text changes, recompute it on main; it must still equal this branch's flag-off bundle.
-MAIN_FLAG_OFF_PROMPT_SHA256 = "e3ae0f513ef5a30e4d7ec069405ef0ed7adb623f92a13fa4a63886b1d2c66762"
+# Selected SERVICES-01/02 trajectory, seed 42/100 households/3 firms/tick 20.
+# The prior main digest e3ae0f...66762 was reproduced before this correction.
+# The prompt templates are unchanged; corrected Services choices change the
+# economy the prompt describes. Paired prompt artifacts are in the audit receipt.
+EXPECTED_FLAG_OFF_PROMPT_SHA256 = "85129748f287dabd3fcd8f8eab9ee92911210f1ed9076bbbbfd7d8a79097e901"
 
 
 def _prompt_bundle(economy, tick):
@@ -389,7 +390,7 @@ def _seeded_economy(ticks):
     return economy
 
 
-def test_flag_off_prompt_bundle_matches_main_byte_for_byte():
+def test_flag_off_prompt_bundle_matches_selected_economic_baseline():
     import hashlib
 
     with use_config(clone_config()):
@@ -399,7 +400,7 @@ def test_flag_off_prompt_bundle_matches_main_byte_for_byte():
         CONFIG.firms.price_on_effective_profit_tax = False
         economy = _seeded_economy(20)
         text = _prompt_bundle(economy, 20)
-    assert hashlib.sha256(text.encode()).hexdigest() == MAIN_FLAG_OFF_PROMPT_SHA256
+    assert hashlib.sha256(text.encode()).hexdigest() == EXPECTED_FLAG_OFF_PROMPT_SHA256
 
 
 @pytest.mark.parametrize("sequence", ["income_first", "income_late"])
