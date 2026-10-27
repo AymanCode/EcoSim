@@ -4,6 +4,10 @@ Notable changes and decisions for EcoSim, newest first. The project does not use
 
 ## Unreleased
 
+### 2026-10-27: Food and Services quality research experiment
+
+Owner-selected QUALITY-RESEARCH-01 defines basic baseline quality, bounded private entry quality and two funded multi-month research alternatives under rules v1.18. Research pauses during cash trouble, preserves the existing recipients and excludes Housing, Healthcare and unrelated business mechanisms. The existing default remains available while local tests and matched comparisons determine the tradeoffs; validation results are recorded separately.
+
 ### 2026-10-26: Affordable household orders and Services expansion funding
 
 Owner-selected continuation under rules v1.17. Named household plans distinguish expected pre-shopping income from existing savings; `income_first` can anticipate its early receipts while `income_late` cannot spend held income. Actual clearing prices, cash and funded subsidy bound attempted orders. Firm capacity feedback counts only affordable stockouts after purchases and priority payments, without reusing household or subsidy funds; unaffordable household needs still affect wellbeing. Seller choice, payment priority and update cadence remain.
