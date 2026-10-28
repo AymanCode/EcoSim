@@ -623,6 +623,8 @@ def can_underwrite(
             and _finite(getattr(firm, "payment_wage_arrears", 0.0), "worker arrears") > TOL
         ):
             return False
+    if borrower_type == "firm" and purpose == "startup":
+        return True  # Eligibility and product limits are checked at origination.
     max_share = _finite(getattr(getattr(economy, "config", None), "payment_debt_service_share", 0.35), "debt service share")
     if not 0.0 < max_share <= 1.0:
         raise ValueError("Debt service share must be in (0,1]")
@@ -642,7 +644,18 @@ def originate_v2(
     never makes it discretionary household cash by itself.
     """
     bank = economy.bank
+    if subtype == "startup":
+        if borrower_type != "firm" or funder != "bank":
+            raise ValueError("startup loans require a bank-funded firm")
+        if (getattr(economy, "payment_sequence", "legacy") == "legacy"
+                or not getattr(economy, "payment_config_snapshot", {}).get(
+                    "payment_bank_startup_loans_enabled", False)):
+            return None
+        if isinstance(term_ticks, bool) or not isinstance(term_ticks, int) or not 1 <= term_ticks <= 208:
+            return None
     amount = _finite(principal, "loan principal")
+    if subtype == "startup" and amount > 30_000.0:
+        return None
     if amount <= TOL or bank is None:
         return None
     if borrower_type not in ("household", "firm") or funder not in ("bank", "treasury"):
@@ -662,6 +675,22 @@ def originate_v2(
             raise ValueError("Firm borrower missing")
         if bank.get_firm_credit_score(borrower_id) < 0.25:
             return None
+        if subtype == "startup":
+            state = _claim_state(economy)
+            if (not getattr(borrower, "startup_loan_entitled", False)
+                    or getattr(borrower, "startup_loan_originated", False)
+                    or borrower.is_baseline
+                    or economy.government.is_baseline_firm(borrower_id)
+                    or borrower.good_category == "PublicWorks"
+                    or borrower.age_in_ticks != 0
+                    or borrower_id in state.get("prior_settled_firm_operating_cashflow", {})
+                    or any(_finite(getattr(borrower, name, 0.0), name) > TOL
+                           for name in ("last_revenue", "revenue_ema", "trailing_revenue_12t",
+                                        "government_loan_remaining", "bank_loan_remaining"))
+                    or any(_finite(c.principal_remaining, "mortgage principal") > TOL
+                           for c in borrower.housing_active_loans)
+                    or bank._firm_existing_debt(borrower_id) > TOL):
+                return None
     from config import CONFIG
     ticks_per_year = int(getattr(getattr(economy, "config", CONFIG).time, "ticks_per_year"))
     rate = quoted_annual_rate(economy, annual_rate) if funder == "bank" else _finite(annual_rate, "treasury rate")
@@ -669,7 +698,9 @@ def originate_v2(
     if not can_underwrite(economy, borrower_type, borrower_id, payment, purpose=subtype):
         return None
     if funder == "bank":
-        if not bank.can_lend() or bank.lendable_cash + TOL < amount:
+        if (not bank.can_lend()
+                or (bank.lendable_cash < amount if subtype == "startup"
+                    else bank.lendable_cash + TOL < amount)):
             return None
     else:
         # Treasury lending is an explicit sensitivity arm, never a reserve or
@@ -714,6 +745,8 @@ def originate_v2(
         borrower.bank_loan_principal = getattr(borrower, "bank_loan_principal", 0.0) + amount
         borrower.bank_loan_remaining = getattr(borrower, "bank_loan_remaining", 0.0) + amount
         borrower.bank_loan_payment_per_tick = getattr(borrower, "bank_loan_payment_per_tick", 0.0) + payment
+        if subtype == "startup":
+            borrower.startup_loan_originated = True
         if subtype == "service_infrastructure":
             borrower.service_infrastructure_loan_remaining += amount
             borrower.service_infrastructure_loan_payment_per_tick += payment

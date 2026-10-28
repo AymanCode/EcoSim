@@ -233,6 +233,7 @@ class Economy:
                         max(0.0, household.cash_balance), household.bank_deposit
                     )
         self.queued_firms: List[FirmAgent] = queued_firms or []
+        self._next_private_firm_id = max((f.firm_id for f in [*firms, *self.queued_firms]), default=0) + 1
         self.target_total_firms = 0
         self._refresh_target_total_firms()
         self.large_market = len(self.households) >= CONFIG.firms.large_market_household_threshold
@@ -5710,6 +5711,9 @@ class Economy:
             # Phase: Startup loan from bank to bootstrap new firms
             if self.bank is not None and firm.cash_balance < 50_000.0:
                 startup_amount = 25_000.0
+                if self._bank_startup_enabled():
+                    self._fund_private_startup(firm, startup_amount, 208)
+                    continue
                 self._issue_firm_loan(
                     firm,
                     amount=startup_amount,
@@ -6445,6 +6449,34 @@ class Economy:
         self.external_injection_this_tick += float(amount)
         self.external_injection_total += float(amount)
 
+    def _bank_startup_enabled(self) -> bool:
+        return (self.payment_sequence != "legacy" and bool(
+            self.payment_config_snapshot["payment_bank_startup_loans_enabled"]))
+
+    def _fund_private_startup(self, firm: FirmAgent, amount: float, term: int) -> bool:
+        """Attempt one bank-only claim while exposing an unpublished candidate."""
+        if self.bank is None:
+            return False
+        from payment_loans import originate_v2
+        existing = self.firm_lookup.get(firm.firm_id)
+        if existing is not None and existing is not firm:
+            raise ValueError("startup candidate ID already in use")
+        self.firm_lookup[firm.firm_id] = firm
+        firm.startup_loan_entitled = True
+        try:
+            score = self.bank.get_firm_credit_score(firm.firm_id)
+            rate = self.bank._risk_adjusted_rate(score)
+            claim = originate_v2(self, "firm", firm.firm_id, amount, rate, term,
+                                 "startup", funder="bank")
+            if claim is None:
+                return False
+            firm.cash_balance += amount
+            return True
+        finally:
+            firm.startup_loan_entitled = False
+            if existing is None:
+                del self.firm_lookup[firm.firm_id]
+
     def _maybe_create_new_firms(self) -> None:
         """Create new firms when the economy has room, using a 3-tier funding model.
 
@@ -6492,6 +6524,8 @@ class Economy:
         existing_ids = [f.firm_id for f in self.firms]
         existing_ids.extend(f.firm_id for f in self.queued_firms)
         new_firm_id = max(existing_ids, default=0) + 1
+        if self._bank_startup_enabled():
+            new_firm_id = max(new_firm_id, self._next_private_firm_id)
 
         # Deterministic RNG for all stochastic choices in firm creation
         tier_rng = random.Random(CONFIG.random_seed + new_firm_id * 7919)
@@ -6571,6 +6605,9 @@ class Economy:
         bank_loan_payment = 0.0
         seed_term_ticks = 156  # 3 years
         founder_id = None
+        startup_requested = 0.0
+        founder = None
+        founder_amount = 0.0
 
         if self.payment_sequence != "legacy":
             # Entry has no settled operating cashflow, so the bank's static
@@ -6590,7 +6627,17 @@ class Economy:
                            + max(0.0, household.monthly_rent)
                            + max(0.0, debt_due))
                 eligible.append((household, household.cash_balance - reserve))
-            if tier_roll < govt_threshold and self._payment_free_treasury_cash() + MONEY_EPS >= requested:
+            if self._bank_startup_enabled():
+                if tier_roll < bank_threshold:
+                    startup_requested = requested
+                funders = [(household, surplus) for household, surplus in eligible
+                           if surplus + MONEY_EPS >= 5_000.0]
+                if funders:
+                    founder, surplus = min(funders, key=lambda item: item[0].household_id)
+                    founder_amount = requested if surplus + MONEY_EPS >= requested else 5_000.0
+                if not startup_requested and founder is None:
+                    return
+            elif tier_roll < govt_threshold and self._payment_free_treasury_cash() + MONEY_EPS >= requested:
                 self.government.cash_balance -= requested
                 seed_cash = requested
                 govt_loan_principal = requested
@@ -6708,6 +6755,17 @@ class Economy:
             capital_cost_per_unit=CONFIG.firms.capital_cost_per_unit,
         )
         new_firm.set_personality(personality)
+        if self._bank_startup_enabled():
+            funded = bool(startup_requested and self._fund_private_startup(
+                new_firm, startup_requested, seed_term_ticks))
+            if not funded:
+                if founder is None:
+                    return
+                founder.cash_balance -= founder_amount
+                founder.add_ledger_flow("other", -founder_amount)
+                new_firm.cash_balance += founder_amount
+                founder_id = founder.household_id
+            self._next_private_firm_id = new_firm_id + 1
         if founder_id is not None:
             new_firm.owners = [founder_id]
 

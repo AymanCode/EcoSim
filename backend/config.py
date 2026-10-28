@@ -1061,6 +1061,7 @@ class SimulationConfig:
     payment_default_cooldown_ticks: int = 26
     payment_annual_quote_shift: float = 0.0
     payment_benefit_wage_floor_multiplier: float = 1.5
+    payment_bank_startup_loans_enabled: bool = True
     payment_services_project_enabled: bool = False
     payment_services_project_cost: float = 1000.0
     payment_services_project_lag_ticks: int = 1
@@ -1097,6 +1098,8 @@ class SimulationConfig:
 
     def __post_init__(self):
         """Validation and derived values."""
+        if not isinstance(self.payment_bank_startup_loans_enabled, bool):
+            raise ValueError("payment bank startup loans enabled must be a bool")
         if self.payment_sequence not in {"legacy", "income_first", "income_late"}:
             raise ValueError("unsupported payment sequence")
         if self.payment_care_mode not in {"patient_pay", "covered"}:
