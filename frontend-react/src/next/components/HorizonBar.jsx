@@ -1,4 +1,5 @@
-import { useMemo } from 'react'
+import { useLayoutEffect, useMemo, useState } from 'react'
+import useMeasured from '../../charts/useMeasured.js'
 import { COPY } from '../catalog.js'
 import { weekLabel } from '../narration.js'
 import { SPEEDS } from '../useReplay.js'
@@ -65,6 +66,26 @@ export default function HorizonBar({
   const steerable = !live || STEERABLE.includes(live.phase)
   const hasSpeed = speed !== undefined && onSpeed !== undefined
   const longest = useMemo(() => longestWeekLabel(length), [length])
+  const [marksRef, { width }] = useMeasured()
+  const [yearStep, setYearStep] = useState(1)
+  const yearCount = years.length
+
+  useLayoutEffect(() => {
+    const marks = marksRef.current
+    const label = marks?.firstElementChild
+    if (!label || width <= THUMB) return
+    // Measure skipped years too, so resizing cannot change the label width.
+    const probe = label.cloneNode(false)
+    marks.appendChild(probe)
+    let labelWidth = 0
+    for (let n = 1; n <= yearCount; n += 1) {
+      probe.textContent = COPY.horizon.year(n)
+      labelWidth = Math.max(labelWidth, probe.getBoundingClientRect().width)
+    }
+    probe.remove()
+    const spacing = (width - THUMB) * WEEKS_PER_YEAR / Math.max(1, length - 1)
+    setYearStep(Math.max(1, Math.ceil(labelWidth / spacing)))
+  }, [length, marksRef, width, yearCount])
 
   return (
     <div ref={barRef} className="nx-hbar" role="region" aria-label={COPY.horizon.region}>
@@ -99,8 +120,8 @@ export default function HorizonBar({
               onChange={event => onScrub(Number(event.target.value))}
             />
           </div>
-          <div className="nx-marks" aria-hidden="true">
-            {years.map(year => {
+          <div ref={marksRef} className="nx-marks" aria-hidden="true">
+            {years.filter((_, index) => index % yearStep === 0).map(year => {
               const fraction = length > 1 ? (year.start - 1) / (length - 1) : 0
               return (
                 <span key={year.n} style={{ left: along(fraction) }}>{COPY.horizon.year(year.n)}</span>

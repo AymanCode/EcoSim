@@ -2,6 +2,7 @@ import { afterEach, describe, expect, test, vi } from 'vitest'
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import NextApp from '../NextApp.jsx'
 import { FIXTURE_TEXT, WHOLE_SCREEN_MS } from './fixture.js'
+import { fakeSocketFactory } from './fakeSocket.js'
 
 // The same recording twice, the second with a higher minimum wage in its
 // header, its SETUP and the server's SETUP_COMPLETE.
@@ -28,7 +29,7 @@ describe('NextApp', { timeout: WHOLE_SCREEN_MS }, () => {
     expect(container.firstChild).toHaveClass('nx')
     expect(fetch.mock.calls.map(([url]) => String(url))).toEqual(['/demo/town-a.jsonl', '/demo/town-b.jsonl'])
     expect(screen.getByText('EcoSim')).toBeInTheDocument()
-    expect(screen.getByRole('link', { name: 'Classic dashboard' })).toHaveAttribute('href', '?view=classic')
+    expect(screen.queryByRole('link', { name: 'Classic dashboard' })).not.toBeInTheDocument()
     expect(container.querySelectorAll('.nx-col')).toHaveLength(2)
     unmount()
     expect(document.documentElement).not.toHaveClass('nx-page')
@@ -86,5 +87,46 @@ describe('NextApp', { timeout: WHOLE_SCREEN_MS }, () => {
     render(<NextApp search="?view=next&demo" />)
     expect(await screen.findByRole('slider', { name: 'Week of the run' })).toBeInTheDocument()
     expect(screen.queryByRole('dialog')).toBeNull()
+  })
+
+  describe('leaving a live run from the header', () => {
+    function startLive() {
+      const { FakeSocket, sockets } = fakeSocketFactory()
+      render(<NextApp search="?view=next" WebSocketImpl={FakeSocket} />)
+      fireEvent.click(screen.getByRole('button', { name: /^Start/ }))
+      expect(sockets.length).toBeGreaterThan(0)
+      return screen.getByRole('button', { name: 'New experiment' })
+    }
+
+    test('the first click asks and does not leave', () => {
+      const button = startLive()
+      fireEvent.click(button)
+      expect(screen.queryByRole('button', { name: 'New experiment' })).toBeNull()
+      expect(screen.getByText('Leave this run?')).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'Stay' })).toHaveFocus()
+      expect(screen.queryByRole('button', { name: /^Start/ })).toBeNull()
+    })
+
+    test('Leave returns to Set up', () => {
+      fireEvent.click(startLive())
+      fireEvent.click(screen.getByRole('button', { name: 'Leave' }))
+      expect(screen.getByRole('button', { name: /^Start/ })).toBeInTheDocument()
+      expect(screen.queryByText('Leave this run?')).toBeNull()
+    })
+
+    test('Stay puts the button back and focuses it', () => {
+      fireEvent.click(startLive())
+      fireEvent.click(screen.getByRole('button', { name: 'Stay' }))
+      expect(screen.queryByText('Leave this run?')).toBeNull()
+      expect(screen.getByRole('button', { name: 'New experiment' })).toHaveFocus()
+      expect(screen.queryByRole('button', { name: /^Start/ })).toBeNull()
+    })
+
+    test('Escape puts the button back and focuses it', () => {
+      fireEvent.click(startLive())
+      fireEvent.keyDown(document, { key: 'Escape' })
+      expect(screen.queryByText('Leave this run?')).toBeNull()
+      expect(screen.getByRole('button', { name: 'New experiment' })).toHaveFocus()
+    })
   })
 })

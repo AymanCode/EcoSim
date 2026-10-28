@@ -811,7 +811,6 @@ export const COPY = {
   app: {
     brand: 'EcoSim',
     townLabel: index => `Town ${String.fromCharCode(65 + index)}`,
-    classic: 'Classic dashboard',
     loading: 'Loading the demo towns…',
     missing: 'Demo data missing: run the recorder commands in docs/superpowers/plans/2026-09-25-frontend-redesign-phase2-slice1.md',
     detail: reason => `Details: ${reason}`,
@@ -876,7 +875,7 @@ export const COPY = {
         blurb: 'One town, every rule, no comparison. Change things while it runs and see what happens.',
       },
     },
-    comingSoon: 'Coming soon',
+    noModel: 'No AI model connected',
     noChanges: 'No changes',
     custom: { title: 'Build my own', blurb: 'Pick every rule for every town' },
     // A question card's towns, read out in one go: "Town A: No changes. Town B: A higher minimum wage."
@@ -929,6 +928,9 @@ export const COPY = {
   live: {
     setUp: 'Set up',
     newExperiment: 'New experiment',
+    leaveAsk: 'Leave this run?',
+    leaveYes: 'Leave',
+    leaveStay: 'Stay',
     watchExample: 'Watch the example',
     building: 'Building the towns…',
     resume: 'Resume',

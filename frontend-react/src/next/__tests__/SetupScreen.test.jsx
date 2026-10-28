@@ -142,6 +142,25 @@ describe('SetupScreen', () => {
     expect(screen.queryByRole('region', { name: 'Town B\'s rules' })).toBeNull()
   })
 
+  test('opening a town\'s rules scrolls the editor into view, and switching towns scrolls again', () => {
+    const scrollIntoView = vi.fn()
+    const original = Element.prototype.scrollIntoView
+    Element.prototype.scrollIntoView = scrollIntoView
+    try {
+      screenWith()
+      expect(scrollIntoView).not.toHaveBeenCalled()
+      fireEvent.click(screen.getByRole('button', { name: 'Change rules for Town B' }))
+      expect(scrollIntoView).toHaveBeenCalledTimes(1)
+      expect(scrollIntoView.mock.contexts[0]).toBe(screen.getByRole('region', { name: 'Town B\'s rules' }))
+      expect(scrollIntoView).toHaveBeenLastCalledWith({ block: 'nearest', behavior: 'smooth' })
+      fireEvent.click(screen.getByRole('button', { name: 'Change rules for Town A' }))
+      expect(scrollIntoView).toHaveBeenCalledTimes(2)
+    } finally {
+      if (original) Element.prototype.scrollIntoView = original
+      else delete Element.prototype.scrollIntoView
+    }
+  })
+
   test('6. start sends the plan', () => {
     const { onStart } = screenWith()
     fireEvent.click(screen.getByRole('button', { name: '2 years' }))
@@ -184,7 +203,7 @@ describe('SetupScreen', () => {
     screenWith()
     const card = screen.getByRole('button', { name: 'Test an AI mayor' })
     expect(card).toBeDisabled()
-    expect(within(card).getByText('Coming soon')).toBeInTheDocument()
+    expect(within(card).getByText('No AI model connected')).toBeInTheDocument()
   })
 
   test('a server that stopped answering while it built the towns says so, without the start command', () => {

@@ -1,4 +1,6 @@
-@import url('https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,600;12..96,700&family=Instrument+Sans:ital,wght@0,400;0,500;0,600;1,400&display=swap');
+@import url('@fontsource-variable/bricolage-grotesque/opsz.css');
+@import url('@fontsource-variable/instrument-sans');
+@import url('@fontsource-variable/instrument-sans/wght-italic.css');
 
 /* The new Run screen. Every selector sits under .nx so nothing here reaches the
    classic dashboard, and every class is nx- prefixed (or lives inside an nx-
@@ -40,8 +42,8 @@
   --nx-work-text: #1E7A4F;
   --nx-look-text: #8A5A0C;
   --nx-home-text: #A22F41;
-  --nx-disp: 'Bricolage Grotesque';
-  --nx-body: 'Instrument Sans';
+  --nx-disp: 'Bricolage Grotesque Variable';
+  --nx-body: 'Instrument Sans Variable';
   --nx-ease: cubic-bezier(.2, .7, .2, 1);
   --nx-change: 420ms;
 
@@ -385,6 +387,9 @@
 }
 
 /* App shell */
+/* Reserve the scrollbar gutter so header links don't shift when the scrollbar
+   appears (setup -> run, Town hall drawer). :has() keeps it off the classic view. */
+html:has(.nx-app) { scrollbar-gutter: stable }
 .nx.nx-app { min-height: 100vh; background: var(--nx-page) }
 .nx .nx-appbar {
   display: flex;
