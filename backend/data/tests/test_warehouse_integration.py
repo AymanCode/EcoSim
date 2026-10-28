@@ -1,3 +1,4 @@
+import json
 import random
 import sqlite3
 import sys
@@ -179,7 +180,13 @@ def test_sqlite_warehouse_server_path_persists_aggregates_events_and_snapshots(t
         assert stats["total_sector_shortage_rows"] == expected_sector_shortage_rows
         assert stats["total_labor_events"] > 0
         assert stats["total_healthcare_events"] >= 0
-        assert stats["total_policy_actions"] == 0
+        assert stats["total_policy_actions"] == 1
+        policy_actions = db.get_policy_actions(run_id)
+        assert len(policy_actions) == 1
+        initial_policy = policy_actions[0]
+        assert initial_policy["tick"] == 0 and initial_policy["actor"] == "setup"
+        assert initial_policy["action_type"] == "surplus_distribution"
+        assert json.loads(initial_policy["payload_json"]) == {"value": "off"}
         assert stats["total_regime_events"] == expected_regime_events
 
         assert run is not None

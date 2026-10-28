@@ -34,6 +34,7 @@ ORDERED_LEVERS: Dict[str, List[Any]] = {
 
 SIMPLE_ENUM_LEVERS: Dict[str, set] = {
     "public_works": {"off", "on"},
+    "surplus_distribution": {"off", "on"},
     "sector_subsidy_target": {"none", "food", "housing", "services", "healthcare"},
     "price_stabilization_target": {"none", "food", "services", "healthcare"},
     "bailout_target": {"none", "food", "housing", "services", "healthcare"},
@@ -42,6 +43,7 @@ SIMPLE_ENUM_LEVERS: Dict[str, set] = {
 SPENDING_LEVERS = {
     "benefit_level",
     "public_works",
+    "surplus_distribution",
     "sector_subsidy_level",
     "infrastructure_spending",
     "technology_spending",
@@ -56,6 +58,7 @@ PROMPT_POLICY_LEVERS: Tuple[str, ...] = (
     "investment_tax_rate",
     "benefit_level",
     "public_works",
+    "surplus_distribution",
     "minimum_wage_policy",
     "sector_subsidy_target",
     "sector_subsidy_level",
@@ -130,7 +133,7 @@ def is_ordered_increase(lever: str, current: Any, proposed: Any) -> bool:
 def is_spending_increase(lever: str, current: Any, proposed: Any) -> bool:
     """Return whether a proposed lever change increases discretionary spending."""
 
-    if lever == "public_works":
+    if lever in {"public_works", "surplus_distribution"}:
         return current == "off" and proposed == "on"
     if lever in ORDERED_LEVERS:
         return is_ordered_increase(lever, current, proposed)

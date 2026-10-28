@@ -748,6 +748,13 @@ class SimulationManager:
                 agent_stabilizers_enabled=all(self.stabilizer_state.values()),
             )
             self.warehouse_manager.insert_policy_config(policy)
+            # PolicyConfig has no discrete-lever columns; record the initial choice
+            # through the same action stream used for later changes.
+            self._buffer_policy_action(
+                actor="setup", action_type="surplus_distribution",
+                payload={"value": gov.surplus_distribution},
+                reason_summary="Initial surplus distribution policy",
+            )
             logger.info("Opened warehouse run %s", self.warehouse_run_id)
         except Exception as exc:
             logger.exception("Failed to create warehouse run metadata session=%s: %s", self.session_id, exc)
@@ -1557,6 +1564,7 @@ class SimulationManager:
             "investment_tax_rate": getattr(gov, "investment_tax_rate", 0.10),
             "benefit_level": getattr(gov, "benefit_level", "neutral"),
             "public_works": getattr(gov, "public_works_toggle", "off"),
+            "surplus_distribution": getattr(gov, "surplus_distribution", "off"),
             "minimum_wage_policy": getattr(gov, "minimum_wage_policy", "neutral"),
             "sector_subsidy_target": getattr(gov, "sector_subsidy_target", "none"),
             "sector_subsidy_level": int(getattr(gov, "sector_subsidy_level", 0)),
@@ -3192,6 +3200,7 @@ class SimulationManager:
             "investmentTax": "investment_tax_rate",
             "benefitLevel": "benefit_level",
             "publicWorks": "public_works",
+            "surplusDistribution": "surplus_distribution",
             "minimumWagePolicy": "minimum_wage_policy",
             "sectorSubsidyTarget": "sector_subsidy_target",
             "sectorSubsidyLevel": "sector_subsidy_level",

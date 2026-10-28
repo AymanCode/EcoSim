@@ -355,10 +355,10 @@ def test_deficit_ratio_metric_is_net_of_debt(runs):
 
 
 # Selected SERVICES-01/02 trajectory, seed 42/100 households/3 firms/tick 20.
-# The prior main digest e3ae0f...66762 was reproduced before this correction.
-# The prompt templates are unchanged; corrected Services choices change the
-# economy the prompt describes. Paired prompt artifacts are in the audit receipt.
-EXPECTED_FLAG_OFF_PROMPT_SHA256 = "85129748f287dabd3fcd8f8eab9ee92911210f1ed9076bbbbfd7d8a79097e901"
+# GOVERNMENT-SURPLUS-01 explicitly selects on to retain that economic baseline.
+# Main's 85129748...7e901 digest was reproduced; the reviewed prompt adds only
+# the surplus_distribution schema and effect lines, with identical macro metrics.
+EXPECTED_FLAG_OFF_PROMPT_SHA256 = "e7254862ef9a651e942e3b07e96279580ab544b5f653282d2a4e32f9aaa1fd4d"
 
 
 def _prompt_bundle(economy, tick):
@@ -380,10 +380,12 @@ def _prompt_bundle(economy, tick):
     ])
 
 
-def _seeded_economy(ticks):
+def _seeded_economy(ticks, *, surplus_distribution=None):
     _set_seed(42)
     with contextlib.redirect_stdout(io.StringIO()):
         economy = create_large_economy(100, 3)
+        if surplus_distribution is not None:
+            economy.government.set_lever("surplus_distribution", surplus_distribution)
         for _ in range(ticks):
             economy.step()
             economy.append_metrics_snapshot(economy.get_economic_metrics())
@@ -398,7 +400,8 @@ def test_flag_off_prompt_bundle_matches_selected_economic_baseline():
         # The stored pre-tax-reform trajectory isolates public-debt changes.
         CONFIG.government.profit_tax_style = "legacy_cash_rank"
         CONFIG.firms.price_on_effective_profit_tax = False
-        economy = _seeded_economy(20)
+        # Keep the historical automatic-sweep trajectory to isolate debt changes.
+        economy = _seeded_economy(20, surplus_distribution="on")
         text = _prompt_bundle(economy, 20)
     assert hashlib.sha256(text.encode()).hexdigest() == EXPECTED_FLAG_OFF_PROMPT_SHA256
 

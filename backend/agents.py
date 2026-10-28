@@ -6222,6 +6222,7 @@ class GovernmentAgent(AgentMixin):
     investment_tax_rate: float = 0.10         # [0.0, 0.30] — fraction of R&D/investment taxed
     benefit_level: str = "neutral"            # {low, neutral, high, crisis}
     public_works_toggle: str = "off"          # {off, on}
+    surplus_distribution: str = "off"        # {off, on}
     minimum_wage_policy: str = "neutral"      # {low, neutral, high}
     sector_subsidy_target: str = "none"       # {none, food, housing, services, healthcare}
     sector_subsidy_level: int = 0             # {0, 10, 25, 50} — percent of price govt pays
@@ -6313,6 +6314,7 @@ class GovernmentAgent(AgentMixin):
     VALID_INVESTMENT_TAX_RANGE = TAX_LIMITS["investment_tax_rate"] # min, max for investment tax
     VALID_BENEFIT_LEVELS = set(POLICY_ORDERED_LEVERS["benefit_level"])
     VALID_PUBLIC_WORKS = set(SIMPLE_ENUM_LEVERS["public_works"])
+    VALID_SURPLUS_DISTRIBUTION = set(SIMPLE_ENUM_LEVERS["surplus_distribution"])
     VALID_MIN_WAGE_POLICIES = set(POLICY_ORDERED_LEVERS["minimum_wage_policy"])
     VALID_SUBSIDY_TARGETS = set(SIMPLE_ENUM_LEVERS["sector_subsidy_target"])
     VALID_SUBSIDY_LEVELS = set(POLICY_ORDERED_LEVERS["sector_subsidy_level"])
@@ -6334,6 +6336,8 @@ class GovernmentAgent(AgentMixin):
             raise ValueError(f"profit_tax_rate must be in [0,0.50], got {self.profit_tax_rate}")
         if not (0.0 <= self.investment_tax_rate <= 0.30):
             raise ValueError(f"investment_tax_rate must be in [0,0.30], got {self.investment_tax_rate}")
+        if self.surplus_distribution not in self.VALID_SURPLUS_DISTRIBUTION:
+            raise ValueError(f"Invalid surplus_distribution: {self.surplus_distribution}")
         if self.unemployment_benefit_level < 0:
             raise ValueError(
                 f"unemployment_benefit_level cannot be negative, got {self.unemployment_benefit_level}"
@@ -6408,6 +6412,7 @@ class GovernmentAgent(AgentMixin):
         discrete_map = {
             "benefit_level": ("benefit_level", self.VALID_BENEFIT_LEVELS),
             "public_works": ("public_works_toggle", self.VALID_PUBLIC_WORKS),
+            "surplus_distribution": ("surplus_distribution", self.VALID_SURPLUS_DISTRIBUTION),
             "minimum_wage_policy": ("minimum_wage_policy", self.VALID_MIN_WAGE_POLICIES),
             "sector_subsidy_target": ("sector_subsidy_target", self.VALID_SUBSIDY_TARGETS),
             "sector_subsidy_level": ("sector_subsidy_level", self.VALID_SUBSIDY_LEVELS),
@@ -6641,6 +6646,7 @@ class GovernmentAgent(AgentMixin):
             "investment_tax_rate": self.investment_tax_rate,
             "benefit_level": self.benefit_level,
             "public_works": self.public_works_toggle,
+            "surplus_distribution": self.surplus_distribution,
             "minimum_wage_policy": self.minimum_wage_policy,
             "sector_subsidy_target": self.sector_subsidy_target,
             "sector_subsidy_level": self.sector_subsidy_level,
@@ -7459,12 +7465,11 @@ class GovernmentAgent(AgentMixin):
 
     def make_investments(self) -> Dict[str, float]:
         """
-        Government bond purchases with surplus funds.
+        Distribute surplus through the existing Misc pool when the policy is on.
 
-        When the government has surplus cash (above ``baseline_reserve`` of $50,000),
-        it purchases bonds from the Misc firm, which distributes the money
-        to households. This acts as a wealth transfer mechanism to
-        stimulate the economy during surplus periods.
+        The historical "bonds" return key is retained for compatibility; this
+        transfer creates no bond asset. The Misc pool distributes net receipts
+        to its existing household beneficiaries.
 
         The purchase amount is 12% of the surplus (cash_balance - baseline_reserve),
         capped at the available surplus.
@@ -7483,7 +7488,7 @@ class GovernmentAgent(AgentMixin):
         """
         investments = {"bonds": 0.0}
 
-        if self.stabilization_disabled:
+        if self.surplus_distribution != "on" or self.stabilization_disabled:
             return investments
 
         # G1: while the treasury owes the bank, settle_public_debt has already

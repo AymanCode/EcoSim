@@ -1842,6 +1842,7 @@ def test_contract_bond_purchases_count_as_government_spending(tiny_economy_facto
         seed=993,
         government_cash=120_000.0,
     )
+    economy.government.set_lever("surplus_distribution", "on")
 
     economy.step()
     metrics = economy.get_economic_metrics()
