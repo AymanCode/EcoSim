@@ -1,8 +1,9 @@
 ﻿import { act, fireEvent, render, screen, within } from '@testing-library/react'
+import { readFileSync } from 'node:fs'
 import { afterEach, beforeAll, describe, expect, test, vi } from 'vitest'
 import NumbersSheet from '../numbers/NumbersSheet.jsx'
 import { COPY, NUMBER_GROUPS, TOWN_COLORS } from '../catalog.js'
-import { demoArms } from './fixture.js'
+import { demoArms, fixtureArm } from './fixture.js'
 
 let arms
 beforeAll(() => { arms = demoArms() })
@@ -11,6 +12,8 @@ const reduce = () => vi.stubGlobal('matchMedia', () => ({ matches: true }))
 const sheet = (props = {}) => render(<div className="nx"><NumbersSheet arms={arms} tick={104} onClose={() => {}} {...props} /></div>)
 const row = key => document.querySelector(`.nx-number-row[data-metric="${key}"]`)
 const values = key => [...row(key).querySelectorAll('.nx-number-value')].map(node => node.textContent)
+const here = import.meta.url
+const numbersSheetCss = readFileSync(new URL('../numbers/numbersSheet.css', here), 'utf8')
 
 describe('compact numbers sheet', () => {
   test('answer first, unique measure homes, six groups and revised equality folds', () => {
@@ -65,6 +68,67 @@ describe('compact numbers sheet', () => {
     expect(screen.getAllByRole('button',{name:COPY.numbers.back})).toHaveLength(1)
     act(() => observers[0].callback([{isIntersecting:false}]))
     expect(within(screen.getByRole('group',{name:COPY.numbers.columns.label})).getByRole('button',{name:COPY.numbers.back})).toBeVisible()
+  })
+
+  test.each([1, 2, 3, 4])('sticky Back retains every column heading with %i towns', townCount => {
+    const towns = Array.from({ length: townCount }, (_, index) => fixtureArm({ label: `Town ${String.fromCharCode(65 + index)}`, color: TOWN_COLORS[index] }))
+    let observeHeader
+    vi.stubGlobal('IntersectionObserver', class {
+      constructor(callback) { observeHeader = callback }
+      observe() {}
+      disconnect() {}
+    })
+    // Vitest skips CSS imports. Apply the real sheet styles from disk so this
+    // regression catches headings hidden by CSS as well as missing markup.
+    const styles = document.createElement('style')
+    styles.textContent = numbersSheetCss
+    document.head.appendChild(styles)
+    try {
+      sheet({ arms: towns })
+      const columns = screen.getByRole('group', { name: COPY.numbers.columns.label })
+      const headings = [
+        ...towns.map(town => within(columns).getByText(town.label)),
+        within(columns).getByText(COPY.numbers.columns.run),
+      ]
+      if (townCount > 1) {
+        headings.push(within(columns).getByText(townCount === 2
+          ? COPY.numbers.columns.difference(towns[1].label, towns[0].label)
+          : COPY.numbers.columns.differences(towns[0].label)))
+      }
+      expect(within(columns).queryByRole('button', { name: COPY.numbers.back })).toBeNull()
+      act(() => observeHeader([{ isIntersecting: false }]))
+      expect(within(columns).getByRole('button', { name: COPY.numbers.back })).toBeVisible()
+      headings.forEach(heading => expect(heading).toBeVisible())
+      act(() => observeHeader([{ isIntersecting: true }]))
+      expect(within(columns).queryByRole('button', { name: COPY.numbers.back })).toBeNull()
+      headings.forEach(heading => expect(heading).toBeVisible())
+    } finally { styles.remove() }
+  })
+
+  test('sticky Back keeps its accessible name, close action and place before row controls', () => {
+    let observeHeader
+    vi.stubGlobal('IntersectionObserver', class {
+      constructor(callback) { observeHeader = callback }
+      observe() {}
+      disconnect() {}
+    })
+    const onClose = vi.fn()
+    sheet({ arms: [fixtureArm()], onClose })
+    act(() => observeHeader([{ isIntersecting: false }]))
+    const columns = screen.getByRole('group', { name: COPY.numbers.columns.label })
+    const back = within(columns).getByRole('button', { name: COPY.numbers.back })
+    const firstRow = within(row('peopleOutOfWorkPer100')).getByRole('button')
+    const controls = screen.getAllByRole('button')
+    expect(controls.indexOf(back)).toBeLessThan(controls.indexOf(firstRow))
+    expect(back).not.toHaveAttribute('tabindex')
+    expect(back.querySelector('svg')).toHaveAttribute('aria-hidden', 'true')
+    back.focus()
+    expect(back).toHaveFocus()
+    fireEvent.keyDown(back, { key: 'Escape' })
+    expect(onClose).toHaveBeenCalledOnce()
+    onClose.mockClear()
+    fireEvent.click(back)
+    expect(onClose).toHaveBeenCalledOnce()
   })
 
   test('rules line excludes chip settings and retains mid-run history', () => {
