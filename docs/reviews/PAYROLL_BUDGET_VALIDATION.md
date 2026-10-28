@@ -42,3 +42,11 @@ The bounded formal comparison is prepared: 12 normal-mode economy cases, 200 tic
 External evidence and execution scope are in `C:/Users/ayman/Documents/ecosim-review/reports/business-map-20261025/payroll-budget-experiment/`. Frozen inputs and older experiment artifacts remain unchanged. No economic or 5% performance acceptance is claimed yet. The parent owns final interpretation and the follow-up results report.
 
 OpenWiki refresh remains due: the approved local command is unavailable and generated pages were not hand-edited. GitHub Actions remain disabled. Code and evidence are local; no PR, push or merge was performed.
+
+## Completed comparison and PR preparation
+
+The [completed results](PAYROLL_BUDGET_RESULTS.md) and [portable per-seed evidence](PAYROLL_BUDGET_EVIDENCE.json) supersede the pending-measurement status above. All 12 economic cases / 2,400 ticks completed; six baseline recorded prefixes matched and initialization/accounting checks passed. Private current unpaid wages and claim stocks were zero throughout the candidate cases. Standard-flow mean jobs, paid wages and Services rose, while Food purchases and health fell in all three seeds; bank debt and recorded writeoffs increased. One seed lost jobs and GDP. These are mixed within-model effects, not a universal welfare result.
+
+The owner stopped the oversized timing panel after 31 completed cases. No engine workers or replacement runs remain; the interrupted case, completed captures and earlier failure evidence are preserved. The full runtime acceptance gate is incomplete. Routine fix experiments use 1,000 households; large-population checks require a specific scaling question and a separate proportional run budget rather than automatically matching the small-run repetitions.
+
+Current main was merged cleanly for PR preparation. Backend files and Python test configuration are unchanged from the full-suite-tested 558a6a0 candidate. A fresh focused run passed 236 tests in 3.73 seconds on the integrated branch, with worktree imports verified; scoped Ruff and diff checks passed. Research variants remain opt-in with the compatible `instant` default. The earlier default-sequence migration remains outside this PR. GitHub Actions remain disabled and OpenWiki refresh remains due.
