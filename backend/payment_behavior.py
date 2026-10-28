@@ -70,7 +70,9 @@ def observe_settled_tax(economy: Any) -> None:
     state["tax_belief_observed_tick"] = tick
 
 
-def planning_inputs(economy: Any) -> tuple[list[float], list[float], dict[int, dict[str, float]]]:
+def planning_inputs(
+    economy: Any, *, settled_income: bool = False,
+) -> tuple[list[float], list[float], dict[int, dict[str, float]]]:
     """Return net wage beliefs and estimated shopping capacity after obligations.
 
     The returned liquidity is a desired-order estimate, not escrow, a loan or
@@ -79,9 +81,19 @@ def planning_inputs(economy: Any) -> tuple[list[float], list[float], dict[int, d
     force an empty seller basket before funded payroll arrives. Income_late
     cannot add that future cash. PaymentGoodsMarket rechecks actual cash and
     funded subsidy at the quote; this estimate never settles a payment.
+
+    With settled_income, the standard shopping decision instead uses this
+    tick's actual net wages and funded benefits. They are already in cash,
+    so liquidity gets no forecast addition and savings excludes those receipts.
     """
-    beliefs = initialize_tax_beliefs(economy)
     book = getattr(economy, "payment_book", None)
+    if settled_income and (
+        economy.payment_sequence != "income_first" or book is None
+        or book.tick != int(economy.current_tick)
+        or not book.income_settled or not book.benefits_settled
+    ):
+        raise ValueError("Received-income budgeting requires completed early wages and benefits")
+    beliefs = None if settled_income else initialize_tax_beliefs(economy)
     loan_state = getattr(book, "loan_state", {}) if book is not None else {}
     due_by_hid = loan_state.get("household_due_totals", {})
     if loan_state.get("household_due_tick") != int(economy.current_tick):
@@ -90,11 +102,14 @@ def planning_inputs(economy: Any) -> tuple[list[float], list[float], dict[int, d
     available = []
     pressure = {}
     early_income = economy.payment_sequence == "income_first"
-    benefit = max(0.0, _finite(economy.government.get_unemployment_benefit_level(), "announced benefit")) if early_income else 0.0
+    benefit = (max(0.0, _finite(economy.government.get_unemployment_benefit_level(), "announced benefit"))
+               if early_income and not settled_income else 0.0)
     for household in economy.households:
         hid = household.household_id
         wage = max(0.0, _finite(household.wage, "contract wage")) if household.is_employed else 0.0
-        net_wage = wage * (1.0 - beliefs[hid])
+        record = book.paid_income.get(hid, {}) if settled_income else {}
+        net_wage = (max(0.0, _finite(record.get("net", 0.0), "funded take-home wages"))
+                    if settled_income else wage * (1.0 - beliefs[hid]))
         net_wages.append(net_wage)
         cash = _finite(household.cash_balance, "opening cash")
         deposit = max(0.0, _finite(household.bank_deposit, "deposit"))
@@ -103,8 +118,14 @@ def planning_inputs(economy: Any) -> tuple[list[float], list[float], dict[int, d
         opening_access = accessible_liquidity(cash, deposit)
         nominal_access = max(0.0, opening_access)
         expected_income = 0.0
-        if early_income:
+        if early_income and not settled_income:
             expected_income = net_wage if household.is_employed else benefit
+        received_income = (net_wage + max(0.0, _finite(record.get("benefit", 0.0), "funded benefits"))
+                           if settled_income else 0.0)
+        # Settled cash already contains received income. Reconstruct the other
+        # liquid stock only for savings drawdown, never for a second credit.
+        savings_access = (accessible_liquidity(cash - received_income, deposit)
+                          if settled_income else opening_access)
         rent = (
             max(0.0, _finite(household.monthly_rent, "weekly contract rent"))
             if household.renting_from_firm_id is not None else 0.0
@@ -116,7 +137,8 @@ def planning_inputs(economy: Any) -> tuple[list[float], list[float], dict[int, d
             "rent_due": rent, "loan_due": debt,
             "nominal_access": nominal_access,
             "expected_pre_shopping_income": expected_income,
-            "estimated_savings_liquidity": max(0.0, opening_access - obligations),
+            "received_pre_shopping_income": received_income,
+            "estimated_savings_liquidity": max(0.0, savings_access - obligations),
             "obligation_pressure": obligations / max(nominal_access, 1.0),
             "estimated_discretionary_liquidity": available[-1],
         }

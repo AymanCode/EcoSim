@@ -61,6 +61,7 @@ from agents import (
 )
 from utils.category_utils import build_good_category_lookup
 from inflation import ConsumerPriceIndex, WageReview
+from firm_research import PROJECT_MODELS, RESEARCH_CATEGORIES, ResearchState, sample_entry_quality
 from payments import PaymentBook, MONEY_EPS, proportional
 from household_liquidity import (
     accessible_liquidity as household_accessible_liquidity,
@@ -73,6 +74,13 @@ if TYPE_CHECKING:  # typing only; the payment arm imports it lazily at run time
     from payment_sectors import PaymentGoodsMarket
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True, slots=True)
+class _ResearchSettlement:
+    debt_paid: float
+    available_cash: float
+    blocked: bool
 
 
 @dataclass(slots=True)
@@ -121,6 +129,8 @@ class _TickScratch:
     total_transfers: Optional[float] = None
     bankruptcies_this_tick: Optional[int] = None
     total_dividends_paid: Optional[float] = None
+    research_settlement: Optional[Dict[int, _ResearchSettlement]] = None
+    research_ceo_pay: Optional[Dict[int, float]] = None
 
 
 def _update_price_belief(beliefs: Dict[str, float], good: str, price: float, alpha: float) -> None:
@@ -203,6 +213,10 @@ class Economy:
         self.firms = firms
         self.government = government
         self.bank: Optional[BankAgent] = bank
+        self.research_totals = {"completed": 0, "failed": 0, "paused_ticks": 0,
+                                "spending": 0.0, "gain": 0.0}
+        self.last_tick_research_spending = 0.0
+        self.last_tick_research_gain = 0.0
         self.config = CONFIG
         self.payment_config_snapshot = {
             field.name: getattr(CONFIG, field.name)
@@ -1057,8 +1071,9 @@ class Economy:
         after ``_apply_household_income``) the wage and benefit sources are this
         week's actual receipts: ``last_wage_income + last_other_income`` (take-home
         wage and CEO pay after wage tax) and ``last_transfer_income``. Without it
-        they are the forecast inputs every direct caller and the named payment
-        arms use: the contract wage when employed and the benefit level when not.
+        they are forecast inputs: the contract wage when employed and the
+        benefit level when not. The standard funded path explicitly selects
+        settled inputs after this tick's actual wage/benefit payments.
 
         With ``CONFIG.households.healthcare_food_first_reserve`` on, the money
         is claimed in this order on every payment sequence: rent and loan
@@ -1083,7 +1098,7 @@ class Economy:
             wages = np.array([h.wage for h in self.households], dtype=np.float64)
         if self.payment_sequence != "legacy":
             from payment_behavior import planning_inputs
-            net_wages, payment_liquidity, pressure = planning_inputs(self)
+            net_wages, payment_liquidity, pressure = planning_inputs(self, settled_income=settled_income)
             wages = np.asarray(net_wages, dtype=np.float64)
         drawdown_rates = static_traits["drawdown_rates"]
         dividend_incomes = np.array(
@@ -1123,14 +1138,21 @@ class Economy:
 
         # Income separation: wage when employed, benefit when unemployed.
         if settled_income:
-            # This week's receipts, credited before the shopping decision.
-            wage_income = np.maximum(np.array(
-                [h.last_wage_income + h.last_other_income for h in self.households],
-                dtype=np.float64,
-            ), 0.0)
-            benefit_income = np.array(
-                [h.last_transfer_income for h in self.households], dtype=np.float64
-            )
+            if self.payment_sequence != "legacy":
+                wage_income = wages
+                benefit_income = np.array([
+                    self.payment_book.paid_income.get(h.household_id, {}).get("benefit", 0.0)
+                    for h in self.households
+                ], dtype=np.float64)
+            else:
+                # This week's receipts, credited before the shopping decision.
+                wage_income = np.maximum(np.array(
+                    [h.last_wage_income + h.last_other_income for h in self.households],
+                    dtype=np.float64,
+                ), 0.0)
+                benefit_income = np.array(
+                    [h.last_transfer_income for h in self.households], dtype=np.float64
+                )
         else:
             wage_income = np.where(employment_status, wages, 0.0)
             benefit_income = np.where(employment_status, 0.0, unemployment_benefit)
@@ -1181,9 +1203,8 @@ class Economy:
                             0.0, entry["estimated_discretionary_liquidity"] - reserve
                         )
 
-        # Savings are an opening stock. Expected income can lift the named
-        # shopping ceiling, but already has its MPC above and must not also
-        # become a savings stock to draw down before it arrives.
+        # Income already has its own MPC. Neither forecast income nor an actual
+        # receipt may also become a savings stock for a second drawdown.
         savings_liquidity = accessible_liquidity
         if self.payment_sequence != "legacy":
             savings_liquidity = np.fromiter(
@@ -1659,6 +1680,7 @@ class Economy:
         transfer_plan: Dict[int, float],
         wage_taxes: Dict[int, float],
         frozen_wages: Optional[Dict[int, float]] = None,
+        ceo_pay_by_firm: Optional[Dict[int, float]] = None,
     ) -> None:
         """Credit legacy wages, CEO pay and transfers and debit wage tax, once.
 
@@ -1679,6 +1701,8 @@ class Economy:
                 wages_list = [firm.actual_wages.get(e_id, firm.wage_offer) for e_id in firm.employees]
                 salary = float(np.median(wages_list)) * 3.0  # CEO earns 3x median worker
                 firm.cash_balance -= salary
+                if ceo_pay_by_firm is not None:
+                    ceo_pay_by_firm[firm.firm_id] = salary
                 ceo_pay[firm.ceo_household_id] = ceo_pay.get(firm.ceo_household_id, 0.0) + salary
 
         for household in self.households:
@@ -2724,9 +2748,6 @@ class Economy:
         firm_wage_plans = tick.firm_wage_plans
         firm_production_plans = tick.firm_production_plans
         gov_benefit = tick.gov_benefit
-        category_market_snapshot = tick.category_market_snapshot
-        good_category_lookup = tick.good_category_lookup
-        unemployment_rate = tick.unemployment_rate
         # Phase 2: Households plan
         tick.household_labor_plans = {}
 
@@ -2807,31 +2828,32 @@ class Economy:
             for household_id, plan in tick.household_labor_plans.items()
         }
 
-        # Consumption planning. The named payment arms keep their decision
-        # boundary here; legacy shopping is planned once, after this week's
-        # income and credit, in _phase_goods_clearing.
-        if tick.payment_arm:
-            if (not self.performance_mode) or (self.current_tick % 5 == 0):
-                tick.household_consumption_plans = self._batch_plan_consumption(
-                    self.last_tick_prices,
-                    category_market_snapshot,
-                    good_category_lookup,
-                    unemployment_rate,
-                    gov_benefit,
-                )
-                if self.performance_mode:
-                    self._cached_consumption_plans = tick.household_consumption_plans
-            else:
-                tick.household_consumption_plans = self._apply_cached_consumption_plans()
+        # Later-pay shoppers still plan against opening resources. Standard
+        # shopping waits for funded wages/benefits in _phase_goods_clearing.
+        if tick.payment_arm and self.payment_sequence == "income_late":
+            self._plan_payment_consumption(tick)
 
         # Phase 2a: Consumption credit (Fix 25) — bridge low-cash households.
         # Requests were flagged in the household pass above; only
-        # _offer_consumption_loans reads them. On the payment arms it must
-        # follow consumption planning because disbursal changes cash; on
-        # legacy the disbursed loan is part of the cash the later shopping
-        # decision sees.
+        # _offer_consumption_loans reads them. Later-pay plans retain their
+        # original pre-disbursal timing. The standard and legacy shopping
+        # decisions occur later and can observe actual disbursed cash.
         if self.bank is not None:
             self._offer_consumption_loans()
+
+    def _plan_payment_consumption(self, tick: _TickScratch, *, settled_income: bool = False) -> None:
+        """Move the existing decision without adding seller searches or cache refreshes."""
+        if not self.performance_mode or self.current_tick % 5 == 0:
+            args = (self.last_tick_prices, tick.category_market_snapshot,
+                    tick.good_category_lookup, tick.unemployment_rate, tick.gov_benefit)
+            tick.household_consumption_plans = (
+                self._batch_plan_consumption(*args, settled_income=True)
+                if settled_income else self._batch_plan_consumption(*args)
+            )
+            if self.performance_mode:
+                self._cached_consumption_plans = tick.household_consumption_plans
+        else:
+            tick.household_consumption_plans = self._apply_cached_consumption_plans()
 
     def _phase_labor_matching(self, tick: _TickScratch) -> None:
         """Resolve the labor market (with the payment Services-project hire) and record labor events."""
@@ -2869,10 +2891,11 @@ class Economy:
                     gross = outcome.get("actual_wages", {}).get(hid)
                     if gross is not None:
                         diagnose_observed_offer(self, hid, float(gross), fid)
-        self._record_failed_hiring_events(firm_production_plans, tick.firm_labor_outcomes)
+        if not payment_arm:
+            self._record_failed_hiring_events(firm_production_plans, tick.firm_labor_outcomes)
 
     def _phase_apply_labor_outcomes(self, tick: _TickScratch) -> None:
-        """Apply labor outcomes, sync rosters, continuing-wage raises and the payment project worker."""
+        """Resolve contracts, fund private work, then credit history and assign installation."""
         firm_labor_outcomes = tick.firm_labor_outcomes
         household_labor_outcomes = tick.household_labor_outcomes
         payment_arm = tick.payment_arm
@@ -2902,6 +2925,13 @@ class Economy:
         for firm in self.firms:
             firm.apply_labor_outcome(firm_labor_outcomes[firm.firm_id])
 
+        deferred_private_history = []
+        private_payroll_ids = set()
+        if payment_arm:
+            from payment_payroll import is_private_payroll_firm, enforce_private_payroll
+            private_payroll_ids = {
+                firm.firm_id for firm in self.firms if is_private_payroll_firm(self, firm)
+            }
         for household in self.households:
             anchor = None
             if household.skills_level < 0.4:
@@ -2921,15 +2951,32 @@ class Economy:
                         hh_outcome = dict(hh_outcome)
                         hh_outcome["wage"] = resolved_wage
 
-            household.apply_labor_outcome(
-                hh_outcome,
-                market_wage_anchor=anchor,
-                current_tick=self.current_tick
-            )
+            if (new_employer_id in private_payroll_ids
+                    and household.medical_training_status not in {"resident", "doctor"}):
+                household.employer_id = new_employer_id
+                household.wage = hh_outcome["wage"]
+                deferred_private_history.append((household, anchor))
+            else:
+                household.apply_labor_outcome(
+                    hh_outcome, market_wage_anchor=anchor, current_tick=self.current_tick,
+                )
 
         # Keep firm-side employee rosters aligned with household employment outcomes.
         # This prevents stale counts in firm telemetry versus unemployment metrics.
         self._sync_firm_employee_rosters()
+        # Resolve scheduled contract amounts before deciding what work is funded.
+        # The helper retains its existing roster order, eligibility and RNG.
+        if self.current_tick % 50 == 0:
+            self._update_continuing_employee_wages()
+        if payment_arm:
+            enforce_private_payroll(self, firm_labor_outcomes, household_labor_outcomes)
+            self._record_failed_hiring_events(tick.firm_production_plans, firm_labor_outcomes)
+        for household, anchor in deferred_private_history:
+            employer = self.firm_lookup.get(household.employer_id)
+            household._apply_labor_history(
+                employer.good_category if employer is not None else None,
+                market_wage_anchor=anchor, current_tick=self.current_tick,
+            )
         if CONFIG.households.skills_dynamics:
             # After roster sync, so employment status is final for the week.
             self._batch_update_skills()
@@ -2942,9 +2989,6 @@ class Economy:
                     baseline_hire_count=self.payment_project_baseline_hires,
                 )
 
-        # Update wages for continuing employees every 50 ticks (small 2-3% increases)
-        if self.current_tick % 50 == 0:
-            self._update_continuing_employee_wages()
         if payment_arm and self.config.payment_services_project_enabled:
             project = self.payment_state.get("services_project")
             if project and project.get("status") == "assigned":
@@ -2986,7 +3030,7 @@ class Economy:
             )
 
     def _phase_goods_clearing(self, tick: _TickScratch) -> None:
-        """Settle income, plan legacy shopping, withdraw deposits, clear goods; legacy Services slot upgrades."""
+        """Settle income, plan funded/legacy shopping, withdraw deposits and clear goods."""
         payment_arm = tick.payment_arm
         frozen_wages = tick.frozen_wages
         household_consumption_plans = tick.household_consumption_plans
@@ -3000,6 +3044,9 @@ class Economy:
             observe_settled_tax(self)
             self.payment_book.settle_benefits()
             self._payment_sync_restrictions()
+            if self.payment_sequence == "income_first":
+                self._plan_payment_consumption(tick, settled_income=True)
+                household_consumption_plans = tick.household_consumption_plans
             due_by_household = prepare_household_dues(self)
             quotes = payment_deposit_quotes(self, household_consumption_plans, due_by_household)
             self._payment_withdraw_deposits(quotes)
@@ -3046,7 +3093,14 @@ class Economy:
         household_tax_snapshots = self._build_household_tax_snapshots(frozen_wages=frozen_wages)
         tick.household_wage_taxes = self.government.plan_taxes(household_tax_snapshots, [])["wage_taxes"]
         tick.transfer_plan = self.government.plan_transfers(self._build_household_transfer_snapshots())
-        self._apply_household_income(tick.transfer_plan, tick.household_wage_taxes, frozen_wages)
+        if CONFIG.firms.quality_research_model in PROJECT_MODELS:
+            tick.research_ceo_pay = {}
+            self._apply_household_income(
+                tick.transfer_plan, tick.household_wage_taxes, frozen_wages,
+                ceo_pay_by_firm=tick.research_ceo_pay,
+            )
+        else:
+            self._apply_household_income(tick.transfer_plan, tick.household_wage_taxes, frozen_wages)
         self.government.apply_fiscal_results(
             sum(tick.household_wage_taxes.values()), 0.0, sum(tick.transfer_plan.values())
         )
@@ -3265,6 +3319,18 @@ class Economy:
         good_category_lookup = tick.good_category_lookup
         frozen_wages = tick.frozen_wages
         total_price_ceiling_taxes = tick.total_price_ceiling_taxes
+        research_before_debt = {}
+        if CONFIG.firms.quality_research_model in PROJECT_MODELS:
+            research_before_debt = {
+                firm.firm_id: (
+                    firm.cash_balance,
+                    tick.per_firm_sales.get(firm.firm_id, {}).get("revenue", 0.0),
+                    min(max(0.0, firm.loan_payment_per_tick), max(0.0, firm.government_loan_remaining)),
+                    firm.government_loan_remaining,
+                )
+                for firm in self.firms
+                if firm.good_category.lower() in RESEARCH_CATEGORIES and not firm.is_baseline
+            }
         # Phase 9.5: Bank loan repayments (firms & households → bank)
         # Runs after wages and sales so borrowers have income before repayment.
         if payment_arm:
@@ -3286,6 +3352,25 @@ class Economy:
             per_firm_sales=tick.per_firm_sales,
             income_already_settled=not payment_arm,
         )
+        if research_before_debt:
+            delinquent = ({loan["borrower_id"] for loan in self.bank.active_loans
+                           if loan["borrower_type"] == "firm" and loan.get("missed_payments", 0) > 0}
+                          if self.bank is not None else set())
+            tick.research_settlement = {}
+            for firm in self.firms:
+                before = research_before_debt.get(firm.firm_id)
+                if before is None:
+                    continue
+                cash_before, retail_before, direct_due, direct_remaining = before
+                retail_after = tick.per_firm_sales.get(firm.firm_id, {}).get("revenue", 0.0)
+                # Seller clawbacks reduce cash and revenue together; only the rest is debt.
+                clawback = 0.0 if payment_arm else max(0.0, retail_before - retail_after)
+                debt_paid = max(0.0, cash_before - firm.cash_balance - clawback)
+                direct_paid = max(0.0, direct_remaining - firm.government_loan_remaining)
+                tick.research_settlement[firm.firm_id] = _ResearchSettlement(
+                    debt_paid, firm.cash_balance,
+                    firm.firm_id in delinquent or direct_paid + MONEY_EPS < direct_due,
+                )
         if payment_arm:
             self.payment_book.release_late_income()
 
@@ -3379,9 +3464,50 @@ class Economy:
 
         # Phase 11.6: Firm R&D spending (tax and redirect to Misc firm)
         total_investment_taxes = 0.0
+        self.last_tick_research_spending = self.last_tick_research_gain = 0.0
+        research_model = CONFIG.firms.quality_research_model
         for firm in self.firms:
             revenue = per_firm_sales.get(firm.firm_id, {}).get("revenue", 0.0)
-            if revenue > 0:
+            if research_model != "instant" and firm.good_category.lower() in RESEARCH_CATEGORIES:
+                if firm.is_baseline or research_model == "scale_only":
+                    continue
+                settlement = tick.research_settlement[firm.firm_id]
+                if payment_arm:
+                    operating_costs = max(
+                        firm.last_tick_total_costs,
+                        self.payment_book.funded_wages_by_firm.get(firm.firm_id, 0.0)
+                        + firm.last_tick_operating_cash_cost_nonwage,
+                    )
+                    ceo_pay = self.payment_book.funded_ceo.get(firm.firm_id, 0.0)
+                else:
+                    operating_costs = firm.last_tick_total_costs
+                    ceo_pay = (tick.research_ceo_pay or {}).get(firm.firm_id, 0.0)
+                costs_with_ceo = operating_costs + ceo_pay
+                taxes_paid = (tick.tax_plan["profit_taxes"].get(firm.firm_id, 0.0)
+                              + tick.price_ceiling_tax_by_firm_id.get(firm.firm_id, 0.0))
+                generation = revenue - costs_with_ceo - taxes_paid - settlement.debt_paid
+                previous = firm.research_state
+                completed_before = previous.completed if previous is not None else 0
+                failed_before = previous.failed if previous is not None else 0
+                pauses_before = previous.paused_ticks if previous is not None else 0
+                quality_before = firm.quality_level
+                funding_variant = (previous.project.variant if previous is not None
+                                   and previous.project is not None else research_model)
+                reserve_costs = (firm.last_tick_total_costs + ceo_pay
+                                 if funding_variant == "project_cash" else costs_with_ceo)
+                rd_spending = firm.advance_research(
+                    tick=self.current_tick, operating_cash_generation=generation,
+                    operating_costs=reserve_costs,
+                    available_cash=min(firm.cash_balance, settlement.available_cash),
+                    blocked=settlement.blocked,
+                )
+                state = firm.research_state
+                self.research_totals["completed"] += state.completed - completed_before
+                self.research_totals["failed"] += state.failed - failed_before
+                self.research_totals["paused_ticks"] += state.paused_ticks - pauses_before
+                self.last_tick_research_spending += rd_spending
+                self.last_tick_research_gain += firm.quality_level - quality_before
+            elif revenue > 0:
                 if payment_arm:
                     # Prior registered/direct debt has already collected. Fund
                     # discretionary R&D before recording investment or quality.
@@ -3390,11 +3516,14 @@ class Economy:
                     )
                 else:
                     rd_spending = firm.apply_rd_and_quality_update(revenue)
-                # Apply investment tax
-                investment_tax = rd_spending * self.government.investment_tax_rate
-                after_tax_investment = rd_spending - investment_tax
-                total_investment_taxes += investment_tax
-                self._collect_misc_revenue(after_tax_investment)
+            else:
+                continue
+            investment_tax = rd_spending * self.government.investment_tax_rate
+            after_tax_investment = rd_spending - investment_tax
+            total_investment_taxes += investment_tax
+            self._collect_misc_revenue(after_tax_investment)
+        self.research_totals["spending"] += self.last_tick_research_spending
+        self.research_totals["gain"] += self.last_tick_research_gain
 
         # Government collects investment taxes
         self.government.cash_balance += total_investment_taxes
@@ -6711,6 +6840,19 @@ class Economy:
         if founder_id is not None:
             new_firm.owners = [founder_id]
 
+        if (CONFIG.firms.quality_research_model != "instant"
+                and chosen_category.lower() in RESEARCH_CATEGORIES):
+            identity = f"entry:{new_firm_id}:{self.current_tick}"
+            peers = [firm.quality_level for firm in self.firms
+                     if firm.good_category == chosen_category and not firm.is_baseline]
+            founder = self.household_lookup.get(founder_id if founder_id is not None else ceo_id)
+            new_firm.quality_level = sample_entry_quality(
+                seed=CONFIG.random_seed, identity=identity, peer_qualities=peers,
+                founder_skill=founder.skills_level if founder is not None else None,
+            )
+            if CONFIG.firms.quality_research_model in PROJECT_MODELS:
+                new_firm.research_state = ResearchState(CONFIG.random_seed, identity)
+
         self.firms.append(new_firm)
 
         self.last_tick_sales_units[new_firm_id] = 0.0
@@ -9612,6 +9754,23 @@ class Economy:
                 )
             total_rd = sum(getattr(f, "accumulated_rd_investment", 0.0) for f in self.firms)
             metrics["total_rd_spending_lifetime"] = total_rd
+
+        if CONFIG.firms.quality_research_model != "instant":
+            states = [firm.research_state for firm in self.firms
+                      if firm.good_category.lower() in RESEARCH_CATEGORIES and not firm.is_baseline
+                      and firm.research_state is not None]
+            metrics["firm_research"] = {
+                "model": CONFIG.firms.quality_research_model,
+                "active": sum(state.project is not None and state.project.status == "active" for state in states),
+                "paused": sum(state.project is not None and state.project.status == "paused" for state in states),
+                "completed_total": self.research_totals["completed"],
+                "failed_total": self.research_totals["failed"],
+                "paused_firm_ticks_total": self.research_totals["paused_ticks"],
+                "spending_this_tick": self.last_tick_research_spending,
+                "spending_total": self.research_totals["spending"],
+                "gain_this_tick": self.last_tick_research_gain,
+                "gain_total": self.research_totals["gain"],
+            }
 
         # Fix 23: Wage dynamics
         if self.households:

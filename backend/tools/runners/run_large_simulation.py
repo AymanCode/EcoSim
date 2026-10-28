@@ -30,6 +30,7 @@ import numpy as np
 from agents import BankAgent, HouseholdAgent, FirmAgent, GovernmentAgent
 from config import CONFIG
 from economy import Economy
+from firm_research import RESEARCH_CATEGORIES, sample_initial_quality
 
 if sys.platform == "win32":
     sys.stdout.reconfigure(encoding="utf-8")
@@ -258,6 +259,17 @@ def create_large_economy(num_households: int = 10000, num_firms_per_category: in
         # Select owners from household population (stochastic)
         owner_ids = random.sample(range(num_households), num_owners)
         firm.owners = owner_ids
+
+    if CONFIG.firms.quality_research_model != "instant":
+        household_by_id = {household.household_id: household for household in households}
+        for firm in baseline_firms + queued_firms:
+            if firm.good_category.lower() not in RESEARCH_CATEGORIES:
+                continue
+            founder = household_by_id.get(firm.owners[0]) if firm.owners else None
+            firm.quality_level = (0.1 if firm.is_baseline else sample_initial_quality(
+                seed=CONFIG.random_seed, identity=f"initial:{firm.firm_id}",
+                founder_skill=founder.skills_level if founder is not None else None,
+            ))
 
     total_firms = len(baseline_firms) + len(queued_firms)
     print(f"OK Ownership assigned (avg {sum(len(f.owners) for f in baseline_firms + queued_firms) / total_firms:.1f} owners/firm)")

@@ -498,6 +498,7 @@ class FirmBehaviorConfig:
     default_rd_spending_rate: float = 0.05  # 5% of revenue
     quality_improvement_per_rd_dollar: float = 0.0002  # Slowed down 50x (was 0.01)
     quality_decay_rate: float = 0.0  # Quality decay removed
+    quality_research_model: str = "instant"
     quality_min: float = 0.0
     quality_max: float = 10.0
 
@@ -1097,6 +1098,10 @@ class SimulationConfig:
 
     def __post_init__(self):
         """Validation and derived values."""
+        if self.firms.quality_research_model not in {
+            "instant", "scale_only", "project_outcome", "project_cost", "project_cash",
+        }:
+            raise ValueError("unsupported firm quality research model")
         if self.payment_sequence not in {"legacy", "income_first", "income_late"}:
             raise ValueError("unsupported payment sequence")
         if self.payment_care_mode not in {"patient_pay", "covered"}:

@@ -158,7 +158,7 @@ def test_income_first_sold_out_food_is_not_spent_on_the_visit(on, monkeypatch):
         assert food > 0.0
         queued.cash_balance = food
 
-        def planning_inputs(economy_arg):
+        def planning_inputs(economy_arg, *, settled_income=False):
             wages = [h.wage if h.is_employed else 0.0 for h in economy_arg.households]
             liquidity = [max(0.0, h.cash_balance) for h in economy_arg.households]
             pressure = {h.household_id: {"estimated_savings_liquidity": value,

@@ -5,7 +5,7 @@ and market adapters own physical supply; neither is a second cash release.
 """
 
 from collections import defaultdict
-from math import isfinite
+from math import fsum, isfinite
 
 MONEY_EPS = 1e-6
 
@@ -38,6 +38,7 @@ class PaymentBook:
     def __init__(self, economy, timing="income_first"):
         self.economy = economy
         self.timing = timing
+        self.tick = int(getattr(economy, "current_tick", 0))
         self.receipts = defaultdict(lambda: {"units_sold": 0.0, "revenue": 0.0})
         self.purchases = defaultdict(dict)
         self.household_purchase_cost = defaultdict(lambda: defaultdict(float))
@@ -57,6 +58,9 @@ class PaymentBook:
         self.unpaid_employed = {}
         self.medical_funding_pending = defaultdict(float)
         self.household_due_index = {}
+        self.income_settled = False
+        self.benefits_settled = False
+        self.funded_payroll_firms = set()
 
     def __getitem__(self, key):
         return getattr(self, key)
@@ -91,8 +95,15 @@ class PaymentBook:
         for firm in economy.firms:
             fid = firm.firm_id
             available = max(0.0, firm.cash_balance)
-            current = proportional(due_by_firm.get(fid, {}), available)
-            current_total = sum(current.values())
+            due = due_by_firm.get(fid, {})
+            gap = fsum([*due.values(), -available]) if fid in self.funded_payroll_firms else None
+            if gap is not None and gap > MONEY_EPS:
+                raise ValueError("Pre-funded private payroll became unfunded before settlement")
+            # Fully funded contracts require no proportional allocation, whose
+            # multiply/divide roundoff can underpay otherwise affordable wages.
+            fully_funded = gap is not None and gap <= 0.0
+            current = dict(due) if fully_funded else proportional(due, available)
+            current_total = fsum(current.values()) if fully_funded else sum(current.values())
             available = max(0.0, available - current_total)
             for hid, due in due_by_firm.get(fid, {}).items():
                 paid = current.get(hid, 0.0)
@@ -100,6 +111,8 @@ class PaymentBook:
                 current_payments[hid] += paid
                 current_paid_records[(fid, hid)] = paid
                 unpaid = due - paid
+                if fid in self.funded_payroll_firms and unpaid > MONEY_EPS:
+                    raise ValueError("Pre-funded private payroll became unfunded before settlement")
                 if unpaid > MONEY_EPS:
                     claim_updates[(fid, hid)] = old_by_firm[fid].get(hid, 0.0) + unpaid
                     arrears_by_worker[hid] += unpaid
@@ -175,6 +188,7 @@ class PaymentBook:
         withholding = sum(self.wage_taxes.values())
         economy.government.cash_balance += withholding
         state["restrictions"]["withholding"] += withholding
+        self.income_settled = True
 
     def settle_benefits(self):
         economy = self.economy
@@ -195,6 +209,7 @@ class PaymentBook:
             else:
                 self.late_income[hid] += paid
         self.denied_benefits = max(0.0, sum(eligible.values()) - sum(allocation.values()))
+        self.benefits_settled = True
 
     def release_late_income(self):
         for hid, amount in self.late_income.items():
