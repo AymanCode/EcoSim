@@ -333,6 +333,7 @@ export default function RunScreen({
               <Moments arms={arms} tick={tick} rows={momentRows} live={isLive} />
               {panel}
 
+              {arms.length > 2 && <Legend arms={arms} tick={tick} />}
               <section className={`lt-towns is-${arms.length}${focus ? ' is-focus' : ''}`} data-stable="towns">
                 {arms.map((arm, i) => (
                   <TownCard
@@ -354,7 +355,7 @@ export default function RunScreen({
                   />
                 ))}
               </section>
-              <Legend arms={arms} tick={tick} />
+              {arms.length <= 2 && <Legend arms={arms} tick={tick} />}
               <MainStreetCard
                 arms={arms}
                 tick={tick}

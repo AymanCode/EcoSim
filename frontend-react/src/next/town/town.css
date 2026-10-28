@@ -12,6 +12,21 @@
   .nx .lt-towns { grid-template-columns: minmax(0, 1fr) }
 }
 
+/* Longer comparisons keep their key first and their drawings small enough
+   to compare rows. Resize the whole 604:364 stage, so none of its layers
+   is cropped or stretched. Enlarge keeps the original full-size drawing. */
+.nx .lt-legend + .lt-towns:is(.is-3, .is-4) { margin-top: 14px }
+@media (min-width: 800px) {
+  .nx .lt-towns:is(.is-3, .is-4):not(.is-focus) { grid-template-columns: repeat(2, minmax(0, 1fr)) }
+  .nx .lt-towns:is(.is-3, .is-4):not(.is-focus) .lt-card > .lt-canvas > .lt-stage {
+    width: min(100%, calc(clamp(180px, 24vh, 220px) * 604 / 364));
+    margin-inline: auto;
+  }
+}
+@media (min-width: 1200px) {
+  .nx .lt-towns.is-3:not(.is-focus) { grid-template-columns: repeat(3, minmax(0, 1fr)) }
+}
+
 /* ---------- a town card ---------- */
 .nx .lt-card { position: relative; padding: 0; overflow: hidden; border-radius: 16px; container: lt-card / inline-size }
 .nx .lt-card[hidden] { display: none }
