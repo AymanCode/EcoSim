@@ -95,6 +95,14 @@ describe('compact numbers sheet', () => {
           ? COPY.numbers.columns.difference(towns[1].label, towns[0].label)
           : COPY.numbers.columns.differences(towns[0].label)))
       }
+      const back = columns.querySelector('.nx-number-back')
+      const scroll = columns.querySelector('.nx-number-column-scroll')
+      // Desktop Back occupies the blank measure heading, without reserving
+      // another row even while visibility keeps it out of the tab sequence.
+      expect(getComputedStyle(scroll).gridArea).toBe('1 / 1')
+      expect(getComputedStyle(back).gridArea).toBe(getComputedStyle(scroll).gridArea)
+      expect(getComputedStyle(back).justifySelf).toBe('start')
+      expect(getComputedStyle(back).alignSelf).toBe('center')
       expect(within(columns).queryByRole('button', { name: COPY.numbers.back })).toBeNull()
       act(() => observeHeader([{ isIntersecting: false }]))
       expect(within(columns).getByRole('button', { name: COPY.numbers.back })).toBeVisible()
@@ -103,6 +111,12 @@ describe('compact numbers sheet', () => {
       expect(within(columns).queryByRole('button', { name: COPY.numbers.back })).toBeNull()
       headings.forEach(heading => expect(heading).toBeVisible())
     } finally { styles.remove() }
+  })
+
+  test('phones retain a separate Back row beside the narrow pinned measure column', () => {
+    const phoneStyles = numbersSheetCss.split('@media (max-width: 640px) {')[1].split('/* One-off layout motion')[0]
+    expect(phoneStyles).toMatch(/\.nx \.nx-number-column-scroll\s*\{\s*grid-area:\s*2 \/ 1\s*\}/)
+    expect(phoneStyles).toMatch(/\.nx \.nx-number-back\s*\{\s*justify-self:\s*end;\s*margin-left:\s*0\s*\}/)
   })
 
   test('sticky Back keeps its accessible name, close action and place before row controls', () => {
