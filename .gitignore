@@ -127,3 +127,6 @@ benchmarks/results/_logs/
 # Brainstorm companion mockups
 .superpowers/
 
+# Local agent instructions (kept outside the repository)
+CLAUDE.md
+AGENTS.md
