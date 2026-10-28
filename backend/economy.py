@@ -1071,8 +1071,9 @@ class Economy:
         after ``_apply_household_income``) the wage and benefit sources are this
         week's actual receipts: ``last_wage_income + last_other_income`` (take-home
         wage and CEO pay after wage tax) and ``last_transfer_income``. Without it
-        they are the forecast inputs every direct caller and the named payment
-        arms use: the contract wage when employed and the benefit level when not.
+        they are forecast inputs: the contract wage when employed and the
+        benefit level when not. The standard funded path explicitly selects
+        settled inputs after this tick's actual wage/benefit payments.
 
         With ``CONFIG.households.healthcare_food_first_reserve`` on, the money
         is claimed in this order on every payment sequence: rent and loan
@@ -1097,7 +1098,7 @@ class Economy:
             wages = np.array([h.wage for h in self.households], dtype=np.float64)
         if self.payment_sequence != "legacy":
             from payment_behavior import planning_inputs
-            net_wages, payment_liquidity, pressure = planning_inputs(self)
+            net_wages, payment_liquidity, pressure = planning_inputs(self, settled_income=settled_income)
             wages = np.asarray(net_wages, dtype=np.float64)
         drawdown_rates = static_traits["drawdown_rates"]
         dividend_incomes = np.array(
@@ -1137,14 +1138,21 @@ class Economy:
 
         # Income separation: wage when employed, benefit when unemployed.
         if settled_income:
-            # This week's receipts, credited before the shopping decision.
-            wage_income = np.maximum(np.array(
-                [h.last_wage_income + h.last_other_income for h in self.households],
-                dtype=np.float64,
-            ), 0.0)
-            benefit_income = np.array(
-                [h.last_transfer_income for h in self.households], dtype=np.float64
-            )
+            if self.payment_sequence != "legacy":
+                wage_income = wages
+                benefit_income = np.array([
+                    self.payment_book.paid_income.get(h.household_id, {}).get("benefit", 0.0)
+                    for h in self.households
+                ], dtype=np.float64)
+            else:
+                # This week's receipts, credited before the shopping decision.
+                wage_income = np.maximum(np.array(
+                    [h.last_wage_income + h.last_other_income for h in self.households],
+                    dtype=np.float64,
+                ), 0.0)
+                benefit_income = np.array(
+                    [h.last_transfer_income for h in self.households], dtype=np.float64
+                )
         else:
             wage_income = np.where(employment_status, wages, 0.0)
             benefit_income = np.where(employment_status, 0.0, unemployment_benefit)
@@ -1195,9 +1203,8 @@ class Economy:
                             0.0, entry["estimated_discretionary_liquidity"] - reserve
                         )
 
-        # Savings are an opening stock. Expected income can lift the named
-        # shopping ceiling, but already has its MPC above and must not also
-        # become a savings stock to draw down before it arrives.
+        # Income already has its own MPC. Neither forecast income nor an actual
+        # receipt may also become a savings stock for a second drawdown.
         savings_liquidity = accessible_liquidity
         if self.payment_sequence != "legacy":
             savings_liquidity = np.fromiter(
@@ -2741,9 +2748,6 @@ class Economy:
         firm_wage_plans = tick.firm_wage_plans
         firm_production_plans = tick.firm_production_plans
         gov_benefit = tick.gov_benefit
-        category_market_snapshot = tick.category_market_snapshot
-        good_category_lookup = tick.good_category_lookup
-        unemployment_rate = tick.unemployment_rate
         # Phase 2: Households plan
         tick.household_labor_plans = {}
 
@@ -2824,31 +2828,32 @@ class Economy:
             for household_id, plan in tick.household_labor_plans.items()
         }
 
-        # Consumption planning. The named payment arms keep their decision
-        # boundary here; legacy shopping is planned once, after this week's
-        # income and credit, in _phase_goods_clearing.
-        if tick.payment_arm:
-            if (not self.performance_mode) or (self.current_tick % 5 == 0):
-                tick.household_consumption_plans = self._batch_plan_consumption(
-                    self.last_tick_prices,
-                    category_market_snapshot,
-                    good_category_lookup,
-                    unemployment_rate,
-                    gov_benefit,
-                )
-                if self.performance_mode:
-                    self._cached_consumption_plans = tick.household_consumption_plans
-            else:
-                tick.household_consumption_plans = self._apply_cached_consumption_plans()
+        # Later-pay shoppers still plan against opening resources. Standard
+        # shopping waits for funded wages/benefits in _phase_goods_clearing.
+        if tick.payment_arm and self.payment_sequence == "income_late":
+            self._plan_payment_consumption(tick)
 
         # Phase 2a: Consumption credit (Fix 25) — bridge low-cash households.
         # Requests were flagged in the household pass above; only
-        # _offer_consumption_loans reads them. On the payment arms it must
-        # follow consumption planning because disbursal changes cash; on
-        # legacy the disbursed loan is part of the cash the later shopping
-        # decision sees.
+        # _offer_consumption_loans reads them. Later-pay plans retain their
+        # original pre-disbursal timing. The standard and legacy shopping
+        # decisions occur later and can observe actual disbursed cash.
         if self.bank is not None:
             self._offer_consumption_loans()
+
+    def _plan_payment_consumption(self, tick: _TickScratch, *, settled_income: bool = False) -> None:
+        """Move the existing decision without adding seller searches or cache refreshes."""
+        if not self.performance_mode or self.current_tick % 5 == 0:
+            args = (self.last_tick_prices, tick.category_market_snapshot,
+                    tick.good_category_lookup, tick.unemployment_rate, tick.gov_benefit)
+            tick.household_consumption_plans = (
+                self._batch_plan_consumption(*args, settled_income=True)
+                if settled_income else self._batch_plan_consumption(*args)
+            )
+            if self.performance_mode:
+                self._cached_consumption_plans = tick.household_consumption_plans
+        else:
+            tick.household_consumption_plans = self._apply_cached_consumption_plans()
 
     def _phase_labor_matching(self, tick: _TickScratch) -> None:
         """Resolve the labor market (with the payment Services-project hire) and record labor events."""
@@ -2886,10 +2891,11 @@ class Economy:
                     gross = outcome.get("actual_wages", {}).get(hid)
                     if gross is not None:
                         diagnose_observed_offer(self, hid, float(gross), fid)
-        self._record_failed_hiring_events(firm_production_plans, tick.firm_labor_outcomes)
+        if not payment_arm:
+            self._record_failed_hiring_events(firm_production_plans, tick.firm_labor_outcomes)
 
     def _phase_apply_labor_outcomes(self, tick: _TickScratch) -> None:
-        """Apply labor outcomes, sync rosters, continuing-wage raises and the payment project worker."""
+        """Resolve contracts, fund private work, then credit history and assign installation."""
         firm_labor_outcomes = tick.firm_labor_outcomes
         household_labor_outcomes = tick.household_labor_outcomes
         payment_arm = tick.payment_arm
@@ -2919,6 +2925,13 @@ class Economy:
         for firm in self.firms:
             firm.apply_labor_outcome(firm_labor_outcomes[firm.firm_id])
 
+        deferred_private_history = []
+        private_payroll_ids = set()
+        if payment_arm:
+            from payment_payroll import is_private_payroll_firm, enforce_private_payroll
+            private_payroll_ids = {
+                firm.firm_id for firm in self.firms if is_private_payroll_firm(self, firm)
+            }
         for household in self.households:
             anchor = None
             if household.skills_level < 0.4:
@@ -2938,15 +2951,32 @@ class Economy:
                         hh_outcome = dict(hh_outcome)
                         hh_outcome["wage"] = resolved_wage
 
-            household.apply_labor_outcome(
-                hh_outcome,
-                market_wage_anchor=anchor,
-                current_tick=self.current_tick
-            )
+            if (new_employer_id in private_payroll_ids
+                    and household.medical_training_status not in {"resident", "doctor"}):
+                household.employer_id = new_employer_id
+                household.wage = hh_outcome["wage"]
+                deferred_private_history.append((household, anchor))
+            else:
+                household.apply_labor_outcome(
+                    hh_outcome, market_wage_anchor=anchor, current_tick=self.current_tick,
+                )
 
         # Keep firm-side employee rosters aligned with household employment outcomes.
         # This prevents stale counts in firm telemetry versus unemployment metrics.
         self._sync_firm_employee_rosters()
+        # Resolve scheduled contract amounts before deciding what work is funded.
+        # The helper retains its existing roster order, eligibility and RNG.
+        if self.current_tick % 50 == 0:
+            self._update_continuing_employee_wages()
+        if payment_arm:
+            enforce_private_payroll(self, firm_labor_outcomes, household_labor_outcomes)
+            self._record_failed_hiring_events(tick.firm_production_plans, firm_labor_outcomes)
+        for household, anchor in deferred_private_history:
+            employer = self.firm_lookup.get(household.employer_id)
+            household._apply_labor_history(
+                employer.good_category if employer is not None else None,
+                market_wage_anchor=anchor, current_tick=self.current_tick,
+            )
         if CONFIG.households.skills_dynamics:
             # After roster sync, so employment status is final for the week.
             self._batch_update_skills()
@@ -2959,9 +2989,6 @@ class Economy:
                     baseline_hire_count=self.payment_project_baseline_hires,
                 )
 
-        # Update wages for continuing employees every 50 ticks (small 2-3% increases)
-        if self.current_tick % 50 == 0:
-            self._update_continuing_employee_wages()
         if payment_arm and self.config.payment_services_project_enabled:
             project = self.payment_state.get("services_project")
             if project and project.get("status") == "assigned":
@@ -3003,7 +3030,7 @@ class Economy:
             )
 
     def _phase_goods_clearing(self, tick: _TickScratch) -> None:
-        """Settle income, plan legacy shopping, withdraw deposits, clear goods; legacy Services slot upgrades."""
+        """Settle income, plan funded/legacy shopping, withdraw deposits and clear goods."""
         payment_arm = tick.payment_arm
         frozen_wages = tick.frozen_wages
         household_consumption_plans = tick.household_consumption_plans
@@ -3017,6 +3044,9 @@ class Economy:
             observe_settled_tax(self)
             self.payment_book.settle_benefits()
             self._payment_sync_restrictions()
+            if self.payment_sequence == "income_first":
+                self._plan_payment_consumption(tick, settled_income=True)
+                household_consumption_plans = tick.household_consumption_plans
             due_by_household = prepare_household_dues(self)
             quotes = payment_deposit_quotes(self, household_consumption_plans, due_by_household)
             self._payment_withdraw_deposits(quotes)

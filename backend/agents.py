@@ -1747,7 +1747,15 @@ class HouseholdAgent(AgentMixin):
         """
         self.employer_id = outcome["employer_id"]
         self.wage = outcome["wage"]
-        employer_category = outcome.get("employer_category", None)
+        self._apply_labor_history(
+            outcome.get("employer_category"), market_wage_anchor, current_tick,
+        )
+
+    def _apply_labor_history(
+        self, employer_category: Optional[str],
+        market_wage_anchor: Optional[float] = None, current_tick: int = 0,
+    ) -> None:
+        """Credit history once after the coordinator finalizes funded employment."""
 
         # Track experience in category (increment by 1 tick if employed)
         if self.is_employed:

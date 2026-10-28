@@ -28,6 +28,8 @@ Split household labor application into contract assignment and its existing work
 
 `PaymentBook` remains the settlement owner. A bounded tick-local set marks firms that passed this pre-work check; settlement rejects a later current-pay shortfall for those firms rather than silently creating a new claim. Direct settlement helpers still handle old states, tests and baseline-provider shortfalls. Current implementation has no cash production input charge between the gate and payroll; future changes that spend that cash must protect the same funding boundary.
 
+Currency rounding cannot authorize unfunded work. Compute the cash gap with compensated summation; on the distress-only trimming path use exact binary-float ratios to select the affordable retained suffix in one traversal. Do not subtract a huge cancelled wage from a rounded total and assume the remainder is accurate. Fully funded private contracts are paid directly, without proportional multiply/divide roundoff. Bank transfers that cannot represent the requested movement within the shared money tolerance are not originated. These numerical guards add no economic coefficient or debt relaxation.
+
 Per-firm decision diagnostics record current payroll required, opening available cash, bank credit requested/funded, cancelled hires, financial layoffs and retained workers. Values are current-tick model currency/counts, overwritten each tick; no new household debt state or history. No household-by-firm scan or employee optimization search.
 
 ## Receipt-based shopping boundary

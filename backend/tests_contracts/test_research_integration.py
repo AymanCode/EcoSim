@@ -47,7 +47,7 @@ def research_world(factory, monkeypatch, sequence, model, *, price=1000.0,
         {h.household_id: {"employer_id": 1 if h.household_id == 1 else None,
                           "wage": 100.0 if h.household_id == 1 else 0.0,
                           "employer_category": "Food"} for h in households}))
-    monkeypatch.setattr(ec, "_batch_plan_consumption", lambda *_: {
+    monkeypatch.setattr(ec, "_batch_plan_consumption", lambda *_, **__: {
         h.household_id: {"planned_purchases": {1: 2.0} if h.household_id == 2 else {},
                         "budget": price * 2 if h.household_id == 2 else 0.0}
         for h in households})
@@ -194,7 +194,7 @@ def test_zero_sale_ticks_still_process_and_eventually_pause_existing_research(
     factory, monkeypatch, sequence, model,
 ):
     cfg, ec, firm, _, _ = research_world(factory, monkeypatch, sequence, model)
-    monkeypatch.setattr(ec, "_batch_plan_consumption", lambda *_: {
+    monkeypatch.setattr(ec, "_batch_plan_consumption", lambda *_, **__: {
         2: {"planned_purchases": {}, "budget": 0.0}})
     with use_config(cfg):
         assert firm.advance_research(tick=4, operating_cash_generation=1020.0) > 0

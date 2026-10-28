@@ -391,7 +391,7 @@ def test_real_two_tick_unfunded_care_retries_same_episode_without_new_arrival(fa
             {1: {"employer_id": None, "wage": 0.0, "employer_category": None},
              2: {"employer_id": 8, "wage": 40.0, "employer_category": "Healthcare"}},
         ))
-        monkeypatch.setattr(economy, "_batch_plan_consumption", lambda *_: {
+        monkeypatch.setattr(economy, "_batch_plan_consumption", lambda *_, **__: {
             1: {"planned_purchases": {}, "budget": 0.0},
             2: {"planned_purchases": {}, "budget": 0.0},
         })
