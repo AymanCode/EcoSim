@@ -27,8 +27,6 @@ function Clocked({ arms }) {
         playing={clock.playing}
         onToggle={clock.toggle}
         onScrub={clock.scrub}
-        speed={clock.speed}
-        onSpeed={clock.setSpeed}
       />
     </div>
   )
@@ -86,7 +84,7 @@ describe('RunScreen', { timeout: WHOLE_SCREEN_MS }, () => {
     const onToggle = vi.fn()
     const { container } = render(
       <div className="nx">
-        <RunScreen arms={[fixtureArm(TOWN_A), townB()]} tick={17} maxTick={24} playing={false} onToggle={onToggle} onScrub={onScrub} speed={1} onSpeed={() => {}} />
+        <RunScreen arms={[fixtureArm(TOWN_A), townB()]} tick={17} maxTick={24} playing={false} onToggle={onToggle} onScrub={onScrub} />
       </div>,
     )
     expect(weekShown(container)).toBe('Year 1, week 17')

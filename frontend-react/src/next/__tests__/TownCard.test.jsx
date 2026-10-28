@@ -288,7 +288,7 @@ describe('TownCard keeps what the old town drawing showed', () => {
 })
 
 describe('Run screen towns', { timeout: WHOLE_SCREEN_MS }, () => {
-  const props = { tick: 70, maxTick: 104, playing: false, onToggle() {}, onScrub() {}, speed: 1, onSpeed() {} }
+  const props = { tick: 70, maxTick: 104, playing: false, onToggle() {}, onScrub() {} }
 
   test('one card per town, side by side, with the shared legend', () => {
     const { container } = render(<RunScreen arms={[A, B]} {...props} />)
@@ -343,17 +343,17 @@ describe('TownCard motion between weeks', () => {
   const inSlots = (container, selector) => container.querySelectorAll(`[data-slot] > ${selector}`)
   const skyTop = container => container.querySelector('[data-weather~="sky"]').style.getPropertyValue('--lt-sky-top')
   const flying = container => [...layer(container, 'coins').querySelectorAll('circle')].filter(coin => coin.style.display !== 'none')
-  const card = (tick, props = {}) => <TownCard arm={A} tick={tick} towns={2} speed={1} {...props} />
+  const card = (tick, props = {}) => <TownCard arm={A} tick={tick} towns={2} {...props} />
 
   test('scrubbing to another week adds no floating signs', () => {
-    const { container, rerender } = render(<TownCard arm={A} tick={69} towns={2} playing={false} speed={1} />)
-    rerender(<TownCard arm={A} tick={70} towns={2} playing={false} speed={1} />)
+    const { container, rerender } = render(<TownCard arm={A} tick={69} towns={2} playing={false} />)
+    rerender(<TownCard arm={A} tick={70} towns={2} playing={false} />)
     expect(container.querySelectorAll('[data-layer="moments"] > *')).toHaveLength(0)
   })
 
   test("a single forward step while playing pops the week's moments", () => {
-    const { container, rerender } = render(<TownCard arm={A} tick={69} towns={2} playing speed={1} />)
-    rerender(<TownCard arm={A} tick={70} towns={2} playing speed={1} />)
+    const { container, rerender } = render(<TownCard arm={A} tick={69} towns={2} playing />)
+    rerender(<TownCard arm={A} tick={70} towns={2} playing />)
     expect(container.querySelector('[data-layer="moments"]').textContent).toContain('Closed')
   })
 
@@ -524,39 +524,39 @@ describe('TownCard motion between weeks', () => {
   })
 
   test('cars and people on the roads follow the model, in the tile slots', () => {
-    const { container, rerender } = render(<TownCard arm={B} tick={11} towns={2} playing={false} speed={1} />)
+    const { container, rerender } = render(<TownCard arm={B} tick={11} towns={2} playing={false} />)
     const count = tick => {
       const { traffic } = townAt(B, tick)
       expect(inSlots(container, '.lt-car')).toHaveLength(traffic.cars)
       expect(inSlots(container, '.lt-walker:not(.is-moving)')).toHaveLength(traffic.walkers)
     }
     count(11)
-    rerender(<TownCard arm={B} tick={69} towns={2} playing={false} speed={1} />)
+    rerender(<TownCard arm={B} tick={69} towns={2} playing={false} />)
     count(69)
   })
 
   test('the drawing\'s structure survives a week change, and so do the things the loop added', () => {
-    const { container, rerender } = render(<TownCard arm={B} tick={60} towns={2} playing={false} speed={1} />)
+    const { container, rerender } = render(<TownCard arm={B} tick={60} towns={2} playing={false} />)
     const slots = [...container.querySelectorAll('[data-slot]')]
     const layers = [...container.querySelectorAll('[data-layer]')]
     const cars = [...inSlots(container, '.lt-car')]
     expect(cars.length).toBeGreaterThan(0)
-    rerender(<TownCard arm={B} tick={61} towns={2} playing={false} speed={1} />)
+    rerender(<TownCard arm={B} tick={61} towns={2} playing={false} />)
     expect([...container.querySelectorAll('[data-slot]')].every((slot, i) => slot === slots[i])).toBe(true)
     expect([...container.querySelectorAll('[data-layer]')].every((node, i) => node === layers[i])).toBe(true)
     expect(cars.every(car => car.isConnected)).toBe(true)
   })
 
   test('mounting twice (StrictMode) leaves one set of cars and people, not two', () => {
-    const { container } = render(<StrictMode><TownCard arm={B} tick={69} towns={2} playing={false} speed={1} /></StrictMode>)
+    const { container } = render(<StrictMode><TownCard arm={B} tick={69} towns={2} playing={false} /></StrictMode>)
     const { traffic } = townAt(B, 69)
     expect(inSlots(container, '.lt-car')).toHaveLength(traffic.cars)
     expect(inSlots(container, '.lt-walker')).toHaveLength(traffic.walkers)
   })
 
   test('coins carry money while playing, and none fly while paused', () => {
-    const paused = render(<TownCard arm={B} tick={60} towns={2} playing={false} speed={1} />)
-    const playing = render(<TownCard arm={B} tick={60} towns={2} playing speed={1} />)
+    const paused = render(<TownCard arm={B} tick={60} towns={2} playing={false} />)
+    const playing = render(<TownCard arm={B} tick={60} towns={2} playing />)
     frames(400)
     expect(flying(playing.container).length).toBeGreaterThan(0)
     expect(flying(paused.container)).toHaveLength(0)
@@ -782,7 +782,7 @@ describe('a scene with its own places', () => {
   // floor from week 29 to 30) and one cloud, drawn in its own units.
   function Strip({ model, places, playing }) {
     const ref = useRef(null)
-    useSceneMotion(ref, { model, places, playing, speed: 1, towns: 1 })
+    useSceneMotion(ref, { model, places, playing, towns: 1 })
     return (
       <div ref={ref}>
         <svg data-layer="back"><g data-layer="clouds"><g data-cloud="0" transform="translate(10 4)"><ellipse rx="3" ry="2" /></g></g></svg>
@@ -908,7 +908,7 @@ describe('a scene with its own places', () => {
 // The Run screen tells the drawings when to move: not on a live run held on a
 // past week, and never take a week reached on the timeline for a step.
 describe('Run screen towns in motion', { timeout: WHOLE_SCREEN_MS }, () => {
-  const props = { maxTick: 104, onToggle() {}, onSpeed() {}, speed: 1 }
+  const props = { maxTick: 104, onToggle() {} }
   const signs = container => container.querySelectorAll('.lt-card [data-layer="moments"] > *').length
 
   test('playing forward a week pops its moments; the same week reached by the timeline does not', () => {

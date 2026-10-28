@@ -60,11 +60,11 @@ function launchCoin(s, flow) {
   s.coins.push(coin)
 }
 
-// The coins due for dt seconds of play at `pace` with `towns` towns shown
+// The coins due for dt seconds of play with `towns` towns shown
 // (none in the warm-up weeks, before the town has an economy).
-export function launchCoins(s, model, dt, pace, towns) {
+export function launchCoins(s, model, dt, towns) {
   if (model.warmUp || !s.pools) return
-  const due = coinsDue(s.debt, model.flows, dt * COIN_WEEKS_PER_SECOND * pace, pace, towns)
+  const due = coinsDue(s.debt, model.flows, dt * COIN_WEEKS_PER_SECOND, towns)
   s.debt = due.debt
   for (const flow of FLOWS) for (let n = 0; n < due.launches[flow]; n += 1) launchCoin(s, flow)
 }

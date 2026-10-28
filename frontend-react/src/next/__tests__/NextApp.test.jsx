@@ -35,13 +35,19 @@ describe('NextApp', { timeout: WHOLE_SCREEN_MS }, () => {
     expect(document.documentElement).not.toHaveClass('nx-page')
   })
 
-  test('owns the replay clock and hands it to the Run screen', async () => {
+  test('the demo keeps play, pause and scrubbing without a speed selector', async () => {
     vi.stubGlobal('fetch', serve({ 'town-a.jsonl': FIXTURE_TEXT, 'town-b.jsonl': TOWN_B_TEXT }))
     const { container } = render(<NextApp search="?view=next&demo" />)
     const slider = await screen.findByRole('slider', { name: 'Week of the run' })
+    const timeline = within(screen.getByRole('region', { name: 'Timeline' }))
+    expect(timeline.queryByRole('group', { name: 'Speed' })).toBeNull()
+    expect(timeline.queryByRole('button', { name: /speed/i })).toBeNull()
     expect(slider).toHaveAttribute('max', '24')
     fireEvent.change(slider, { target: { value: '15' } })
     expect(container.querySelector('.nx-week')).toHaveTextContent('Year 1, week 15')
+    fireEvent.click(timeline.getByRole('button', { name: 'Play' }))
+    fireEvent.click(timeline.getByRole('button', { name: 'Pause' }))
+    expect(timeline.getByRole('button', { name: 'Play' })).toBeInTheDocument()
   })
 
   test('explains how to fix missing demo data', async () => {

@@ -39,8 +39,6 @@ function DemoRun({ arms, numbersOpen = false }) {
       playing={clock.playing}
       onToggle={clock.toggle}
       onScrub={clock.scrub}
-      speed={clock.speed}
-      onSpeed={clock.setSpeed}
       numbersOpen={numbersOpen}
     />
   )

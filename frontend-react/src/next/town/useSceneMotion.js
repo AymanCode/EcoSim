@@ -94,11 +94,11 @@ function clearMoving(s) {
 
 // `places` describes where things are in this kind of scene (islandPlaces.js);
 // pass a module-level object, as the loop is set up again when it changes.
-export default function useSceneMotion(rootRef, { model, places, playing = false, speed = 1, towns = 1, scrubs = 0, hidden = false, ended = false }) {
+export default function useSceneMotion(rootRef, { model, places, playing = false, towns = 1, scrubs = 0, hidden = false, ended = false }) {
   // The loop reads the latest props from here, written after each render.
   const live = useRef(null)
   useLayoutEffect(() => {
-    live.current = { model, playing, speed, towns }
+    live.current = { model, playing, towns }
   })
   const scene = useRef(null)
   const last = useRef({ tick: null, scrubs: null, playing: false })
@@ -116,7 +116,7 @@ export default function useSceneMotion(rootRef, { model, places, playing = false
       s.raf = 0
       const dt = clamp((now - s.last) / 1000, 0, 0.1)
       s.last = now
-      const { model: m, playing: on, speed: pace, towns: count } = live.current
+      const { model: m, playing: on, towns: count } = live.current
       const moving = (on || s.settling) && !s.reduce
       // The mood eases in, so the weather drifts rather than snaps.
       if (s.mood !== s.moodTarget) {
@@ -133,7 +133,7 @@ export default function useSceneMotion(rootRef, { model, places, playing = false
         stepAmbient(s.ambient, s.now, dt)
         for (const car of s.cars) places.moveCar(s, car, dt)
         for (const walker of s.walkers) places.moveWalker(s, walker, dt)
-        if (on) launchCoins(s, m, dt, pace, count)
+        if (on) launchCoins(s, m, dt, count)
         stepCoins(s)
         stepMoments(s)
         stepHeights(s)

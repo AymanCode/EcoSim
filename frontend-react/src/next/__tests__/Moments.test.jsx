@@ -64,7 +64,7 @@ describe('Moments', () => {
 
   test('sits under the lead on the Run screen, recorded and live', { timeout: WHOLE_SCREEN_MS }, () => {
     const arms = [fixtureArm(TOWN_A), fixtureArm(TOWN_B)]
-    const props = { arms, tick: WEEK, maxTick: 24, playing: false, onToggle: noop, onScrub: noop, speed: 1, onSpeed: noop }
+    const props = { arms, tick: WEEK, maxTick: 24, playing: false, onToggle: noop, onScrub: noop }
     const live = {
       phase: 'running', towns: [], error: null, following: true, onFollow: noop, hallOpen: false, onHall: noop,
       onConfigure: noop, onTrack: noop, onExtend: noop, onRestart: noop, onNewExperiment: noop,

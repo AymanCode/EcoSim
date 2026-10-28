@@ -155,7 +155,7 @@ const page = () => document.scrollingElement ?? document.documentElement
 // still drives it; `numbersOpen` opens the screen on it. The sheet and the Town
 // hall drawer are never open together.
 export default function RunScreen({
-  arms, tick, maxTick, playing, onToggle, onScrub, speed, onSpeed, live, numbersOpen: numbersAtStart = false,
+  arms, tick, maxTick, playing, onToggle, onScrub, live, numbersOpen: numbersAtStart = false,
 }) {
   const horizon = Math.max(maxTick, ...arms.map(arm => arm.horizon || 0))
   const [metricKey, setMetricKey] = useState(STORY_METRICS[0])
@@ -280,8 +280,6 @@ export default function RunScreen({
         playing={playing}
         onToggle={onToggle}
         onScrub={scrub}
-        speed={speed}
-        onSpeed={onSpeed}
         live={live}
         following={live?.following}
         onFollow={live ? follow : undefined}
@@ -343,7 +341,6 @@ export default function RunScreen({
                     tick={tick}
                     towns={arms.length}
                     playing={moving}
-                    speed={speed}
                     scrubs={scrubs}
                     ended={ended}
                     canFocus={!single}
@@ -361,7 +358,6 @@ export default function RunScreen({
                 arms={arms}
                 tick={tick}
                 playing={moving}
-                speed={speed}
                 scrubs={scrubs}
                 ended={ended}
                 selected={Math.min(streetTown, arms.length - 1)}

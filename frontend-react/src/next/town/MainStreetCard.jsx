@@ -24,7 +24,7 @@ const D = COPY.diorama
 
 // One town's street for the week on the clock, with its place cards and its
 // summary. Keyed by the town, so picking another town starts a new scene.
-function Street({ arm, tick, playing, speed, towns, scrubs, ended }) {
+function Street({ arm, tick, playing, towns, scrubs, ended }) {
   // An arm's weeks grow in place (data/session.js): memoised on the count too.
   const weeks = arm.ticks.length
   const model = useMemo(() => townAt(arm, tick), [arm, tick, weeks]) // eslint-disable-line react-hooks/exhaustive-deps
@@ -33,7 +33,7 @@ function Street({ arm, tick, playing, speed, towns, scrubs, ended }) {
   return (
     <>
       <div className="lt-canvas" {...handlers}>
-        <MainStreet model={model} color={arm.color} playing={playing} speed={speed} towns={towns} scrubs={scrubs} ended={ended} />
+        <MainStreet model={model} color={arm.color} playing={playing} towns={towns} scrubs={scrubs} ended={ended} />
         {overlay}
       </div>
       <p className="nx-sr">
@@ -43,7 +43,7 @@ function Street({ arm, tick, playing, speed, towns, scrubs, ended }) {
   )
 }
 
-export default function MainStreetCard({ arms, tick, playing = false, speed = 1, selected = 0, onSelect, scrubs = 0, ended = false }) {
+export default function MainStreetCard({ arms, tick, playing = false, selected = 0, onSelect, scrubs = 0, ended = false }) {
   const titleId = useId()
   const index = Math.min(Math.max(0, selected), arms.length - 1)
   const arm = arms[index]
@@ -64,7 +64,7 @@ export default function MainStreetCard({ arms, tick, playing = false, speed = 1,
           </div>
         )}
       </header>
-      <Street key={arm.label} arm={arm} tick={tick} playing={playing} speed={speed} towns={arms.length} scrubs={scrubs} ended={ended} />
+      <Street key={arm.label} arm={arm} tick={tick} playing={playing} towns={arms.length} scrubs={scrubs} ended={ended} />
     </article>
   )
 }

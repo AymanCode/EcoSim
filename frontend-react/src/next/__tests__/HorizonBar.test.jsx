@@ -1,6 +1,6 @@
 import fs from 'node:fs'
 import { describe, expect, test, vi } from 'vitest'
-import { fireEvent, render, screen, within } from '@testing-library/react'
+import { fireEvent, render, screen } from '@testing-library/react'
 import HorizonBar from '../components/HorizonBar.jsx'
 
 // See fixture.js: keep import.meta.url in a variable so Vite leaves it a file: URL.
@@ -8,8 +8,8 @@ const here = import.meta.url
 const CSS = fs.readFileSync(new URL('../next.css', here), 'utf8')
 
 function bar(props = {}) {
-  const handlers = { onToggle: vi.fn(), onScrub: vi.fn(), onSpeed: vi.fn() }
-  const view = render(<HorizonBar tick={20} horizon={104} maxTick={104} playing={false} speed={1} {...handlers} {...props} />)
+  const handlers = { onToggle: vi.fn(), onScrub: vi.fn() }
+  const view = render(<HorizonBar tick={20} horizon={104} maxTick={104} playing={false} {...handlers} {...props} />)
   return { ...view, ...handlers }
 }
 
@@ -65,20 +65,10 @@ describe('HorizonBar', () => {
     const { onToggle, rerender } = bar()
     fireEvent.click(screen.getByRole('button', { name: 'Play' }))
     expect(onToggle).toHaveBeenCalledTimes(1)
-    rerender(<HorizonBar tick={20} horizon={104} maxTick={104} playing speed={1} onToggle={onToggle} onScrub={() => {}} onSpeed={() => {}} />)
+    rerender(<HorizonBar tick={20} horizon={104} maxTick={104} playing onToggle={onToggle} onScrub={() => {}} />)
     expect(screen.getByRole('button', { name: 'Pause' })).toBeInTheDocument()
-    rerender(<HorizonBar tick={104} horizon={104} maxTick={104} playing={false} speed={1} onToggle={onToggle} onScrub={() => {}} onSpeed={() => {}} />)
+    rerender(<HorizonBar tick={104} horizon={104} maxTick={104} playing={false} onToggle={onToggle} onScrub={() => {}} />)
     expect(screen.getByRole('button', { name: 'Play again' })).toBeInTheDocument()
-  })
-
-  test('speed buttons', () => {
-    const { onSpeed } = bar()
-    const group = screen.getByRole('group', { name: 'Speed' })
-    const buttons = within(group).getAllByRole('button')
-    expect(buttons.map(button => button.textContent)).toEqual(['0.5×', '1×', '2×', '4×'])
-    expect(within(group).getByRole('button', { name: 'Play at 1× speed' })).toHaveAttribute('aria-pressed', 'true')
-    fireEvent.click(within(group).getByRole('button', { name: 'Play at 4× speed' }))
-    expect(onSpeed).toHaveBeenCalledWith(4)
   })
 
   test('the bar wraps at every width, and ends before the Town hall drawer', () => {

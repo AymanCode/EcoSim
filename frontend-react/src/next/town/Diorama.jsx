@@ -143,11 +143,11 @@ const STILL = PAINT_ORDER.map(item => {
 })
 const GROUND = <Ground />
 
-function Diorama({ model, color, sceneRef, playing = false, speed = 1, towns = 1, scrubs = 0, hidden = false, ended = false }) {
+function Diorama({ model, color, sceneRef, playing = false, towns = 1, scrubs = 0, hidden = false, ended = false }) {
   const id = useId().replace(/[^\w-]/g, '')
   const rootRef = useRef(null)
   useImperativeHandle(sceneRef, () => rootRef.current, [])
-  useSceneMotion(rootRef, { model, places: ISLAND, playing, speed, towns, scrubs, hidden, ended })
+  useSceneMotion(rootRef, { model, places: ISLAND, playing, towns, scrubs, hidden, ended })
 
   const byLot = new Array(LAYOUT.lots.length).fill(null)
   for (const shop of model.shops) if (!byLot[shop.lot] || shop.state !== 'closed') byLot[shop.lot] = shop

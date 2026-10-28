@@ -2,7 +2,6 @@ import { useLayoutEffect, useMemo, useState } from 'react'
 import useMeasured from '../../charts/useMeasured.js'
 import { COPY } from '../catalog.js'
 import { weekLabel } from '../narration.js'
-import { SPEEDS } from '../useReplay.js'
 import '../next.css'
 
 const WEEKS_PER_YEAR = 52
@@ -36,7 +35,7 @@ function longestWeekLabel(length) {
 }
 
 // The sticky timeline: play/pause, the week, a scrubber over the recorded
-// weeks with year marks, and the playback speed (only when there is one).
+// weeks with year marks.
 // In a live run (`live`, RunScreen's live prop) the toggle pauses and
 // resumes the towns, "Back to live" returns to the newest week while
 // `following` is false, and a Town hall button opens and closes the drawer
@@ -47,7 +46,7 @@ function longestWeekLabel(length) {
 // `numbersId`; `numbersDisabled` while there is nothing to show. `barRef`
 // reaches the bar itself, so what sits under it can be measured against it.
 export default function HorizonBar({
-  tick, horizon, maxTick, playing, onToggle, onScrub, speed, onSpeed, live, following = true, onFollow,
+  tick, horizon, maxTick, playing, onToggle, onScrub, live, following = true, onFollow,
   hallToggleRef, hallId, onHallToggle,
   numbersOpen = false, onNumbersToggle, numbersToggleRef, numbersId, numbersDisabled = false, barRef,
 }) {
@@ -64,7 +63,6 @@ export default function HorizonBar({
   const pauseShown = live ? live.phase !== 'paused' : playing
   const toggleName = live ? (pauseShown ? COPY.horizon.pause : COPY.live.resume) : replayName
   const steerable = !live || STEERABLE.includes(live.phase)
-  const hasSpeed = speed !== undefined && onSpeed !== undefined
   const longest = useMemo(() => longestWeekLabel(length), [length])
   const [marksRef, { width }] = useMeasured()
   const [yearStep, setYearStep] = useState(1)
@@ -129,21 +127,6 @@ export default function HorizonBar({
             })}
           </div>
         </div>
-        {hasSpeed && (
-          <div className="nx-speed" role="group" aria-label={COPY.horizon.speed}>
-            {SPEEDS.map(value => (
-              <button
-                key={value}
-                type="button"
-                aria-pressed={value === speed}
-                aria-label={COPY.horizon.speedLabel(value)}
-                onClick={() => onSpeed(value)}
-              >
-                {COPY.horizon.speedValue(value)}
-              </button>
-            ))}
-          </div>
-        )}
         {live?.hallOpen !== undefined && (
           <button
             ref={hallToggleRef}

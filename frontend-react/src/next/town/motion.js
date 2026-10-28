@@ -3,20 +3,19 @@
 export const COIN_DOLLARS = 1800
 const FLOWS = ['spend', 'pay', 'tax', 'help']
 
-// The pace coins count weeks at: the mockup played one week a second, and the
-// coin rate (one coin per COIN_DOLLARS, divided by the speed) was set there.
-// The replay clock runs 8 weeks a second at 1×, so counting the clock's own
-// weeks would launch 8 times as many coins (about 200 a second in each town,
+// The pace coins count weeks at: the mockup played one week a second, with
+// one coin per COIN_DOLLARS. The replay clock runs 8 weeks a second, so counting
+// its own weeks would launch 8 times as many coins (about 200 a second in each town,
 // always at the cap); counting weeks at the mockup's pace keeps the picture as
-// calm as the approved mockup. The speed cancels out either way.
+// calm as the approved mockup.
 export const COIN_WEEKS_PER_SECOND = 1
 
 // How many coins of each kind to launch for `dWeeks` weeks of money moving, and
 // the fraction of a coin each flow carries over to the next call.
-export function coinsDue(debt, flows, dWeeks, speed, towns) {
+export function coinsDue(debt, flows, dWeeks, towns) {
   const next = { ...debt }
   const launches = {}
-  const calm = COIN_DOLLARS * Math.max(speed, 0.25) * Math.max(1, towns / 2)
+  const calm = COIN_DOLLARS * Math.max(1, towns / 2)
   for (const flow of FLOWS) {
     next[flow] = (next[flow] ?? 0) + ((flows?.[flow] ?? 0) / calm) * dWeeks
     let n = 0

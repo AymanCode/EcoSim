@@ -503,19 +503,6 @@ html:has(.nx-app) { scrollbar-gutter: stable }
   color: var(--nx-ink4-text);
   white-space: nowrap;
 }
-.nx .nx-speed { display: flex; gap: 2px; padding: 2px; border-radius: 8px; background: var(--nx-panel2) }
-.nx .nx-speed button {
-  border: 0;
-  background: none;
-  padding: 4px 9px;
-  border-radius: 6px;
-  font-size: 12.5px;
-  font-weight: 500;
-  color: var(--nx-ink3-text);
-  font-variant-numeric: tabular-nums;
-}
-.nx .nx-speed button:hover { color: var(--nx-ink) }
-.nx .nx-speed button[aria-pressed='true'] { background: var(--nx-panel); color: var(--nx-ink); box-shadow: 0 1px 2px rgba(23, 32, 43, .1) }
 
 /* Page and town columns */
 .nx .nx-wrap { max-width: 1340px; margin: 0 auto; padding: 26px 32px 80px }

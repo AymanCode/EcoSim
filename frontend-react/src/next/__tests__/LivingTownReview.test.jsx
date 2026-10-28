@@ -143,7 +143,7 @@ describe('final review identities', () => {
 function LiveClocked({ arm, phase, liveTick = 22 }) {
   const clock = useLiveClock(liveTick)
   return <RunScreen arms={[arm]} tick={clock.tick} maxTick={liveTick} playing={phase === 'running'}
-    onScrub={clock.scrub} onToggle={() => {}} speed={1} onSpeed={() => {}}
+    onScrub={clock.scrub} onToggle={() => {}}
     live={{ phase, following: clock.following, onFollow: clock.follow, onHall: () => {} }} />
 }
 

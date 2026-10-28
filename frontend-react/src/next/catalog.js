@@ -837,9 +837,6 @@ export const COPY = {
     pause: 'Pause',
     again: 'Play again',
     scrub: 'Week of the run',
-    speed: 'Speed',
-    speedValue: speed => `${speed}×`,
-    speedLabel: speed => `Play at ${speed}× speed`,
     length: horizon => {
       const weeks = Math.max(0, Math.round(Number(horizon) || 0))
       if (weeks >= 52 && weeks % 52 === 0) return `of ${counted(weeks / 52, 'year')}`

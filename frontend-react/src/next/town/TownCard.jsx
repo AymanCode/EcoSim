@@ -64,7 +64,7 @@ function factsOf({ out, pay, open, struggling, hallCash }) {
 }
 
 export default function TownCard({
-  arm: armNow, tick: tickNow, focused = false, canFocus = false, onFocus, towns = 1, hidden = false, playing = false, speed = 1, scrubs = 0, ended = false, children,
+  arm: armNow, tick: tickNow, focused = false, canFocus = false, onFocus, towns = 1, hidden = false, playing = false, scrubs = 0, ended = false, children,
 }) {
   // A card hidden by Enlarge keeps the week it showed when it was hidden and
   // does no work (no model, no weather, no motion) until it is shown again.
@@ -100,7 +100,7 @@ export default function TownCard({
         )}
       </header>
       <div className="lt-canvas" {...handlers}>
-        <Diorama model={model} color={arm.color} playing={playing} speed={speed} towns={towns} scrubs={scrubs} hidden={hidden} ended={ended} />
+        <Diorama model={model} color={arm.color} playing={playing} towns={towns} scrubs={scrubs} hidden={hidden} ended={ended} />
         {overlay}
         {children}
       </div>

@@ -103,13 +103,13 @@ const Motion = memo(function Motion({ seed }) {
 // A seed from the town's colour, so the street's rain differs from the town's.
 const seedOf = text => [...`street ${text ?? ''}`].reduce((hash, ch) => Math.imul(hash ^ ch.charCodeAt(0), 16777619), 2166136261) | 0
 
-function MainStreet({ model, color, sceneRef, playing = false, speed = 1, towns = 1, scrubs = 0, ended = false }) {
+function MainStreet({ model, color, sceneRef, playing = false, towns = 1, scrubs = 0, ended = false }) {
   const id = useId().replace(/[^\w-]/g, '')
   const rootRef = useRef(null)
   useImperativeHandle(sceneRef, () => rootRef.current, [])
   // The loop sees only the street's shops (coins land on their doors).
   const scene = useMemo(() => streetModel(model), [model])
-  useSceneMotion(rootRef, { model: scene, places: STREET_PLACES, playing, speed, towns, scrubs, ended })
+  useSceneMotion(rootRef, { model: scene, places: STREET_PLACES, playing, towns, scrubs, ended })
 
   const glow = `url(#${id}-sglow)`
   const byLot = new Array(STREET.lots.length).fill(null)

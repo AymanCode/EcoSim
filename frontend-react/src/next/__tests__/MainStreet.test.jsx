@@ -50,7 +50,7 @@ describe('Main Street', () => {
   })
 
   test('Enlarge on a town moves Main Street to it', { timeout: WHOLE_SCREEN_MS }, () => {
-    const props = { tick: 70, maxTick: 104, playing: false, onToggle() {}, onScrub() {}, speed: 1, onSpeed() {} }
+    const props = { tick: 70, maxTick: 104, playing: false, onToggle() {}, onScrub() {} }
     const { container } = render(<RunScreen arms={[A, B]} {...props} />)
     fireEvent.click(screen.getAllByRole('button', { name: 'Enlarge' })[1])
     expect(container.querySelector('.lt-street')).toHaveTextContent('Town B')
@@ -73,7 +73,7 @@ describe('Main Street card', () => {
   })
 
   test('Enlarge moves the picker and the street to that town; Show both leaves the street there', { timeout: WHOLE_SCREEN_MS }, () => {
-    const props = { tick: 70, maxTick: 104, playing: false, onToggle() {}, onScrub() {}, speed: 1, onSpeed() {} }
+    const props = { tick: 70, maxTick: 104, playing: false, onToggle() {}, onScrub() {} }
     const { container } = render(<RunScreen arms={[A, B]} {...props} />)
     const card = () => container.querySelector('.lt-street')
     const pressed = () => within(card()).getAllByRole('button').filter(button => button.getAttribute('aria-pressed') === 'true').map(button => button.textContent)
@@ -88,7 +88,7 @@ describe('Main Street card', () => {
   })
 
   test('on the Run screen it comes after the town cards and the legend', { timeout: WHOLE_SCREEN_MS }, () => {
-    const props = { tick: 70, maxTick: 104, playing: false, onToggle() {}, onScrub() {}, speed: 1, onSpeed() {} }
+    const props = { tick: 70, maxTick: 104, playing: false, onToggle() {}, onScrub() {} }
     const { container } = render(<RunScreen arms={[A, B]} {...props} />)
     const order = [...container.querySelector('main.nx-wrap').children].map(child => child.className.split(' ').find(name => /^(lt-towns|lt-legend|lt-street)$/.test(name))).filter(Boolean)
     expect(order).toEqual(['lt-towns', 'lt-legend', 'lt-street'])

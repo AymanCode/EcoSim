@@ -12,20 +12,18 @@ let A
 beforeAll(() => { [A] = demoArms() })
 
 describe('motion helpers', () => {
-  test('coins follow the money and calm down with speed and more towns', () => {
+  test('coins follow the money and calm down with more towns', () => {
     const flows = { spend: COIN_DOLLARS * 10, pay: 0, tax: 0, help: 0 }
-    const one = coinsDue({ spend: 0, pay: 0, tax: 0, help: 0 }, flows, 0.5, 1, 2)
-    expect(one.launches.spend).toBe(5)
-    const fast = coinsDue({ spend: 0, pay: 0, tax: 0, help: 0 }, flows, 0.5, 4, 2)
-    expect(fast.launches.spend).toBe(1)
-    const four = coinsDue({ spend: 0, pay: 0, tax: 0, help: 0 }, flows, 0.5, 1, 4)
+    const two = coinsDue({ spend: 0, pay: 0, tax: 0, help: 0 }, flows, 0.5, 2)
+    expect(two.launches.spend).toBe(5)
+    const four = coinsDue({ spend: 0, pay: 0, tax: 0, help: 0 }, flows, 0.5, 4)
     expect(four.launches.spend).toBe(2)
     expect(four.debt.spend).toBeCloseTo(0.5)
   })
 
   test('caps launches per call', () => {
     const flows = { spend: COIN_DOLLARS * 1000, pay: 0, tax: 0, help: 0 }
-    expect(coinsDue({ spend: 0, pay: 0, tax: 0, help: 0 }, flows, 1, 1, 1).launches.spend).toBe(8)
+    expect(coinsDue({ spend: 0, pay: 0, tax: 0, help: 0 }, flows, 1, 1).launches.spend).toBe(8)
   })
 
   test('only a single forward step while playing counts as a step', () => {
