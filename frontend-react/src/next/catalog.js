@@ -513,20 +513,15 @@ export const LEVER_GROUPS = [
 ]
 
 // The question cards on Set up. Each town is the levers it changes from
-// DEFAULT_POLICY; the first town is the control. Only the two questions the
-// newcomer-scale smoke runs support ship (spec section 5.1).
+// DEFAULT_POLICY; the first town is the control. Only questions the town can
+// run in full ship; the benefits question is parked until benefits are funded
+// on income_first.
 export const QUESTIONS = [
   {
     id: 'minimum-wage',
     title: 'What happens if we raise the minimum wage?',
     blurb: 'Higher pay for the lowest earners, higher costs for businesses. Which wins?',
     towns: [{}, { minimum_wage_policy: 'high' }],
-  },
-  {
-    id: 'benefits',
-    title: 'Do generous benefits keep people out of work?',
-    blurb: 'More money for people without a job. Does it help them or make work less tempting?',
-    towns: [{}, { benefit_level: 'high' }],
   },
 ]
 

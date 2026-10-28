@@ -32,7 +32,7 @@ describe('SetupScreen', () => {
     expect(screen.getByRole('heading', { level: 1, name: 'What do you want to find out?' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Compare policies' })).toHaveAttribute('aria-pressed', 'true')
     expect(screen.getByRole('button', { name: 'What happens if we raise the minimum wage?' })).toHaveAttribute('aria-pressed', 'true')
-    expect(screen.getByRole('button', { name: 'Do generous benefits keep people out of work?' })).toHaveAttribute('aria-pressed', 'false')
+    expect(screen.queryByRole('button', { name: 'Do generous benefits keep people out of work?' })).toBeNull()
     expect(screen.getByRole('button', { name: 'Build my own' })).toHaveAttribute('aria-pressed', 'false')
 
     expect(tiles()).toHaveLength(2)
@@ -59,13 +59,12 @@ describe('SetupScreen', () => {
 
   test('the question cards show each town\'s rules as a chip', () => {
     screenWith()
-    const card = screen.getByRole('button', { name: 'Do generous benefits keep people out of work?' })
+    const card = screen.getByRole('button', { name: 'What happens if we raise the minimum wage?' })
     expect(within(card).getByText('No changes')).toBeInTheDocument()
-    expect(within(card).getByText('More help for people out of work')).toBeInTheDocument()
-    expect(card).toHaveAccessibleDescription(/Does it help them or make work less tempting\?/)
-    fireEvent.click(card)
+    expect(within(card).getByText('A higher minimum wage')).toBeInTheDocument()
+    expect(card).toHaveAccessibleDescription(/Higher pay for the lowest earners/)
     expect(card).toHaveAttribute('aria-pressed', 'true')
-    expect(within(screen.getByRole('listitem', { name: 'Town B' })).getByText('More help for people out of work.')).toBeInTheDocument()
+    expect(within(screen.getByRole('listitem', { name: 'Town B' })).getByText('A higher minimum wage.')).toBeInTheDocument()
   })
 
   test('2. just play: one town, no question step, up to 10,000 households', () => {
@@ -314,9 +313,9 @@ describe('useSetup', () => {
 
   test('picking a question sets its towns over the usual rules', () => {
     const { result } = setupHook()
-    act(() => result.current.actions.pickQuestion('benefits'))
-    expect(result.current.state.questionId).toBe('benefits')
-    expect(result.current.state.towns.map(town => town.policy)).toEqual([DEFAULT_POLICY, { ...DEFAULT_POLICY, benefit_level: 'high' }])
+    act(() => result.current.actions.pickQuestion('minimum-wage'))
+    expect(result.current.state.questionId).toBe('minimum-wage')
+    expect(result.current.state.towns.map(town => town.policy)).toEqual([DEFAULT_POLICY, { ...DEFAULT_POLICY, minimum_wage_policy: 'high' }])
     expect(Object.keys(LEVERS).every(lever => lever in result.current.state.towns[1].policy)).toBe(true)
   })
 })

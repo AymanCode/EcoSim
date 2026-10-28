@@ -159,7 +159,6 @@ describe('NextApp live', { timeout: WHOLE_SCREEN_MS }, () => {
 
   test('New experiment closes every socket and goes back to the same set up', () => {
     const { sockets } = app()
-    fireEvent.click(screen.getByRole('button', { name: 'Do generous benefits keep people out of work?' }))
     start()
     connect(sockets)
     run(sockets)
@@ -167,8 +166,8 @@ describe('NextApp live', { timeout: WHOLE_SCREEN_MS }, () => {
     fireEvent.click(screen.getByRole('button', { name: 'Leave' }))
     expect(sockets.every(socket => socket.readyState === 3 && socket.closedWith === 1000)).toBe(true)
     expect(screen.getByRole('heading', { level: 1, name: 'What do you want to find out?' })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Do generous benefits keep people out of work?' })).toHaveAttribute('aria-pressed', 'true')
-    expect(screen.getByRole('listitem', { name: 'Town B' })).toHaveTextContent('More help for people out of work.')
+    expect(screen.getByRole('button', { name: 'What happens if we raise the minimum wage?' })).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByRole('listitem', { name: 'Town B' })).toHaveTextContent('A higher minimum wage.')
     act(() => { sockets[0].receive(FRAMES[12]) })
     flush()
     expect(screen.getByRole('heading', { level: 1, name: 'What do you want to find out?' })).toBeInTheDocument()
