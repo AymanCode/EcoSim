@@ -183,7 +183,7 @@ Forecasting tests use their own pins: `pip install -r policy_forecasting/require
 - [docs/SIMULATION.md](docs/SIMULATION.md): tick lifecycle, agents, markets, banking, LLM government
 - [docs/TECHNICAL.md](docs/TECHNICAL.md): entry points, APIs, storage, file layout
 - [docs/WEBSOCKET_PROTOCOL.md](docs/WEBSOCKET_PROTOCOL.md): commands, replies, and tick frames
-- [docs/FRONTEND.md](docs/FRONTEND.md): classic dashboard views and runtime config
+- [docs/FRONTEND.md](docs/FRONTEND.md): town Run screen structure, data flow and checks
 - [docs/DATA_STORAGE_ARCHITECTURE.md](docs/DATA_STORAGE_ARCHITECTURE.md): warehouse tables and write cadence
 - [docs/DESIGN_DECISIONS.md](docs/DESIGN_DECISIONS.md): tradeoffs
 - [docs/MODEL_SCOPE.md](docs/MODEL_SCOPE.md): what the model can and cannot support

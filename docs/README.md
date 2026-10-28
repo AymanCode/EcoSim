@@ -10,7 +10,7 @@ Active documentation for the current EcoSim codebase. Code and runtime configura
 | [SIMULATION.md](SIMULATION.md) | Current model behavior, tick lifecycle, agents, markets, policy, banking, LLM government, and diagnostics |
 | [TECHNICAL.md](TECHNICAL.md) | Stack, entry points, API surfaces, config, warehouse, LLM setup, performance notes, and validation commands |
 | [WEBSOCKET_PROTOCOL.md](WEBSOCKET_PROTOCOL.md) | WebSocket commands, replies, error strings, and tick-frame fields |
-| [FRONTEND.md](FRONTEND.md) | React dashboard views, WebSocket contract, runtime config mapping, and visual components |
+| [FRONTEND.md](FRONTEND.md) | Town Run screen: screens, live data flow, source layout, town drawings and checks; classic dashboard status |
 | [DATA_STORAGE_ARCHITECTURE.md](DATA_STORAGE_ARCHITECTURE.md) | Warehouse design, implemented table families, write cadence, read paths, and reliability guarantees |
 | [DESIGN_DECISIONS.md](DESIGN_DECISIONS.md) | Deliberate engineering choices and the tradeoffs behind them |
 

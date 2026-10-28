@@ -57,7 +57,7 @@ npm run test
 npm run build
 ```
 
-Dashboard implementation details live in [`../docs/FRONTEND.md`](../docs/FRONTEND.md).
+Implementation details for the Run screen live in [`../docs/FRONTEND.md`](../docs/FRONTEND.md).
 
 ## Browser Checks
 

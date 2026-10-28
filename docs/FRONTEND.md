@@ -1,264 +1,105 @@
-# Frontend Dashboard
+# Frontend
 
-The EcoSim frontend is a React/Vite dashboard for launching, controlling, and inspecting live simulation runs.
+The frontend is a React 19 and Vite package in `frontend-react/`. It holds two apps that share one entry point:
 
-## Stack
+| App | Status | Opens at | Source |
+|---|---|---|---|
+| Town Run screen | Current | `/?view=next` | `src/next/` |
+| Classic dashboard | Legacy, frozen | `/` | `src/App.jsx`, `src/screens/`, `src/shell/`, `src/ui/`, `src/charts/`, `src/index.css` |
 
-- React 19
-- Vite (run with Node 22; the Vite dev server needs `cwd=frontend-react`)
-- Recharts for the line and bar charts
-- Tailwind CSS on top of a token stylesheet
-- lucide-react icons
-- Custom canvas-based neural visualizations
-- WebSocket transport through `/ws`
-
-The application entry point is [`frontend-react/src/App.jsx`](../frontend-react/src/App.jsx), which owns the session state, the WebSocket protocol client, and the handlers, and renders one screen component per view.
-
-### Source layout
-
-| Path | Owns |
-|---|---|
-| `src/theme/tokens.css` | The design tokens (two themes: `ember`, dark by default, and `paper`, light), fonts, base styles, and the panel "fill rule" that makes charts grow to their panel |
-| `src/ui/` | Stat tiles (`StatTile`, `ChartTile`, `HeroMetric` with a tick-driven count-up), pills, chips, deltas, key/value rows, panels, page headers, inputs |
-| `src/charts/` | `TimeSeries` (the one line chart: tick-aligned series, end labels, threshold bands, policy-change markers, split-at-change mode), `Sparkline`, `Meter`, `CompositionBar`, `Radar`, `ProfileBars`, `Ledger`, shared `tones` |
-| `src/screens/` | One component per view: `Config`, `Command`, `Population`, `Markets`, `Finance`, `Government` (with `government/Timeline`, `EffectsPanel`, `LeverTile`), `Logs` |
-| `src/shell/` | `Rail`, `TopBar`, `StatusStrip`, `Logo` |
-| `src/telemetry.js`, `src/format.js`, `src/logs.js`, `src/governmentInsights.js` | Pure helpers: history access and derived metrics, formatters, log normalisation, policy derivations |
-| `src/test/renderScreen.jsx`, `src/test/fixtures/frame.json` | Screen test helper and a real tick frame captured from the server |
-
-The theme toggle in the top bar switches `data-theme` on `<html>` and persists the choice in `localStorage['ecosim.theme']`. Money fields in the frame (`gdp`, `govProfit`, `govRevenue`, `govTransfers`, `govInvestments`, `bondPurchases`, `netWorth`, `govDebt`) are in millions and are formatted with `formatMillionsAdaptive`. Vite proxies `/ws` and `/health` to the backend on port `8002` during local development. The production Docker image serves the built app through Nginx and proxies the same paths to the backend service.
+[`src/main.jsx`](../frontend-react/src/main.jsx) asks [`src/next/pickView.js`](../frontend-react/src/next/pickView.js) which app to open and loads only that app's code, styles and fonts. The classic dashboard is still the URL default but receives no new features. The rest of this page describes the town Run screen.
 
 ## Running Locally
 
-Start the backend first:
+Use Node 22.22.2 or newer within the 22.x line. Start the backend, then Vite:
 
 ```bash
 python -m uvicorn backend.server:app --reload --port 8002
-```
-
-Then start Vite:
-
-```bash
 cd frontend-react
-npm install
+npm ci
 npm run dev
 ```
 
-Open `http://localhost:5173`.
+Open `http://localhost:5173/?view=next`. Vite proxies `/ws` and `/health` to the backend on port `8002`. The Docker image serves the production build through Nginx and proxies the same paths.
 
-For the full Docker stack, run `./start.sh` or `.\start.ps1` from the repository root.
+`/?view=next&demo` plays two recorded towns from `public/demo/` without a backend. The commands that record them are in the [frontend README](../frontend-react/README.md#demo-recordings).
 
-## Views
+## Screens
 
-The sidebar currently exposes seven views:
-
-| View | Route state | Purpose |
-|---|---|---|
-| Config | `CONFIG` | Preflight: run profile, opening policy, assistant and stabilizer toggles, checklist, what the run creates, schedule |
-| Command | `DASHBOARD` | Live ticker, six stat tiles, GDP with policy markers, population stress meter and history, sector price small multiples, wealth composition, wages, unemployment band |
-| Population | `SUBJECTS` | Roster with cohort filters, one household's radar profile against the population median, wealth and wage history, wage drivers, housing, this-tick cash ledger, events |
-| Markets | `FIRMS` | Sector map with price charts, selected firm dossier, sortable all-firms table, cash and profit history |
-| Finance | `FINANCE` | Net fiscal balance hero, revenue/transfers/bonds/net-worth chart tiles, fiscal flows with markers, per-tick ledger, government-backed loans, state capacity |
-| Government | `GOVERNMENT` | Policy changes timeline with per-change effects (charts split at the change tick), compact lever tiles highlighting what moved, latest AI decision with audited evidence, ledger, assistant card |
-| Logs | `LOGS` | Filter row, stat tiles, severity-marked event table, event detail with same-entity history and buffer breakdown |
-
-Only Config is available before initialization. Other views unlock after a successful `SETUP`.
-
-## Config View
-
-Pre-launch controls:
-
-- `Population Scale`: frontend slider range `100` to `10000`; backend accepts `3` to `100000`
-- `Policy Assistant`: maps to `enable_llm_government`
-- `Wage Tax`: setup `wage_tax`
-- `Corporate Profit Tax`: setup `profit_tax`
-- `Minimum Wage Floor`: runtime preview mapped to `minimum_wage_policy`
-- `Unemployment Benefits`: runtime preview mapped to `benefit_level`
-- `Infrastructure` and `Social Spending`
-- `Disable automatic stabilizers` with agent options for households, firms, government, or all agents
-
-After initialization, policy controls queue `CONFIG` updates. Changes are debounced client-side and applied by the server at safe tick boundaries.
-
-![EcoSim configuration view with run profile and policy controls](assets/config-tab.png)
-
-## Command View
-
-The Command view is the main run monitor. It shows:
-
-- GDP, net worth, fiscal flow, unemployment, employment, wage, happiness, health, and inequality metrics
-- population stress and system advisory cards
-- sector status and firm pressure
-- finance summary, including government-backed loan count
-- policy assistant summary
-- chart histories for GDP, wages, unemployment, health, happiness, prices, supply, fiscal balance, firm count, net worth, and wealth distribution where available
-
-The server caches some aggregate metrics on a stride for performance, so chart payloads are compact rather than full raw history.
-
-## Population View
-
-The Population view inspects the tracked household subset sent in each tick payload.
-
-Displayed state includes:
-
-- identity, age, health, state, medical status
-- employer, wage, expected wage, reservation wage, unemployment duration
-- expected-wage reasoning tags and pressure components
-- skills, morale, happiness, cash, net worth, medical debt
-- food, housing, and healthcare need/status
-- personality traits and per-household history charts
-- canvas avatar visualization via `NeuralAvatar`
-
-The tracked subset is selected server-side. It is not the full population.
-
-![EcoSim population view with household state and history](assets/subjects-tab.png)
-
-## Markets View
-
-The Markets view displays sector-level and tracked-firm state:
-
-- total firms, employees, average wage offer, struggling firms
-- Food, Housing, Services, and Healthcare sector rollups
-- top cash positions and top employers
-- selected tracked-firm detail
-- price, wage offer, inventory, quality, employees, revenue, profit, and history charts
-- canvas firm visualization via `NeuralBuilding`
-
-Tracked firms are selected by the server to highlight top private firms plus baseline firms where available.
-
-## Finance View
-
-The Finance view surfaces credit and fiscal telemetry:
-
-- government-backed loan count
-- government debt and fiscal balance history
-- active loan exposure
-- bank/credit related metrics from the backend payload when available
-- liquidity visualization through `FinanceLiquidityHologram`
-
-The bank itself remains a backend simulation actor; the frontend displays selected aggregate signals rather than raw loan records.
-
-## Government View
-
-The Government view is the live policy console.
-
-Controls include:
-
-- AI Policy Engine toggle
-- wage tax and profit tax
-- benefit level
-- minimum wage policy
-- public works
-- sector subsidy target and level
-- infrastructure, technology, and social spending
-- price stabilization target and level
-- rent stabilization level
-- bailout policy, target, and budget
-
-The view also shows:
-
-- current GDP, unemployment, happiness, and net fiscal flow
-- fiscal revenue, transfers, investments, active loans, government cash, and debt
-- current LLM status, provider/model where available, snapshot tick, applied tick, accepted/rejected changes
-- recent manual and LLM policy actions
-- canvas government visualization via `NeuralGovernment`
-
-Manual controls remain available when the AI Policy Engine is inactive or provider setup is missing.
-
-## Logs View
-
-The Logs view presents the rolling log buffer from server tick payloads plus frontend lifecycle events.
-
-Features:
-
-- auto-scroll toggle
-- severity/type filters
-- event count and error count
-- selected event detail
-- buffered list capped client-side
-
-![EcoSim logs view with filters and event detail](assets/logs-tab.png)
-
-## WebSocket Contract
-
-Endpoint: same-origin `/ws`. In Docker, Nginx on port 5173 proxies it to the backend on 8002; from source, the Vite dev server does the same. Set `VITE_WS_URL` to override it. Without a page host (for example in a non-browser test), it falls back to `ws://localhost:8002/ws`.
-
-Each connection receives its own bounded server session. The session ID is retained for display and for session-specific REST reads such as the live decision context.
-
-Commands sent by the frontend:
-
-| Command | Payload shape |
+| Screen | Purpose |
 |---|---|
-| `SETUP` | `{ command: "SETUP", config: { num_households, num_firms, seed, wage_tax, profit_tax, enable_llm_government, disable_stabilizers, disabled_agents } }` |
-| `START` | `{ command: "START" }` |
-| `STOP` | `{ command: "STOP" }` |
-| `RESET` | `{ command: "RESET" }` |
-| `CONFIG` | `{ command: "CONFIG", config: { ...runtimeControls } }` |
-| `STABILIZERS` | `{ command: "STABILIZERS", disable_stabilizers, disabled_agents }` |
+| Set up | Choose the kind of experiment, a question or custom rules for each town, households per town, run length and town number (seed) |
+| Run | Live towns side by side: a headline comparison, a drawn town per arm, key figures, household and business cards, a story chart, and recent events, all on one shared week clock |
+| Town hall | A drawer that changes one town's rules during the run; changes take effect from that town's next week |
+| All the numbers | A sheet over the Run screen with the short answer, output and wellbeing, and every compared figure with its history |
+| End | The verdict at the horizon, with options to add a year or set up another question |
 
-Important server messages:
+Set up offers three kinds of experiment:
 
-| Message | Meaning |
+- **Compare policies.** Two to four towns share the same households, seed, horizon and payment sequence, and only their rules differ. Each town gets an equal share of 10,000 households.
+- **Free play.** One town with every rule available.
+- **Test an AI mayor.** Shown, but disabled until a model is connected.
+
+## Data Flow
+
+```
+Set up ──plan──▶ live/plan.js ──SETUP configs──▶ live/experiment.js ──one WebSocket per town──▶ backend
+                                                        │
+                                       frame-2 messages ▼
+                                  data/session.js (one "arm" per town)
+                                                        │
+                       data/derive.js, narration.js, numbers/compare.js, town/model.js
+                                                        │
+                                                        ▼
+                                          RunScreen, NumbersSheet, TownCard
+```
+
+- **Plan to configs.** [`live/plan.js`](../frontend-react/src/next/live/plan.js) turns the Set up plan into one `SETUP` config per town. Every town sends `payment_sequence: "income_first"` and `frame_profile: "lean"`, with the town's 17 policy levers as its initial policy.
+- **Live experiment.** [`live/experiment.js`](../frontend-react/src/next/live/experiment.js) opens one WebSocket per town and sends `SETUP`, `START`, `STOP`, `CONFIG`, `TRACK`, `EXTEND` and `FINISH`. It holds faster towns so all towns advance together, and publishes one plain state object (`phase`, `arms`, `liveTick`, `towns`, `error`). [`live/useExperiment.js`](../frontend-react/src/next/live/useExperiment.js) throttles that state into React and opens sockets only from a user action. The message contract is in [WEBSOCKET_PROTOCOL.md](WEBSOCKET_PROTOCOL.md).
+- **Arms.** [`data/session.js`](../frontend-react/src/next/data/session.js) copies what the screens read out of each frame into an append-only arm: every curated figure as a series aligned to ticks, the open firms, the tracked households, recent closures, events and policy changes. Raw frames are not kept. Recorded demo sessions go through the same path.
+- **Clock.** [`live/useLiveClock.js`](../frontend-react/src/next/live/useLiveClock.js) follows the lowest week every town has reached until the viewer scrubs back; the recorded demo uses [`useReplay.js`](../frontend-react/src/next/useReplay.js).
+- **Reading.** [`data/derive.js`](../frontend-react/src/next/data/derive.js) aligns towns by tick and reads values as of a week. [`narration.js`](../frontend-react/src/next/narration.js) turns numbers and events into sentences. [`numbers/compare.js`](../frontend-react/src/next/numbers/compare.js) resolves the compared metrics for the numbers sheet.
+- **Rule checks.** [`policyRules.js`](../frontend-react/src/next/policyRules.js) ports the backend's lever group rules, so Set up and the Town hall stop a combination the server would refuse.
+
+## Source Layout
+
+| Path | Owns |
 |---|---|
-| `SESSION` | Connection accepted; includes the isolated `sessionId` |
-| `SETUP_COMPLETE` | Economy initialized |
-| `STARTED` | Tick loop running |
-| `STOPPED` | Tick loop paused |
-| `RESET` | Run reset to pre-initialization state |
-| `STABILIZERS_UPDATED` | Stabilizer state acknowledged |
-| Tick payload | Object with `tick`, `metrics`, `firm_stats`, and `logs` |
+| `NextApp.jsx`, `pickScreen.js` | App shell; opens Set up, or the recorded demo when the query has `demo` |
+| `setup/` | Set up screen and its state (`useSetup.js`) |
+| `RunScreen.jsx`, `components/` | Run screen: horizon bar, story chart, stat cards, business list, household cards, feed, Town hall, end and lost-connection panels |
+| `numbers/` | All the numbers sheet: answer card, number rows with history, wealth ladder, hires and layoffs, openings and closures, loans written off, rules in force |
+| `town/` | Town drawings (see below) |
+| `live/` | WebSocket experiment, React hooks, endpoint and session ids |
+| `data/` | Arm building and read-side helpers |
+| `catalog.js` | All user-facing wording and metric definitions |
+| `narration.js`, `names.js` | Sentences from numbers and events; stable household names |
+| `next.css`, `numbers/*.css`, `town/town.css` | Styles, scoped under `.nx` |
 
-## Runtime Config Mapping
+All copy lives in `catalog.js` or `narration.js`, so wording changes do not touch components.
 
-The frontend sends camelCase runtime fields. The server maps them to policy-schema fields before applying:
+## Town Drawings
 
-| Frontend field | Backend policy field |
-|---|---|
-| `wageTax` | `wage_tax_rate` |
-| `profitTax` | `profit_tax_rate` |
-| `investmentTax` | `investment_tax_rate` |
-| `benefitLevel` | `benefit_level` |
-| `publicWorks` | `public_works` |
-| `minimumWagePolicy` | `minimum_wage_policy` |
-| `minimumWage` | mapped to `minimum_wage_policy` |
-| `unemploymentBenefitRate` | mapped to `benefit_level` |
-| `sectorSubsidyTarget` | `sector_subsidy_target` |
-| `sectorSubsidyLevel` | `sector_subsidy_level` |
-| `infrastructureSpending` | `infrastructure_spending` |
-| `technologySpending` | `technology_spending` |
-| `socialSpending` | `social_spending` |
-| `priceStabilizationTarget` | `price_stabilization_target` |
-| `priceStabilizationLevel` | `price_stabilization_level` |
-| `rentStabilizationLevel` | `rent_stabilization_level` |
-| `bailoutPolicy` | `bailout_policy` |
-| `bailoutTarget` | `bailout_target` |
-| `bailoutBudget` | `bailout_budget` |
+`src/next/town/` draws each town as an isometric island (`Diorama.jsx`) or a Main Street side view (`MainStreet.jsx`), in three layers:
 
-Legacy-style UI fields for UBI, wealth tax, target inflation, and birth rate are still accepted by the server as direct government fields and recorded as policy actions when changed.
+- **Model.** Pure modules (`model.js` with `townAt(arm, tick)`, `geometry.js`, `houses.js`, `lots.js`, `mood.js`, `cards.js`) turn one town's recorded weeks into everything a drawing needs for the week on the clock, without touching the DOM.
+- **Scenes.** React components draw that model as three stacked SVGs sharing one viewBox: `back` (sky, sun, clouds), `world` (ground, buildings, signs, pins, with no CSS animation) and `motion` (weather, coins, pings, floating signs).
+- **Motion.** One `requestAnimationFrame` loop per scene (`useSceneMotion.js`) writes attributes on refs, never sets React state per frame, and sleeps while the run is paused.
 
-## Visual Components
+The split keeps Chromium's compositor layers low: two towns render with 13 layers and hold 60 fps. More detail is in the [frontend README](../frontend-react/README.md#the-run-screens-towns).
 
-| Component | File | Represents |
-|---|---|---|
-| `NeuralAvatar` | [`src/NeuralAvatar.jsx`](../frontend-react/src/NeuralAvatar.jsx) | Household agent state |
-| `NeuralBuilding` | [`src/NeuralBuilding.jsx`](../frontend-react/src/NeuralBuilding.jsx) | Firm and market state |
-| `NeuralGovernment` | [`src/NeuralGovernment.jsx`](../frontend-react/src/NeuralGovernment.jsx) | Government and policy engine state |
-
-These are canvas animations managed with React effects and refs, placed in bounded accent slots on the Population, Markets and Government screens. They are presentation components only; simulation state comes from the WebSocket payload.
-
-Everything else on screen is built from `src/ui` and `src/charts`. Every colour is a token (`var(--acc)`, `var(--good)`, …); status colours always come with a label; charts fill their panel through the `.chart{flex:1}` rule and grids that hold charts grow to the panel.
-
-## Build Checks
+## Checks
 
 ```bash
 cd frontend-react
-npm ci
 npm run lint
-npm run test
+npm run test       # Vitest unit and component tests (jsdom)
 npm run build
+npm run test:e2e   # Playwright in Chromium against the recorded demo
 ```
 
-Use Node 22 (`npx --yes node@22 ./node_modules/.bin/vitest run` works when the default node is older). Screen tests render a real tick frame from `src/test/fixtures/frame.json`; regenerate it against the current server with:
+The Playwright specs in `e2e/` cover what jsdom cannot measure: no layout shift while stepping through every week at ten widths, place cards, town drawing layers, fonts, and a live review run. See the [frontend README](../frontend-react/README.md#browser-checks).
 
-```bash
-.venv/bin/python frontend-react/scripts/capture_fixture.py 60
-```
+## Classic Dashboard
+
+The classic dashboard ([`src/App.jsx`](../frontend-react/src/App.jsx)) is a seven-view research console (Config, Command, Population, Markets, Finance, Government, Logs) built with Recharts, Tailwind and the token stylesheet in `src/theme/tokens.css`. It asks for the full `frame_profile: "legacy"` frame. It is kept working but frozen: no new features, panels or rows.
