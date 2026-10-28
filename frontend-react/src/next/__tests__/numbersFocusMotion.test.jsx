@@ -75,13 +75,6 @@ test('playing promotion transfers fold-button focus to the accessible row and on
   const calls = recordFocus()
 
   update(31, true)
-  expect(source).toHaveFocus()
-  expect(unavailable(source)).toBeNull()
-  advance(80)
-  expect(source).toHaveFocus()
-  expect(unavailable(source)).toBeNull()
-  advance(80)
-
   const destination = rowButton('bankActiveLoans')
   expect(destination).toHaveFocus()
   expect(unavailable(destination)).toBeNull()
@@ -103,7 +96,7 @@ test('a verdict jump during the fold-entry fade focuses an expanded non-inert ro
   update(35, true)
   advance(80)
   const target = rowButton('gini')
-  expect(unavailable(target)).not.toBeNull()
+  expect(unavailable(target)).toBeNull()
   const calls = recordFocus()
 
   fireEvent.click(screen.getByRole('link', { name: 'gap between rich and poor' }))

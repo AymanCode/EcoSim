@@ -65,9 +65,11 @@
 .nx .nx-row-motion.has-focus { visibility: visible }
 .nx .nx-fold-motion { display: grid; grid-template-rows: 0fr; opacity: 0; transition: grid-template-rows var(--nx-change) var(--nx-ease), opacity 160ms var(--nx-ease) }
 .nx .nx-fold-motion.is-visible { grid-template-rows: 1fr; opacity: 1 }
+.nx .nx-fold-motion.is-leaving { grid-template-rows: 0fr; opacity: 0 }
 .nx .nx-fold-entry { display: inline-grid; grid-template-columns: 1fr; opacity: 1; vertical-align: bottom; transition: grid-template-columns 160ms var(--nx-ease), opacity 160ms var(--nx-ease) }
 .nx .nx-fold-entry > span { min-width: 0; overflow: hidden }
 .nx .nx-fold-entry[data-state="leaving-entry"] { pointer-events: none; grid-template-columns: 0fr; opacity: 0 }
+.nx .nx-fold-motion.is-leaving .nx-fold-entry[data-state="leaving-entry"] { grid-template-columns: 1fr; opacity: 1 }
 /* New entries fade in; existing entries reverse from their current progress.
    Initial resting rows/entries have no starting style and never animate in. */
 @starting-style { .nx .nx-fold-entry[data-state="entering-entry"] { grid-template-columns: 0fr; opacity: 0 } }

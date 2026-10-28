@@ -63,7 +63,7 @@ function RowVisual({ row, arms, tick, playing }) {
 function FoldLines({ arms, rows, tick, onJump, layout, focusedKey }) {
   // Retain the focused source through the commit that makes its row usable.
   // The sheet transfers focus in a layout effect before removing this entry.
-  const entries = rows.filter(row => row.key === focusedKey || ['folded', 'entering-entry', 'leaving-entry'].includes(layout[row.key]?.phase))
+  const entries = rows.filter(row => row.key === focusedKey || layout[row.key]?.leavingEntry || ['folded', 'entering-entry'].includes(layout[row.key]?.phase))
   const items = entries.map(row => {
     const phase = ['row', 'entering-row'].includes(layout[row.key].phase) ? 'leaving-entry' : layout[row.key].phase
     const item = foldLines(arms, [row], tick)[0]?.items[0]
@@ -71,7 +71,8 @@ function FoldLines({ arms, rows, tick, onJump, layout, focusedKey }) {
     // in the equality line while its current values differ.
     return item ? { ...item, phase } : { key: row.key, name: rowDefinition(row).name, values: [], phase }
   })
-  return <div className={`nx-fold-motion${items.length ? ' is-visible' : ''}`} data-state={items.length ? 'open' : 'closed'} aria-hidden={!items.length}>
+  const leaving = items.length > 0 && items.every(item => item.phase === 'leaving-entry')
+  return <div className={`nx-fold-motion${items.length ? ' is-visible' : ''}${leaving ? ' is-leaving' : ''}`} data-state={leaving ? 'leaving' : items.length ? 'open' : 'closed'} aria-hidden={!items.length}>
     <div className="nx-fold-motion-inner"><p className="nx-number-fold">
       <span className="nx-number-fold-label">{COPY.numbers.fold.equal(arms.length)}</span>{' '}
       {items.map((item, i) => <span className="nx-fold-entry" data-metric={item.key} data-state={item.phase} key={item.key} aria-hidden={item.phase === 'leaving-entry' && item.key !== focusedKey} inert={item.phase === 'leaving-entry' && item.key !== focusedKey}>
@@ -211,7 +212,7 @@ export default function NumbersSheet({ id, arms, tick, onClose, live, playing = 
           const headingId = `nx-number-group-${uid}-${group.id}`
           return <section key={group.id} className="nx-number-group" aria-labelledby={headingId}>
             <div className="nx-number-group-heading"><h3 id={headingId}>{copy.title}</h3><p>{copy.blurb}</p></div>
-            {ownRows.map(row => <div key={row.key} className={`nx-row-motion${layout[row.key]?.promoted ? ' is-promoted' : ''}${focusOwner?.kind === 'row' && focusOwner.key === row.key ? ' has-focus' : ''}`} data-metric={row.key} data-state={layout[row.key]?.phase} aria-hidden={!(focusOwner?.kind === 'row' && focusOwner.key === row.key) && ['folded', 'leaving-entry', 'entering-entry', 'leaving-row'].includes(layout[row.key]?.phase)} inert={!(focusOwner?.kind === 'row' && focusOwner.key === row.key) && ['folded', 'leaving-entry', 'entering-entry', 'leaving-row'].includes(layout[row.key]?.phase)}>
+            {ownRows.map(row => <div key={row.key} className={`nx-row-motion${layout[row.key]?.promoted ? ' is-promoted' : ''}${focusOwner?.kind === 'row' && focusOwner.key === row.key ? ' has-focus' : ''}`} data-metric={row.key} data-state={layout[row.key]?.phase} aria-hidden={!(focusOwner?.kind === 'row' && focusOwner.key === row.key) && ['folded', 'leaving-entry', 'entering-entry'].includes(layout[row.key]?.phase)} inert={!(focusOwner?.kind === 'row' && focusOwner.key === row.key) && ['folded', 'leaving-entry', 'entering-entry'].includes(layout[row.key]?.phase)}>
               <div className="nx-row-motion-inner"><NumberRow id={rowId(row.key)} row={row} arms={arms} tick={tick} open={Boolean(expanded[row.key])} onToggle={() => setExpanded(all => ({ ...all, [row.key]: !all[row.key] }))}>
               <RowVisual row={row} arms={arms} tick={tick} playing={playing} />
             </NumberRow></div></div>)}
