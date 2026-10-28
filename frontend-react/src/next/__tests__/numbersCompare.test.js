@@ -84,6 +84,46 @@ describe('numbers comparison: approved recorded demo at week 104', () => {
   })
 })
 
+describe('wellbeing start notes use displayed values', () => {
+  test('one town omits the week-one start, keeps a moved start, and omits it when scrubbed back', () => {
+    const towns = [arm({ happiness: [69.1, 51.2] })]
+    expect(heroNotes(towns, 'happiness', 1)).toEqual([])
+    expect(heroNotes(towns, 'happiness', 20)).toEqual(['The town started at 69.'])
+    expect(heroNotes(towns, 'happiness', 1)).toEqual([])
+  })
+
+  test('a raw change that rounds to the same reading does not repeat the start', () => {
+    const towns = [arm({ happiness: [69.1, 69.4] })]
+    expect(rowValues(towns, 'happiness', 20)[0].formatted).toBe('69 of 100')
+    expect(heroNotes(towns, 'happiness', 20)).toEqual([])
+  })
+
+  test.each([2, 3, 4])('%s towns keep their shared-start wording only once every current reading has moved', townCount => {
+    const towns = Array.from({ length: townCount }, (_, index) => arm({ happiness: [69.1 + index * 0.1, 50 + index] }, {
+      label: `Town ${String.fromCharCode(65 + index)}`, color: TOWN_COLORS[index],
+    }))
+    expect(heroNotes(towns, 'happiness', 1)).toEqual([])
+    expect(heroNotes(towns, 'happiness', 20)).toEqual([
+      townCount === 2 ? 'Both towns started at 69.' : 'All towns started at 69.',
+    ])
+
+    towns.forEach((town, index) => {
+      const stillAtStart = towns.map((other, otherIndex) => otherIndex === index
+        ? { ...town, series: { happiness: [town.series.happiness[0], 69.4] } }
+        : other)
+      expect(heroNotes(stillAtStart, 'happiness', 20)).toEqual([])
+    })
+  })
+
+  test('different displayed starts still have no shared-start note after the towns move', () => {
+    const towns = [
+      arm({ happiness: [69.4, 50] }),
+      arm({ happiness: [69.6, 51] }, { label: 'Town B' }),
+    ]
+    expect(heroNotes(towns, 'happiness', 20)).toEqual([])
+  })
+})
+
 describe('numbers comparison states', () => {
   test.each([
     ['priceServices', 'services', 12, 'Services cost more there.'],

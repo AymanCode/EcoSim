@@ -112,6 +112,42 @@ describe('AnswerCard', () => {
     expect(container.querySelectorAll('.nx-answer-spark path')).toHaveLength(2)
   })
 
+  test('a single-town start note appears only when it adds a different displayed reading', () => {
+    const town = {
+      label: 'Town A', color: TOWN_COLORS[0], ticks: [1, 20, 30],
+      series: { happiness: [69.1, 51.2, 69.4], salesExceptRentThisWeek: [100, 120, 130] },
+      eventCounts: {}, policyChanges: [],
+    }
+    const { rerender } = draw({ arms: [town], tick: 1 })
+    expect(visibleValues(hero('Wellbeing'))).toEqual(['69 of 100'])
+    expect(hero('Wellbeing').querySelector('.nx-answer-hero-note')).toBeNull()
+    expect(hero('Output').querySelector('.nx-answer-hero-note')).toBeNull()
+
+    rerender(<div className="nx"><AnswerCard arms={[town]} tick={20} rows={ROWS} /></div>)
+    expect(visibleValues(hero('Wellbeing'))).toEqual(['51 of 100'])
+    expect(hero('Wellbeing').querySelector('.nx-answer-hero-note')).toHaveTextContent('The town started at 69.')
+    expect(hero('Output').querySelector('.nx-answer-hero-note')).toBeNull()
+
+    rerender(<div className="nx"><AnswerCard arms={[town]} tick={30} rows={ROWS} /></div>)
+    expect(visibleValues(hero('Wellbeing'))).toEqual(['69 of 100'])
+    expect(hero('Wellbeing').querySelector('.nx-answer-hero-note')).toBeNull()
+  })
+
+  test.each([2, 3, 4])('%s-town cards omit a repeated common start and retain it after every town moves', townCount => {
+    const towns = Array.from({ length: townCount }, (_, index) => ({
+      label: `Town ${String.fromCharCode(65 + index)}`, color: TOWN_COLORS[index], ticks: [1, 20],
+      series: { happiness: [69.1 + index * 0.1, 50 + index] }, eventCounts: {}, policyChanges: [],
+    }))
+    const { rerender } = draw({ arms: towns, tick: 1 })
+    expect(visibleValues(hero('Wellbeing'))).toEqual(['69 of 100'])
+    expect(hero('Wellbeing').querySelector('.nx-answer-hero-note')).toBeNull()
+
+    rerender(<div className="nx"><AnswerCard arms={towns} tick={20} rows={ROWS} /></div>)
+    expect(hero('Wellbeing').querySelector('.nx-answer-hero-note')).toHaveTextContent(
+      townCount === 2 ? 'Both towns started at 69.' : 'All towns started at 69.',
+    )
+  })
+
   test('three towns compare each other town with the first, with a verdict and tally for each', () => {
     const third = { ...arms[0], label: 'Town C', color: TOWN_COLORS[2] }
     const { container } = draw({ arms: [...arms, third] })

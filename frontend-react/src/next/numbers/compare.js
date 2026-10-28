@@ -282,7 +282,8 @@ export function verdictParts(arms, rows, tick) {
 
 /** Price note only for an output gap that survives rounding and a posted-price
  * row visibly higher in the comparison town; one higher row is sufficient.
- * Same-start note only if all rounded starts are known and agree. */
+ * Same-start note only if all displayed starts are known and agree, and the
+ * start does not repeat any current displayed reading. */
 export function heroNotes(arms, row, tick) {
   const key = keyOf(row)
   if (key === 'salesExceptRentThisWeek' && (arms?.length ?? 0) > 1) {
@@ -302,6 +303,8 @@ export function heroNotes(arms, row, tick) {
   if (key !== 'happiness' || !arms?.length) return []
   const starts = arms.map(arm => seriesUpTo(arm, key, tick)[0]?.value ?? null)
   if (starts.some(value => !isNumber(value))) return []
-  const rounded = starts.map(Math.round)
-  return rounded.every(value => value === rounded[0]) ? [COPY.numbers.heroes.sameStart(arms.length, rounded[0])] : []
+  const formatted = starts.map(value => formatMetric(key, value))
+  if (!formatted.every(value => value === formatted[0])) return []
+  if (rowValues(arms, key, tick).some(reading => reading.formatted === formatted[0])) return []
+  return [COPY.numbers.heroes.sameStart(arms.length, Math.round(starts[0]))]
 }
