@@ -1067,7 +1067,7 @@ html:has(.nx-app) { scrollbar-gutter: stable }
   .nx .nx-hall { width: 100%; border-left: 0 }
 }
 
-/* "Show me all the numbers": a sheet over the Run screen (numbers/), on the
+/* "Show all the numbers": a sheet over the Run screen (numbers/), on the
    same clock. Ported from docs/superpowers/specs/2026-09-25-mockups/06-all-the-numbers.html.
    The timeline stays above it; --nx-sheet-top is the timeline's measured
    height (NumbersSheet's `top`, set inline), where the jump bar sticks. */

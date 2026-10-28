@@ -71,7 +71,7 @@ describe('NextApp', { timeout: WHOLE_SCREEN_MS }, () => {
     const dialog = await screen.findByRole('dialog', { name: 'All the numbers' }, { timeout: 4000 })
     // The dialog can be found before the sheet's focus effect has committed.
     await waitFor(() => expect(within(dialog).getByRole('heading', { level: 2, name: 'All the numbers' })).toHaveFocus())
-    const toggle = within(screen.getByRole('region', { name: 'Timeline' })).getByRole('button', { name: 'Show me all the numbers' })
+    const toggle = within(screen.getByRole('region', { name: 'Timeline' })).getByRole('button', { name: 'Show all the numbers' })
     expect(toggle).toHaveAttribute('aria-pressed', 'true')
     // The same clock: the timeline above moves the sheet.
     fireEvent.change(screen.getByRole('slider', { name: 'Week of the run' }), { target: { value: '15' } })

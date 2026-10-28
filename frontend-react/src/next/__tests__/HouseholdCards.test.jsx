@@ -25,14 +25,14 @@ describe('HouseholdCards', () => {
     expect(slots.slice(2).every(slot => slot.getAttribute('aria-hidden') === 'true')).toBe(true)
     expect(screen.getAllByRole('listitem')).toHaveLength(2)
     expect(cardNames(container)).toEqual(two.map(subject => `${householdName(subject.id)}, ${subject.age}`))
-    expect(screen.queryByRole('button', { name: 'Show me four others' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Show four other households' })).toBeNull()
   })
 
-  test('"Show me four others" moves on through the sample', () => {
+  test('"Show four other households" moves on through the sample', () => {
     const arm = fixtureArm()
     const { container } = render(<HouseholdCards arm={arm} tick={24} />)
     const before = cardNames(container)[0]
-    fireEvent.click(screen.getByRole('button', { name: 'Show me four others' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Show four other households' }))
     const after = cardNames(container)[0]
     expect(after).not.toBe(before)
     const fifth = arm.snapshots[24].subjects[4]
@@ -52,7 +52,7 @@ describe('HouseholdCards', () => {
     const pinned = screen.getByRole('button', { name })
     expect(pinned).toHaveAttribute('aria-pressed', 'true')
     expect(pinned).toHaveTextContent(/^Follow$/)
-    fireEvent.click(screen.getByRole('button', { name: 'Show me four others' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Show four other households' }))
     expect(cardNames(container)[0]).toBe(third)
     expect(container.querySelectorAll('.nx-hc')).toHaveLength(4)
   })

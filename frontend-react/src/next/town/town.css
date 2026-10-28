@@ -163,7 +163,7 @@
 .nx .lt-legend i.is-pin { background: #3B9B68; box-shadow: 0 0 0 2px #fff, 0 0 0 3px #C9BFAE }
 .nx .lt-legend .lt-scale { color: var(--nx-ink4-text) }
 
-/* ---------- Main Street, up close ----------
+/* ---------- Main Street in detail ----------
    One town's street from the side, under the legend (MainStreetCard.jsx,
    MainStreet.jsx). The header is one line on a wide card and two on a narrow
    one (the title, then the town and its rules beside the picker); the rules

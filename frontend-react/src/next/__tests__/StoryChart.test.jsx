@@ -152,7 +152,7 @@ describe('StoryChart', () => {
   })
 })
 
-// "See it big" in the numbers sheet: any number, its own chips, and the
+// "View larger" in the numbers sheet: any number, its own chips, and the
 // counted-every-5-weeks numbers drawn only at their counts.
 describe('StoryChart for the numbers sheet', () => {
   test('only inline warm-up charts hide the relative start annotation', () => {

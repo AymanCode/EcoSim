@@ -13,7 +13,7 @@ function BigIcon() {
 
 // A card of the numbers sheet, in the tile's look: a title and whatever it
 // draws. When it has a measured number to show big (`metricKey`, `measured`
-// and `onSeeBig`), it carries the "See it big" badge and a click, Enter or
+// and `onSeeBig`), it carries the "View larger" badge and a click, Enter or
 // Space calls onSeeBig(metricKey); `data-metric` lets the sheet bring focus
 // back to it when the big chart closes.
 export default function Card({ title, metricKey = null, measured = true, onSeeBig, className = '', children }) {

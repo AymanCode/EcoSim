@@ -41,7 +41,7 @@ function longestWeekLabel(length) {
 // `following` is false, and a Town hall button opens and closes the drawer
 // (`onHallToggle(open)`, else `live.onHall`); `hallToggleRef` lets focus come
 // back to it, and `hallId` is the drawer it controls. With `onNumbersToggle`,
-// a "Show me all the numbers" button opens and closes that sheet
+// a "Show all the numbers" button opens and closes that sheet
 // (`onNumbersToggle(open, button)`), likewise with `numbersToggleRef` and
 // `numbersId`; `numbersDisabled` while there is nothing to show. `barRef`
 // reaches the bar itself, so what sits under it can be measured against it.

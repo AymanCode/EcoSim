@@ -201,7 +201,7 @@ describe('LoansWrittenOff', () => {
     const { container } = draw(<LoansWrittenOff arms={arms} tick={72} />)
     const card = screen.getByRole('article', { name: COPY.numbers.writtenOff.title })
     arms.forEach(arm => expect(card).toHaveTextContent(formatMoney(cumulativeUpTo(arm, 'bankDefaultAmountThisTick', 72))))
-    expect(card).toHaveTextContent("The number of unpaid loans isn't recorded in this run, so this shows the money instead.")
+    expect(card).toHaveTextContent("The number of unpaid loans is not recorded in this run, so this shows the money instead.")
     // One block for each week the bank wrote money off.
     const piles = [...container.querySelectorAll('.nx-pile')]
     piles.forEach((pile, i) => {
@@ -222,7 +222,7 @@ describe('LoansWrittenOff', () => {
     draw(<LoansWrittenOff arms={counted} tick={4} />)
     const card = screen.getByRole('article', { name: COPY.numbers.writtenOff.title })
     expect(card).toHaveTextContent('Loans that went unpaid so far: 2 in Town A, 0 in Town B.')
-    expect(card).not.toHaveTextContent("isn't recorded")
+    expect(card).not.toHaveTextContent("is not recorded")
   })
 })
 

@@ -49,7 +49,7 @@ describe('place cards', () => {
     const { container, rerender } = render(<TownCard arm={A} tick={69} towns={2} />)
     fireEvent.click(container.querySelector('[data-kind="bank"]'), { clientX: 5, clientY: 5 })
     rerender(<TownCard arm={A} tick={70} towns={2} />)
-    expect(container.querySelector('.lt-place')).toHaveTextContent('Loans going bad')
+    expect(container.querySelector('.lt-place')).toHaveTextContent('Loans going unpaid')
   })
 
   test('every kind of place has its card: a house, a shop, the town hall, the bank and a person you follow', () => {

@@ -35,8 +35,8 @@ function Clocked({ arms }) {
 const weekShown = container => container.querySelector('.nx-clock .nx-week').textContent
 const scrubTo = week => fireEvent.change(screen.getByRole('slider', { name: 'Week of the run' }), { target: { value: String(week) } })
 // The two ways into "All the numbers": the line under the stat cards and the timeline's button.
-const sheetLink = container => within(container.querySelector('.nx-side')).getByRole('button', { name: 'Show me all the numbers' })
-const sheetToggle = () => within(screen.getByRole('region', { name: 'Timeline' })).getByRole('button', { name: 'Show me all the numbers' })
+const sheetLink = container => within(container.querySelector('.nx-side')).getByRole('button', { name: 'Show all the numbers' })
+const sheetToggle = () => within(screen.getByRole('region', { name: 'Timeline' })).getByRole('button', { name: 'Show all the numbers' })
 const sheet = () => screen.queryByRole('dialog', { name: 'All the numbers' })
 
 describe('RunScreen', { timeout: WHOLE_SCREEN_MS }, () => {
@@ -64,8 +64,8 @@ describe('RunScreen', { timeout: WHOLE_SCREEN_MS }, () => {
     expect(shown.endsWith('?')).toBe(true)
     expect(container.querySelectorAll('.nx-stats .nx-stat')).toHaveLength(4)
     expect(container.querySelectorAll('path.nx-line')).toHaveLength(2)
-    expect(screen.getByRole('heading', { name: "What's happening newest first" })).toBeInTheDocument()
-    expect(screen.getByRole('heading', { name: 'How to read this for first-timers' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Recent events newest first' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'How to read this a short guide' })).toBeInTheDocument()
   })
 
   test('scrubbing the timeline moves every panel to that week', () => {
@@ -137,7 +137,7 @@ describe('RunScreen', { timeout: WHOLE_SCREEN_MS }, () => {
     const { container } = render(<Clocked arms={arms} />)
     expect(sheet()).toBeNull()
     expect(container.querySelector('.nx-side .nx-morestats')).toHaveTextContent(
-      "Also: prices in every shop, savings, businesses opening and closing, the town hall's money. Show me all the numbers.",
+      "Also: prices in every shop, savings, businesses opening and closing, the town hall's money. Show all the numbers.",
     )
     const link = sheetLink(container)
     fireEvent.click(link)

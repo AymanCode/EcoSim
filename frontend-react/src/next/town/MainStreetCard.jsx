@@ -1,4 +1,4 @@
-// "Main Street, up close" on the Run screen (spec sections 3 and 4.3.17): the
+// "Main Street in detail" on the Run screen (spec sections 3 and 4.3.17): the
 // side view of one town's street (MainStreet), a header naming the town and
 // its rules, and, with two or more towns, a segmented picker for which town
 // it shows (`selected`, reported through `onSelect`). Enlarge on a town card

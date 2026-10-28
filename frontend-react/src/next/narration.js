@@ -73,17 +73,17 @@ export function leadSentence(arms, tick) {
     const [arm] = arms
     const out = valueAt(arm, OUT, tick)
     const pay = valueAt(arm, PAY, tick)
-    if (!hasReported(arm, tick) || (!known(out) && !known(pay))) return `${weekLabel(tick)}. ${arm.label} hasn't reported yet.`
+    if (!hasReported(arm, tick) || (!known(out) && !known(pay))) return `${weekLabel(tick)}. ${arm.label} has not reported yet.`
     if (inWarmUp(tick)) return `${weekLabel(tick)}. ${arm.label} is still being set up; the real economy starts in week ${FIRST_REAL_WEEK}.`
     return `${weekLabel(tick)}. ${capitalise(currentPhrase(OUT, out))} and ${currentPhrase(PAY, pay)}.`
   }
-  if (!arms.every(arm => hasReported(arm, tick))) return `${weekLabel(tick)}. The towns haven't reported yet.`
+  if (!arms.every(arm => hasReported(arm, tick))) return `${weekLabel(tick)}. The towns have not reported yet.`
   if (inWarmUp(tick)) {
     return `${weekLabel(tick)}. ${towns(arms.length)} are still being set up and start the same; the real economy starts in week ${FIRST_REAL_WEEK}.`
   }
   const [first, ...rest] = arms
   const sentences = rest.map(arm => compareSentence(first, arm, tick)).filter(Boolean)
-  if (!sentences.length) return `${weekLabel(tick)}. The towns haven't reported yet.`
+  if (!sentences.length) return `${weekLabel(tick)}. The towns have not reported yet.`
   return sentences.join(' ')
 }
 
@@ -224,7 +224,7 @@ export function verdict(arms, tick) {
 
 const SHOCKS = {
   shock_demand: 'Households had an unexpected windfall or bill.',
-  shock_supply: 'A supply problem hit some businesses.',
+  shock_supply: 'A supply disruption affected some businesses.',
   shock_health: 'An illness went around.',
 }
 
@@ -238,7 +238,7 @@ const REGIMES = {
   eviction: ({ household, lostHome }) => (lostHome
     ? `${household ?? 'A household'} lost their home.`
     : `${household ?? 'A household'} had to move after falling behind on rent.`),
-  failed_hiring: ({ firm }) => (firm ? `${firm} couldn't fill its open jobs.` : null),
+  failed_hiring: ({ firm }) => (firm ? `${firm} could not fill its open jobs.` : null),
   firm_distress_enter: ({ firm }) => (firm ? `${firm} is struggling to pay its bills.` : null),
   firm_distress_exit: ({ firm }) => (firm ? `${firm} is back on its feet.` : null),
   firm_bankrupt: ({ firm }) => (firm ? `${firm} went bankrupt.` : null),
@@ -283,7 +283,7 @@ export function eventSentence(event, names = {}) {
     case 'laid_off':
       return firm ? `${who} lost their job at ${firm}.` : `${who} lost their job.`
     case 'care_denied':
-      return `${who} couldn't afford a doctor.`
+      return `${who} could not afford a doctor.`
     case 'care_completed':
       return `${who} saw a doctor.`
     case 'policy_changed': {
@@ -312,9 +312,9 @@ export function eventSentence(event, names = {}) {
 const FAMILIES = {
   hired: 'found work',
   laid_off: 'lost their jobs',
-  care_denied: "couldn't afford a doctor",
+  care_denied: "could not afford a doctor",
   care_completed: 'saw a doctor',
-  loan_default: "couldn't repay a loan",
+  loan_default: "could not repay a loan",
 }
 const FAMILY_REGIMES = {
   eviction: 'had to move after falling behind on rent',
@@ -328,7 +328,7 @@ const COUNTED = {
 }
 
 const COUNTED_REGIMES = {
-  failed_hiring: n => `${n} businesses couldn't fill their open jobs.`,
+  failed_hiring: n => `${n} businesses could not fill their open jobs.`,
   firm_distress_enter: n => `${n} businesses are struggling to pay their bills.`,
   firm_distress_exit: n => `${n} businesses are back on their feet.`,
   firm_bankrupt: n => `${n} businesses went bankrupt.`,
@@ -613,7 +613,7 @@ export function householdStateSentence(subject, { employerName } = {}) {
       return employerName ? `Steady work at ${employerName}.` : 'In steady work.'
     case 'look': {
       const duration = Math.round(Number(subject?.unemploymentDuration) || 0)
-      return duration > 0 ? `Has been looking for work for ${weeks(duration)}.` : 'Just started looking for work.'
+      return duration > 0 ? `Has been looking for work for ${weeks(duration)}.` : 'Recently started looking for work.'
     }
     default:
       return 'Not working right now.'

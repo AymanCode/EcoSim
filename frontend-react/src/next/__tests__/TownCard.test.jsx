@@ -387,13 +387,13 @@ describe('TownCard motion between weeks', () => {
     expect(container.querySelectorAll('[data-slot] > .lt-walker.is-moving')).toHaveLength(0)
     // The clock playing on from there is a step again.
     rerender(card(71, { playing: true, scrubs: 4 }))
-    expect(layer(container, 'moments').textContent).toContain('Bad loans')
+    expect(layer(container, 'moments').textContent).toContain('Unpaid loans')
   })
 
   test('bad loans: a sign over the bank and the bank flashes red; a closure leaves a puff of dust', () => {
     const { container, rerender } = render(card(69, { playing: true }))
     rerender(card(70, { playing: true }))
-    expect(layer(container, 'moments').textContent).toContain('Bad loans $19k')
+    expect(layer(container, 'moments').textContent).toContain('Unpaid loans $19k')
     expect(layer(container, 'moments').querySelectorAll('.lt-puff').length).toBeGreaterThan(0)
     const flash = () => Number(container.querySelector('[data-flash="bank"]').getAttribute('opacity'))
     frames(150)
@@ -407,7 +407,7 @@ describe('TownCard motion between weeks', () => {
     const { container, rerender } = render(card(69, { playing: true }))
     rerender(card(70, { playing: true }))
     rerender(card(71, { playing: true }))
-    const bank = [...layer(container, 'moments').querySelectorAll('.lt-moment')].filter(sign => sign.textContent.startsWith('Bad loans'))
+    const bank = [...layer(container, 'moments').querySelectorAll('.lt-moment')].filter(sign => sign.textContent.startsWith('Unpaid loans'))
     expect(bank).toHaveLength(1)
     expect(layer(container, 'moments').querySelectorAll('.lt-moment').length).toBeGreaterThan(1)
   })

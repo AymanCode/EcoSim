@@ -52,7 +52,7 @@ function expectedArms(sockets, weeks) {
 }
 
 const weekShown = container => container.querySelector('.nx-clock .nx-week').textContent
-const numbersToggle = () => within(screen.getByRole('region', { name: 'Timeline' })).getByRole('button', { name: 'Show me all the numbers' })
+const numbersToggle = () => within(screen.getByRole('region', { name: 'Timeline' })).getByRole('button', { name: 'Show all the numbers' })
 const numbers = () => screen.queryByRole('dialog', { name: 'All the numbers' })
 const townChips = dialog => within(dialog).getAllByRole('listitem').filter(item => item.classList.contains('nx-tchip'))
 
@@ -100,7 +100,7 @@ describe('NextApp live', { timeout: WHOLE_SCREEN_MS }, () => {
     act(() => { sockets[0].fail() })
     flush()
     expect(screen.getByRole('heading', { level: 1, name: 'What do you want to find out?' })).toBeInTheDocument()
-    expect(screen.getByRole('alert')).toHaveTextContent("The simulation isn't running on this computer.")
+    expect(screen.getByRole('alert')).toHaveTextContent("The simulation is not running on this computer.")
     expect(screen.getByText('python -m uvicorn backend.server:app --port 8002')).toBeInTheDocument()
     expect(sockets.every(socket => socket.readyState === 3)).toBe(true)
     expect(screen.getByRole('button', { name: 'Start the experiment' })).toBeEnabled()
@@ -146,7 +146,7 @@ describe('NextApp live', { timeout: WHOLE_SCREEN_MS }, () => {
     expect(screen.getByRole('button', { name: 'Add a year' })).toBeDisabled()
     act(() => { sockets.forEach(socket => socket.receive({ type: 'FINISHED', tick: 12, analysisReady: true, runId: 'r', drained: 0 })) })
     flush()
-    expect(screen.getByRole('heading', { name: '24 weeks are up.' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'The run is complete after 24 weeks.' })).toBeInTheDocument()
     const add = screen.getByRole('button', { name: 'Add a year' })
     expect(add).toBeEnabled()
     fireEvent.click(add)
@@ -194,10 +194,10 @@ describe('NextApp live', { timeout: WHOLE_SCREEN_MS }, () => {
     expect(screen.getByText('Building the towns…')).toBeInTheDocument()
   })
 
-  test('Just play: one town, with the Town hall open from the start', () => {
+  test('Free play: one town, with the Town hall open from the start', () => {
     const { sockets, container } = app()
-    fireEvent.click(screen.getByRole('button', { name: 'Just play' }))
-    start('Start playing')
+    fireEvent.click(screen.getByRole('button', { name: 'Free play' }))
+    start('Start the run')
     expect(sockets).toHaveLength(1)
     expect(screen.getByRole('complementary', { name: 'Town hall' })).toBeInTheDocument()
     expect(within(container.querySelector('.nx-hall-foot')).getByRole('status')).toHaveTextContent('You can change the rules as soon as the run starts.')
@@ -267,13 +267,13 @@ describe('NextApp live', { timeout: WHOLE_SCREEN_MS }, () => {
     expect(screen.queryByRole('button', { name: 'Back to live' })).toBeNull()
   })
 
-  test('households: "Meet other families" reshuffles and Follow pins, on that town only', () => {
+  test('households: "Show other families" reshuffles and Follow pins, on that town only', () => {
     const { sockets, container } = app()
     start()
     connect(sockets)
     run(sockets)
     const townB = container.querySelectorAll('.nx-col')[1]
-    fireEvent.click(within(townB).getByRole('button', { name: 'Meet other families' }))
+    fireEvent.click(within(townB).getByRole('button', { name: 'Show other families' }))
     expect(sockets[1].sent.at(-1)).toEqual({ command: 'TRACK', action: 'reshuffle' })
     expect(sockets[0].commands()).not.toContain('TRACK')
     const follow = within(townB).getAllByRole('button', { name: /^Follow / })[1]
@@ -287,12 +287,12 @@ describe('NextApp live', { timeout: WHOLE_SCREEN_MS }, () => {
     expect(sockets[1].sent.at(-1)).toEqual({ command: 'TRACK', action: 'unpin', householdId: pinned.householdId })
   })
 
-  test('"Meet other families" waits for a running town and the live week', () => {
+  test('"Show other families" waits for a running town and the live week', () => {
     const { sockets, container } = app()
     start()
     connect(sockets)
     run(sockets)
-    const meet = () => within(container.querySelectorAll('.nx-col')[1]).getByRole('button', { name: 'Meet other families' })
+    const meet = () => within(container.querySelectorAll('.nx-col')[1]).getByRole('button', { name: 'Show other families' })
     expect(meet()).toBeEnabled()
     fireEvent.click(screen.getByRole('button', { name: 'Pause' }))
     flush()
@@ -320,7 +320,7 @@ describe('NextApp live', { timeout: WHOLE_SCREEN_MS }, () => {
     expect(notices.map(notice => notice.getAttribute('role'))).toEqual(['status', 'status'])
     expect(notices[0]).toBeEmptyDOMElement()
     expect(notices[1].textContent).toBe(
-      "The simulation couldn't carry out the last request for this town. Details: STOP failed: simulation loop did not stop within the timeout",
+      "The simulation could not carry out the last request for this town. Details: STOP failed: simulation loop did not stop within the timeout",
     )
     expect(container).not.toHaveTextContent('household 523')
     run(sockets, 12, 13)
@@ -416,7 +416,7 @@ describe('NextApp live', { timeout: WHOLE_SCREEN_MS }, () => {
     flush()
     expect(container.querySelector('.nx-endp-v')).not.toBeNull()
     fireEvent.change(screen.getByRole('slider', { name: 'Week of the run' }), { target: { value: '5' } })
-    expect(screen.getByRole('heading', { name: '24 weeks are up.' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'The run is complete after 24 weeks.' })).toBeInTheDocument()
     expect(container.querySelector('.nx-endp-v')).toBeNull()
     expect(screen.getByRole('button', { name: 'Add a year' })).toBeEnabled()
     fireEvent.click(screen.getByRole('button', { name: 'Back to the end' }))
@@ -485,7 +485,7 @@ describe('NextApp live', { timeout: WHOLE_SCREEN_MS }, () => {
     connect(sockets)
     run(sockets)
     fireEvent.click(screen.getByRole('button', { name: 'Town hall' }))
-    const link = within(container.querySelector('.nx-side')).getByRole('button', { name: 'Show me all the numbers' })
+    const link = within(container.querySelector('.nx-side')).getByRole('button', { name: 'Show all the numbers' })
     fireEvent.click(link)
     expect(screen.queryByRole('complementary', { name: 'Town hall' })).toBeNull()
     expect(container.querySelector('.has-hall')).toBeNull()
@@ -525,12 +525,12 @@ describe('NextApp live', { timeout: WHOLE_SCREEN_MS }, () => {
     fireEvent.change(screen.getByRole('slider', { name: 'Week of the run' }), { target: { value: '5' } })
     act(() => { sockets.forEach(socket => socket.receive({ type: 'HORIZON_REACHED', tick: 12 })) })
     flush()
-    expect(status).toHaveTextContent('24 weeks are up.')
+    expect(status).toHaveTextContent('The run is complete after 24 weeks.')
     expect(status).toHaveTextContent('Go back to the towns to choose what happens next.')
     act(() => { sockets.forEach(socket => socket.receive({ type: 'FINISHED', tick: 12, analysisReady: true, runId: 'r', drained: 0 })) })
     flush()
     expect(within(numbers()).getByRole('status')).toBe(status)
-    expect(status).toHaveTextContent('24 weeks are up.')
+    expect(status).toHaveTextContent('The run is complete after 24 weeks.')
     expect(screen.getByRole('slider', { name: 'Week of the run' })).toBeInTheDocument()
   })
 

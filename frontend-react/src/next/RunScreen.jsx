@@ -150,7 +150,7 @@ const page = () => document.scrollingElement ?? document.documentElement
 // `live` (NextApp's live experiment) it also steers the towns: pause and
 // resume, the end and lost panels, the Town hall drawer and the household
 // sample. Without it, it replays recorded towns.
-// "Show me all the numbers" (the line under the stat cards, or the timeline's
+// "Show all the numbers" (the line under the stat cards, or the timeline's
 // button) opens the numbers sheet in the towns' place, under the timeline that
 // still drives it; `numbersOpen` opens the screen on it. The sheet and the Town
 // hall drawer are never open together.

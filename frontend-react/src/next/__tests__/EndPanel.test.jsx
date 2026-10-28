@@ -18,35 +18,35 @@ function end(props = {}) {
 describe('EndPanel', () => {
   test('says the years are up and gives the verdict for the latest week', () => {
     const { arms, container } = end()
-    expect(screen.getByRole('heading', { name: '5 years are up.' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'The run is complete after 5 years.' })).toBeInTheDocument()
     expect(container).toHaveTextContent(verdict(arms, 24))
   })
 
   test('"Add a year" waits for the run to finish, then asks for 52 more weeks', () => {
     const { onExtend, onNewExperiment, rerender, arms } = end()
     expect(screen.getByRole('button', { name: 'Add a year' })).toBeDisabled()
-    expect(screen.getByRole('status')).toHaveTextContent('Wrapping up the run…')
+    expect(screen.getByRole('status')).toHaveTextContent('Finishing the run…')
     rerender(<EndPanel phase="finished" horizon={260} arms={arms} tick={24} onExtend={onExtend} onNewExperiment={onNewExperiment} />)
     expect(screen.queryByRole('status')).toBeNull()
     const add = screen.getByRole('button', { name: 'Add a year' })
     expect(add).toBeEnabled()
     fireEvent.click(add)
     expect(onExtend).toHaveBeenCalledWith(52)
-    fireEvent.click(screen.getByRole('button', { name: 'Try another question' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Set up another question' }))
     expect(onNewExperiment).toHaveBeenCalledTimes(1)
   })
 
   test('one year reads in the singular', () => {
     end({ horizon: 52 })
-    expect(screen.getByRole('heading', { name: '1 year is up.' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'The run is complete after 1 year.' })).toBeInTheDocument()
   })
 
   test('while the viewer looks back at an earlier week it folds to a bar: no verdict, a way back, a year more', () => {
     const onFollow = vi.fn()
     const { arms, container, onExtend } = end({ phase: 'finished', following: false, onFollow })
-    expect(screen.getByRole('heading', { name: '5 years are up.' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'The run is complete after 5 years.' })).toBeInTheDocument()
     expect(container).not.toHaveTextContent(verdict(arms, 24))
-    expect(screen.queryByRole('button', { name: 'Try another question' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Set up another question' })).toBeNull()
     fireEvent.click(screen.getByRole('button', { name: 'Back to the end' }))
     expect(onFollow).toHaveBeenCalledTimes(1)
     fireEvent.click(screen.getByRole('button', { name: 'Add a year' }))

@@ -169,7 +169,7 @@ describe('TownHall', () => {
     expect(lines).toEqual([
       'Waiting for next week…',
       'Year 2, week 8: A higher minimum wage.The business subsidy was not changed: needs a target',
-      "Couldn't change the rules: the run is finished",
+      "Could not change the rules: the run is finished",
     ])
   })
 

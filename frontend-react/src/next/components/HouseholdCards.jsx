@@ -85,7 +85,7 @@ function EmptySlot() {
 // (spec section 6).
 // In a live town (`onTrack(action, householdId)`) Follow also pins or unpins
 // the household on the server: it asks the server to follow it first, since
-// the week shown may be older than the server's sample. "Meet other families"
+// the week shown may be older than the server's sample. "Show other families"
 // asks for a new sample, which shows from the next live week, so it is on
 // only while `canReshuffle` (the town runs and the viewer is on the live week).
 export default function HouseholdCards({ arm, tick, onTrack, canReshuffle = true }) {

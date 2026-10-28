@@ -81,11 +81,11 @@ Open the town view at http://localhost:5173/?view=next. Vite proxies `/ws` and `
 
 ## Using the town view
 
-1. **Set up.** Choose **Compare policies** for two to four towns or **Just play** for one town. Pick a question or **Build my own** to set each town's rules. Choose the households per town and a run length of 1, 2, 5, or 10 years. All towns share the same size and town number, which sets the random seed.
+1. **Set up.** Choose **Compare policies** for two to four towns or **Free play** for one town. Select a question or **Build my own** to set each town's rules. Choose the households per town and a run length of 1, 2, 5, or 10 years. All towns share the same size and town number, which sets the random seed.
 2. **Run.** Start the experiment to run the towns side by side. Pause, resume, or scrub the timeline to inspect earlier weeks. **Back to live** returns to the latest week.
 3. **Change rules.** Open **Town hall**, select a town, and edit its taxes, benefits, minimum wage, spending, or other rules. Click **Change from next week** to apply them. The other towns keep their own rules.
-4. **Compare.** The chart shows unemployment, pay, grocery spending, the wealth gap, or town hall cash over time. **Show me all the numbers** opens the sheet with prices, savings, business activity, town hall finances, loans, hardship, and wellbeing. Its numbers follow the timeline too.
-5. **Continue.** The end-of-run panel summarises the comparison. Click **Add a year** to keep the towns running, or try another question.
+4. **Compare.** The chart shows unemployment, pay, grocery spending, the wealth gap, or town hall cash over time. **Show all the numbers** opens the sheet with prices, savings, business activity, town hall finances, loans, hardship, and wellbeing. Its numbers follow the timeline too.
+5. **Continue.** The end-of-run panel summarises the comparison. Click **Add a year** to keep the towns running, or **Set up another question**.
 
 The town view disables the **Test an AI mayor** card and labels it **No AI model connected**, because an AI mayor needs an LLM connection.
 

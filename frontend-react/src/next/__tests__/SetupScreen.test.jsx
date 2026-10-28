@@ -69,15 +69,15 @@ describe('SetupScreen', () => {
 
   test('2. just play: one town, no question step, up to 10,000 households', () => {
     screenWith()
-    fireEvent.click(screen.getByRole('button', { name: 'Just play' }))
-    expect(screen.getByRole('button', { name: 'Just play' })).toHaveAttribute('aria-pressed', 'true')
+    fireEvent.click(screen.getByRole('button', { name: 'Free play' }))
+    expect(screen.getByRole('button', { name: 'Free play' })).toHaveAttribute('aria-pressed', 'true')
     expect(tiles()).toHaveLength(1)
     expect(screen.queryByRole('heading', { name: 'Choose a question' })).toBeNull()
     expect(screen.getByRole('heading', { name: 'Your town' })).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Add a town' })).toBeNull()
     expect(households()).toHaveAttribute('max', '10000')
     expect(screen.getByText('up to 10,000 with 1 town')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Start playing' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Start the run' })).toBeInTheDocument()
     expect(screen.getByText('One town, 1,000 households, five years.')).toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: 'Compare policies' }))
@@ -209,7 +209,7 @@ describe('SetupScreen', () => {
     screenWith({ problem: { kind: 'dropped', message: '' } })
     const alert = screen.getByRole('alert')
     expect(alert).toHaveTextContent('The simulation stopped answering while it built the towns. Press Start to try again.')
-    expect(alert).not.toHaveTextContent("isn't running")
+    expect(alert).not.toHaveTextContent("is not running")
     expect(within(alert).queryByText('python -m uvicorn backend.server:app --port 8002')).toBeNull()
   })
 

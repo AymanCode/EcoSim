@@ -49,7 +49,7 @@ describe('leadSentence', () => {
   })
 
   test('before the first recorded week', () => {
-    expect(leadSentence([fixtureArm()], 0)).toMatch(/haven't reported|hasn't reported/)
+    expect(leadSentence([fixtureArm()], 0)).toMatch(/have not reported|has not reported/)
   })
 })
 
@@ -140,16 +140,16 @@ describe('eventSentence', () => {
     [ev('firm_closed', { firmId: 5, firmName: 'FoodCo1' }), 'F5 closed.'],
     [ev('hired', { householdId: 56, firmId: 1, firmName: 'BaselineFood' }), 'H56 started work at F1.'],
     [ev('laid_off', { householdId: 13, firmId: 1, firmName: 'BaselineFood' }), 'H13 lost their job at F1.'],
-    [ev('care_denied', { householdId: 25 }), "H25 couldn't afford a doctor."],
+    [ev('care_denied', { householdId: 25 }), "H25 could not afford a doctor."],
     [ev('care_completed', { householdId: 25, firmId: 4 }), 'H25 saw a doctor.'],
     [ev('policy_changed', { text: 'benefit_level=high' }), 'The town hall set help for people out of work to high.'],
     [ev('policy_changed', { text: 'wage_tax_rate=0.2', value: 0.2 }), 'The town hall set the tax on wages to 20%.'],
     [ev('loan_default', { value: 120 }), 'A loan went unpaid.'],
     [ev('shock', { text: 'shock_demand' }), 'Households had an unexpected windfall or bill.'],
-    [ev('shock', { text: 'shock_supply' }), 'A supply problem hit some businesses.'],
+    [ev('shock', { text: 'shock_supply' }), 'A supply disruption affected some businesses.'],
     [ev('shock', { text: 'shock_health' }), 'An illness went around.'],
     [ev('regime', { text: 'bank_run_started' }), 'Bank run started.'],
-    [ev('regime', { text: 'failed_hiring', firmId: 1, firmName: 'BaselineFood' }), "F1 couldn't fill its open jobs."],
+    [ev('regime', { text: 'failed_hiring', firmId: 1, firmName: 'BaselineFood' }), "F1 could not fill its open jobs."],
     [ev('regime', { text: 'eviction', householdId: 13 }), 'H13 had to move after falling behind on rent.'],
     [ev('regime', { text: 'shortage_regime_enter', sector: 'Services' }), 'The town started running short of services.'],
   ])('%#: %j', (event, sentence) => {
@@ -180,7 +180,7 @@ describe('householdStateSentence', () => {
     expect(householdStateSentence({ ...base, rentArrears: 120.4 })).toBe('Working, but $120 behind on rent.')
     expect(householdStateSentence({ ...base, isEmployed: false, unemploymentDuration: 3 })).toBe('Has been looking for work for 3 weeks.')
     expect(householdStateSentence({ ...base, isEmployed: false, unemploymentDuration: 1 })).toBe('Has been looking for work for 1 week.')
-    expect(householdStateSentence({ ...base, isEmployed: false })).toBe('Just started looking for work.')
+    expect(householdStateSentence({ ...base, isEmployed: false })).toBe('Recently started looking for work.')
     expect(householdStateSentence({ ...base, housingSecurity: false })).toBe('Has no home right now.')
     expect(householdStateSentence({ ...base, isEmployed: false, canWork: false })).toBe('Not working right now.')
   })
@@ -196,7 +196,7 @@ describe('eventGroupSentence', () => {
 
   test('repeats become one counted sentence', () => {
     const events = [1, 2, 3].map(firmId => regime('failed_hiring', { firmId, firmName: `FoodCo${firmId}` }))
-    expect(eventGroupSentence(events)).toBe("3 businesses couldn't fill their open jobs.")
+    expect(eventGroupSentence(events)).toBe("3 businesses could not fill their open jobs.")
     const hires = [4, 5].map(householdId => ({ id: `h${householdId}`, tick: 1, type: 'hired', householdId, firmId: 1, firmName: 'BaselineFood', text: null }))
     expect(eventGroupSentence(hires)).toBe('2 of the families we follow found work.')
     const layoffs = hires.map(event => ({ ...event, type: 'laid_off' }))

@@ -258,7 +258,7 @@ describe('lever groups, help and question cards', () => {
     expect(QUESTIONS[0]).toEqual({
       id: 'minimum-wage',
       title: 'What happens if we raise the minimum wage?',
-      blurb: 'Higher pay for the lowest earners, higher costs for businesses. Which wins?',
+      blurb: 'Higher pay for the lowest earners, higher costs for businesses. Which effect is larger?',
       towns: [{}, { minimum_wage_policy: 'high' }],
     })
     for (const question of QUESTIONS) {
@@ -303,6 +303,6 @@ describe('COPY.diorama words', () => {
     expect(card.hasSavings).toBe('Has savings')
     expect(card.help).toBe('Help paid to families this week')
     expect(card.word(null)).toBe('not measured')
-    expect([card.word(0.7), card.word(0.4), card.word(0.1)]).toEqual(['good', 'so-so', 'low'])
+    expect([card.word(0.7), card.word(0.4), card.word(0.1)]).toEqual(['good', 'fair', 'low'])
   })
 })

@@ -4,7 +4,7 @@
 export const METRICS = {
   peopleOutOfWorkPer100: {
     name: 'People out of work',
-    meaning: "Working-age people who want a job and can't find one, per 100.",
+    meaning: "Working-age people who want a job and cannot find one, per 100.",
     format: 'per100',
     better: 'lower',
   },
@@ -59,7 +59,7 @@ export const METRICS = {
     owes: true,
   },
   homelessHouseholds: {
-    name: 'Homes without a roof',
+    name: 'Households without a home',
     meaning: 'Households that lost their home.',
     format: 'count',
     better: 'lower',
@@ -96,7 +96,7 @@ export const METRICS = {
   },
   careDenials: {
     name: 'Doctor visits turned away',
-    meaning: "Visits to a doctor refused this week because the household couldn't afford them.",
+    meaning: "Visits to a doctor refused this week because the household could not afford them.",
     format: 'count',
     better: 'lower',
   },
@@ -564,7 +564,7 @@ export const QUESTIONS = [
   {
     id: 'minimum-wage',
     title: 'What happens if we raise the minimum wage?',
-    blurb: 'Higher pay for the lowest earners, higher costs for businesses. Which wins?',
+    blurb: 'Higher pay for the lowest earners, higher costs for businesses. Which effect is larger?',
     towns: [{}, { minimum_wage_policy: 'high' }],
   },
 ]
@@ -707,7 +707,7 @@ function howToNotes({ armCount = 2, perHouse = householdsPerHouse(null), firstPo
     tick,
     rules,
     `Every **house** stands for ${perHouse}. Lit windows mean the people there have work; dark houses show the share of working-age people looking for work. An empty outline with a FOR SALE sign means those households lost their home.`,
-    "Every **shop** along the two roads is a business, coloured by what it sells. Taller means more staff. A crane means it's hiring, SALE in the window means it's struggling to pay wages or rent, and boards mean it closed. The weather follows how the town is doing.",
+    "Every **shop** along the two roads is a business, coloured by what it sells. Taller means more staff. A crane means it is hiring, SALE in the window means it is struggling to pay wages or rent, and boards mean it closed. The weather follows how the town is doing.",
   ]
 }
 
@@ -729,10 +729,10 @@ export const COPY = {
     moods: { thriving: 'Thriving', okay: 'Getting by', struggling: 'Struggling', hard: 'Hard times' },
     enlarge: 'Enlarge',
     showAll: n => (n === 2 ? 'Show both' : 'Show all'),
-    mainStreet: 'Main Street, up close',
+    mainStreet: 'Main Street in detail',
     mainStreetFor: (label, rules) => `${label} · ${rules}`,
     // The segmented control that picks which town's Main Street is shown.
-    streetPicker: 'Pick a town',
+    streetPicker: 'Choose a town',
     // Main Street's text alternative (its drawing is aria-hidden).
     streetSummary: (shown, hiring, closed) => `Main Street shows ${counted(shown, 'shop')}: ${hiring} hiring, ${closed} closed.`,
     moreLots: n => `+${n} more`,
@@ -742,7 +742,7 @@ export const COPY = {
       hall: owes => (owes ? 'the town hall owes' : 'in the town hall'),
     },
     signs: { hiring: 'HIRING', sale: 'SALE', closed: 'CLOSED', lease: 'FOR LEASE', fresh: 'NEW', forSale: 'FOR SALE', owes: 'owes', owesSlip: 'OWES', hall: 'TOWN HALL', bank: 'BANK' },
-    moments: { closed: 'Closed', opened: 'Opened!', lost: n => `−${n} jobs`, gained: n => `+${n} jobs`, badLoans: amount => `Bad loans ${amount}` },
+    moments: { closed: 'Closed', opened: 'Opened', lost: n => `−${n} jobs`, gained: n => `+${n} jobs`, badLoans: amount => `Unpaid loans ${amount}` },
     banner: {
       minimum_wage_policy: 'NEW MIN. WAGE', benefit_level: 'NEW BENEFITS', wage_tax_rate: 'NEW WAGE TAX', profit_tax_rate: 'NEW PROFIT TAX',
       investment_tax_rate: 'NEW INVEST. TAX', public_works: 'PUBLIC WORKS', sector_subsidy_target: 'SUBSIDIES', sector_subsidy_level: 'SUBSIDIES',
@@ -764,20 +764,20 @@ export const COPY = {
     card: {
       house: { work: 'A working home', look: 'Looking for work', home: 'Lost their home', sub: per => `stands for ${per}` },
       houseWork: weeks => `Lights on: the people here have jobs. Working for ${weeks} week${weeks === 1 ? '' : 's'} in a row.`,
-      houseLook: weeks => (weeks >= 12 ? `Lights off: someone here lost their job ${weeks} weeks ago, so the garden has gone to weeds.` : `Lights off: someone here lost their job ${weeks} week${weeks === 1 ? '' : 's'} ago.`),
+      houseLook: weeks => (weeks >= 12 ? `Lights off: someone here lost their job ${weeks} weeks ago, and the garden is overgrown.` : `Lights off: someone here lost their job ${weeks} week${weeks === 1 ? '' : 's'} ago.`),
       houseHome: 'These families could not keep up with rent and had to leave.',
       staff: 'Staff', cash: 'Cash in the bank', coop: 'town co-op', closedOn: 'Closed', closedStaff: 'Staff when it closed',
-      closedNote: lease => (lease ? 'Empty and up for lease.' : 'Boarded up. It ran out of cash.'),
+      closedNote: lease => (lease ? 'Empty and up for lease.' : 'Closed and boarded up after running out of cash.'),
       thisWeek: (hired, laid) => `This week: ${[hired ? `hired ${hired}` : '', laid ? `let ${laid} go` : ''].filter(Boolean).join(', ')}.`,
       richest: 'The richest shop in town, not counting the co-ops.',
-      states: { building: 'Being built', fresh: 'Just opened', growing: 'Growing, hiring', struggling: 'Struggling to pay its bills', steady: 'Steady', closed: 'Closed' },
+      states: { building: 'Being built', fresh: 'Recently opened', growing: 'Growing, hiring', struggling: 'Struggling to pay its bills', steady: 'Steady', closed: 'Closed' },
       // The queue in the picture is a scale (one figure per $2,800 of help), so the card describes it and counts no one.
       hall: 'Town hall', taxes: 'Taxes in this week', help: 'Help paid to families this week', saved: 'Saved', owes: 'Owes', queue: 'A queue of families is waiting for help.',
       inDebt: 'In debt', hasSavings: 'Has savings', notMeasured: 'Not measured',
-      bank: 'The bank', bankSub: 'lends to shops and families', loans: 'Loans out', bad: 'Gone bad this week', badTag: 'Loans going bad', lending: 'Lending',
+      bank: 'The bank', bankSub: 'lends to shops and families', loans: 'Loans out', bad: 'Unpaid this week', badTag: 'Loans going unpaid', lending: 'Lending',
       person: 'someone you follow',
       savings: 'Savings', health: 'Health', happiness: 'Happiness', rentOwed: 'Rent owed',
-      word: value => (value == null ? NOT_MEASURED : value >= 0.66 ? 'good' : value >= 0.33 ? 'so-so' : 'low'),
+      word: value => (value == null ? NOT_MEASURED : value >= 0.66 ? 'good' : value >= 0.33 ? 'fair' : 'low'),
       working: 'Working', looking: 'Looking for work',
     },
   },
@@ -785,7 +785,7 @@ export const COPY = {
   // (narration.js `moments`, components/Moments.jsx).
   moments: {
     label: 'What just happened',
-    rule: (town, policy) => `${town}'s town hall brought in ${policy}.`,
+    rule: (town, policy) => `${town}'s town hall introduced ${policy}.`,
     richest: (business, town) => `${business} is now ${town}'s richest business.`,
     passed: (town, level) => `${town} passed ${level} in 100 people out of work.`,
     fellBelow: (town, level) => `${town} fell below ${level} in 100 people out of work.`,
@@ -810,11 +810,11 @@ export const COPY = {
     saved: 'saved',
     follow: 'Follow',
     followLabel: name => `Follow ${name}`,
-    showOthers: 'Show me four others',
+    showOthers: 'Show four other households',
     empty: 'No households in the sample yet.',
   },
   feed: {
-    title: "What's happening",
+    title: 'Recent events',
     subtitle: 'newest first',
     when: (week, town) => `${week}, ${town}`,
     empty: 'Nothing has happened yet.',
@@ -853,7 +853,7 @@ export const COPY = {
   },
   howTo: {
     title: 'How to read this',
-    subtitle: 'for first-timers',
+    subtitle: 'a short guide',
     notes: howToNotes,
   },
   // How long a run should take, from live/plan.js `estimatePhrase`.
@@ -876,21 +876,21 @@ export const COPY = {
     // for one sector name it, bailouts for any business name none, and both
     // need a budget.
     rules: {
-      sector_subsidy: 'The subsidy needs a kind of business to go to. Pick one, or set the subsidy to none.',
+      sector_subsidy: 'The subsidy needs a kind of business to go to. Choose one, or set the subsidy to none.',
       bailout_off: 'Turn bailouts on before setting a sector or budget.',
-      bailout_target: 'Pick which kind of business to help.',
-      bailout_all: "Bailouts for any business don't need a sector.",
-      bailout_budget: "Set a budget, or the town hall can't lend anything.",
+      bailout_target: 'Choose which kind of business to help.',
+      bailout_all: 'Bailouts for any business do not need a sector.',
+      bailout_budget: 'Set a budget, or the town hall cannot lend anything.',
     },
     changed: '(changed)',
   },
   // The Set up screen (setup/SetupScreen.jsx).
   setup: {
     title: 'What do you want to find out?',
-    subhead: 'EcoSim runs a small town of families, businesses, a bank and a town hall, one week at a time. Set up a question, press start, and watch it play out.',
+    subhead: 'EcoSim runs a small town of families, businesses, a bank and a town hall, one week at a time. Set up a question, start the run, and follow the results week by week.',
     watchFirst: 'Or watch a recorded example first',
     steps: {
-      mode: 'Pick a kind of experiment',
+      mode: 'Choose a kind of experiment',
       question: 'Choose a question',
       towns: 'Your towns',
       town: 'Your town',
@@ -900,20 +900,20 @@ export const COPY = {
     modes: {
       compare: {
         title: 'Compare policies',
-        blurb: 'Run the same town two to four times with different rules and watch where they part ways.',
+        blurb: 'Run the same town two to four times with different rules and compare where the results diverge.',
       },
       ai: {
         title: 'Test an AI mayor',
-        blurb: 'Let a language model run the town hall and see how it does against a town where nothing changes.',
+        blurb: 'Let a language model run the town hall and compare its results with a town where nothing changes.',
       },
       play: {
-        title: 'Just play',
-        blurb: 'One town, every rule, no comparison. Change things while it runs and see what happens.',
+        title: 'Free play',
+        blurb: 'One town, every rule, no comparison. Change the rules while it runs and observe the effects.',
       },
     },
     noModel: 'No AI model connected',
     noChanges: 'No changes',
-    custom: { title: 'Build my own', blurb: 'Pick every rule for every town' },
+    custom: { title: 'Build my own', blurb: 'Choose every rule for every town' },
     // A question card's towns, read out in one go: "Town A: No changes. Town B: A higher minimum wage."
     cardTowns: towns => towns.map(town => `${town.label}: ${town.text}.`).join(' '),
     control: 'No changes. The control.',
@@ -933,26 +933,26 @@ export const COPY = {
     householdsNote: 'More households, more realistic, slower.',
     years: 'How long',
     yearsValue: n => counted(n, 'year'),
-    yearsNote: "You can add a year at the end if it's getting interesting.",
+    yearsNote: 'You can add a year when the run ends.',
     town: 'Which town',
     townNumber: seed => `Town #${seed}`,
     reroll: 'Try a different town',
     seedLabel: 'Town number',
     townNote: 'The same town number and size always build the same town with the same people. Change it for a different town, keep it to repeat an experiment.',
     start: 'Start the experiment',
-    startPlay: 'Start playing',
+    startPlay: 'Start the run',
     // "Two towns, 1,000 households each, five years."
     estimate: ({ towns, households, years }) => {
       const size = `${grouped.format(households)} households${towns === 1 ? '' : ' each'}`
       return `${capitalise(counted(towns, 'town', 'towns', numberWord))}, ${size}, ${counted(years, 'year', 'years', numberWord)}.`
     },
     anyTime: 'You can pause, change the rules, or stop at any time.',
-    needsFix: 'Needs a fix',
+    needsFix: 'Needs correction',
     fixFirst: labels => `Fix the rules marked in ${joinPhrases(labels)} before you start.`,
     problems: {
-      unreachable: "The simulation isn't running on this computer.",
+      unreachable: "The simulation is not running on this computer.",
       full: 'The simulation is already running as many towns as it can. Close another EcoSim tab, or try again in a moment.',
-      setup: "The simulation couldn't build these towns.",
+      setup: "The simulation could not build these towns.",
       dropped: 'The simulation stopped answering while it built the towns. Press Start to try again.',
     },
     startWith: 'To start it, run this in the EcoSim folder, then press Start again:',
@@ -971,7 +971,7 @@ export const COPY = {
     building: 'Building the towns…',
     resume: 'Resume',
     backToLive: 'Back to live',
-    meetOthers: 'Meet other families',
+    meetOthers: 'Show other families',
     // "Town B lost its connection to the simulation in Year 1, week 12. The other towns are paused."
     lost: (town, week, others) => {
       const when = week ? `in ${week}` : 'before its first week'
@@ -987,7 +987,7 @@ export const COPY = {
     notRepeated: 'Starting again uses the rules you set up. Your rule changes will not be repeated.',
     // Under a town's name when the server could not do something it was asked
     // (the server's words follow in a "Details:" line).
-    notice: "The simulation couldn't carry out the last request for this town.",
+    notice: "The simulation could not carry out the last request for this town.",
     newSetup: 'Set up something new',
   },
   // The Town hall drawer (components/TownHall.jsx).
@@ -1005,7 +1005,7 @@ export const COPY = {
     // `ahead` = weeks the change starts after the week on screen; named only past 1.
     applied: (week, phrase, ahead = 0) => `${week}${ahead > 1 ? ` (in ${ahead} weeks)` : ''}: ${capitalise(phrase)}.`,
     rejected: (lever, reason) => `${capitalise(lever)} was not changed: ${reason}`,
-    failed: message => `Couldn't change the rules: ${message}`,
+    failed: message => `Could not change the rules: ${message}`,
     // Why the rules cannot change right now, by experiment phase.
     locked: {
       connecting: 'You can change the rules as soon as the run starts.',
@@ -1015,18 +1015,18 @@ export const COPY = {
   },
   // The end of the run (components/EndPanel.jsx).
   end: {
-    // "5 years are up." from the horizon in weeks.
+    // "The run is complete after 5 years." from the horizon in weeks.
     up: horizon => {
       const weeks = Math.max(0, Math.round(Number(horizon) || 0))
-      if (weeks >= 52 && weeks % 52 === 0) return `${counted(weeks / 52, 'year')} ${weeks === 52 ? 'is' : 'are'} up.`
-      return `${counted(weeks, 'week')} ${weeks === 1 ? 'is' : 'are'} up.`
+      if (weeks >= 52 && weeks % 52 === 0) return `The run is complete after ${counted(weeks / 52, 'year')}.`
+      return `The run is complete after ${counted(weeks, 'week')}.`
     },
-    finishing: 'Wrapping up the run…',
+    finishing: 'Finishing the run…',
     addYear: 'Add a year',
     backToEnd: 'Back to the end',
-    another: 'Try another question',
+    another: 'Set up another question',
   },
-  // The "Show me all the numbers" sheet (numbers/). Differences between towns
+  // The "Show all the numbers" sheet (numbers/). Differences between towns
   // and the counted-every-5-weeks note are narration.js `differencePhrase` and
   // `countedNote`. Wording follows mockup 06.
   numbers: {
@@ -1043,7 +1043,7 @@ export const COPY = {
     },
     rows: {
       netJobs26: { name: 'Jobs added', sub: 'hired minus laid off, last 26 weeks', meaning: 'People hired minus people laid off over the last 26 weeks.' },
-      careSoFar: { name: 'Doctor visits turned away', sub: 'so far', meaning: "Visits a household couldn't afford, added up since week 1." },
+      careSoFar: { name: 'Doctor visits turned away', sub: 'so far', meaning: "Visits a household could not afford, added up since week 1." },
       writtenOffSoFar: { name: 'Loans written off', sub: 'so far', meaning: 'Money the bank lost on loans that will never be paid back, added up since week 1.' },
       wealthP50: { name: 'Typical savings', sub: 'the middle household' },
       townHallIncome: { name: 'Taxes collected', sub: 'this week' },
@@ -1146,7 +1146,7 @@ export const COPY = {
     back: 'Back to the towns',
     // The Run screen's ways in: the timeline's button, and a line under the
     // stat cards naming some of what is inside, ending in the same words.
-    open: 'Show me all the numbers',
+    open: 'Show all the numbers',
     moreEnd: '.',
     continue: 'Go back to the towns to choose what happens next.',
     more: "Also: prices in every shop, savings, businesses opening and closing, the town hall's money.",
@@ -1154,7 +1154,7 @@ export const COPY = {
     lost: week => (week ? `lost its connection in ${week}` : 'lost its connection before its first week'),
     // A visual that needs a recorded week, before the first one is in.
     noWeeks: 'Shown once the first week is in.',
-    seeBig: 'See it big',
+    seeBig: 'View larger',
     rules: {
       title: 'Rules in force',
       lead: (townCount, differences) => {
@@ -1251,7 +1251,7 @@ export const COPY = {
     writtenOff: {
       title: 'Loans written off so far',
       lead: 'Money the bank lost on loans that will never be paid back, added up since week 1. Each block is one week.',
-      noCount: "The number of unpaid loans isn't recorded in this run, so this shows the money instead.",
+      noCount: "The number of unpaid loans is not recorded in this run, so this shows the money instead.",
       counts: parts => `Loans that went unpaid so far: ${parts.join(', ')}.`,
       countIn: (count, town) => `${count} in ${town}`,
       none: townCount => `Nothing has been written off yet in ${everyTown(townCount, 'the town', 'either town', 'any town')}.`,

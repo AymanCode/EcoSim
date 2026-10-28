@@ -133,7 +133,7 @@ describe('text contrast in next.css', () => {
     }
   })
 
-  test('the "See it big" badge is white on a dark fill', () => {
+  test('the "View larger" badge is white on a dark fill', () => {
     const badge = RULES.find(({ selector }) => selector === '.nx .nx-big')
     expect(resolve(badge.decls.color)).toBe('#FFFFFF')
     expect(contrast(resolve(badge.decls.background), '#FFFFFF')).toBeGreaterThanOrEqual(4.5)

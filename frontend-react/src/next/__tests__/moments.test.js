@@ -33,7 +33,7 @@ describe('moments: the town hall changes the rules', () => {
         label: 'Town B',
         color: TOWN_B.color,
         tick: 20,
-        text: "Town B's town hall brought in a higher minimum wage.",
+        text: "Town B's town hall introduced a higher minimum wage.",
       }])
     }
     expect(moments([b], 26)).toEqual([])
@@ -46,11 +46,11 @@ describe('moments: the town hall changes the rules', () => {
 
   test('phrases numbers sent as text, and reads one week\'s changes as one moment', () => {
     const tax = town(TOWN_A, { events: rulesAt(20, 'wage_tax_rate=0.2') })
-    expect(moments([tax], 21).map(moment => moment.text)).toEqual(["Town A's town hall brought in a 20% tax on wages."])
+    expect(moments([tax], 21).map(moment => moment.text)).toEqual(["Town A's town hall introduced a 20% tax on wages."])
     const subsidy = town(TOWN_B, { events: rulesAt(20, 'sector_subsidy_target=food', 'sector_subsidy_level=25') })
     expect(moments([subsidy], 20)).toEqual([expect.objectContaining({
       id: 'rule:Town B:20',
-      text: "Town B's town hall brought in a 25% subsidy for food firms.",
+      text: "Town B's town hall introduced a 25% subsidy for food firms.",
     })])
   })
 })

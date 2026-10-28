@@ -26,9 +26,9 @@ describe('Feed', () => {
 
     const { container } = render(<Feed arms={[arm]} tick={8} limit={50} />)
     const rows = [...container.querySelectorAll('.nx-feed li')].filter(row => row.dataset.tick === '8')
-    const counted = rows.filter(row => row.textContent.includes("3 businesses couldn't fill their open jobs."))
+    const counted = rows.filter(row => row.textContent.includes("3 businesses could not fill their open jobs."))
     expect(counted).toHaveLength(1)
-    expect(rows.some(row => row.textContent.includes("couldn't fill its open jobs."))).toBe(false)
+    expect(rows.some(row => row.textContent.includes("could not fill its open jobs."))).toBe(false)
     const kinds = new Set(inWeek8.map(event => `${event.type}|${event.text}`))
     expect(rows).toHaveLength(kinds.size)
   })

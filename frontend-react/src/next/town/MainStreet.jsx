@@ -1,4 +1,4 @@
-// Main Street, up close (spec 4.3.17): one town seen from the side, in the
+// Main Street in detail (spec 4.3.17): one town seen from the side, in the
 // picture-book style of mockup 07 option B, as mockup 08's StreetScene draws
 // it. The shops on the 26 lots nearest the crossing stand along the pavement,
 // the town hall and the bank in the middle, the 100 houses in rows on the
