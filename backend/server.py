@@ -221,6 +221,7 @@ class SetupConfig(BaseModel):
     payment_default_cooldown_ticks: int = Field(default=26, ge=0)
     payment_annual_quote_shift: float = Field(default=0.0, ge=-0.05, le=0.05)
     payment_benefit_wage_floor_multiplier: Literal[0.0, 1.5] = 1.5
+    payment_bank_startup_loans_enabled: bool = Field(default=True, strict=True)
     payment_services_project_enabled: bool = False
     payment_services_project_cost: float = Field(default=1000.0, gt=0.0)
     payment_services_project_lag_ticks: int = Field(default=1, ge=1)

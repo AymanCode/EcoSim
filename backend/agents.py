@@ -2073,6 +2073,10 @@ class FirmAgent(AgentMixin):
     pricing_profit_tax_rate_known: bool = False
     pricing_rate_nonfinite_count: int = 0
 
+    # Economy grants this only during a legitimate private entry attempt.
+    startup_loan_entitled: bool = False
+    startup_loan_originated: bool = False
+
     # Loan tracking (for government startup loans)
     government_loan_principal: float = 0.0  # Original loan amount
     government_loan_remaining: float = 0.0  # Remaining balance
@@ -2294,6 +2298,7 @@ class FirmAgent(AgentMixin):
             "inventory_weeks": self.inventory_weeks,
             "unfilled_positions_streak": self.unfilled_positions_streak,
             "last_units_sold": self.last_units_sold,
+            "startup_loan_originated": self.startup_loan_originated,
             "government_loan_remaining": self.government_loan_remaining,
             "loan_payment_per_tick": self.loan_payment_per_tick,
             "bank_loan_principal": self.bank_loan_principal,

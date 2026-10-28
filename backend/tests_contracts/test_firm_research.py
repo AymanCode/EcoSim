@@ -458,8 +458,13 @@ def test_unpaid_wage_claims_block_research_after_sales(factory, monkeypatch, res
     assert firm.research_state.project is None
 
 
-def test_entry_median_excludes_baselines_and_reused_ids_get_new_identity(factory, research_config):
-    research_config.payment_sequence = "income_first"
+@pytest.mark.parametrize("sequence", ["income_first", "income_late"])
+@pytest.mark.parametrize("startup_enabled", [False, True])
+def test_entry_median_and_identity_survive_exit_with_both_id_policies(
+    factory, research_config, sequence, startup_enabled,
+):
+    research_config.payment_sequence = sequence
+    research_config.payment_bank_startup_loans_enabled = startup_enabled
     buyer = factory.household(household_id=1, cash_balance=100_000.0)
     baseline = private_firm(factory, firm_id=1, category="Services", is_baseline=True)
     incumbent = private_firm(factory, firm_id=2, category="Services", quality_level=7.0)
@@ -480,6 +485,7 @@ def test_entry_median_excludes_baselines_and_reused_ids_get_new_identity(factory
     economy.current_tick = 101
     economy._maybe_create_new_firms()
     second = economy.firms[-1]
-    assert second.firm_id == first.firm_id
-    assert second.research_state.identity == "entry:3:101"
+    assert second.firm_id == first.firm_id + int(startup_enabled)
+    assert 6.5 <= second.quality_level <= 7.0
+    assert second.research_state.identity == f"entry:{second.firm_id}:101"
     assert second.research_state.identity != first.research_state.identity
