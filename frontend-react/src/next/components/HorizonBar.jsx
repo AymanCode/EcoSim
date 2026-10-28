@@ -101,7 +101,7 @@ export default function HorizonBar({
           <span className="nx-of">{COPY.horizon.length(horizon || last)}</span>
         </div>
         {live && !following && (
-          <button type="button" className="nx-abtn nx-follow" onClick={onFollow}>{COPY.live.backToLive}</button>
+          <button type="button" className="nx-abtn nx-follow" onClick={onFollow}>{live.phase === 'lost' ? COPY.end.backToEnd : COPY.live.backToLive}</button>
         )}
         <div className="nx-scrubber">
           <div className="nx-track-wrap" style={{ width: `${reach * 100}%` }}>

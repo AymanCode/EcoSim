@@ -15,6 +15,7 @@
 /* ---------- a town card ---------- */
 .nx .lt-card { position: relative; padding: 0; overflow: hidden; border-radius: 16px; container: lt-card / inline-size }
 .nx .lt-card[hidden] { display: none }
+.nx .lt-lost { margin: 0; padding: 0 18px 10px; font-size: 11px; font-weight: 400; color: var(--nx-home-text) }
 
 /* One line, always: the name, the rules (cut short with an ellipsis; the full
    wording is the title), a fixed-width mood chip and a fixed-width button. On

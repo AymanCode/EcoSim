@@ -56,8 +56,8 @@ function ReceiptLines({ receipt, tick }) {
 
 // The Town hall drawer: pick a town, change its rules from next week, and see
 // what the town hall did with each change. `locked` (a sentence) disables the
-// change button and says why. With `autoFocus` (opened from its toggle) focus
-// moves to the drawer's heading when it opens.
+// editor and change button and says why. With `autoFocus` (opened from its
+// toggle) focus moves to the drawer's heading when it opens.
 export default function TownHall({ id, arms, tick, onConfigure, onClose, locked = null, autoFocus = false }) {
   const uid = useId()
   const headingRef = useRef(null)
@@ -72,12 +72,14 @@ export default function TownHall({ id, arms, tick, onConfigure, onClose, locked 
   const arm = arms[index]
   const current = currentRules(arm)
   const changed = changesFrom(drafts[index], current)
-  const proposed = { ...current, ...changed }
+  const proposed = locked ? current : { ...current, ...changed }
   const ready = !locked && Object.keys(changed).length > 0 && Object.keys(policyProblems(proposed)).length === 0
   const receipts = (arm?.receipts ?? []).map((receipt, i) => ({ receipt, key: receipt.actionId ?? `r${i}` })).reverse().slice(0, MAX_RECEIPTS)
   const titleId = `${uid}-title`
 
-  const edit = policy => setDrafts(all => ({ ...all, [index]: changesFrom(policy, current) }))
+  const edit = policy => {
+    if (!locked) setDrafts(all => ({ ...all, [index]: changesFrom(policy, current) }))
+  }
   const apply = () => {
     if (!ready) return
     onConfigure(index, changed)
@@ -110,7 +112,7 @@ export default function TownHall({ id, arms, tick, onConfigure, onClose, locked 
             </button>
           ))}
         </div>
-        <p className="nx-hall-note">{COPY.hall.note(arms.length)}</p>
+        <p className="nx-hall-note">{locked ?? COPY.hall.note(arms.length)}</p>
       </div>
 
       <div className="nx-hall-body">
@@ -124,7 +126,9 @@ export default function TownHall({ id, arms, tick, onConfigure, onClose, locked 
             </ul>
           </section>
         )}
-        <LeverEditor value={proposed} base={current} onChange={edit} idPrefix={`${uid}-town-${index}`} />
+        <fieldset disabled={Boolean(locked)} style={{ border: 0, margin: 0, padding: 0, minWidth: 0 }}>
+          <LeverEditor value={proposed} base={current} onChange={edit} idPrefix={`${uid}-town-${index}`} />
+        </fieldset>
       </div>
 
       <div className="nx-hall-foot">

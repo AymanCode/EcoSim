@@ -23,6 +23,20 @@ const houseIndexes = (container, state) => new Set(
 )
 
 describe('TownCard', () => {
+  test('the lost marker keeps the loss week while the displayed snapshot is scrubbed back', () => {
+    const { container, rerender } = render(<TownCard arm={A} tick={30} lostTick={30} />)
+    expect(container.querySelector('.lt-lost')).toHaveTextContent('lost its connection in Year 1, week 30')
+    rerender(<TownCard arm={A} tick={20} lostTick={30} />)
+    expect(container.querySelector('.lt-lost')).toHaveTextContent('lost its connection in Year 1, week 30')
+    rerender(<TownCard arm={A} tick={20} />)
+    expect(container.querySelector('.lt-lost')).toBeNull()
+  })
+
+  test('a town lost before its first week still has a marker', () => {
+    render(<TownCard arm={A} tick={1} lostTick={0} />)
+    expect(screen.getByText('lost its connection before its first week')).toBeInTheDocument()
+  })
+
   test('draws 100 houses in their states and every shop on a lot', () => {
     const { container } = render(<TownCard arm={A} tick={70} towns={2} />)
     const houses = container.querySelectorAll('[data-kind="house"]')

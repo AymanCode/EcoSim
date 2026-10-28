@@ -71,6 +71,20 @@ describe('HorizonBar', () => {
     expect(screen.getByRole('button', { name: 'Play again' })).toBeInTheDocument()
   })
 
+  test('a lost run returns to its recorded end without promising live weeks', () => {
+    const onFollow = vi.fn()
+    bar({ live: { phase: 'lost' }, following: false, onFollow, maxTick: 30 })
+    expect(screen.queryByRole('button', { name: 'Back to live' })).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Back to the end' }))
+    expect(onFollow).toHaveBeenCalledTimes(1)
+  })
+
+  test.each(['running', 'paused'])('a %s run still offers Back to live when scrubbed back', phase => {
+    bar({ live: { phase }, following: false, onFollow() {} })
+    expect(screen.getByRole('button', { name: 'Back to live' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Back to the end' })).toBeNull()
+  })
+
   test('the bar wraps at every width, and ends before the Town hall drawer', () => {
     // jsdom does no layout, so the guard is the stylesheet.
     const style = document.createElement('style')

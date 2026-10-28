@@ -343,6 +343,7 @@ export default function RunScreen({
                     playing={moving}
                     scrubs={scrubs}
                     ended={ended}
+                    lostTick={live?.towns?.find(town => town.label === arm.label && town.status === 'lost')?.lastTick ?? null}
                     canFocus={!single}
                     focused={focus === arm.label}
                     hidden={Boolean(focus) && focus !== arm.label}
