@@ -1,7 +1,7 @@
 // The Set up screen's state and the Plan it builds (live/plan.js). NextApp owns
 // this hook so the plan survives a trip to the Run screen and back.
 //
-// state: { mode: 'compare'|'play', questionId: 'minimum-wage'|'benefits'|'custom'|null,
+// state: { mode: 'compare'|'play', questionId: 'minimum-wage'|'custom'|null,
 //          towns: [{ label, color, policy /* all 17 levers */ }], households, years, seed,
 //          editing: index of the town whose rules are open, or null }
 import { useMemo, useReducer } from 'react'

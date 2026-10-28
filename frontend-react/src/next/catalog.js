@@ -513,20 +513,15 @@ export const LEVER_GROUPS = [
 ]
 
 // The question cards on Set up. Each town is the levers it changes from
-// DEFAULT_POLICY; the first town is the control. Only the two questions the
-// newcomer-scale smoke runs support ship (spec section 5.1).
+// DEFAULT_POLICY; the first town is the control. Only questions the town can
+// run in full ship; the benefits question is parked until benefits are funded
+// on income_first.
 export const QUESTIONS = [
   {
     id: 'minimum-wage',
     title: 'What happens if we raise the minimum wage?',
     blurb: 'Higher pay for the lowest earners, higher costs for businesses. Which wins?',
     towns: [{}, { minimum_wage_policy: 'high' }],
-  },
-  {
-    id: 'benefits',
-    title: 'Do generous benefits keep people out of work?',
-    blurb: 'More money for people without a job. Does it help them or make work less tempting?',
-    towns: [{}, { benefit_level: 'high' }],
   },
 ]
 
@@ -811,7 +806,6 @@ export const COPY = {
   app: {
     brand: 'EcoSim',
     townLabel: index => `Town ${String.fromCharCode(65 + index)}`,
-    classic: 'Classic dashboard',
     loading: 'Loading the demo towns…',
     missing: 'Demo data missing: run the recorder commands in docs/superpowers/plans/2026-09-25-frontend-redesign-phase2-slice1.md',
     detail: reason => `Details: ${reason}`,
@@ -876,7 +870,7 @@ export const COPY = {
         blurb: 'One town, every rule, no comparison. Change things while it runs and see what happens.',
       },
     },
-    comingSoon: 'Coming soon',
+    noModel: 'No AI model connected',
     noChanges: 'No changes',
     custom: { title: 'Build my own', blurb: 'Pick every rule for every town' },
     // A question card's towns, read out in one go: "Town A: No changes. Town B: A higher minimum wage."
@@ -929,6 +923,9 @@ export const COPY = {
   live: {
     setUp: 'Set up',
     newExperiment: 'New experiment',
+    leaveAsk: 'Leave this run?',
+    leaveYes: 'Leave',
+    leaveStay: 'Stay',
     watchExample: 'Watch the example',
     building: 'Building the towns…',
     resume: 'Resume',
@@ -959,12 +956,13 @@ export const COPY = {
     closeLabel: 'Close the town hall',
     towns: 'Which town',
     note: townCount => (townCount > 1
-      ? 'Changes start at the next week. The other towns keep their own rules.'
+      ? "Changes start at each town's next week, which can be a few weeks ahead of the week shown. The other towns keep their own rules."
       : 'Changes start at the next week.'),
     apply: 'Change from next week',
     receipts: 'Your changes',
     waiting: 'Waiting for next week…',
-    applied: (week, phrase) => `${week}: ${capitalise(phrase)}.`,
+    // `ahead` = weeks the change starts after the week on screen; named only past 1.
+    applied: (week, phrase, ahead = 0) => `${week}${ahead > 1 ? ` (in ${ahead} weeks)` : ''}: ${capitalise(phrase)}.`,
     rejected: (lever, reason) => `${capitalise(lever)} was not changed: ${reason}`,
     failed: message => `Couldn't change the rules: ${message}`,
     // Why the rules cannot change right now, by experiment phase.

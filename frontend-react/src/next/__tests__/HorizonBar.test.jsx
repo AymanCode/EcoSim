@@ -32,6 +32,27 @@ describe('HorizonBar', () => {
     expect([...container.querySelectorAll('.nx-marks span')].map(mark => mark.textContent)).toEqual(['Year 1', 'Year 2'])
   })
 
+  test.each([
+    [326, [1, 3, 5, 7, 9]],
+    [180, [1, 4, 7, 10]],
+    [636, [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]],
+  ])('fits year labels to a %ipx track without moving them', (width, shown) => {
+    const measure = vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function measured() {
+      const measuredWidth = this.classList.contains('nx-marks') ? width : this.parentElement?.classList.contains('nx-marks') ? (this.textContent === 'Year 10' ? 43 : 37) : 0
+      return { width: measuredWidth, height: 14 }
+    })
+    try {
+      const { container } = bar({ horizon: 520, maxTick: 520 })
+      const labels = [...container.querySelectorAll('.nx-marks span')]
+      expect(labels.map(label => label.textContent)).toEqual(shown.map(year => `Year ${year}`))
+      labels.forEach((label, index) => {
+        expect(label).toHaveStyle({ left: `calc(8px + (100% - 16px) * ${(shown[index] - 1) * 52 / 519})` })
+      })
+    } finally {
+      measure.mockRestore()
+    }
+  })
+
   test('the clock keeps hidden room for the run\'s longest week label', () => {
     const { container } = bar({ tick: 3 })
     const room = container.querySelector('.nx-week-room')

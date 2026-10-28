@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { COPY, TOWN_COLORS } from './catalog.js'
 import { commonTicks } from './data/derive.js'
 import { buildArm, parseSession } from './data/session.js'
@@ -88,6 +88,10 @@ export default function NextApp({ search = window.location.search, WebSocketImpl
   const [plan, setPlan] = useState(null)
   const [hallOpen, setHallOpen] = useState(false)
   const [demo, setDemo] = useState(DEMO_IDLE)
+  const [leaving, setLeaving] = useState(false)
+  const leaveButton = useRef(null)
+  const stayButton = useRef(null)
+  const refocusLeave = useRef(false)
   const setup = useSetup()
   const experiment = useExperiment({ WebSocketImpl })
   const { state } = experiment
@@ -97,6 +101,7 @@ export default function NextApp({ search = window.location.search, WebSocketImpl
   if (screen === 'live' && state?.phase === 'failed') {
     setScreen('setup')
     setProblem(state.error)
+    setLeaving(false)
   }
 
   // The demo files load only once the demo opens.
@@ -108,6 +113,26 @@ export default function NextApp({ search = window.location.search, WebSocketImpl
       .catch(error => { if (current) setDemo({ status: 'error', arms: null, reason: error?.message ?? String(error) }) })
     return () => { current = false }
   }, [screen, demo.status])
+
+  // The header's New experiment asks before it throws a run away: Stay is
+  // focused, Escape or Stay puts the button back and focus returns to it.
+  useEffect(() => {
+    if (leaving) {
+      stayButton.current?.focus()
+      const onKey = event => {
+        if (event.key !== 'Escape') return
+        refocusLeave.current = true
+        setLeaving(false)
+      }
+      document.addEventListener('keydown', onKey)
+      return () => document.removeEventListener('keydown', onKey)
+    }
+    if (refocusLeave.current) {
+      refocusLeave.current = false
+      leaveButton.current?.focus()
+    }
+    return undefined
+  }, [leaving])
 
   // The page behind the app takes the new screen's colour while it is open.
   useEffect(() => {
@@ -127,6 +152,7 @@ export default function NextApp({ search = window.location.search, WebSocketImpl
     if (plan) experiment.start(plan)
   }
   const newExperiment = () => {
+    setLeaving(false)
     experiment.leave()
     setProblem(null)
     setScreen('setup')
@@ -148,10 +174,23 @@ export default function NextApp({ search = window.location.search, WebSocketImpl
         <div className="nx-brand">{COPY.app.brand}</div>
         {question && <h1 className="nx-question">{question}</h1>}
         <div className="nx-sp" />
-        {screen === 'live' && <button type="button" className="nx-abtn" onClick={newExperiment}>{COPY.live.newExperiment}</button>}
+        {screen === 'live' && !leaving && (
+          <button type="button" className="nx-abtn" ref={leaveButton} onClick={() => setLeaving(true)}>{COPY.live.newExperiment}</button>
+        )}
+        {screen === 'live' && leaving && (
+          <>
+            <span role="status">{COPY.live.leaveAsk}</span>
+            <button type="button" className="nx-abtn is-dark" onClick={newExperiment}>{COPY.live.leaveYes}</button>
+            <button
+              type="button"
+              className="nx-abtn"
+              ref={stayButton}
+              onClick={() => { refocusLeave.current = true; setLeaving(false) }}
+            >{COPY.live.leaveStay}</button>
+          </>
+        )}
         {screen === 'demo' && <button type="button" className="nx-abtn" onClick={() => setScreen('setup')}>{COPY.live.setUp}</button>}
         {screen !== 'demo' && <button type="button" className="nx-abtn is-link" onClick={watchExample}>{COPY.live.watchExample}</button>}
-        <a className="nx-abtn is-link" href="?view=classic">{COPY.app.classic}</a>
       </header>
 
       {screen === 'setup' && <SetupScreen setup={setup} onStart={start} onWatchExample={watchExample} problem={problem} />}

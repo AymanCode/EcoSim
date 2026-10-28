@@ -38,7 +38,7 @@ describe('TownHall', () => {
     expect(within(tabs).getByRole('button', { name: 'Town B' })).toHaveAttribute('aria-pressed', 'false')
     const benefits = within(aside).getByRole('group', { name: 'Help for people out of work' })
     expect(within(benefits).getByRole('button', { name: 'high' })).toHaveAttribute('aria-pressed', 'true')
-    expect(within(aside).getByText('Changes start at the next week. The other towns keep their own rules.')).toBeInTheDocument()
+    expect(within(aside).getByText("Changes start at each town's next week, which can be a few weeks ahead of the week shown. The other towns keep their own rules.")).toBeInTheDocument()
     fireEvent.click(within(aside).getByRole('button', { name: 'Close the town hall' }))
     expect(onClose).toHaveBeenCalledTimes(1)
   })
@@ -164,13 +164,37 @@ describe('TownHall', () => {
       }),
       receipt({ actionId: 'x2', status: 'queued' }),
     ]
-    const { aside } = hall([a, b])
+    const { aside } = hall([a, b], { tick: 59 })
     const lines = within(aside).getAllByRole('listitem').map(item => item.textContent)
     expect(lines).toEqual([
       'Waiting for next week…',
       'Year 2, week 8: A higher minimum wage.The business subsidy was not changed: needs a target',
       "Couldn't change the rules: the run is finished",
     ])
+  })
+
+  describe('a receipt for a change that starts ahead of the week shown', () => {
+    const withReceipt = (effectiveTick, props) => {
+      const [a, b] = towns()
+      a.receipts = [receipt({ actionId: 'x1', status: 'applied', applied: { minimum_wage_policy: 'high' }, effectiveTick })]
+      const { aside, unmount } = hall([a, b], props)
+      const text = within(aside).getByRole('listitem').textContent
+      unmount()
+      return text
+    }
+
+    test('says how far ahead when it starts 2 or more weeks on', () => {
+      expect(withReceipt(60, { tick: 58 })).toBe('Year 2, week 8 (in 2 weeks): A higher minimum wage.')
+    })
+
+    test('says nothing extra when it starts next week, or has already started', () => {
+      expect(withReceipt(60, { tick: 59 })).toBe('Year 2, week 8: A higher minimum wage.')
+      expect(withReceipt(60, { tick: 60 })).toBe('Year 2, week 8: A higher minimum wage.')
+    })
+
+    test('says nothing extra when the week on screen is not known', () => {
+      expect(withReceipt(60, { tick: undefined })).toBe('Year 2, week 8: A higher minimum wage.')
+    })
   })
 
   test('only the newest five receipts show, newest first', () => {

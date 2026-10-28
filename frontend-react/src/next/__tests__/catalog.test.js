@@ -261,15 +261,14 @@ describe('lever groups, help and question cards', () => {
     }
   })
 
-  test('two launch questions, each a control town and one changed town whose rules pass the group rules', () => {
-    expect(QUESTIONS.map(question => question.id)).toEqual(['minimum-wage', 'benefits'])
+  test('one launch question, a control town and one changed town whose rules pass the group rules', () => {
+    expect(QUESTIONS.map(question => question.id)).toEqual(['minimum-wage'])
     expect(QUESTIONS[0]).toEqual({
       id: 'minimum-wage',
       title: 'What happens if we raise the minimum wage?',
       blurb: 'Higher pay for the lowest earners, higher costs for businesses. Which wins?',
       towns: [{}, { minimum_wage_policy: 'high' }],
     })
-    expect(QUESTIONS[1].towns).toEqual([{}, { benefit_level: 'high' }])
     for (const question of QUESTIONS) {
       for (const levers of question.towns) expect(policyProblems({ ...DEFAULT_POLICY, ...levers })).toEqual({})
     }

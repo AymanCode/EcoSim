@@ -1,4 +1,4 @@
-import { useId, useState } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
 import { COPY, DEFAULT_POLICY, NO_CHANGES, QUESTIONS, TOWN_COLORS, capitalise, describePolicy } from '../catalog.js'
 import { HOUSEHOLD_STEP, TOWN_LABELS, YEARS, estimatePhrase, estimateSeconds, householdCap, policyChanges } from '../live/plan.js'
 import { policyProblems } from '../policyRules.js'
@@ -45,17 +45,17 @@ function StepHead({ id, number, title, note }) {
 
 function ModeCard({ uid, mode, pressed, onPick }) {
   const copy = COPY.setup.modes[mode]
-  const soon = mode === 'ai'
-  const ids = { title: `${uid}-mode-${mode}`, blurb: `${uid}-mode-${mode}-d`, soon: `${uid}-mode-${mode}-soon` }
+  const noModel = mode === 'ai'
+  const ids = { title: `${uid}-mode-${mode}`, blurb: `${uid}-mode-${mode}-d`, noModel: `${uid}-mode-${mode}-no-model` }
   return (
     <button
       type="button"
       className="nx-mode"
-      aria-pressed={soon ? undefined : pressed}
-      disabled={soon}
+      aria-pressed={noModel ? undefined : pressed}
+      disabled={noModel}
       aria-labelledby={ids.title}
-      aria-describedby={soon ? `${ids.blurb} ${ids.soon}` : ids.blurb}
-      onClick={soon ? undefined : onPick}
+      aria-describedby={noModel ? `${ids.blurb} ${ids.noModel}` : ids.blurb}
+      onClick={noModel ? undefined : onPick}
     >
       <span className="nx-pick" aria-hidden="true" />
       <span className={`nx-mode-ic is-${mode}`} aria-hidden="true">
@@ -63,7 +63,7 @@ function ModeCard({ uid, mode, pressed, onPick }) {
       </span>
       <span className="nx-mode-t" id={ids.title}>{copy.title}</span>
       <span className="nx-mode-d" id={ids.blurb}>{copy.blurb}</span>
-      {soon && <span className="nx-soon" id={ids.soon}>{COPY.setup.comingSoon}</span>}
+      {noModel && <span className="nx-soon" id={ids.noModel}>{COPY.setup.noModel}</span>}
     </button>
   )
 }
@@ -148,6 +148,16 @@ export default function SetupScreen({ setup, onStart, onWatchExample, problem = 
   const broken = towns.filter(town => Object.keys(policyProblems(town.policy)).length).map(town => town.label)
   const estimate = estimatePhrase(estimateSeconds({ households, towns: towns.length, years }))
   const open = editing != null ? towns[editing] : null
+
+  // The editor opens below the towns, often out of sight: bring it into view
+  // when it opens or moves to another town.
+  const editorRef = useRef(null)
+  useEffect(() => {
+    const node = editorRef.current
+    if (editing == null || typeof node?.scrollIntoView !== 'function') return
+    const calm = typeof window.matchMedia === 'function' && window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    node.scrollIntoView({ block: 'nearest', behavior: calm ? 'auto' : 'smooth' })
+  }, [editing])
 
   const ids = {
     mode: `${uid}-step-mode`,
@@ -262,7 +272,7 @@ export default function SetupScreen({ setup, onStart, onWatchExample, problem = 
         </ul>
 
         {open && (
-          <section className="nx-editor" id={ids.editor} aria-labelledby={ids.editorTitle}>
+          <section className="nx-editor" id={ids.editor} ref={editorRef} aria-labelledby={ids.editorTitle}>
             <div className="nx-editor-head">
               <i style={{ background: open.color }} aria-hidden="true" />
               <h3 id={ids.editorTitle}>{COPY.setup.editorTitle(open.label)}</h3>
