@@ -163,6 +163,54 @@ describe('numbers comparison states', () => {
       .toBe('Town B: Food costs more there. Services cost less there.')
   })
 
+  test.each([3, 4])('%s-town price-led verdicts name their town before there, even when the ending names it too', townCount => {
+    const towns = [10, 12, 8, 14].slice(0, townCount).map((price, index) => arm({
+      priceServices: [price, price], gini: [0.5, 0.5], bottomHalfShare: [20, 20],
+      typicalWeeklyPay: [40, 40], happiness: [50, 50],
+    }, { label: ['Town A', 'Town B', 'Town C', 'Town D'][index], color: TOWN_COLORS[index] }))
+    const verdicts = verdictParts(towns, rows, 20)
+    verdicts.forEach((verdict, index) => {
+      const text = sentence(verdict)
+      const label = towns[index + 1].label
+      expect(text.startsWith(`${label}: Services cost `)).toBe(true)
+      expect(text.indexOf(label)).toBeLessThan(text.indexOf('there'))
+      expect(text).toContain(`in ${label}.`)
+      expect(verdict.parts.filter(part => part.rowId).map(part => part.rowId)).toEqual(['priceServices', 'gini', 'bottomHalfShare'])
+    })
+  })
+
+  test('multi-town clauses name their town before its and gap-led paragraphs also identify their town first', () => {
+    const towns = [
+      arm({ typicalWeeklyPay: [40, 40], happiness: [50, 50], gini: [0.5, 0.5], bottomHalfShare: [20, 20] }),
+      arm({ typicalWeeklyPay: [50, 50], happiness: [60, 60], gini: [0.5, 0.5], bottomHalfShare: [20, 20] }, { label: 'Town B' }),
+      arm({ typicalWeeklyPay: [40, 40], happiness: [50, 50], gini: [0.6, 0.6], bottomHalfShare: [10, 10] }, { label: 'Town C' }),
+    ]
+    const [jobs, gap] = verdictParts(towns, rows, 20).map(sentence)
+    expect(jobs.startsWith('Town B is ahead on pay')).toBe(true)
+    expect(jobs.indexOf('Town B')).toBeLessThan(jobs.indexOf('its'))
+    expect(gap.startsWith('Town C: The gap between rich and poor')).toBe(true)
+  })
+
+  test.each([
+    [0.6, 10, 'wider', 'less', 'and'],
+    [0.6, 30, 'wider', 'more', 'but'],
+    [0.6, 20, 'wider', 'same', 'but'],
+    [0.4, 10, 'narrower', 'less', 'but'],
+    [0.4, 30, 'narrower', 'more', 'and'],
+    [0.4, 20, 'narrower', 'same', 'but'],
+    [0.5, 10, 'the same', 'less', 'but'],
+    [0.5, 30, 'the same', 'more', 'but'],
+    [0.5, 20, 'the same', 'same', 'and'],
+  ])('gap %s and poorer-half share %s use %s / %s joined with %s', (gap, share, gapWords, shareWords, joiner) => {
+    const towns = [
+      arm({ gini: [0.5, 0.5], bottomHalfShare: [20, 20] }),
+      arm({ gini: [gap, gap], bottomHalfShare: [share, share] }, { label: 'Town B' }),
+    ]
+    const shareClause = shareWords === 'same' ? 'the same share of the cash' : `a little ${shareWords} of the cash`
+    expect(sentence(verdictParts(towns, rows, 20)[0]))
+      .toBe(`The gap between rich and poor is ${gapWords}, ${joiner} the poorer half holds ${shareClause} in Town B.`)
+  })
+
   test.each([
     [{ happiness: [50, 60] }, "Town B's people feel better."],
     [{ typicalWeeklyPay: [40, 50] }, 'Town B is ahead on pay.'],
@@ -193,10 +241,9 @@ describe('numbers comparison states', () => {
     expect(differenceWords('salesExceptRentThisWeek', a, b)).toBe(expected)
   })
 
-  test('warm-up keeps values and differences but has no judgment, verdict or tally', () => {
+  test('warm-up keeps readings available but has no judgment, verdict or tally', () => {
     expect(rowValues(demo, 'typicalWeeklyPay', 5).every(reading => reading.value !== null)).toBe(true)
     expect(rowStatus('typicalWeeklyPay', 30, 40, WARMUP_TICKS)).toBe('warmup')
-    expect(differenceWords('typicalWeeklyPay', 30, 40)).toBe('$10 more')
     expect(tally(demo, rows, 5)).toEqual([])
     expect(verdictParts(demo, rows, 5)).toEqual([])
     expect(rowStatus('typicalWeeklyPay', 30, 40, WARMUP_TICKS + 1)).toBe('better')
@@ -339,6 +386,7 @@ describe('numbers comparison states', () => {
   })
 
   test.each([
+    [90, 6, 12, false],
     [100.4, 4, 12, false],
     [99.6, 4, 12, false],
     [100, 4, 12, false],
@@ -366,13 +414,38 @@ describe('numbers comparison states', () => {
     expect(heroNotes(demo, 'salesExceptRentThisWeek', 5)).toEqual([])
   })
 
-  test('each multi-town price note independently needs a rounded output gap and a higher price row', () => {
+  test('each multi-town price note independently needs higher sales and a higher included price', () => {
     const towns = [
-      arm({ salesExceptRentThisWeek: [100, 100], priceServices: [10, 10] }),
-      arm({ salesExceptRentThisWeek: [100.4, 100.4], priceServices: [12, 12] }, { label: 'Town B' }),
-      arm({ salesExceptRentThisWeek: [110, 110], priceServices: [9, 9] }, { label: 'Town C' }),
-      arm({ salesExceptRentThisWeek: [110, 110], priceServices: [12, 12] }, { label: 'Town D' }),
+      arm({ salesExceptRentThisWeek: [100, 100], priceServices: [10, 10], priceHousing: [10, 10] }),
+      arm({ salesExceptRentThisWeek: [90, 90], priceServices: [12, 12], priceHousing: [10, 10] }, { label: 'Town B' }),
+      arm({ salesExceptRentThisWeek: [110, 110], priceServices: [9, 9], priceHousing: [12, 12] }, { label: 'Town C' }),
+      arm({ salesExceptRentThisWeek: [110, 110], priceServices: [12, 12], priceHousing: [10, 10] }, { label: 'Town D' }),
     ]
     expect(heroNotes(towns, 'salesExceptRentThisWeek', 20)).toEqual([COPY.numbers.heroes.priceNoteTown('Town D')])
+  })
+
+  test.each(['priceFood', 'priceServices', 'priceHealthcare'])('higher %s can explain higher dollar output after warm-up', key => {
+    const towns = [
+      arm({ salesExceptRentThisWeek: [100, 100], [key]: [5, 5] }),
+      arm({ salesExceptRentThisWeek: [110, 110], [key]: [6, 6] }, { label: 'Town B' }),
+    ]
+    expect(heroNotes(towns, 'salesExceptRentThisWeek', 20)).toEqual([COPY.numbers.heroes.priceNote])
+    expect(heroNotes(towns, 'salesExceptRentThisWeek', 5)).toEqual([])
+  })
+
+  test.each([90, 110])('higher housing alone never triggers a note when output is %s', output => {
+    const towns = [
+      arm({ salesExceptRentThisWeek: [100, 100], priceFood: [5, 5], priceServices: [10, 10], priceHealthcare: [10, 10], priceHousing: [11, 11] }),
+      arm({ salesExceptRentThisWeek: [output, output], priceFood: [4, 4], priceServices: [9, 9], priceHealthcare: [10, 10], priceHousing: [12, 12] }, { label: 'Town B' }),
+    ]
+    expect(heroNotes(towns, 'salesExceptRentThisWeek', 20)).toEqual([])
+  })
+
+  test('a missing control output cannot support a price note', () => {
+    const towns = [
+      arm({ priceFood: [5, 5] }),
+      arm({ salesExceptRentThisWeek: [110, 110], priceFood: [6, 6] }, { label: 'Town B' }),
+    ]
+    expect(heroNotes(towns, 'salesExceptRentThisWeek', 20)).toEqual([])
   })
 })

@@ -97,9 +97,8 @@ describe('AnswerCard', () => {
     expect(hero('Wellbeing').querySelector('.nx-answer-value')).toBeInTheDocument()
     expect(container.querySelectorAll('.nx-answer-spark path')).toHaveLength(4)
     expect([...container.querySelectorAll('.nx-answer-spark path')].every(path => !path.getAttribute('d').trim())).toBe(true)
-    expect(hero('Output')).toHaveTextContent('Town B sold about the same.')
-    expect(hero('Output')).not.toHaveTextContent('0%')
-    expect(hero('Output')).not.toHaveTextContent(COPY.numbers.heroes.priceNote)
+    expect(container.querySelector('.nx-answer-hero-difference')).toBeNull()
+    expect(container.querySelector('.nx-answer-hero-note')).toBeNull()
   })
 
   test('one town keeps two single-value heroes and drops comparison-only content', () => {

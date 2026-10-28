@@ -259,11 +259,12 @@ describe('NumberRow', () => {
     expect(within(differences).getByText(COPY.numbers.tags.worse)).toBeInTheDocument()
   })
 
-  test('warm-up values remain visible without better or worse tags', () => {
+  test('warm-up shows numeric values without relative words or judgments', () => {
     draw({ tick: 1 })
     const button = screen.getByRole('button', { name: 'Typical weekly pay' })
-    expect(within(button).getAllByText('$20')).toHaveLength(1)
-    expect(within(button).getByText(COPY.numbers.sameAsTown('Town A'))).toBeInTheDocument()
+    expect(within(button).getAllByText('$20')).toHaveLength(2)
+    expect(within(button).queryByText(COPY.numbers.sameAsTown('Town A'))).toBeNull()
+    expect(button.querySelector('.nx-number-differences')).toBeEmptyDOMElement()
     expect(within(button).queryByText(COPY.numbers.tags.better)).toBeNull()
     expect(within(button).queryByText(COPY.numbers.tags.worse)).toBeNull()
   })

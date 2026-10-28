@@ -83,7 +83,7 @@ function Hero({ arms, metricKey, tick }) {
     if (existing) existing.towns.push(reading)
     else valueGroups.push({ formatted: reading.formatted, value: reading.value, towns: [reading] })
   }
-  const notes = heroNotes(arms, metricKey, tick)
+  const notes = tick <= WARMUP_TICKS ? [] : heroNotes(arms, metricKey, tick)
   const base = readings[0]?.value
   const warming = tick <= WARMUP_TICKS
   const output = metricKey === 'salesExceptRentThisWeek'
@@ -104,7 +104,7 @@ function Hero({ arms, metricKey, tick }) {
         ))}
       </div>
       <HeroSparkline arms={arms} metricKey={metricKey} tick={tick} name={copy.name} />
-      {arms.length > 1 && readings.slice(1).map(reading => {
+      {arms.length > 1 && !warming && readings.slice(1).map(reading => {
         const words = differenceWords(metricKey, base, reading.value)
         if (!words) return null
         const status = warming ? 'warmup' : rowStatus(metricKey, base, reading.value, tick)

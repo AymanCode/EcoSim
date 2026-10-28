@@ -77,13 +77,36 @@ describe('compact numbers sheet', () => {
     expect([...list.querySelectorAll('li')].find(li=>li.textContent.startsWith('Tax on wages')).textContent).toBe('Tax on wages: 15%')
   })
 
-  test('warmup has values but no judgments or tally', () => {
-    sheet({tick:5})
-    expect(screen.getByText(COPY.numbers.warmup)).toBeInTheDocument()
-    expect(document.querySelector('.nx-answer-tally')).toBeNull()
-    expect(document.querySelectorAll('.nx-number-tag,.nx-answer-tag')).toHaveLength(0)
-    expect(values('typicalWeeklyPay')).toHaveLength(2)
-  })
+  test.each([2, 3, 4])('%s towns show values without outcome comparisons throughout warm-up, then compare in week 11', townCount => {
+    reduce()
+    const towns = [...arms, { ...arms[0], label: 'Town C', color: TOWN_COLORS[2] }, { ...arms[1], label: 'Town D', color: TOWN_COLORS[3] }].slice(0, townCount)
+    const { container, rerender } = sheet({ arms: towns, tick: 1 })
+    for (const tick of [1, 5, 10]) {
+      rerender(<div className="nx"><NumbersSheet arms={towns} tick={tick} onClose={() => {}} /></div>)
+      expect(screen.getByText(COPY.numbers.warmup)).toBeInTheDocument()
+      expect(container.querySelector('.nx-answer-verdict,.nx-answer-tally,.nx-answer-hero-difference,.nx-answer-hero-note')).toBeNull()
+      expect(container.querySelectorAll('.nx-number-tag,.nx-answer-tag,.nx-number-difference')).toHaveLength(0)
+      expect([...container.querySelectorAll('.nx-number-differences')].every(cell => cell.textContent === '')).toBe(true)
+      expect(container.querySelector('.nx-number-column-difference')).toBeEmptyDOMElement()
+      expect(container.querySelector('.nx-number-fold')).toBeNull()
+      expect(values('typicalWeeklyPay')).toHaveLength(townCount)
+      expect(values('priceHousing')).toEqual(Array(townCount).fill('$5.00'))
+      expect(container.querySelectorAll('.nx-answer-hero .nx-answer-reading').length).toBeGreaterThanOrEqual(2)
+      expect(container.querySelectorAll('.nx-number-value.is-same-value')).toHaveLength(0)
+      expect(container.querySelector('.nx-story-inline')).not.toHaveTextContent('towns start from the same place')
+      expect(container.querySelector('.nx-number-rules p')).toHaveTextContent(/^Rules:\s*Show them$/)
+    }
+    fireEvent.click(screen.getByRole('button', { name: 'Show them' }))
+    expect(container.querySelector('.nx-number-rules ul')).toBeVisible()
+    expect(container.querySelector('.nx-number-rules ul')).toHaveTextContent('Tax on wages: 15%')
+    rerender(<div className="nx"><NumbersSheet arms={towns} tick={11} onClose={() => {}} /></div>)
+    expect(screen.queryByText(COPY.numbers.warmup)).toBeNull()
+    expect(container.querySelectorAll('.nx-answer-verdict')).toHaveLength(townCount - 1)
+    expect(container.querySelectorAll('.nx-answer-tally')).toHaveLength(townCount - 1)
+    expect(container.querySelector('.nx-answer-hero-difference')).toBeInTheDocument()
+    expect(container.querySelector('.nx-number-column-difference')).toHaveTextContent('Town A')
+    expect(container.querySelector('.nx-number-difference')).toBeInTheDocument()
+  }, 15_000)
 
   test('one town has every row and no comparisons, tally or fold line', () => {
     sheet({arms:[arms[0]]})

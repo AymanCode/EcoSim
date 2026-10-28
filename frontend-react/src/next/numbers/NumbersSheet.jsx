@@ -1,5 +1,5 @@
 import { useEffect, useEffectEvent, useId, useLayoutEffect, useRef, useState } from 'react'
-import { COPY, NUMBER_DERIVED_ROWS, NUMBER_GROUPS, capitalise, describePolicy } from '../catalog.js'
+import { COPY, NUMBER_DERIVED_ROWS, NUMBER_GROUPS, WARMUP_TICKS, capitalise, describePolicy } from '../catalog.js'
 import { rulesAt, rulesDiff } from '../data/derive.js'
 import { weekLabel } from '../narration.js'
 import StoryChart from '../components/StoryChart.jsx'
@@ -98,6 +98,7 @@ export default function NumbersSheet({ id, arms, tick, onClose, live, playing = 
   const [expanded, setExpanded] = useState(DEFAULT_OPEN)
   const [focusOwner, setFocusOwner] = useState(null)
   const jumpKey = useRef(null)
+  const warming = tick <= WARMUP_TICKS
   const rows = visibleRows(arms, ALL_ROWS, tick)
   const stamp = `${tick}:${arms.map(arm => `${arm.label}:${arm.ticks.length}`).join('|')}:${rows.map(row => row.key).join('|')}`
   const openKeys = Object.keys(expanded).filter(key => expanded[key])
@@ -107,7 +108,7 @@ export default function NumbersSheet({ id, arms, tick, onClose, live, playing = 
   if (foldSnapshot.stamp !== stamp || foldSnapshot.playing !== playing || foldSnapshot.open !== openKeys.join('|')) {
     setFoldSnapshot({ stamp, playing, keys: chooseFolds(foldSnapshot.keys), open: openKeys.join('|') })
   }
-  const foldedKeys = arms.length < 2 ? [] : foldSnapshot.keys.filter(key => !expanded[key] && rows.some(row => row.key === key))
+  const foldedKeys = arms.length < 2 || warming ? [] : foldSnapshot.keys.filter(key => !expanded[key] && rows.some(row => row.key === key))
   const layout = useFoldLayout(rows, foldedKeys, openKeys)
   const notes = arms.map((_, index) => lostNote(live, index))
   const rowId = key => `nx-number-${uid}-${key}`
@@ -197,7 +198,7 @@ export default function NumbersSheet({ id, arms, tick, onClose, live, playing = 
             <span><i style={{ background: arm.color }} aria-hidden="true" />{arm.label}</span>
             {notes[index] && <small>{notes[index]}</small>}
           </span>)}
-          {arms.length > 1 && <span className="nx-number-column-difference">{arms.length === 2 ? COPY.numbers.columns.difference(arms[1].label, arms[0].label) : COPY.numbers.columns.differences(arms[0].label)}</span>}
+          {arms.length > 1 && <span className="nx-number-column-difference">{!warming && (arms.length === 2 ? COPY.numbers.columns.difference(arms[1].label, arms[0].label) : COPY.numbers.columns.differences(arms[0].label))}</span>}
           <span className="nx-number-column-run">{COPY.numbers.columns.run}</span><span />
         </div>
         </div>
@@ -214,7 +215,7 @@ export default function NumbersSheet({ id, arms, tick, onClose, live, playing = 
               <div className="nx-row-motion-inner"><NumberRow id={rowId(row.key)} row={row} arms={arms} tick={tick} open={Boolean(expanded[row.key])} onToggle={() => setExpanded(all => ({ ...all, [row.key]: !all[row.key] }))}>
               <RowVisual row={row} arms={arms} tick={tick} playing={playing} />
             </NumberRow></div></div>)}
-            {arms.length > 1 && <FoldLines arms={arms} rows={ownRows} tick={tick} onJump={jump} layout={layout} focusedKey={focusOwner?.kind === 'entry' ? focusOwner.key : null} />}
+            {arms.length > 1 && !warming && <FoldLines arms={arms} rows={ownRows} tick={tick} onJump={jump} layout={layout} focusedKey={focusOwner?.kind === 'entry' ? focusOwner.key : null} />}
             {group.rules && <RulesLine arms={arms} tick={tick} />}
           </section>
         })}

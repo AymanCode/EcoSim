@@ -1104,6 +1104,7 @@ export const COPY = {
       gapHigher: ' is wider',
       gapLower: ' is narrower',
       poorerStart: ', but the ',
+      poorerAnd: ', and the ',
       poorerOnly: 'The ',
       poorerLess: town => ` holds a little less of the cash in ${town}.`,
       poorerMore: town => ` holds a little more of the cash in ${town}.`,

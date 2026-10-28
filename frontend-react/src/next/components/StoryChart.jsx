@@ -269,7 +269,7 @@ export default function StoryChart({
   })
   const taken = hideEndLabels ? [] : ends.map(item => item.box)
 
-  const note = startNote(arms.length)
+  const note = inline && tick <= WARMUP_TICKS ? null : startNote(arms.length)
   if (note) taken.push({ x: padL, y: 6, w: textWidth(note, 12.5, true), h: 18 })
 
   // "setting up" sits at the top of the warm-up band, or its foot if a label is there.

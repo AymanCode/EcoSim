@@ -262,10 +262,11 @@ export function verdictParts(arms, rows, tick) {
       append(({ same: copy.gapSame, worse: copy.gapHigher, better: copy.gapLower })[status(gap)])
     }
     if (poorer) {
-      if (gap) append(copy.poorerStart)
+      const values = readings.get(poorer.key)
+      const poorerDirection = status(poorer) === 'same' ? 'same' : values[townIndex].value < values[0].value ? 'worse' : 'better'
+      if (gap) append(status(gap) === poorerDirection ? copy.poorerAnd : copy.poorerStart)
       else { between(); append(copy.poorerOnly) }
       parts.push({ text: copy.words.poorerHalf, rowId: poorer.key })
-      const values = readings.get(poorer.key)
       append((status(poorer) === 'same' ? copy.poorerSame : values[townIndex].value < values[0].value ? copy.poorerLess : copy.poorerMore)(arm.label))
     } else if (gap) append(copy.gapTown(arm.label))
 
@@ -273,28 +274,29 @@ export function verdictParts(arms, rows, tick) {
       const measured = leads.some(row => status(row) !== 'notMeasured') || feeling !== 'notMeasured'
       append((measured ? copy.noNamedDifference : copy.noComparison)(arm.label))
     }
-    if (!parts.some(part => part.text.includes(arm.label))) {
+    if ((arms.length > 2 && !parts[0].text.includes(arm.label)) || !parts.some(part => part.text.includes(arm.label))) {
       parts.unshift({ text: copy.townLead(arm.label) })
     }
     return { label: arm.label, color: arm.color, parts }
   })
 }
 
-/** Price note only for an output gap that survives rounding and a posted-price
- * row visibly higher in the comparison town; one higher row is sufficient.
+/** Price note only for higher output that survives rounding after warm-up and
+ * a visibly higher food, services or healthcare price; rent is not in output.
  * Same-start note only if all displayed starts are known and agree, and the
  * start does not repeat any current displayed reading. */
 export function heroNotes(arms, row, tick) {
   const key = keyOf(row)
   if (key === 'salesExceptRentThisWeek' && (arms?.length ?? 0) > 1) {
+    if (tick <= WARMUP_TICKS) return []
     const output = rowValues(arms, key, tick)
-    const prices = ['priceFood', 'priceServices', 'priceHousing', 'priceHealthcare'].map(price => ({
+    const prices = ['priceFood', 'priceServices', 'priceHealthcare'].map(price => ({
       key: price, values: rowValues(arms, price, tick),
     }))
     return arms.slice(1).flatMap((arm, i) => {
       const a = output[0].value
       const b = output[i + 1].value
-      if (!isNumber(a) || !isNumber(b) || sameOutput(a, b)) return []
+      if (!isNumber(a) || !isNumber(b) || b <= a || sameOutput(a, b)) return []
       const higher = prices.some(price => rowStatus(price.key, price.values[0].value, price.values[i + 1].value) === 'worse')
       if (!higher) return []
       return [arms.length === 2 ? COPY.numbers.heroes.priceNote : COPY.numbers.heroes.priceNoteTown(arm.label)]

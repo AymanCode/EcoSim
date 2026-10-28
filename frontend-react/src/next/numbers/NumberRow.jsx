@@ -87,7 +87,7 @@ function DifferenceCell({ id, row, readings, tick }) {
   const base = readings[0]
   return (
     <span id={id} className="nx-number-differences">
-      {readings.slice(1).map(reading => {
+      {tick > WARMUP_TICKS && readings.slice(1).map(reading => {
         const status = rowStatus(row, base.value, reading.value, tick)
         const words = differenceWords(row, base.value, reading.value)
         return (
@@ -150,7 +150,7 @@ const NumberRowContents = memo(function NumberRowContents({ rowId, row, arms, ti
   const metric = rowDefinition(row)
   const readings = active ? rowValues(arms, row, tick) : []
   const displayReadings = readings.map((reading, index) => {
-    const sameAs = isNumber(reading.value)
+    const sameAs = tick > WARMUP_TICKS && isNumber(reading.value)
       ? readings.slice(0, index).find(previous => isNumber(previous.value) && previous.formatted === reading.formatted)
       : null
     return { ...reading, sameAs, displayed: sameAs ? COPY.numbers.sameAsTown(sameAs.label) : reading.formatted }

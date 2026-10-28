@@ -26,7 +26,7 @@ export function RulesLine({ arms, tick }) {
     ? (changed || named.size ? copy.singleChanged(rows.length) : copy.usual(rows.length))
     : (changed ? copy.changed(rows.length) : copy.same(rows.length, arms.length))
   return <div className="nx-number-rules">
-    <p><b>{copy.label}</b>{' '}{summary}{' '}
+    <p><b>{copy.label}</b>{' '}{(arms.length === 1 || tick > WARMUP_TICKS) && summary}{' '}
       <button type="button" aria-expanded={open} aria-controls={uid} onClick={() => setOpen(value => !value)}>{open ? copy.hide : copy.show}</button>
     </p>
     <ul id={uid} hidden={!open}>

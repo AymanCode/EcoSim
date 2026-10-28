@@ -440,7 +440,7 @@ describe('NextApp live', { timeout: WHOLE_SCREEN_MS }, () => {
     const dialog = numbers()
     const tile = within(dialog).getByRole('button', { name: 'People out of work' })
     const shown = () => [...tile.querySelectorAll('.nx-number-value')].map(value => value.textContent)
-    expect(shown()).toEqual(['0 in 100', 'same as Town A'])
+    expect(shown()).toEqual(['0 in 100', '0 in 100'])
     tile.focus()
     const scroll = vi.spyOn(document.documentElement, 'scrollTop', 'set')
     try {

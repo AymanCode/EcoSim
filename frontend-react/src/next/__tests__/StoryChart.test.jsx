@@ -155,6 +155,17 @@ describe('StoryChart', () => {
 // "See it big" in the numbers sheet: any number, its own chips, and the
 // counted-every-5-weeks numbers drawn only at their counts.
 describe('StoryChart for the numbers sheet', () => {
+  test('only inline warm-up charts hide the relative start annotation', () => {
+    const { container, rerender } = draw({ tick: 5 })
+    expect(container).toHaveTextContent('Both towns start from the same place')
+    rerender(<StoryChart arms={arms()} metricKey={OUT} tick={5} horizon={24} inline />)
+    expect(container).not.toHaveTextContent('Both towns start from the same place')
+    expect(container.querySelectorAll('path.nx-warmline')).toHaveLength(2)
+    expect(screen.getByRole('table')).toBeInTheDocument()
+    rerender(<StoryChart arms={arms()} metricKey={OUT} tick={11} horizon={24} inline />)
+    expect(container).toHaveTextContent('Both towns start from the same place')
+  })
+
   test('metricKeys lists its own chips; the Run screen keeps STORY_METRICS by default', () => {
     const keys = ['typicalWeeklyPay', 'bankActiveLoans']
     draw({ metricKey: 'bankActiveLoans', metricKeys: keys })
