@@ -61,7 +61,6 @@ docs/INTERVIEW_PRACTICE.md
 audit_full_dump*.jsonl
 audit_full_dump*.md
 audit_full_dump_latest_digest.*
-docs/archive/run_artifacts/audit_full_dump*
 test_audit*.jsonl
 test_audit*.md
 backend/audit_full_dump.jsonl
@@ -128,5 +127,3 @@ benchmarks/results/_logs/
 # Brainstorm companion mockups
 .superpowers/
 
-# Keep checked-in evaluation evidence despite the data/ rule above
-!docs/evals/**/data/

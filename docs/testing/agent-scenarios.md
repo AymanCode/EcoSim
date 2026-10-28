@@ -15,7 +15,7 @@ It runs eleven scenarios: ten focused household/business cases and a town with *
 
 The runner uses the current default `legacy` payment rules. “PASS” means the observed mechanism met the stated check. **It does not mean that the rule is desirable.** Observations needing review are printed separately. A failed check returns exit code 1.
 
-The current default pays wages and benefits before shopping, with approved credit already available. The complete-week payday scenario checks that new money enables purchases immediately. The [September 29 rerun on the remediation code](../evals/2026-09-28-household-income-timing/scenarios/report-2026-09-29.md) and the [September 28 results](../evals/2026-09-28-household-income-timing/scenarios/report.md) (measured on 17d5c0b plus the income-timing change) are kept side by side; the earlier pre-timing audit results were not carried over; see the [timing change](../reviews/2026-09-28-household-income-timing.md) for the correction and performance evidence.
+The current default pays wages and benefits before shopping, with approved credit already available. The complete-week payday scenario checks that new money enables purchases immediately.
 
 ## Start with one question
 

@@ -43,5 +43,3 @@ Supply and demand are also directly configurable in the business runner:
 ```
 
 The business runner now accepts up to 156 weeks. Demand values are requested units per week; the final value repeats. A supply multiplier changes labor productivity only during its declared window; existing inventory and all other constraints still matter.
-
-Implementation assumptions: [selected model](../reviews/2026-09-28-inflation-model.md). Saved results: [September 28 report](../evals/2026-09-28-inflation/report.md).

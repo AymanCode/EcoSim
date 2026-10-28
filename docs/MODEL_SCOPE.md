@@ -68,7 +68,7 @@ Deterministic replay, contract tests, warehouse records, and matched-seed compar
 
 The AI Policy Engine is an experimental control layer over a validated, bounded action space. Provider calls happen outside the tick hot path, proposed changes are validated, and accepted actions are applied at safe tick boundaries.
 
-The current LLM comparison demonstrates an evaluation harness, not a mature leaderboard. A stronger benchmark will require repeated seeds, controlled scenario families, fixed prompt and provider metadata, explicit scoring rules, uncertainty estimates, and adversarial or distribution-shift cases. Provider availability and model behavior can also change independently of EcoSim. The planned evaluation contract is documented in the [LLM Economic Governance Eval Protocol](evals/ECOSIM_LLM_ECONOMIC_GOVERNANCE_EVAL_PROTOCOL.md).
+The current LLM comparison demonstrates an evaluation harness, not a mature leaderboard. A stronger benchmark will require repeated seeds, controlled scenario families, fixed prompt and provider metadata, explicit scoring rules, uncertainty estimates, and adversarial or distribution-shift cases. Provider availability and model behavior can also change independently of EcoSim.
 
 ## Scope Stability
 

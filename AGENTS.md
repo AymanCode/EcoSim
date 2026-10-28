@@ -2,7 +2,7 @@
 
 ## Ayman's product intent
 
-Read [product intent](docs/product-intent.md) when making product, design, or performance tradeoffs. Explain policy effects at both macro and household/business levels; evaluate GDP alongside wellbeing. Reducing agent logic, decision/update frequency, or modeled behavior for speed requires prior discussion and agreement, including in a labeled quick mode. Discuss/show new UI/UX changes before implementing unless Ayman already explicitly directed them; routine backend improvements preserving agreed behavior are usually fine.
+Read [product intent](C:/Users/ayman/Documents/ecosim-internal/docs/product-intent.md) (internal documents live outside this repository in `C:/Users/ayman/Documents/ecosim-internal/docs/`) when making product, design, or performance tradeoffs. Explain policy effects at both macro and household/business levels; evaluate GDP alongside wellbeing. Reducing agent logic, decision/update frequency, or modeled behavior for speed requires prior discussion and agreement, including in a labeled quick mode. Discuss/show new UI/UX changes before implementing unless Ayman already explicitly directed them; routine backend improvements preserving agreed behavior are usually fine.
 
 ## Source of truth
 
@@ -37,7 +37,7 @@ The managed OpenWiki block below calls the wiki optional just-in-time context. I
 
 ## Economic-agent proposal work
 
-For economic-agent audits, proposals or delegated improvements, read `docs/ECONOMIC_AGENT_RULES.md` after the relevant wiki navigation. Its active version defines the shared tick order, actor/market boundaries, accounting, information and computational rules for this proposal cycle. Use `docs/ECONOMIC_AGENT_PROPOSAL_TEMPLATE.md` for independent proposals and `docs/ECONOMIC_AGENT_WORKING_CONTRACT.md` for eventual implementation tickets. Distinguish binding rules from current behavior and known limitations; proposals do not authorize their own implementation. Shared-rule revisions are coordinated and versioned before dependent work proceeds. These requirements do not apply to unrelated repository work.
+For economic-agent audits, proposals or delegated improvements, read `C:/Users/ayman/Documents/ecosim-internal/docs/ECONOMIC_AGENT_RULES.md` after the relevant wiki navigation. Its active version defines the shared tick order, actor/market boundaries, accounting, information and computational rules for this proposal cycle. Use `C:/Users/ayman/Documents/ecosim-internal/docs/ECONOMIC_AGENT_PROPOSAL_TEMPLATE.md` for independent proposals and `C:/Users/ayman/Documents/ecosim-internal/docs/ECONOMIC_AGENT_WORKING_CONTRACT.md` for eventual implementation tickets. Distinguish binding rules from current behavior and known limitations; proposals do not authorize their own implementation. Shared-rule revisions are coordinated and versioned before dependent work proceeds. These requirements do not apply to unrelated repository work.
 
 <!-- OPENWIKI:START -->
 

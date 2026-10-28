@@ -1,6 +1,6 @@
 import { toneVar } from './tones.js'
 
-// Ported from `drawSpark` in docs/superpowers/specs/2026-09-06-prototype.html:
+// Ported from `drawSpark` in the 2026-09-06 design prototype:
 // a tiny inline SVG trend line with a coloured end dot. Nominal data draws a
 // muted line with an accent dot; warn/crit tones colour the whole thing.
 export default function Sparkline({ data, tone = 'acc', width = 64, height = 22 }) {

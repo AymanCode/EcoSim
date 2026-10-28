@@ -6,7 +6,7 @@
    classic dashboard, and every class is nx- prefixed (or lives inside an nx-
    block) so the dashboard's global .chip, .legend and .facts rules and
    Tailwind's utilities never reach in. Ported from
-   docs/superpowers/specs/2026-09-24-mockups/02-run-compare-policies.html. */
+   the 2026-09-24 compare-policies mockup. */
 
 .nx {
   --nx-page: #F3F5F7;
@@ -639,7 +639,7 @@ html:has(.nx-app) { scrollbar-gutter: stable }
 /* Feed beside the first-timer notes */
 .nx .nx-feedwrap { margin-top: 28px; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 22px }
 
-/* Set up screen. Ported from docs/superpowers/specs/2026-09-24-mockups/01-setup.html;
+/* Set up screen. Ported from the 2026-09-24 setup mockup;
    the page sits inside .nx-wrap, narrowed to the mockup's 1100 px. */
 .nx .nx-setup { max-width: 1100px; padding-top: 34px }
 .nx .nx-setup-lead { font-size: 32px; line-height: 1.15; letter-spacing: -.02em }
@@ -1068,7 +1068,7 @@ html:has(.nx-app) { scrollbar-gutter: stable }
 }
 
 /* "Show all the numbers": a sheet over the Run screen (numbers/), on the
-   same clock. Ported from docs/superpowers/specs/2026-09-25-mockups/06-all-the-numbers.html.
+   same clock. Ported from the 2026-09-25 all-the-numbers mockup.
    The timeline stays above it; --nx-sheet-top is the timeline's measured
    height (NumbersSheet's `top`, set inline), where the jump bar sticks. */
 .nx .nx-sheet {

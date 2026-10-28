@@ -54,14 +54,14 @@ describe('NextApp', { timeout: WHOLE_SCREEN_MS }, () => {
     vi.stubGlobal('fetch', serve({ 'town-a.jsonl': FIXTURE_TEXT }))
     render(<NextApp search="?view=next&demo" />)
     expect(await screen.findByText(
-      'Demo data missing: run the recorder commands in docs/superpowers/plans/2026-09-25-frontend-redesign-phase2-slice1.md',
+      'Demo data is missing. Record it with the commands under "Demo Recordings" in frontend-react/README.md.',
     )).toBeInTheDocument()
   })
 
   test('treats a page that is not a recording as missing data', async () => {
     vi.stubGlobal('fetch', serve({ 'town-a.jsonl': '<!doctype html>', 'town-b.jsonl': '<!doctype html>' }))
     render(<NextApp search="?view=next&demo" />)
-    expect(await screen.findByText(/^Demo data missing/)).toBeInTheDocument()
+    expect(await screen.findByText(/^Demo data is missing/)).toBeInTheDocument()
   })
 
   test('?view=next&demo&numbers opens the demo on all the numbers, once', async () => {

@@ -1,7 +1,7 @@
 """Money-conservation leak reproductions for the agents/economy audit (Phase 0).
 
 Each ``xfail(strict=True)`` test pins one leak from
-``docs/reviews/2026-09-28-agents-economy-code-audit.md`` section A on the
+the 2026-09-28 agents and economy code audit (section A) on the
 default ``legacy`` payment path. The tests assert the correct behavior, so
 they fail today on the conservation (or interest) assertion itself. When a
 Phase 4 fix lands, the test starts passing and strict mode turns the stale

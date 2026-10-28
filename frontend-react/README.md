@@ -37,6 +37,17 @@ npm run dev
 
 Vite proxies `/ws` and `/health` to `http://127.0.0.1:8002`.
 
+## Demo Recordings
+
+**Watch the example** and `/?view=next&demo` play two recorded towns from `public/demo/town-a.jsonl` and `public/demo/town-b.jsonl`, with no backend. To record them again, run from the repository root:
+
+```bash
+ECOSIM_ENABLE_WAREHOUSE=0 python frontend-react/scripts/record_session.py --households 500 --ticks 104 --tracked 12 --seed 1337 --firms 5 --experiment demo-minwage --arm "Town A" --arms 2 --owner demo --out frontend-react/public/demo/town-a.jsonl
+ECOSIM_ENABLE_WAREHOUSE=0 python frontend-react/scripts/record_session.py --households 500 --ticks 104 --tracked 12 --seed 1337 --firms 5 --experiment demo-minwage --arm "Town B" --arms 2 --owner demo --initial-policy '{"minimum_wage_policy":"high"}' --out frontend-react/public/demo/town-b.jsonl
+```
+
+Keep each file under 3 MB; if one is larger, lower `--households` to 300.
+
 ## Checks
 
 ```bash
@@ -67,4 +78,4 @@ It is not wired into CI. It prints a plain list of results; a failing run leaves
 
 ## The Run Screen's Towns
 
-The new Run screen's town drawings (`?view=next`, spec: [`../docs/superpowers/specs/2026-10-02-living-town-design.md`](../docs/superpowers/specs/2026-10-02-living-town-design.md)) live in `src/next/town/`, in three steps. Pure model modules (`geometry.js`, `mood.js`, `houses.js`, `lots.js`, `model.js` with `townAt(arm, tick)`, `cards.js`, `motion.js`, `streetShape.js`) turn one town's recorded weeks into everything a drawing needs for the week on the clock, without touching the DOM. React scenes (`Diorama.jsx` for the island, `MainStreet.jsx` for the side view, with their parts in `homes.jsx`, `shops.jsx`, `civic.jsx` and `streetParts.jsx`, inside `TownCard.jsx` and `MainStreetCard.jsx`) draw that model as three stacked SVGs that share one viewBox: `back` (sky, sun, clouds), `world` (ground, buildings, signs, pins, with no CSS animation or transition) and `motion` (rain or snow, coins, pings, floating signs). Anything that moves between weeks is written by one `requestAnimationFrame` loop per scene (`useSceneMotion.js`, with `ambient.js`, `coins.js`, `moments.js` and `heights.js`), which asks a `places` object (`islandPlaces.js` or `streetPlaces.js`) where things are, writes attributes on refs, never sets React state per frame, and sleeps while the run is paused. The layers exist because Chromium gives every SVG shape with a running CSS animation a compositor layer of its own: with the motion inside one SVG per town the screen made 566 layers and ran at about 22 fps with two towns, and split this way it makes 13 and holds 60. Boxes that must not change size as the week changes carry `data-stable` so the e2e test watches them.
+The new Run screen's town drawings (`?view=next`) live in `src/next/town/`, in three steps. Pure model modules (`geometry.js`, `mood.js`, `houses.js`, `lots.js`, `model.js` with `townAt(arm, tick)`, `cards.js`, `motion.js`, `streetShape.js`) turn one town's recorded weeks into everything a drawing needs for the week on the clock, without touching the DOM. React scenes (`Diorama.jsx` for the island, `MainStreet.jsx` for the side view, with their parts in `homes.jsx`, `shops.jsx`, `civic.jsx` and `streetParts.jsx`, inside `TownCard.jsx` and `MainStreetCard.jsx`) draw that model as three stacked SVGs that share one viewBox: `back` (sky, sun, clouds), `world` (ground, buildings, signs, pins, with no CSS animation or transition) and `motion` (rain or snow, coins, pings, floating signs). Anything that moves between weeks is written by one `requestAnimationFrame` loop per scene (`useSceneMotion.js`, with `ambient.js`, `coins.js`, `moments.js` and `heights.js`), which asks a `places` object (`islandPlaces.js` or `streetPlaces.js`) where things are, writes attributes on refs, never sets React state per frame, and sleeps while the run is paused. The layers exist because Chromium gives every SVG shape with a running CSS animation a compositor layer of its own: with the motion inside one SVG per town the screen made 566 layers and ran at about 22 fps with two towns, and split this way it makes 13 and holds 60. Boxes that must not change size as the week changes carry `data-stable` so the e2e test watches them.

@@ -4,7 +4,7 @@ import useCountUp from './useCountUp.js'
 import { deltaVs } from '../telemetry.js'
 
 // Ported from the `.hero` block in
-// docs/superpowers/specs/2026-09-06-prototype.html (e.g. the "Net fiscal
+// the 2026-09-06 design prototype (e.g. the "Net fiscal
 // balance" hero at line 566): `.lbl` label, a large count-up `.v`, then a
 // `.meta` row with the delta and an optional status pill, followed by
 // `children` — usually a chart filling the rest of the card. Unlike

@@ -1,8 +1,6 @@
 # Business behaviour with controlled demand
 
-Run one business with a small worker pool and set its customer demand directly. This covers the questions Ayman selected: money versus no money, hiring, wage increases and cuts, capacity expansion, and sustained weak demand.
-
-The [saved report](../evals/2026-09-28-business-scenarios/report.md) contains the default 19 runs, with a summary and weekly tables. [Raw results](../evals/2026-09-28-business-scenarios/results.json) include the plans, receipts, starting conditions, config and source hashes.
+Run one business with a small worker pool and set its customer demand directly. This covers money versus no money, hiring, wage increases and cuts, capacity expansion, and sustained weak demand.
 
 ## Run the preset comparisons
 

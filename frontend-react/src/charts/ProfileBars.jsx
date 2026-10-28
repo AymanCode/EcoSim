@@ -1,6 +1,6 @@
 import { toneVar, thresholdTone } from './tones.js'
 
-// Ported from `profileBars` in docs/superpowers/specs/2026-09-06-prototype.html:
+// Ported from `profileBars` in the 2026-09-06 design prototype:
 // one `.pb` row per dimension with a coloured fill and a median tick (`.md`),
 // plus a footer note explaining the tick.
 export default function ProfileBars({ dims, median }) {

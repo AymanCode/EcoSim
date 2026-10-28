@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 
-// Ported from `animateNum` in docs/superpowers/specs/2026-09-06-prototype.html:
+// Ported from `animateNum` in the 2026-09-06 design prototype:
 // a cubic ease-out count-up driven by requestAnimationFrame, with an
 // animation id so a superseded run becomes a no-op instead of fighting a
 // newer one. Unlike the prototype (which reads `performance.now()` for its

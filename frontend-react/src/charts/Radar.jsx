@@ -1,6 +1,6 @@
 import { toneVar, thresholdTone } from './tones.js'
 
-// Ported from `drawRadar` in docs/superpowers/specs/2026-09-06-prototype.html:
+// Ported from `drawRadar` in the 2026-09-06 design prototype:
 // rings at .25/.5/.75/1, spoke axes, a median polygon (ink4, 12% fill), a
 // subject polygon (accent, 14% fill, 1.5px stroke), vertex dots (crit below
 // .3, warn below .5, else accent) ringed in the panel colour, per-vertex

@@ -14,7 +14,7 @@ import {
 import useMeasured from './useMeasured.js'
 import { toneVar } from './tones.js'
 
-// Ported from `drawChart` in docs/superpowers/specs/2026-09-06-prototype.html,
+// Ported from `drawChart` in the 2026-09-06 design prototype,
 // rebuilt on Recharts primitives instead of hand-rolled SVG.
 
 const MARKERS_MIN_WIDTH = 470

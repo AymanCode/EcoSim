@@ -4,7 +4,7 @@ import useCountUp from './useCountUp.js'
 import { deltaVs, series } from '../telemetry.js'
 
 // Ported from the `ctile()` helper in
-// docs/superpowers/specs/2026-09-06-prototype.html: the same `.l`/`.v`
+// the 2026-09-06 design prototype: the same `.l`/`.v`
 // header as StatTile's `tile()`, but the footer is a full-size TimeSeries
 // chart (`.tile.ctile` + `.cap`) instead of a caption/sparkline row.
 export default function ChartTile({

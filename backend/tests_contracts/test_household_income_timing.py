@@ -1,7 +1,7 @@
 """New funds reach the same week's legacy shopping decision, paid once.
 
 Ported onto the remediation code on 2026-09-29 from the 2026-09-28 session
-written against 17d5c0b (docs/reviews/2026-09-28-household-income-timing.md).
+written against 17d5c0b.
 ``isolated_run`` and ``small_world`` come from the ported
 ``tools/checks/run_agent_scenarios.py``.
 """

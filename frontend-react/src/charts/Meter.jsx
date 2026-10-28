@@ -1,7 +1,7 @@
 import { toneVar } from './tones.js'
 
 // Ported from the `.meter`/`.fill`/`.z` markup used for population stress in
-// docs/superpowers/specs/2026-09-06-prototype.html (see the "stressmeter"
+// the 2026-09-06 design prototype (see the "stressmeter"
 // block): a track with a coloured fill and tick marks at each zone boundary.
 export default function Meter({ value, zones = [45, 70], tones = ['good', 'warn', 'crit'] }) {
   let tone = tones[tones.length - 1]

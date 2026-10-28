@@ -9,7 +9,7 @@ reserves (household deposits are already inside reserves).
 
 A conserving economy prints deltas of zero. Nonzero deltas measure the
 money created or destroyed on that tick by leaks such as those listed in
-``docs/reviews/2026-09-28-agents-economy-code-audit.md`` section A.
+the 2026-09-28 agents and economy code audit (section A).
 
 Some outside money is intentional: legacy new-firm seed cash and the legacy
 demand shock (owner decision 2026-09-29, rules doc K02). The economy records

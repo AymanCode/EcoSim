@@ -1,6 +1,6 @@
 import { toneVar } from './tones.js'
 
-// Ported from `ledgerHTML` in docs/superpowers/specs/2026-09-06-prototype.html:
+// Ported from `ledgerHTML` in the 2026-09-06 design prototype:
 // each `.lr` row's fill scales to the largest absolute value across every row
 // and the net row; the net row carries the `.lr.net` class and colours its
 // `.nv` good/crit by sign.

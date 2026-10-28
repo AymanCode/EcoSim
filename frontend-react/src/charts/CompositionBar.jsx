@@ -1,7 +1,7 @@
 import { toneVar } from './tones.js'
 
 // Ported from the `wealthbars` markup in
-// docs/superpowers/specs/2026-09-06-prototype.html: a `.stack` of proportional
+// the 2026-09-06 design prototype: a `.stack` of proportional
 // segments (2px gaps come from `.stack` in tokens.css) plus a `.legend` row
 // with a swatch, label and percentage per segment.
 export default function CompositionBar({ segments }) {

@@ -848,7 +848,7 @@ export const COPY = {
     brand: 'EcoSim',
     townLabel: index => `Town ${String.fromCharCode(65 + index)}`,
     loading: 'Loading the demo towns…',
-    missing: 'Demo data missing: run the recorder commands in docs/superpowers/plans/2026-09-25-frontend-redesign-phase2-slice1.md',
+    missing: 'Demo data is missing. Record it with the commands under "Demo Recordings" in frontend-react/README.md.',
     detail: reason => `Details: ${reason}`,
   },
   howTo: {

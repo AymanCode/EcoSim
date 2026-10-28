@@ -79,8 +79,7 @@ Registered household medical loans use the bank collector as their sole
 servicer. Household debt mirrors the registered claim; the scalar medical
 payment helper skips these loans. The separate unregistered legacy fallback
 retains its existing payment-to-treasury rule and incomplete origination
-accounting. See the [concrete package](ECONOMIC_CONCRETE_PACKAGE.md) for exact
-conventions, field ownership and verification.
+accounting.
 
 ## Credit Scores
 

@@ -4,7 +4,7 @@ import useCountUp from './useCountUp.js'
 import { deltaVs, series } from '../telemetry.js'
 
 // Ported from the `tile()` helper in
-// docs/superpowers/specs/2026-09-06-prototype.html: `.tile` > `.l` (label +
+// the 2026-09-06 design prototype: `.tile` > `.l` (label +
 // delta) / `.v` (count-up value) / `.foot` (caption + sparkline). The delta
 // compares the live `value` against the most recently recorded sample in
 // `history` (backN(history, 0), i.e. the last entry) since `value` itself is
