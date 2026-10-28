@@ -160,7 +160,7 @@ describe('an older recording without the new keys', () => {
     for (const key of NEW_KEYS) {
       expect(valueAt(old[0], key, 20), key).toBeNull()
       expect(countedAt(old[0], key, 20), key).toBeNull()
-      expect(countedSeriesUpTo(old[0], key, 20), key).toEqual([])
+      expect(countedSeriesUpTo(old[0], key, 20), key).toEqual(old[0].ticks.filter(tick => tick <= 20).map(tick => ({ tick, value: null })))
       expect(cumulativeUpTo(old[0], key, 20), key).toBeNull()
       expect(rangeSoFar(old, key, 20), key).toBeNull()
       expect(differencePhrase(key, valueAt(old[1], key, 20), valueAt(old[0], key, 20), { tick: 20 }), key).toBeNull()

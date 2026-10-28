@@ -74,7 +74,7 @@ function SparklineTable({ arms, row, series, name }) {
         <tbody>{weeks.map(week => (
           <tr key={week}>
             <th scope="row">{weekLabel(week)}</th>
-            {arms.map((arm, i) => <td key={arm.label}>{isNumber(byTown[i].get(week)) ? formatMetric(key, byTown[i].get(week)) : COPY.numbers.notMeasured}</td>)}
+            {arms.map((arm, i) => <td key={arm.label}>{isNumber(byTown[i].get(week)) ? formatMetric(key, byTown[i].get(week)) : COPY.numbers.notRecorded}</td>)}
           </tr>
         ))}</tbody>
       </table>

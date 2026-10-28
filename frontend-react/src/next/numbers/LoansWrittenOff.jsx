@@ -20,23 +20,18 @@ export default function LoansWrittenOff({ arms, tick, className = '', inline = f
   if (inline) {
     if (!measured) return <div className={className}><p className="nx-quiet">{COPY.numbers.notMeasured}</p></div>
     // Build a read-only cumulative series with cumulativeUpTo's missing-week
-    // semantics: null before the first reading, then missing weeks add nothing.
+    // semantics: once a weekly contribution is missing, the total stays unknown.
     const cumulativeArms = arms.map(arm => {
       let sum = 0
-      let seen = false
+      let complete = true
       const values = arm.ticks.map((_, index) => {
         const value = arm.series?.[KEY]?.[index]
-        if (isNumber(value)) {
-          sum += value
-          seen = true
-        }
-        return seen ? sum : null
+        if (!isNumber(value)) complete = false
+        if (complete) sum += value
+        return complete ? sum : null
       })
       return { ...arm, series: { ...arm.series, writtenOffSoFar: values } }
     })
-    if (!cumulativeArms.some(arm => isNumber(valueAt(arm, 'writtenOffSoFar', tick)))) {
-      return <div className={className}><p className="nx-quiet">{COPY.numbers.noWeeks}</p></div>
-    }
     return <StoryChart arms={cumulativeArms} metricKey="writtenOffSoFar" tick={tick}
       horizon={horizon ?? Math.max(tick, ...arms.map(arm => arm.horizon ?? arm.ticks.at(-1) ?? tick))}
       playing={playing} inline hideEndLabels interactive className={className} />

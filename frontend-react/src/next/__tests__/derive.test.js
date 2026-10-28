@@ -199,11 +199,12 @@ describe('rangeSoFar', () => {
 describe('cumulativeUpTo', () => {
   const arm = { ticks: [1, 2, 3, 4], series: { bankDefaultAmountThisTick: [0, 5, null, 10] } }
 
-  test('sums the series up to the tick, skipping missing weeks', () => {
+  test('sums complete weeks and stays unknown from the first missing week onward', () => {
     expect(cumulativeUpTo(arm, 'bankDefaultAmountThisTick', 1)).toBe(0)
-    expect(cumulativeUpTo(arm, 'bankDefaultAmountThisTick', 3)).toBe(5)
-    expect(cumulativeUpTo(arm, 'bankDefaultAmountThisTick', 4)).toBe(15)
-    expect(cumulativeUpTo(arm, 'bankDefaultAmountThisTick', 99)).toBe(15)
+    expect(cumulativeUpTo(arm, 'bankDefaultAmountThisTick', 2)).toBe(5)
+    expect(cumulativeUpTo(arm, 'bankDefaultAmountThisTick', 3)).toBeNull()
+    expect(cumulativeUpTo(arm, 'bankDefaultAmountThisTick', 4)).toBeNull()
+    expect(cumulativeUpTo(arm, 'bankDefaultAmountThisTick', 99)).toBeNull()
   })
 
   test('is null when nothing was measured', () => {

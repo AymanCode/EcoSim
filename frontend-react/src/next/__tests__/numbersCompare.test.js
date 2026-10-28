@@ -350,10 +350,10 @@ describe('numbers comparison states', () => {
       ticks: [1, 2, 27], eventCounts: { 1: { hired: 10, laidOff: 0 }, 2: { hired: 0, laidOff: 2 }, 27: { hired: 3, laidOff: 0 } },
     })
     expect(rowValues([source], 'netJobs26', 2)[0].value).toBe(8)
-    expect(rowValues([source], 'netJobs26', 27)[0].value).toBe(1)
+    expect(rowValues([source], 'netJobs26', 27)[0].value).toBeNull()
     expect(rowValues([source], 'careSoFar', 1)[0].value).toBeNull()
-    expect(rowValues([source], 'careSoFar', 2)[0].value).toBe(2)
-    expect(rowSeries(source, 'careSoFar', 27)).toEqual([{ tick: 1, value: null }, { tick: 2, value: 2 }, { tick: 27, value: 3 }])
+    expect(rowValues([source], 'careSoFar', 2)[0].value).toBeNull()
+    expect(rowSeries(source, 'careSoFar', 27)).toEqual([{ tick: 1, value: null }, { tick: 2, value: null }, { tick: 27, value: null }])
     expect(rowSeries(source, 'netJobs26', 27).at(-1).value).toBe(rowValues([source], 'netJobs26', 27)[0].value)
     expect(rowSeries(demo[0], 'writtenOffSoFar', 104).at(-1).value).toBeCloseTo(rowValues(demo, 'writtenOffSoFar', 104)[0].value)
     expect(rowValues(demo, 'happiness', 30)[0].formatted).not.toBe(rowValues(demo, 'happiness', 104)[0].formatted)

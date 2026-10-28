@@ -21,7 +21,7 @@ export function rowHistory(arm, row, tick) {
   if (!byKey) histories.set(ticks, byKey = new Map())
   let cache = byKey.get(key)
   if (!cache || cache.values !== values || cache.asOf !== asOf || cache.events !== events || ticks.length < cache.length) {
-    cache = { values, asOf, events, length: ticks.length, observations: [], sum: 0, seen: false }
+    cache = { values, asOf, events, length: ticks.length, observations: [], sum: 0, complete: true }
     byKey.set(key, cache)
   }
   cache.length = ticks.length
@@ -35,11 +35,15 @@ export function rowHistory(arm, row, tick) {
       // In particular, keep its summation order and missing-week semantics.
       point = rowSeries({ ...arm, ticks: [week] }, row, week)[0]
     } else if (definition?.kind === 'cumulative') {
-      if (isNumber(value)) { cache.sum += value; cache.seen = true }
-      point = { tick: week, value: cache.seen ? cache.sum : null }
+      if (!isNumber(value)) cache.complete = false
+      if (cache.complete) cache.sum += value
+      point = { tick: week, value: cache.complete ? cache.sum : null }
     } else if (counted.has(key)) {
       const changed = i === 0 || value !== (values?.[i - 1] ?? null) || (asOf?.[i] ?? null) !== (asOf?.[i - 1] ?? null)
-      point = value !== null && changed ? { tick: isNumber(asOf?.[i]) ? asOf[i] : week, value } : null
+      const countedWeek = isNumber(asOf?.[i]) ? asOf[i] : week
+      const recovering = i > 0 && !isNumber(values?.[i - 1]) && ticks[i - 1] >= countedWeek
+      point = !isNumber(value) ? { tick: week, value: null }
+        : changed ? { tick: recovering ? week : countedWeek, value } : null
     }
     cache.observations.push(point)
   }

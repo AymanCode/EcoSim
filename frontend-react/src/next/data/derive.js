@@ -90,7 +90,8 @@ export function countedAt(arm, key, tick) {
 
 // [{ tick, value }] at the weeks a figure was counted, through `tick`: what a
 // chart draws. A COUNTED_EVERY_5 key has a point at each count, at the week it
-// was made; any other key at every recorded week. A missing value is left out.
+// was made; any other key at every recorded week. Missing recorded readings
+// remain null gaps, while unchanged valid carries are not extra samples.
 export function countedSeriesUpTo(arm, key, tick) {
   const index = indexAtOrBefore(arm?.ticks ?? [], tick)
   const values = arm?.series?.[key] ?? []
@@ -98,10 +99,14 @@ export function countedSeriesUpTo(arm, key, tick) {
   const points = []
   for (let i = 0; i <= index; i += 1) {
     const value = values[i] ?? null
-    if (value === null) continue
-    if (!counted) points.push({ tick: arm.ticks[i], value })
+    if (!isNumber(value)) points.push({ tick: arm.ticks[i], value: null })
+    else if (!counted) points.push({ tick: arm.ticks[i], value })
     else if (isCount(arm, key, i)) {
-      const week = countWeek(arm, key, i)
+      const countedWeek = countWeek(arm, key, i)
+      // A resumed carry must not be backdated across a real missing reading.
+      // Keep its arrival week in that case; ordinary counts keep their date.
+      const recovering = i > 0 && !isNumber(values[i - 1]) && arm.ticks[i - 1] >= countedWeek
+      const week = recovering ? arm.ticks[i] : countedWeek
       if (points.length && points[points.length - 1].tick === week) points[points.length - 1] = { tick: week, value }
       else points.push({ tick: week, value })
     }
@@ -144,18 +149,18 @@ export function rangeSoFar(arms, key, tick) {
 }
 
 // The sum of a weekly figure over every recorded week up to `tick` (loans
-// written off so far); a missing week adds nothing. Null when no week up to
-// `tick` has a value.
+// written off so far). A missing weekly contribution makes the total unknown,
+// including after later readings resume. Null before the first recorded week.
 export function cumulativeUpTo(arm, key, tick) {
   const values = arm?.series?.[key] ?? []
+  const index = indexAtOrBefore(arm?.ticks ?? [], tick)
+  if (index < 0) return null
   let sum = 0
-  let seen = false
-  for (let i = indexAtOrBefore(arm?.ticks ?? [], tick); i >= 0; i -= 1) {
-    if (!isNumber(values[i])) continue
+  for (let i = index; i >= 0; i -= 1) {
+    if (!isNumber(values[i])) return null
     sum += values[i]
-    seen = true
   }
-  return seen ? sum : null
+  return sum
 }
 
 // The town-wide event counts (session.js `eventCounts`) for each of the

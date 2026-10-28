@@ -4,7 +4,7 @@ import { COPY, WARMUP_TICKS } from '../catalog.js'
 import { weeklyCounts } from '../data/derive.js'
 import { weekLabel } from '../narration.js'
 import Card, { Bolded, Hatch, SwatchKey, TownName, WindowAxis } from './Card.jsx'
-import { everCounted, r1, total } from './chartKit.js'
+import { isNumber, r1, total } from './chartKit.js'
 import '../next.css'
 
 const WEEKS = 26
@@ -98,7 +98,10 @@ function WeeksTable({ arms, perTown }) {
 // nothing and is "not recorded" in the table, never zero.
 export default function HiresAndLayoffs({ arms, tick, className = '', inline = false }) {
   const copy = COPY.numbers.hires
-  const measured = KEYS.some(key => everCounted(arms, key))
+  const measuredInTown = arms.map(arm => Object.entries(arm.eventCounts ?? {}).some(([week, counts]) => (
+    Number(week) <= tick && KEYS.some(key => isNumber(counts?.[key]))
+  )))
+  const measured = measuredInTown.some(Boolean)
   const perTown = arms.map(arm => weeklyCounts(arm, KEYS, tick, WEEKS))
   const weeks = perTown[0]?.length ?? 0
   const max = Math.max(1, ...perTown.flatMap(rows => rows.flatMap(row => KEYS.map(key => row[key] ?? 0))))
@@ -115,16 +118,18 @@ export default function HiresAndLayoffs({ arms, tick, className = '', inline = f
           {arms.map((arm, i) => {
             const rows = perTown[i]
             const now = rows[rows.length - 1]
-            const known = now.hired !== null || now.laidOff !== null
+            const known = KEYS.every(key => now[key] !== null)
+            const complete = rows.every(row => KEYS.every(key => row[key] !== null))
             return (
               <div className="nx-vpanel" key={arm.label}>
                 <div className="nx-vhead">
                   <TownName arm={arm} />
-                  <span>{known ? <Bolded parts={copy.thisWeek(now.hired ?? 0, now.laidOff ?? 0)} /> : copy.thisWeekMissing}</span>
+                  <span>{known ? <Bolded parts={copy.thisWeek(now.hired, now.laidOff)} /> : copy.thisWeekMissing}</span>
                 </div>
                 <MirroredBars rows={rows} max={max} tick={tick} />
                 <WindowAxis first={rows[0].tick} weeks={WEEKS} tick={tick} />
-                <p className="nx-foot">{copy.inThese(total(rows, 'hired'), total(rows, 'laidOff'))}</p>
+                <p className="nx-foot">{complete ? copy.inThese(total(rows, 'hired'), total(rows, 'laidOff'))
+                  : measuredInTown[i] ? COPY.numbers.missingReading : COPY.numbers.notMeasured}</p>
               </div>
             )
           })}

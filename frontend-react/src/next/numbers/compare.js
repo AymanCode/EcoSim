@@ -3,7 +3,7 @@
   WARMUP_TICKS, capitalise, formatMetric, formatMoney, shownValue,
 } from '../catalog.js'
 import {
-  countedAt, countedSeriesUpTo, cumulativeUpTo, everMeasured, rulesAt,
+  countedAt, countedSeriesUpTo, cumulativeUpTo, rulesAt,
   seriesUpTo, tickIndexAt, valueAt, weeklyCounts,
 } from '../data/derive.js'
 
@@ -36,13 +36,14 @@ export function visibleRows(arms, rows, tick) {
 function netJobs(arm, tick, definition) {
   const rows = weeklyCounts(arm, definition.sources, tick, definition.weeks)
   const [hired, laidOff] = definition.sources
-  if (!rows.some(row => isNumber(row[hired]) || isNumber(row[laidOff]))) return null
-  return rows.reduce((sum, row) => sum + (row[hired] ?? 0) - (row[laidOff] ?? 0), 0)
+  if (!rows.length || rows.some(row => !isNumber(row[hired]) || !isNumber(row[laidOff]))) return null
+  return rows.reduce((sum, row) => sum + row[hired] - row[laidOff], 0)
 }
 
 /** Return [{label,color,value,formatted,measured,asOfTick}] in arm order.
- * Missing readings are null and formatted COPY.numbers.notMeasured; measured
- * is per arm. Derived jobs use weeklyCounts; cumulative rows cumulativeUpTo.
+ * Missing readings distinguish never measured from an incomplete reading;
+ * measured is per arm through tick. Derived jobs use weeklyCounts; cumulative
+ * rows cumulativeUpTo.
  */
 export function rowValues(arms, row, tick) {
   const key = keyOf(row)
@@ -51,22 +52,23 @@ export function rowValues(arms, row, tick) {
     let value
     let measured
     let asOfTick = arm.ticks?.[tickIndexAt(arm, tick)] ?? null
+    const measuredThroughTick = source => (arm.series?.[source] ?? []).slice(0, tickIndexAt(arm, tick) + 1).some(isNumber)
     if (derived?.kind === 'netJobs') {
       value = netJobs(arm, tick, derived)
-      measured = Object.values(arm.eventCounts ?? {}).some(counts => derived.sources.some(source => isNumber(counts?.[source])))
+      measured = Object.entries(arm.eventCounts ?? {}).some(([week, counts]) => Number(week) <= tick && derived.sources.some(source => isNumber(counts?.[source])))
     } else if (derived?.kind === 'cumulative') {
       value = cumulativeUpTo(arm, derived.source, tick)
-      measured = everMeasured([arm], derived.source)
+      measured = measuredThroughTick(derived.source)
     } else {
       const reading = counted.has(key) ? countedAt(arm, key, tick) : null
       value = counted.has(key) ? reading?.value ?? null : valueAt(arm, key, tick)
       if (counted.has(key)) asOfTick = reading?.asOfTick ?? null
-      measured = everMeasured([arm], key)
+      measured = measuredThroughTick(key)
     }
     if (!isNumber(value)) value = null
     return {
       label: arm.label, color: arm.color, value,
-      formatted: value === null ? COPY.numbers.notMeasured : formatMetric(key, value),
+      formatted: value === null ? (measured ? COPY.numbers.missingReading : COPY.numbers.notMeasured) : formatMetric(key, value),
       measured, asOfTick,
     }
   })
@@ -82,13 +84,11 @@ export function rowSeries(arm, row, tick) {
   }
   if (derived?.kind === 'cumulative') {
     let sum = 0
-    let seen = false
+    let complete = true
     return seriesUpTo(arm, derived.source, tick).map(point => {
-      if (isNumber(point.value)) {
-        sum += point.value
-        seen = true
-      }
-      return { tick: point.tick, value: seen ? sum : null }
+      if (!isNumber(point.value)) complete = false
+      if (complete) sum += point.value
+      return { tick: point.tick, value: complete ? sum : null }
     })
   }
   return counted.has(key) ? countedSeriesUpTo(arm, key, tick) : seriesUpTo(arm, key, tick)

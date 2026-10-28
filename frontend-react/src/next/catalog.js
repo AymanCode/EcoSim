@@ -1139,6 +1139,8 @@ export const COPY = {
     },
     // A tile whose number this recording never carried, never a zero.
     notMeasured: 'Not measured in this run',
+    // PROVISIONAL: a missing weekly reading or an incomplete derived total.
+    missingReading: 'No reading this week',
     title: 'All the numbers',
     towns: 'The towns and their rules',
     back: 'Back to the towns',

@@ -1,6 +1,6 @@
 import { useId, useState } from 'react'
 import useMeasured from '../../charts/useMeasured.js'
-import { COPY, COUNTED_EVERY_5, METRICS, STORY_METRICS, WARMUP_TICKS, formatEndLabel, formatMetric, formatMetricShort, townTextColor } from '../catalog.js'
+import { COPY, COUNTED_EVERY_5, METRICS, NUMBER_DERIVED_ROWS, STORY_METRICS, WARMUP_TICKS, formatEndLabel, formatMetric, formatMetricShort, townTextColor } from '../catalog.js'
 import { countedAt, countedSeriesUpTo, seriesUpTo, valueAt } from '../data/derive.js'
 import { policyChangesByWeek, policyMarkerLabel, startNote, weekLabel } from '../narration.js'
 import '../next.css'
@@ -194,7 +194,7 @@ function ValueTable({ arms, metricKey, tick, name, counted, inline }) {
         {rows.map(({ week, values }) => (
           <tr key={week}>
             <th scope="row">{weekLabel(week)}</th>
-            {arms.map((arm, i) => <td key={arm.label}>{inline && values[i] === null ? COPY.numbers.notMeasured : formatMetric(metricKey, values[i])}</td>)}
+            {arms.map((arm, i) => <td key={arm.label}>{inline && values[i] === null ? COPY.numbers.notRecorded : formatMetric(metricKey, values[i])}</td>)}
           </tr>
         ))}
       </tbody>
@@ -237,12 +237,14 @@ export default function StoryChart({
     const value = formatEndLabel(metricKey, item.value)
     return compact ? [item.arm.label, value] : [COPY.chart.endLabel(item.arm.label, value)]
   }
-  // A counted number's reading is its last count, drawn at the week it was made.
+  // Counted markers follow the plotted observation, including a recovery
+  // after a missing reading; ordinary counts retain the week they were made.
   const readings = arms
     .map(arm => {
       if (!counted) return { arm, value: valueAt(arm, metricKey, tick), at: tick }
       const count = countedAt(arm, metricKey, tick)
-      return { arm, value: count?.value ?? null, at: count?.asOfTick ?? tick }
+      const point = countedSeriesUpTo(arm, metricKey, tick).at(-1)
+      return { arm, value: count?.value ?? null, at: point?.tick ?? tick }
     })
     .filter(item => item.value !== null)
   // Sized for the widest label the whole recording could need, so the plot
@@ -334,7 +336,8 @@ export default function StoryChart({
   const selectedWeek = interactive && hoverWeek !== null ? Math.max(0, Math.min(tick, hoverWeek)) : null
   const hoverValues = selectedWeek === null ? [] : arms.map(arm => {
     const count = counted ? countedAt(arm, metricKey, selectedWeek) : null
-    return { arm, value: counted ? count?.value ?? null : valueAt(arm, metricKey, selectedWeek), at: count?.asOfTick ?? selectedWeek }
+    const point = counted ? countedSeriesUpTo(arm, metricKey, selectedWeek).at(-1) : null
+    return { arm, value: counted ? count?.value ?? null : valueAt(arm, metricKey, selectedWeek), at: point?.tick ?? selectedWeek }
   })
   const pointerMove = event => {
     const bounds = event.currentTarget.getBoundingClientRect()
@@ -482,7 +485,9 @@ export default function StoryChart({
         }}>
           <b>{weekLabel(selectedWeek)}</b>
           {hoverValues.map(item => <div key={item.arm.label} style={{ color: townTextColor(item.arm.color) }}>
-            {COPY.numbers.column(item.arm.label, item.value === null ? COPY.numbers.notMeasured : formatMetric(metricKey, item.value))}
+            {COPY.numbers.column(item.arm.label, item.value === null
+              ? (inline && seriesUpTo(item.arm, NUMBER_DERIVED_ROWS[metricKey]?.source ?? metricKey, selectedWeek).some(point => Number.isFinite(point.value)) ? COPY.numbers.missingReading : COPY.numbers.notMeasured)
+              : formatMetric(metricKey, item.value))}
           </div>)}
         </div>}
       </div>

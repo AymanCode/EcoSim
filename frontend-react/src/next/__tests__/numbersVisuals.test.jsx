@@ -296,23 +296,23 @@ describe('visuals inside a number row', () => {
     expect(container.querySelector('.nx-vfuture')).toBeInTheDocument()
   })
 
-  test('the loans line and table use cumulative sums, carry missing weeks and respect scrubbing', () => {
+  test('the loans line and table retain unknown cumulative sums and respect scrubbing', () => {
     const towns = [
       handArm(TOWN_A, { bankDefaultAmountThisTick: [null, 100, null, 50] }),
       handArm(TOWN_B, { bankDefaultAmountThisTick: [0, 50, 0, 100] }),
     ]
     const original = towns.map(arm => [...arm.series.bankDefaultAmountThisTick])
     const { container, rerender } = draw(<LoansWrittenOff arms={towns} tick={4} inline />)
-    expect(container.querySelectorAll('.nx-warmline')).toHaveLength(2)
+    expect(container.querySelectorAll('.nx-warmline')).toHaveLength(1)
     expect(container.querySelector('.nx-endl, .pair, .nx-pile')).toBeNull()
     let rows = within(screen.getByRole('table')).getAllByRole('row').slice(1)
     expect(rows.map(row => [...row.children].slice(1).map(cell => cell.textContent))).toEqual([
-      [COPY.numbers.notMeasured, '$0'], ['$100', '$50'], ['$100', '$50'], ['$150', '$150'],
+      [COPY.numbers.notRecorded, '$0'], [COPY.numbers.notRecorded, '$50'], [COPY.numbers.notRecorded, '$50'], [COPY.numbers.notRecorded, '$150'],
     ])
     rerender(<div className="nx"><LoansWrittenOff arms={towns} tick={3} inline playing /></div>)
     rows = within(screen.getByRole('table')).getAllByRole('row').slice(1)
     expect(rows).toHaveLength(3)
-    expect([...rows.at(-1).children].slice(1).map(cell => cell.textContent)).toEqual(towns.map(arm => formatMoney(cumulativeUpTo(arm, 'bankDefaultAmountThisTick', 3))))
+    expect([...rows.at(-1).children].slice(1).map(cell => cell.textContent)).toEqual([COPY.numbers.notRecorded, '$50'])
     expect(container.querySelector('.nx-chart')).toHaveClass('is-playing')
     expect(container.querySelector('.nx-endl')).toBeNull()
     expect(container.querySelector('.nx-future')).toBeInTheDocument()
