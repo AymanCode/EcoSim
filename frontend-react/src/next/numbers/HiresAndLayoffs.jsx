@@ -96,7 +96,7 @@ function WeeksTable({ arms, perTown }) {
 // from the town-wide event counts, this week's hires and lay-offs above each
 // chart and the window's totals under it. A week with no counts draws
 // nothing and is "not recorded" in the table, never zero.
-export default function HiresAndLayoffs({ arms, tick, className = '' }) {
+export default function HiresAndLayoffs({ arms, tick, className = '', inline = false }) {
   const copy = COPY.numbers.hires
   const measured = KEYS.some(key => everCounted(arms, key))
   const perTown = arms.map(arm => weeklyCounts(arm, KEYS, tick, WEEKS))
@@ -133,5 +133,6 @@ export default function HiresAndLayoffs({ arms, tick, className = '' }) {
       </>
     )
   }
+  if (inline) return <div className={`nx-number-visual${className ? ` ${className}` : ''}`}>{body}</div>
   return <Card title={copy.title} className={className}>{body}</Card>
 }

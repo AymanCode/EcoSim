@@ -1104,8 +1104,6 @@ html:has(.nx-app) { scrollbar-gutter: stable }
 .nx .nx-sheet-head { display: flex; align-items: flex-start; gap: 16px 24px; padding: 26px 32px 18px }
 .nx .nx-sheet-head h2 { font-size: 32px; line-height: 1.1; letter-spacing: -.02em }
 .nx .nx-sheet-head > .nx-abtn { margin-left: auto; padding: 9px 14px; font-size: 14px }
-.nx .nx-sheet-lead { font-family: var(--nx-disp), var(--nx-body), sans-serif; font-size: 18px; font-weight: 500; color: var(--nx-ink2); margin-top: 6px; letter-spacing: -.01em }
-.nx .nx-sheet-hint { font-size: 13px; color: var(--nx-ink3-text); margin-top: 4px }
 .nx .nx-sheet-towns { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 14px }
 .nx .nx-tchip {
   display: inline-flex;
@@ -1121,45 +1119,7 @@ html:has(.nx-app) { scrollbar-gutter: stable }
 }
 .nx .nx-tchip b { color: var(--nx-ink); font-weight: 600 }
 .nx .nx-tchip-note { color: var(--nx-home-text) }
-.nx .nx-tchip i, .nx .nx-rules-town i, .nx .nx-shead i { width: 10px; height: 10px; border-radius: 3px; display: inline-block; flex: none }
-
-/* Jump chips; the bar sticks under the timeline */
-.nx .nx-jump {
-  position: sticky;
-  top: var(--nx-sheet-top);
-  z-index: 3;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 9px 32px;
-  background: rgba(243, 245, 247, .96);
-  border-top: 1px solid var(--nx-line);
-  border-bottom: 1px solid var(--nx-line);
-}
-/* Only the links scroll sideways; the labelled way back always stays in view. */
-.nx .nx-jump-links { display: flex; flex: 1; min-width: 0; gap: 6px; overflow-x: auto; scrollbar-width: none; padding: 3px }
-.nx .nx-jump-links::-webkit-scrollbar { display: none }
-.nx .nx-jump a {
-  flex: none;
-  border: 1px solid var(--nx-line2);
-  background: var(--nx-panel);
-  color: var(--nx-ink2);
-  border-radius: 999px;
-  padding: 3px 11px;
-  font-size: 12.5px;
-  font-weight: 500;
-  text-decoration: none;
-}
-.nx .nx-jump a:hover { border-color: var(--nx-ink4); color: var(--nx-ink) }
-.nx .nx-jump .nx-abtn { flex: none }
-
-/* The chart key */
-.nx .nx-ckey { display: flex; gap: 8px 20px; flex-wrap: wrap; align-items: center; padding: 14px 32px 0; font-size: 12.5px; color: var(--nx-ink3-text) }
-.nx .nx-ckey li { display: inline-flex; align-items: center; gap: 7px }
-.nx .nx-ckey i { display: inline-block; flex: none; height: 14px }
-.nx .nx-ckey-warm { width: 22px; border-radius: 3px; background: repeating-linear-gradient(45deg, var(--nx-line2) 0 1.3px, var(--nx-panel2) 1.3px 6px) }
-.nx .nx-ckey-now { width: 2px; background: var(--nx-slate2) }
-.nx .nx-ckey-future { width: 22px; border-radius: 3px; background: var(--nx-future) }
+.nx .nx-tchip i, .nx .nx-rules-town i { width: 10px; height: 10px; border-radius: 3px; display: inline-block; flex: none }
 
 /* Section cards */
 .nx .nx-sheet-body { padding: 16px 32px 0 }
@@ -1283,81 +1243,6 @@ html:has(.nx-app) { scrollbar-gutter: stable }
 .nx .nx-rules tr.is-diff > .nx-rn { color: var(--nx-ink); font-weight: 600 }
 .nx .nx-rv.is-diff { font-weight: 700 }
 
-/* This week at a glance: a scoreboard; each row's dot track shows where this
-   week sits between the lowest and highest seen since setting up. */
-/* Every town column keeps room for a value like "owes $11,276"; with many
-   towns the scoreboard scrolls in its card, the names staying put. */
-.nx .nx-glance { margin-top: 6px; min-width: calc(180px + var(--nx-towns, 2) * 150px + 140px + (var(--nx-towns, 2) + 1) * 18px) }
-.nx .nx-srow {
-  display: grid;
-  grid-template-columns: minmax(180px, 1.55fr) repeat(var(--nx-towns, 2), minmax(150px, 1.1fr)) minmax(140px, 1.15fr);
-  gap: 18px;
-  align-items: center;
-  padding: 11px 4px;
-  border-top: 1px solid var(--nx-line);
-}
-.nx .nx-srow.is-head { border-top: 0; padding: 12px 4px 7px; font-size: 12px; font-weight: 600; color: var(--nx-ink3-text); align-items: end }
-.nx .nx-shead { display: inline-flex; align-items: center; gap: 7px }
-.nx .nx-srow.is-head small { display: block; font-weight: 400; color: var(--nx-home-text); line-height: 1.35 }
-/* The names stay put, full row height, while the values scroll under them. */
-.nx .nx-glance .nx-sname {
-  position: sticky;
-  left: 0;
-  z-index: 1;
-  align-self: stretch;
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  background: var(--nx-panel);
-  /* Also covers the 18px gap beside it, with a divider at the gap's edge, so
-     no sliver of a scrolled town column shows next to the names. */
-  box-shadow: 17px 0 0 var(--nx-panel), 18px 0 0 var(--nx-line);
-}
-.nx .nx-sname b { display: block; color: var(--nx-ink); font-weight: 600; font-size: 14px }
-.nx .nx-sname small { display: block; font-size: 12.5px; color: var(--nx-ink3-text); line-height: 1.35 }
-.nx .nx-sname .nx-foot { font-size: 11.5px; color: var(--nx-ink4-text); margin-top: 3px }
-.nx .nx-sv {
-  font-family: var(--nx-disp), var(--nx-body), sans-serif;
-  font-size: 20px;
-  font-weight: 600;
-  color: var(--nx-ink);
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  white-space: normal;
-  font-variant-numeric: tabular-nums;
-  letter-spacing: -.01em;
-}
-.nx .nx-sv i { width: 9px; height: 9px; border-radius: 3px; flex: none }
-.nx .nx-sval.is-none { font-size: 13px; font-weight: 500; color: var(--nx-ink) }
-.nx .nx-diff { display: block; font-size: 12.5px; color: var(--nx-ink3-text); margin-top: 1px }
-.nx .nx-mlab { display: none; font-size: 11.5px; color: var(--nx-ink3-text) }
-.nx .nx-dbt { position: relative; height: 18px }
-.nx .nx-dbt::before { content: ''; position: absolute; left: 0; right: 0; top: 8px; height: 2px; border-radius: 1px; background: var(--nx-line) }
-.nx .nx-dbt .nx-dbseg { position: absolute; top: 8px; height: 2px; background: var(--nx-slate) }
-.nx .nx-dbt .nx-dot {
-  position: absolute;
-  top: 3px;
-  width: 12px;
-  height: 12px;
-  margin-left: -6px;
-  border-radius: 50%;
-  border: 2px solid #fff;
-  box-shadow: 0 0 0 1px rgba(23, 32, 43, .1);
-  transition: left var(--nx-change) var(--nx-ease);
-}
-.nx .nx-sheet.is-playing .nx-dbt .nx-dot { transition: none }
-.nx .nx-dbe { display: flex; justify-content: space-between; gap: 8px; font-size: 11px; color: var(--nx-ink4-text); font-variant-numeric: tabular-nums }
-.nx .nx-dbw { font-size: 12px; color: var(--nx-ink4-text) }
-
-/* See it big: the story chart for one number, in place of the groups */
-.nx .nx-seebig { display: flex; flex-direction: column; align-items: flex-start; gap: 12px }
-.nx .nx-seebig > .nx-card { align-self: stretch }
-.nx .nx-seebig .nx-card h3 { font-size: 21px; letter-spacing: -.015em }
-.nx .nx-seebig > .nx-foot { margin-top: 0 }
-.nx .nx-tap { display: flex; align-items: center; justify-content: center; gap: 10px; margin: 26px 32px 0; font-size: 14px; color: var(--nx-ink2) }
-.nx .nx-tap svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round }
-
 /* The special visuals (numbers/): cards in the tile's look, each chart drawn
    at its measured width. Ported from mockup 06. */
 .nx .nx-tile .def.is-top { margin-top: 3px }
@@ -1454,34 +1339,8 @@ html:has(.nx-app) { scrollbar-gutter: stable }
   .nx .nx-s8 { grid-column: span 12 }
 }
 @media (max-width: 900px) {
-  .nx .nx-jump { padding: 9px 16px }
-  .nx .nx-sheet-head, .nx .nx-ckey { padding-left: 16px; padding-right: 16px }
+  .nx .nx-sheet-head { padding-left: 16px; padding-right: 16px }
   .nx .nx-sheet-body { padding: 14px 12px 0 }
-  .nx .nx-tap { margin-left: 16px; margin-right: 16px }
-  /* The scoreboard stacks: the name, then the towns side by side, then the
-     track. With many towns it scrolls sideways inside its card. */
-  .nx .nx-glance { min-width: calc(var(--nx-towns, 2) * 112px + (var(--nx-towns, 2) - 1) * 14px) }
-  .nx .nx-srow { grid-template-columns: repeat(var(--nx-towns, 2), minmax(0, 1fr)); gap: 6px 14px; padding: 12px 0; align-items: start }
-  .nx .nx-sname, .nx .nx-db { grid-column: 1 / -1 }
-  /* The name, meaning and track span the row: they stay in the visible box
-     and wrap there while the towns' values scroll. */
-  .nx .nx-glance .nx-sname, .nx .nx-glance .nx-db { position: sticky; left: 0; max-width: 100cqi }
-  /* The name spans the row here: no divider. */
-  .nx .nx-glance .nx-sname { box-shadow: none }
-  /* A dot is 12px wide, centred on its place: room for one at 0% or 100%. */
-  .nx .nx-glance .nx-dbt { margin-left: 7px; margin-right: 7px }
-  .nx .nx-srow.is-head {
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    padding: 0;
-    margin: -1px;
-    overflow: hidden;
-    clip: rect(0, 0, 0, 0);
-    white-space: nowrap;
-    border: 0;
-  }
-  .nx .nx-mlab { display: block }
 }
 @media (max-width: 640px) {
   .nx .nx-s3, .nx .nx-s4, .nx .nx-s6, .nx .nx-s8 { grid-column: span 12 }

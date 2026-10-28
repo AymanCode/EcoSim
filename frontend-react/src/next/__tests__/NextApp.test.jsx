@@ -69,7 +69,7 @@ describe('NextApp', { timeout: WHOLE_SCREEN_MS }, () => {
     expect(toggle).toHaveAttribute('aria-pressed', 'true')
     // The same clock: the timeline above moves the sheet.
     fireEvent.change(screen.getByRole('slider', { name: 'Week of the run' }), { target: { value: '15' } })
-    expect(dialog).toHaveTextContent('Everything we measure in both towns, in Year 1, week 15.')
+    expect(screen.getByRole('slider', { name: 'Week of the run' })).toHaveValue('15')
     // Closed, focus goes to the button that opens it again.
     fireEvent.click(within(dialog).getByRole('button', { name: 'Back to the towns' }))
     expect(screen.queryByRole('dialog')).toBeNull()

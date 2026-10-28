@@ -1,0 +1,66 @@
+/* The compact sheet follows the approved numbers mockup. */
+.nx .nx-sheet { padding-bottom: 16px }
+.nx .nx-sheet-head { padding: 16px 16px 12px; gap: 12px }
+.nx .nx-sheet-head h2 { font-size: 26px }
+.nx .nx-sheet-towns { margin-top: 8px; gap: 6px }
+.nx .nx-tchip { padding: 3px 10px; gap: 6px; font-size: 12.5px }
+.nx .nx-sheet-head > .nx-abtn { font-size: 13px; padding: 8px 12px }
+.nx .nx-number-answer-wrap { padding: 0 16px }
+.nx .nx-number-columns { position: sticky; top: var(--nx-sheet-top, 0px); z-index: 3; background: var(--nx-page); padding: 12px 16px 6px; font-size: 12px; color: var(--nx-ink3-text); font-weight: 600 }
+.nx .nx-number-column-scroll { overflow: hidden }
+.nx .nx-number-columns .nx-number-grid { padding: 0 16px; min-height: 24px }
+.nx .nx-number-column-town { display: flex; flex-direction: column; gap: 2px; min-width: 0 }
+.nx .nx-number-column-town > span { display: inline-flex; align-items: center; gap: 5px }
+.nx .nx-number-column-town i { width: 9px; height: 9px; border-radius: 2px; flex: none }
+.nx .nx-number-column-town small { font-size: 11px; font-weight: 400; color: var(--nx-home-text) }
+.nx .nx-number-back { position: absolute; right: 16px; top: 7px; font-size: 12px; padding: 5px 8px; box-shadow: -8px 0 8px var(--nx-page) }
+.nx .nx-number-columns.has-back .nx-number-column-run { visibility: hidden }
+.nx .nx-sheet .nx-sheet-body { padding: 0 16px; overflow-x: auto }
+.nx .nx-number-group { margin-top: 8px; min-width: var(--nx-grid-min, calc(480px + var(--nx-towns, 2) * 100px)); border: 1px solid var(--nx-line); border-radius: 12px; background: var(--nx-panel); overflow: clip }
+.nx .nx-number-group:last-child { margin-bottom: 1px }
+.nx .nx-number-group-heading { padding: 10px 16px 4px }
+.nx .nx-number-group-heading h3 { font-size: 16px; letter-spacing: -.01em }
+.nx .nx-number-group-heading p { margin-top: 4px; font-size: 12.5px; color: var(--nx-ink3-text) }
+.nx .nx-number-fold { border-top: 1px solid var(--nx-line); padding: 9px 16px; font-size: 12.5px; color: var(--nx-ink3-text) }
+.nx .nx-number-fold-label { font-weight: 600 }
+.nx .nx-number-fold b { color: var(--nx-ink2); font-weight: 600 }
+.nx .nx-number-fold button, .nx .nx-number-rules button { padding: 0; border: 0; border-radius: 0; background: transparent; font: inherit; color: var(--nx-ink2); text-decoration: underline; text-underline-offset: 2px; cursor: pointer }
+.nx .nx-number-rules { border-top: 1px solid var(--nx-line); padding: 9px 16px; font-size: 12.5px; color: var(--nx-ink3-text) }
+.nx .nx-number-rules > ul { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 4px 20px; margin-top: 10px }
+.nx .nx-number-rules small { display: block; color: var(--nx-ink3-text) }
+.nx .nx-number-chart-key { display: flex; flex-wrap: wrap; gap: 12px; color: var(--nx-ink3-text); font-size: 12px; margin-top: 6px }
+.nx .nx-number-chart-key li { display: inline-flex; align-items: center; gap: 5px }
+.nx .nx-number-chart-key i { width: 14px; height: 10px; border-radius: 2px }
+.nx .nx-number-chart-key .is-warm { background: repeating-linear-gradient(45deg,var(--nx-line2) 0 1px,var(--nx-panel2) 1px 5px) }
+.nx .nx-number-chart-key .is-future { background: var(--nx-future) }
+.nx .nx-number-expanded .nx-storyc { padding: 0; border: 0; border-radius: 0; background: transparent; box-shadow: none }
+.nx .nx-number-expanded .nx-storyc > h3, .nx .nx-number-expanded .nx-storyc > .cs { display: none }
+.nx .nx-number-expanded .nx-chart { margin-top: 0 }
+.nx .nx-number-expanded .nx-inline-visual + .nx-inline-visual { margin-top: 12px }
+.nx .nx-sheet.is-one-town { --nx-grid-min: 460px }
+@media (max-width: 640px) {
+  .nx .nx-sheet-head { flex-direction: row; flex-wrap: wrap }
+  .nx .nx-sheet-head > .nx-abtn { margin-left: auto; order: 0 }
+}
+/* One-off layout motion stays on while the clock plays. */
+.nx .nx-row-motion { display: grid; grid-template-rows: 1fr; opacity: 1; transition: grid-template-rows var(--nx-change) var(--nx-ease), opacity var(--nx-change) var(--nx-ease) }
+.nx .nx-row-motion-inner, .nx .nx-fold-motion-inner { min-height: 0; overflow: hidden }
+.nx .nx-row-motion[data-state="folded"], .nx .nx-row-motion[data-state="leaving-entry"], .nx .nx-row-motion[data-state="entering-entry"] { grid-template-rows: 0fr; opacity: 0; visibility: hidden }
+.nx .nx-row-motion[data-state="leaving-row"] { grid-template-rows: 0fr; opacity: 0 }
+.nx .nx-row-motion.has-focus { visibility: visible }
+.nx .nx-fold-motion { display: grid; grid-template-rows: 0fr; opacity: 0; transition: grid-template-rows var(--nx-change) var(--nx-ease), opacity 160ms var(--nx-ease) }
+.nx .nx-fold-motion.is-visible { grid-template-rows: 1fr; opacity: 1 }
+.nx .nx-fold-entry { display: inline-grid; grid-template-columns: 1fr; opacity: 1; vertical-align: bottom; transition: grid-template-columns 160ms var(--nx-ease), opacity 160ms var(--nx-ease) }
+.nx .nx-fold-entry > span { min-width: 0; overflow: hidden }
+.nx .nx-fold-entry[data-state="leaving-entry"] { pointer-events: none; grid-template-columns: 0fr; opacity: 0 }
+/* New entries fade in; existing entries reverse from their current progress.
+   Initial resting rows/entries have no starting style and never animate in. */
+@starting-style { .nx .nx-fold-entry[data-state="entering-entry"] { grid-template-columns: 0fr; opacity: 0 } }
+@keyframes nx-number-flash { from { background: #FFF4E5 } to { background: transparent } }
+@media (prefers-reduced-motion: reduce) {
+  .nx .nx-row-motion, .nx .nx-fold-motion, .nx .nx-fold-entry { animation: none !important; transition: none !important }
+}
+
+.nx .nx-row-motion.is-promoted > .nx-row-motion-inner { animation: nx-number-flash 1.2s var(--nx-ease) both }
+.nx .nx-story-inline .nx-ckey-warm { background: repeating-linear-gradient(45deg,var(--nx-line2) 0 1px,var(--nx-panel2) 1px 5px) }
+@media (prefers-reduced-motion: reduce) { .nx .nx-row-motion.is-promoted > .nx-row-motion-inner { animation: none !important } }

@@ -1,6 +1,7 @@
 import { COPY, formatMoney } from '../catalog.js'
 import { cumulativeUpTo, everMeasured, seriesUpTo, valueAt } from '../data/derive.js'
 import { weekLabel } from '../narration.js'
+import StoryChart from '../components/StoryChart.jsx'
 import Card, { TownName, Values } from './Card.jsx'
 import { isNumber } from './chartKit.js'
 import '../next.css'
@@ -13,9 +14,33 @@ const COUNT = 'bankDefaultsTotal'
 // per week it wrote money off, on a length shared by every town. The runs
 // recorded so far keep no count of unpaid loans: when that count is missing it
 // says so, and when a run has it, it gives it.
-export default function LoansWrittenOff({ arms, tick, className = '' }) {
+export default function LoansWrittenOff({ arms, tick, className = '', inline = false, horizon, playing = false }) {
   const copy = COPY.numbers.writtenOff
   const measured = everMeasured(arms, KEY)
+  if (inline) {
+    if (!measured) return <div className={className}><p className="nx-quiet">{COPY.numbers.notMeasured}</p></div>
+    // Build a read-only cumulative series with cumulativeUpTo's missing-week
+    // semantics: null before the first reading, then missing weeks add nothing.
+    const cumulativeArms = arms.map(arm => {
+      let sum = 0
+      let seen = false
+      const values = arm.ticks.map((_, index) => {
+        const value = arm.series?.[KEY]?.[index]
+        if (isNumber(value)) {
+          sum += value
+          seen = true
+        }
+        return seen ? sum : null
+      })
+      return { ...arm, series: { ...arm.series, writtenOffSoFar: values } }
+    })
+    if (!cumulativeArms.some(arm => isNumber(valueAt(arm, 'writtenOffSoFar', tick)))) {
+      return <div className={className}><p className="nx-quiet">{COPY.numbers.noWeeks}</p></div>
+    }
+    return <StoryChart arms={cumulativeArms} metricKey="writtenOffSoFar" tick={tick}
+      horizon={horizon ?? Math.max(tick, ...arms.map(arm => arm.horizon ?? arm.ticks.at(-1) ?? tick))}
+      playing={playing} inline hideEndLabels interactive className={className} />
+  }
   const totals = arms.map(arm => cumulativeUpTo(arm, KEY, tick))
   const weeks = arms.map(arm => seriesUpTo(arm, KEY, tick).filter(point => isNumber(point.value) && point.value > 0))
   const most = Math.max(0, ...totals.filter(isNumber))

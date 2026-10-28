@@ -182,6 +182,21 @@ export const METRICS = {
     format: 'percent',
     better: null,
   },
+  netJobs26: {
+    get name() { return COPY.numbers.rows.netJobs26.name },
+    get meaning() { return COPY.numbers.rows.netJobs26.meaning },
+    format: 'signed', better: 'higher',
+  },
+  careSoFar: {
+    get name() { return COPY.numbers.rows.careSoFar.name },
+    get meaning() { return COPY.numbers.rows.careSoFar.meaning },
+    format: 'count', better: 'lower',
+  },
+  writtenOffSoFar: {
+    get name() { return COPY.numbers.rows.writtenOffSoFar.name },
+    get meaning() { return COPY.numbers.rows.writtenOffSoFar.meaning },
+    format: 'money', better: 'lower',
+  },
 }
 
 export const NOT_MEASURED = 'not measured'
@@ -214,6 +229,7 @@ const FORMATTERS = {
   count: value => grouped.format(Math.round(value)),
   outOf100: value => `${Math.round(value)} of 100`,
   percent: value => `${Math.round(value)}%`,
+  signed: value => `${Math.round(value) >= 0 ? '+' : '-'}${grouped.format(Math.abs(Math.round(value)))}`,
 }
 
 export function formatMetric(key, value) {
@@ -253,21 +269,49 @@ export function formatEndLabel(key, value) {
   return formatMetricShort(key, value)
 }
 
-// The "Show me all the numbers" sheet. Each group lists the metrics drawn as
-// tiles (`keys`) and the special visuals beside them (`extras`), in order;
-// titles and blurbs are in COPY.numbers.groups.
+// Each measure has one home: a hero or a row, never both. Row copy lives in
+// COPY.numbers.rows (falling back to the existing shared metric vocabulary).
+// Owner revision: only identical displayed readings share a fold line.
+export const NUMBER_HERO_KEYS = ['salesExceptRentThisWeek', 'happiness']
+export const NUMBER_DERIVED_ROWS = {
+  netJobs26: { kind: 'netJobs', sources: ['hired', 'laidOff'], weeks: 26 },
+  careSoFar: { kind: 'cumulative', source: 'careDenials' },
+  writtenOffSoFar: { kind: 'cumulative', source: 'bankDefaultAmountThisTick' },
+}
 export const NUMBER_GROUPS = [
-  { id: 'work', keys: ['peopleOutOfWorkPer100', 'typicalWeeklyPay', 'publicWorksJobs'], extras: ['hiresAndLayoffs'] },
-  { id: 'prices', keys: ['priceFood', 'priceHousing', 'priceServices', 'priceHealthcare', 'foodSpendPerHousehold'] },
-  { id: 'richpoor', keys: ['gini', 'topTenthShare', 'bottomHalfShare'], extras: ['wealthLadder'] },
-  { id: 'business', keys: ['firmsOpen'], extras: ['firmStates', 'openedClosed'] },
-  { id: 'money', keys: ['townHallCash', 'salesExceptRentThisWeek', 'bankActiveLoans'], extras: ['moneyInOut', 'loansWrittenOff'] },
-  { id: 'wellbeing', keys: ['homelessHouseholds', 'careDenials', 'happiness'] },
-]
-
-// The sheet's "This week at a glance" rows, in order.
-export const GLANCE_KEYS = [
-  'peopleOutOfWorkPer100', 'typicalWeeklyPay', 'foodSpendPerHousehold', 'gini', 'townHallCash', 'firmsOpen', 'happiness', 'salesExceptRentThisWeek',
+  { id: 'work', rows: [
+    { key: 'peopleOutOfWorkPer100', visual: 'chart', defaultOpen: true, verdictWord: 'jobs' },
+    { key: 'typicalWeeklyPay', visual: 'chart', verdictWord: 'pay' },
+    { key: 'netJobs26', visual: 'hires' },
+    { key: 'publicWorksJobs', visual: 'chart', requiresRule: 'public_works' },
+  ] },
+  { id: 'prices', rows: [
+    { key: 'foodSpendPerHousehold', visual: 'chart' },
+    { key: 'priceFood', visual: 'chart', verdictWord: 'food' },
+    { key: 'priceServices', visual: 'chart', verdictWord: 'services' },
+    { key: 'priceHousing', visual: 'chart' },
+    { key: 'priceHealthcare', visual: 'chart' },
+  ] },
+  { id: 'richpoor', rows: [
+    { key: 'wealthP50', visual: 'ladder', verdictWord: 'savings' },
+    { key: 'bottomHalfShare', visual: 'chart', verdictWord: 'poorerHalf' },
+    { key: 'gini', visual: 'chart', verdictWord: 'gap' },
+    { key: 'topTenthShare', visual: 'chart' },
+  ] },
+  { id: 'hardship', rows: [
+    { key: 'careSoFar', visual: 'chart' },
+    { key: 'homelessHouseholds', visual: 'chart' },
+  ] },
+  { id: 'business', rows: [
+    { key: 'firmsOpen', visual: 'firms', verdictWord: 'businesses' },
+    { key: 'writtenOffSoFar', visual: 'loans' },
+    { key: 'bankActiveLoans', visual: 'chart' },
+  ] },
+  { id: 'townhall', rows: [
+    { key: 'townHallCash', visual: 'chart' },
+    { key: 'townHallIncome', visual: 'chart' },
+    { key: 'familySupportPaid', visual: 'chart' },
+  ], rules: true },
 ]
 
 // Figures the server counts every 5 weeks (and on the first week) and repeats
@@ -989,12 +1033,115 @@ export const COPY = {
   // and the counted-every-5-weeks note are narration.js `differencePhrase` and
   // `countedNote`. Wording follows mockup 06.
   numbers: {
+    sameAsTown: town => `same as ${town}`,
+    counted: week => week ? `Counted every 5 weeks; last count ${week}.` : 'Counted every 5 weeks.',
+    answer: 'The short answer',
+    warmup: `The towns are still being set up. Comparisons start in week ${WARMUP_TICKS + 1}.`,
+    columns: {
+      measure: 'Measure',
+      difference: (town, base) => `${town} vs ${base}`,
+      differences: base => `Compared with ${base}`,
+      run: 'Over the run',
+      label: 'Numbers by town',
+    },
+    rows: {
+      netJobs26: { name: 'Jobs added', sub: 'hired minus laid off, last 26 weeks', meaning: 'People hired minus people laid off over the last 26 weeks.' },
+      careSoFar: { name: 'Doctor visits turned away', sub: 'so far', meaning: "Visits a household couldn't afford, added up since week 1." },
+      writtenOffSoFar: { name: 'Loans written off', sub: 'so far', meaning: 'Money the bank lost on loans that will never be paid back, added up since week 1.' },
+      wealthP50: { name: 'Typical savings', sub: 'the middle household' },
+      townHallIncome: { name: 'Taxes collected', sub: 'this week' },
+      familySupportPaid: { name: 'Help paid to families', sub: 'this week' },
+    },
+    heroes: {
+      salesExceptRentThisWeek: { name: 'Output', meaning: 'What businesses sold this week, not counting rent' },
+      happiness: { name: 'Wellbeing', meaning: 'How people feel, 0 to 100' },
+      output: (town, difference) => `${town} sold ${difference}.`,
+      wellbeing: (town, difference) => `${town} is ${difference}.`,
+      priceNote: 'Prices are higher there too, so part of the gap is prices.',
+      priceNoteTown: town => `Prices are higher in ${town} too, so part of the gap is prices.`,
+      sameStart: (townCount, value) => `${townCount === 1 ? 'The town' : townCount === 2 ? 'Both towns' : 'All towns'} started at ${value}.`,
+    },
+    tags: { better: '✓ better', worse: '! worse' },
+    difference: {
+      same: 'the same',
+      aboutSame: 'about the same',
+      more: amount => `${amount} more`,
+      less: amount => `${amount} less`,
+      fewer: amount => `${amount} fewer`,
+      higher: amount => `${amount} higher`,
+      lower: amount => `${amount} lower`,
+      points: amount => `${amount} point${amount === 1 ? '' : 's'}`,
+      percentage: (amount, more) => `${amount}% ${more ? 'more' : 'less'}`,
+      town: (town, words) => `${town}: ${words}`,
+    },
+    tally: {
+      label: town => `The comparison for ${town}`,
+      better: (count, town) => `✓ ${count} better in ${town}`,
+      worse: count => `! ${count} worse`,
+      different: count => `${count} different, neither better nor worse`,
+      same: count => `${count} the same`,
+    },
+    fold: {
+      equal: townCount => `Same in ${townCount === 2 ? 'both towns' : 'every town'}:`,
+      and: ' and ',
+      join: ' · ',
+      show: name => `Show ${name}`,
+    },
+    verdict: {
+      townLead: town => `${town}: `,
+      words: { jobs: 'jobs', pay: 'pay', savings: 'savings', businesses: 'businesses', food: 'Food', services: 'services', gap: 'gap between rich and poor', poorerHalf: 'poorer half' },
+      singularWords: ['food'],
+      ahead: town => `${town} is ahead on `,
+      behind: town => `${town} is behind on `,
+      feelBetter: ', and its people feel better.',
+      feelWorse: ', and its people feel worse.',
+      feelSame: ', and its people feel the same.',
+      feelOnly: (town, direction) => `${town}'s people feel ${direction}.`,
+      feeling: { better: 'better', worse: 'worse', same: 'the same' },
+      costMore: ' cost more there.',
+      costLess: ' cost less there.',
+      costMoreSingular: ' costs more there.',
+      costLessSingular: ' costs less there.',
+      gapStart: 'The ',
+      gapSame: ' is the same',
+      gapHigher: ' is wider',
+      gapLower: ' is narrower',
+      poorerStart: ', but the ',
+      poorerOnly: 'The ',
+      poorerLess: town => ` holds a little less of the cash in ${town}.`,
+      poorerMore: town => ` holds a little more of the cash in ${town}.`,
+      poorerSame: town => ` holds the same share of the cash in ${town}.`,
+      gapTown: town => ` in ${town}.`,
+      noComparison: town => `There is not enough measured yet to compare ${town}.`,
+      noNamedDifference: town => `${town} is much the same on the headline measures.`,
+      and: ' and ', comma: ', ', stop: '.', space: ' ',
+    },
+    chart: {
+      opened: 'opened', closed: 'closed',
+      label: 'How to read this chart',
+      warm: `Setting up: weeks 1 to ${WARMUP_TICKS}`,
+      future: 'Weeks still to come',
+      tooltip: name => `${name}, week by week`,
+      table: name => `${name}, every recorded week`,
+      week: 'Week',
+    },
+    rulesLine: {
+      label: 'Rules:',
+      same: (count, townCount) => `the other ${count} rules are the same in ${townCount === 2 ? 'both towns' : 'every town'}.`,
+      usual: count => `${count} rules, all at their usual settings.`,
+      changed: count => `${count} other rules, including changes made during the run.`,
+      singleChanged: count => `${count} rules; changed settings are listed below.`,
+      show: 'Show them', hide: 'Hide them',
+      townSetting: (town, value) => `${town}: ${value}`,
+    },
+    live: {
+      lost: (...args) => COPY.live.lost(...args),
+      crashed: (...args) => COPY.live.crashed(...args),
+      end: horizon => COPY.end.up(horizon),
+    },
     // A tile whose number this recording never carried, never a zero.
     notMeasured: 'Not measured in this run',
     title: 'All the numbers',
-    // "Everything we measure in both towns, in Year 2, week 20."
-    lead: (townCount, week) => `Everything we measure ${everyTown(townCount, 'in the town', 'in both towns', 'in every town')}, in ${week}.`,
-    hint: 'The timeline above still works: drag it and every number here follows.',
     towns: 'The towns and their rules',
     back: 'Back to the towns',
     // The Run screen's ways in: the timeline's button, and a line under the
@@ -1005,25 +1152,9 @@ export const COPY = {
     more: "Also: prices in every shop, savings, businesses opening and closing, the town hall's money.",
     // Under a live town's name once its connection is gone; its numbers stay as they were.
     lost: week => (week ? `lost its connection in ${week}` : 'lost its connection before its first week'),
-    jump: 'Jump to a group',
-    jumpRules: 'Rules in force',
-    jumpGlance: 'This week',
-    key: {
-      label: 'How to read the charts',
-      warm: `Setting up: weeks 1 to ${WARMUP_TICKS}`,
-      now: 'This week',
-      future: 'Weeks still to come',
-    },
-    // Three special visuals have no weekly number of their own to draw big.
-    tap: 'Tap any chart to see it big, apart from the hires and lay-offs, the openings and closings, and the loans written off.',
     // A visual that needs a recorded week, before the first one is in.
     noWeeks: 'Shown once the first week is in.',
     seeBig: 'See it big',
-    backToNumbers: 'Back to all the numbers',
-    // A tile chart's text alternative, one sentence per town: its first real
-    // week (or first week) and the week shown.
-    trend: (town, from, fromWeek, to, toWeek) => `${town}: ${from} in ${fromWeek}, ${to} in ${toWeek}.`,
-    trendOne: (town, value, week) => `${town}: ${value} in ${week}.`,
     rules: {
       title: 'Rules in force',
       lead: (townCount, differences) => {
@@ -1067,45 +1198,14 @@ export const COPY = {
         ? `changed in ${week}, while the towns were being set up (was ${was})`
         : `changed in ${week} (was ${was})`),
     },
-    glance: {
-      title: 'This week at a glance',
-      // "Eight headline numbers for Year 2, week 20. Town B's differences are
-      // counted from Town A, the town with no changes."
-      lead: (week, labels, firstUnchanged) => {
-        const intro = `${capitalise(numberWord(GLANCE_KEYS.length))} headline numbers for ${week}.`
-        if (labels.length < 2) return intro
-        const others = labels.length === 2 ? `${labels[1]}'s` : "The other towns'"
-        return `${intro} ${others} differences are counted from ${labels[0]}${firstUnchanged ? ', the town with no changes' : ''}.`
-      },
-      number: 'Number',
-      track: townCount => `Where this week sits, from the lowest to the highest ${everyTown(townCount, 'the town', 'either town', 'any town')} has seen`,
-      // The track for screen readers: the range, then where each town sits in it.
-      trackAlt: (low, high, towns = []) => [
-        `The lowest so far is ${low} and the highest is ${high}.`,
-        ...towns.map(town => `${town.label}: ${town.value}, ${town.where}.`),
-      ].join(' '),
-      // `at` is the town's place in the range, 0 (lowest) to 100 (highest).
-      where: (at, flat) => {
-        if (flat) return 'unchanged so far'
-        if (at <= 0) return 'the lowest so far'
-        if (at >= 100) return 'the highest so far'
-        if (at < 34) return 'near the bottom of the range so far'
-        if (at > 66) return 'near the top of the range so far'
-        return 'in the middle of the range so far'
-      },
-      trackWait: 'Shown once the towns are set up.',
-    },
     // Titles and blurbs of NUMBER_GROUPS, from mockup 06.
     groups: {
-      work: { title: 'Work and pay', blurb: 'Who has a job, what it pays, and how many people were hired or let go.' },
-      prices: { title: 'Prices', blurb: 'What things cost in the shops this week, and what a household spent on food.' },
-      richpoor: { title: 'Rich and poor', blurb: 'How evenly savings are spread between households.' },
-      business: { title: 'Businesses', blurb: 'How many businesses are open, how they are doing, and when they opened or closed.' },
-      money: {
-        title: 'Money',
-        blurb: "The town hall's bank balance, the main taxes it collects and the help it pays families, what businesses sell apart from rent, and the bank's loans.",
-      },
-      wellbeing: { title: 'Wellbeing', blurb: 'Signs of hardship, and how people feel.' },
+      work: { title: 'Jobs and pay', blurb: 'Who has work, what it pays, and how many jobs were added.' },
+      prices: { title: 'Cost of living', blurb: 'What things cost, and what a household spends on food.' },
+      richpoor: { title: 'Savings and fairness', blurb: 'How much households have saved, and how evenly it is spread.' },
+      hardship: { title: 'Hardship', blurb: 'Signs that families are going without.' },
+      business: { title: 'Businesses and the bank', blurb: 'How many businesses are open, how they are doing, and what the bank lost.' },
+      townhall: { title: 'Town hall', blurb: 'Its money this week, and the rules it runs.' },
     },
     // The special visuals (numbers/), from mockup 06. Copy given as parts
     // draws its odd parts bold: ['this week ', 6, ' hired'].
@@ -1125,25 +1225,10 @@ export const COPY = {
     column: (town, what) => `${town}, ${what}`,
     notRecorded: 'not recorded',
     // A sector price that has not moved, in place of a flat line.
-    price: {
-      steady: (townCount, week) => (townCount < 2
-        ? `Unchanged since ${week}.`
-        : `Same in ${townCount === 2 ? 'both towns' : 'every town'}, and unchanged since ${week}.`),
-    },
     ladder: {
       title: 'The savings ladder',
       lead: 'Cash each household has saved. The bar runs from the poorest tenth of households to the richest tenth; the dot is the household in the middle.',
       alt: (town, p10, p50, p90) => `${town}: nine in ten households have more than ${p10}, the household in the middle has ${p50}, and one in ten has more than ${p90}.`,
-    },
-    shares: {
-      title: 'Who holds the savings',
-      lead: 'Out of every $100 that households have saved, how much sits with the poorest half, the next 40%, and the richest tenth.',
-      line: (bottom, middle, top) => ['Poorest half ', `$${bottom}`, ' · the next 40% ', `$${middle}`, ' · richest tenth ', `$${top}`],
-      // In place of the bar when households' cash adds up to nothing or less
-      // (the server sends both shares as 0), or when a group's share is below
-      // zero (some households owe more than they have).
-      none: 'Added together, households had no savings at the last count, so there is nothing to share out.',
-      owing: "Some households owed more than they had at the last count, so the savings can't be split this way.",
     },
     states: {
       title: 'How they are doing',
@@ -1163,42 +1248,6 @@ export const COPY = {
       alt: (town, opened, closed) => `${town}, in these weeks. Opened: ${opened.length ? opened.join('; ') : 'none'}. Closed: ${closed.length ? closed.join('; ') : 'none'}.`,
       weekCount: (week, count) => (count > 1 ? `${week} (${count})` : week),
     },
-    // Taxes collected against help paid to families. Neither is the whole of
-    // what the town hall takes in or pays out, so their gap is never named.
-    inOut: {
-      title: 'Money in and out, week by week',
-      lead: weeks => `${weeks === 1 ? 'This week only' : `The last ${weeks} weeks`}. Each week, the taxes the town hall collected beside the help it paid to families.`,
-      in: 'in: taxes collected',
-      out: 'out: help paid to families, including the welcome payments in the first weeks',
-      thisWeek: (collected, paid) => ['this week in ', collected, ', out ', paid],
-      note: "Other town hall spending isn't included, and neither is every kind of income, so in and out don't add up to the change in its cash.",
-      table: 'Taxes collected and help paid to families each week',
-      inColumn: 'in',
-      outColumn: 'out',
-    },
-    cash: {
-      band: 'below the line: owes money',
-      owed: (town, week, ringed) => `${town} has owed money since ${week}${ringed ? ', the ring on its line' : ''}.`,
-      // "Both towns started with about $1.35 million", or each town's start.
-      started: (towns, amounts) => {
-        if (amounts.every(amount => amount === amounts[0])) {
-          return `${everyTown(towns.length, 'the town', 'both towns', 'every town')} started with about ${amounts[0]}`
-        }
-        return joinPhrases(towns.map((town, i) => `${town} started with about ${amounts[i]}`))
-      },
-      startNote: (started, lastYear) => (lastYear
-        ? `The chart shows the last year; ${started}.`
-        : `${capitalise(started)}, above the top of this chart.`),
-      million: amount => `$${amount} million`,
-    },
-    feel: {
-      started: (towns, values) => {
-        if (values.every(value => value === values[0])) {
-          return `The mark on each bar is where ${everyTown(towns.length, 'the town', 'both towns', 'every town')} started, at ${values[0]}.`
-        }
-        return `The mark on each bar is where its town started: ${joinPhrases(towns.map((town, i) => `${values[i]} in ${town}`))}.`
-      },
-    },
     writtenOff: {
       title: 'Loans written off so far',
       lead: 'Money the bank lost on loans that will never be paid back, added up since week 1. Each block is one week.',
@@ -1208,13 +1257,6 @@ export const COPY = {
       none: townCount => `Nothing has been written off yet in ${everyTown(townCount, 'the town', 'either town', 'any town')}.`,
       alt: (town, total, weeks) => `${town}: ${total} so far.${weeks.length ? ` Written off in ${weeks.join('; ')}.` : ''}`,
       weekAmount: (week, amount) => `${week} (${amount})`,
-    },
-    // The hardship tiles when nothing has happened yet, from mockup 06.
-    empty: {
-      homeless: townCount => `No household has lost its home in ${everyTown(townCount, 'the town', 'either town', 'any town')} so far.`,
-      care: townCount => `Nobody has been turned away yet in ${everyTown(townCount, 'the town', 'either town', 'any town')}.`,
-      careSoFar: parts => `So far: ${parts.join(', ')}.`,
-      countIn: (count, town) => `${count} in ${town}`,
     },
   },
 }

@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest'
-import { COUNTED_EVERY_5, GLANCE_KEYS, NUMBER_GROUPS, formatMetric } from '../catalog.js'
+import { COUNTED_EVERY_5, NUMBER_HERO_KEYS, NUMBER_GROUPS, formatMetric } from '../catalog.js'
 import {
   countedAt, countedSeriesUpTo, cumulativeUpTo, firmStatesAt, rangeSoFar, rulesTable, valueAt, weeklyCounts,
 } from '../data/derive.js'
@@ -168,7 +168,7 @@ describe('an older recording without the new keys', () => {
     }
     expect(() => rulesTable(old, 20)).not.toThrow()
     expect(() => weeklyCounts(old[0], ['hired', 'laidOff'], 20)).not.toThrow()
-    for (const key of [...NUMBER_GROUPS.flatMap(group => group.keys), ...GLANCE_KEYS]) {
+    for (const key of [...NUMBER_GROUPS.flatMap(group => group.rows.map(row => row.key)), ...NUMBER_HERO_KEYS]) {
       expect(() => rangeSoFar(old, key, 20)).not.toThrow()
       expect(() => countedAt(old[0], key, 20)).not.toThrow()
     }

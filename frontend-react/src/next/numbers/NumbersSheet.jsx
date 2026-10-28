@@ -1,142 +1,117 @@
-import { Activity, useEffect, useEffectEvent, useId, useRef, useState } from 'react'
-import { COPY, NUMBER_GROUPS, capitalise, describePolicy } from '../catalog.js'
+import { useEffect, useEffectEvent, useId, useLayoutEffect, useRef, useState } from 'react'
+import { COPY, NUMBER_DERIVED_ROWS, NUMBER_GROUPS, capitalise, describePolicy } from '../catalog.js'
 import { rulesAt, rulesDiff } from '../data/derive.js'
-import { hardshipNote, weekLabel } from '../narration.js'
-import AtAGlance from './AtAGlance.jsx'
-import CashChart from './CashChart.jsx'
-import FeelMeter from './FeelMeter.jsx'
-import FirmStates from './FirmStates.jsx'
-import HiresAndLayoffs from './HiresAndLayoffs.jsx'
-import LoansWrittenOff from './LoansWrittenOff.jsx'
-import MoneyInOut from './MoneyInOut.jsx'
-import OpenedClosed from './OpenedClosed.jsx'
-import PriceTag from './PriceTag.jsx'
-import RulesInForce from './RulesInForce.jsx'
-import SeeItBig from './SeeItBig.jsx'
-import ShareBars from './ShareBars.jsx'
-import Tile from './Tile.jsx'
+import { weekLabel } from '../narration.js'
+import StoryChart from '../components/StoryChart.jsx'
+import AnswerCard from './AnswerCard.jsx'
+import NumberRow from './NumberRow.jsx'
+import { RulesLine } from './RulesInForce.jsx'
 import WealthLadder from './WealthLadder.jsx'
+import HiresAndLayoffs from './HiresAndLayoffs.jsx'
+import FirmStates from './FirmStates.jsx'
+import OpenedClosed from './OpenedClosed.jsx'
+import LoansWrittenOff from './LoansWrittenOff.jsx'
+import { foldLines, nextFoldKeys, rowDefinition, rowSeries, rowValues, visibleRows } from './compare.js'
+import useFoldLayout from './useFoldLayout.js'
 import '../next.css'
+import './numbersSheet.css'
 
-// The special visuals of each group (NUMBER_GROUPS `extras`), by id, each
-// drawn as <Extra arms tick onSeeBig className />.
-const EXTRAS = {
-  hiresAndLayoffs: HiresAndLayoffs,
-  wealthLadder: WealthLadder,
-  firmStates: FirmStates,
-  openedClosed: OpenedClosed,
-  moneyInOut: MoneyInOut,
-  loansWrittenOff: LoansWrittenOff,
-}
-
-// Numbers drawn by a special visual instead of a Tile, each as <Visual
-// metricKey arms tick onSeeBig className />; null when the visual of another
-// number already draws it (the share bars hold both shares).
-const KEY_VISUALS = {
-  priceFood: PriceTag,
-  priceHousing: PriceTag,
-  priceServices: PriceTag,
-  priceHealthcare: PriceTag,
-  townHallCash: CashChart,
-  happiness: FeelMeter,
-  topTenthShare: ShareBars,
-  bottomHalfShare: null,
-}
-
-// An extra that sits right after a number of its group, as in mockup 06; the
-// others follow the group's numbers.
-const AFTER = { wealthLadder: 'gini', moneyInOut: 'townHallCash' }
-
-// How many of the 12 grid columns a card spans, from mockup 06; 4 otherwise.
-const SPAN = {
-  peopleOutOfWorkPer100: 3,
-  typicalWeeklyPay: 3,
-  publicWorksJobs: 6,
-  hiresAndLayoffs: 12,
-  priceFood: 3,
-  priceHousing: 3,
-  priceServices: 3,
-  priceHealthcare: 3,
-  foodSpendPerHousehold: 12,
-  wealthLadder: 8,
-  topTenthShare: 12,
-  townHallCash: 8,
-  homelessHouseholds: 3,
-  careDenials: 3,
-  happiness: 6,
-}
-const TILE_HEIGHT = { peopleOutOfWorkPer100: 90, typicalWeeklyPay: 90, gini: 90, firmsOpen: 80, foodSpendPerHousehold: 90 }
-
-// A group's cards in order: each number (or the visual that draws it), with
-// the extras placed after their number, then the other extras.
-function cardsOf(group) {
-  const extras = group.extras ?? []
-  const cards = []
-  for (const key of group.keys) {
-    if (KEY_VISUALS[key] !== null) cards.push({ id: key, extra: false })
-    extras.filter(extra => AFTER[extra] === key).forEach(extra => cards.push({ id: extra, extra: true }))
-  }
-  extras.filter(extra => !group.keys.includes(AFTER[extra])).forEach(extra => cards.push({ id: extra, extra: true }))
-  return cards
-}
+const ALL_ROWS = NUMBER_GROUPS.flatMap(group => group.rows)
+const DEFAULT_OPEN = Object.fromEntries(ALL_ROWS.filter(row => row.defaultOpen).map(row => [row.key, true]))
 
 function BackIcon() {
   return <svg viewBox="0 0 12 12" aria-hidden="true" focusable="false"><path d="M7.5 2 L3.5 6 L7.5 10" /></svg>
 }
 
-function TapIcon() {
-  return (
-    <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
-      <path d="M9.5 2.5h4v4M13.5 2.5 8.5 7.5M6.5 13.5h-4v-4M2.5 13.5l5-5" />
-    </svg>
-  )
-}
-
-// A live town whose connection is gone keeps its last numbers; its column says when.
 function lostNote(live, index) {
   const town = live?.towns?.[index]
-  if (town?.status !== 'lost') return null
-  return COPY.numbers.lost(town.lastTick ? weekLabel(town.lastTick) : null)
+  return town?.status === 'lost' ? COPY.numbers.lost(town.lastTick ? weekLabel(town.lastTick) : null) : null
 }
 
 function liveStatus(live, arms) {
   if (live?.phase === 'lost') {
     const label = live.error?.town ?? live.towns?.find(town => town.status === 'lost')?.label
     const town = live.towns?.find(town => town.label === label)
-    const describe = live.error?.kind === 'crashed' ? COPY.live.crashed : COPY.live.lost
+    const describe = live.error?.kind === 'crashed' ? COPY.numbers.live.crashed : COPY.numbers.live.lost
     return `${describe(label, town?.lastTick ? weekLabel(town.lastTick) : null, arms.length > 1)} ${COPY.numbers.continue}`
   }
   if (live?.phase === 'horizon' || live?.phase === 'finished') {
     const horizon = Math.max(0, ...arms.map(arm => arm.horizon || arm.ticks.at(-1) || 0))
-    return `${COPY.end.up(horizon)} ${COPY.numbers.continue}`
+    return `${COPY.numbers.live.end(horizon)} ${COPY.numbers.continue}`
   }
   return null
 }
 
-// "Show me all the numbers": a sheet over the Run screen, on the same clock
-// (`tick`). A header with the week and each town's rules, jump chips and a
-// chart key, then the rules in force, this week at a glance, and one card per
-// NUMBER_GROUPS entry: a Tile per number, or the special visual that draws it,
-// and the group's extras. Focus moves to the heading when
-// it opens and back to whatever had it when it closes; Escape closes it (or
-// the big chart first, when one is open), as do both "Back to the towns"
-// buttons. The jump bar's button shows once the header's has scrolled away.
-// `live` (RunScreen's live prop) marks a lost town's columns; `playing` stops
-// the big chart's cursor easing while the clock runs. `top` is the height in
-// px of the sticky bar above the sheet (RunScreen's timeline, measured): the
-// jump bar sticks right under it, and the header's way back counts as gone
-// once it has slid under it. `id` names the sheet for the button that opens it.
+function RowVisual({ row, arms, tick, playing }) {
+  if (row.visual === 'ladder') return <WealthLadder arms={arms} tick={tick} inline />
+  if (row.visual === 'hires') return <HiresAndLayoffs arms={arms} tick={tick} inline />
+  if (row.visual === 'firms') return <><FirmStates arms={arms} tick={tick} inline /><OpenedClosed arms={arms} tick={tick} inline /></>
+  if (row.visual === 'loans') return <LoansWrittenOff arms={arms} tick={tick} inline playing={playing} />
+  if (!rowValues(arms, row, tick).some(value => value.measured)) return null
+  // StoryChart reads series. Derived measures get read-only synthetic series
+  // from the same pure helper that supplies their row values and sparklines.
+  const chartArms = NUMBER_DERIVED_ROWS[row.key] ? arms.map(arm => {
+    const points = new Map(rowSeries(arm, row, arm.ticks.at(-1) ?? tick).map(point => [point.tick, point.value]))
+    return { ...arm, series: { ...arm.series, [row.key]: arm.ticks.map(week => points.get(week) ?? null) } }
+  }) : arms
+  const horizon = Math.max(tick, ...arms.map(arm => arm.horizon || arm.ticks.at(-1) || tick))
+  return <>
+    <StoryChart arms={chartArms} metricKey={row.key} metricKeys={[row.key]} tick={tick} horizon={horizon} playing={playing} countedWeeks hideEndLabels inline interactive />
+  </>
+}
+
+function FoldLines({ arms, rows, tick, onJump, layout, focusedKey }) {
+  // Retain the focused source through the commit that makes its row usable.
+  // The sheet transfers focus in a layout effect before removing this entry.
+  const entries = rows.filter(row => row.key === focusedKey || ['folded', 'entering-entry', 'leaving-entry'].includes(layout[row.key]?.phase))
+  const items = entries.map(row => {
+    const phase = ['row', 'entering-row'].includes(layout[row.key].phase) ? 'leaving-entry' : layout[row.key].phase
+    const item = foldLines(arms, [row], tick)[0]?.items[0]
+    // A promoted entry fades its name only: never leave a stale numeric value
+    // in the equality line while its current values differ.
+    return item ? { ...item, phase } : { key: row.key, name: rowDefinition(row).name, values: [], phase }
+  })
+  return <div className={`nx-fold-motion${items.length ? ' is-visible' : ''}`} data-state={items.length ? 'open' : 'closed'} aria-hidden={!items.length}>
+    <div className="nx-fold-motion-inner"><p className="nx-number-fold">
+      <span className="nx-number-fold-label">{COPY.numbers.fold.equal(arms.length)}</span>{' '}
+      {items.map((item, i) => <span className="nx-fold-entry" data-metric={item.key} data-state={item.phase} key={item.key} aria-hidden={item.phase === 'leaving-entry' && item.key !== focusedKey} inert={item.phase === 'leaving-entry' && item.key !== focusedKey}>
+        <span>{i > 0 && COPY.numbers.fold.join}
+        <button type="button" onClick={() => onJump(item.key)} aria-label={COPY.numbers.fold.show(item.name)}>{item.name}</button>{' '}
+        {item.values.map((value, index) => <span key={index}>{index > 0 && COPY.numbers.fold.and}<b>{value}</b></span>)}
+        </span>
+      </span>)}
+    </p></div>
+  </div>
+}
+
+// The timeline above is the only clock. Each measure appears in one hero or
+// one row/fold, with its expanded chart in place. Fold membership is frozen
+// while playing; values and comparisons continue to follow tick.
 export default function NumbersSheet({ id, arms, tick, onClose, live, playing = false, top = 0 }) {
   const uid = useId().replace(/:/g, '')
   const titleId = `nx-sheet-${uid}`
   const headingRef = useRef(null)
   const headBackRef = useRef(null)
   const sheetRef = useRef(null)
-  const returnTo = useRef(null)
+  const columnScrollRef = useRef(null)
   const [stuck, setStuck] = useState(false)
-  const [big, setBig] = useState(null)
+  const [expanded, setExpanded] = useState(DEFAULT_OPEN)
+  const [focusOwner, setFocusOwner] = useState(null)
+  const jumpKey = useRef(null)
+  const rows = visibleRows(arms, ALL_ROWS, tick)
+  const stamp = `${tick}:${arms.map(arm => `${arm.label}:${arm.ticks.length}`).join('|')}:${rows.map(row => row.key).join('|')}`
+  const openKeys = Object.keys(expanded).filter(key => expanded[key])
+  const chooseFolds = previous => nextFoldKeys(arms, rows, tick, previous, playing, openKeys)
+  const [foldSnapshot, setFoldSnapshot] = useState(() => ({ stamp, playing, keys: nextFoldKeys(arms, rows, tick, [], false, openKeys), open: openKeys.join('|') }))
+  // Adjust during render so a paused scrub never paints stale fold membership.
+  if (foldSnapshot.stamp !== stamp || foldSnapshot.playing !== playing || foldSnapshot.open !== openKeys.join('|')) {
+    setFoldSnapshot({ stamp, playing, keys: chooseFolds(foldSnapshot.keys), open: openKeys.join('|') })
+  }
+  const foldedKeys = arms.length < 2 ? [] : foldSnapshot.keys.filter(key => !expanded[key] && rows.some(row => row.key === key))
+  const layout = useFoldLayout(rows, foldedKeys, openKeys)
+  const notes = arms.map((_, index) => lostNote(live, index))
+  const rowId = key => `nx-number-${uid}-${key}`
 
-  // Focus into the sheet on open, and back to the opener when it goes.
   useEffect(() => {
     const opener = document.activeElement
     headingRef.current?.focus()
@@ -145,16 +120,10 @@ export default function NumbersSheet({ id, arms, tick, onClose, live, playing = 
     }
   }, [])
 
-  const closeBig = () => {
-    returnTo.current = big
-    setBig(null)
-  }
-
   const onKey = useEffectEvent(event => {
     if (event.key !== 'Escape' || event.defaultPrevented) return
     event.preventDefault()
-    if (big) closeBig()
-    else onClose?.()
+    onClose?.()
   })
   useEffect(() => {
     const listener = event => onKey(event)
@@ -162,17 +131,6 @@ export default function NumbersSheet({ id, arms, tick, onClose, live, playing = 
     return () => document.removeEventListener('keydown', listener)
   }, [])
 
-  // Back to the tile that opened the big chart.
-  useEffect(() => {
-    if (big || !returnTo.current) return
-    const key = returnTo.current
-    returnTo.current = null
-    const tile = [...(sheetRef.current?.querySelectorAll('[data-metric]') ?? [])].find(node => node.dataset.metric === key)
-    tile?.focus()
-  }, [big])
-
-  // One way back at a time: the jump bar's button once the header's is gone,
-  // that is, once it has slid under the bar above the sheet.
   useEffect(() => {
     const target = headBackRef.current
     if (!target || typeof IntersectionObserver === 'undefined') return undefined
@@ -182,108 +140,85 @@ export default function NumbersSheet({ id, arms, tick, onClose, live, playing = 
     return () => observer.disconnect()
   }, [top])
 
-  const sectionId = name => `nx-numbers-${uid}-${name}`
-  const sections = [
-    { id: sectionId('rules'), label: COPY.numbers.jumpRules },
-    { id: sectionId('glance'), label: COPY.numbers.jumpGlance },
-    ...NUMBER_GROUPS.map(group => ({ id: sectionId(group.id), label: COPY.numbers.groups[group.id]?.title ?? group.id })),
-  ]
-  const jump = id => event => {
-    event.preventDefault()
-    const section = document.getElementById(id)
-    section?.scrollIntoView?.({ block: 'start' })
-    section?.querySelector('h3')?.focus({ preventScroll: true })
+  const jump = key => {
+    jumpKey.current = key
+    setExpanded(all => ({ ...all, [key]: true }))
   }
-  const notes = arms.map((_, i) => lostNote(live, i))
+
+  // Focus only after the new layout has committed without inert/aria-hidden.
+  // Until then the disappearing source stays accessible, including on a snap
+  // for reduced motion. NumberRow owns its button; locate it by its existing id.
+  useLayoutEffect(() => {
+    const key = jumpKey.current ?? focusOwner?.key
+    if (!key) return
+    const entry = layout[key]
+    const toRow = jumpKey.current !== null || (focusOwner?.kind === 'entry' && !entry?.folded)
+    const toFold = focusOwner?.kind === 'row' && entry?.folded
+    let target
+    if (toRow && ['row', 'entering-row'].includes(entry?.phase)) {
+      target = document.getElementById(`nx-number-${uid}-${key}-button`)
+    } else if (toFold && ['folded', 'entering-entry'].includes(entry?.phase)) {
+      target = sheetRef.current?.querySelector(`.nx-fold-entry[data-metric="${key}"] button`)
+    }
+    if (!target || target.closest('[inert], [aria-hidden="true"]')) return
+    if (jumpKey.current !== null) {
+      document.getElementById(`nx-number-${uid}-${key}`)?.scrollIntoView?.({ block: 'start' })
+    }
+    jumpKey.current = null
+    target.focus({ preventScroll: true })
+  })
+
+  const trackFocus = event => {
+    const source = event.target.closest('.nx-row-motion, .nx-fold-entry')
+    setFocusOwner(source ? { key: source.dataset.metric, kind: source.classList.contains('nx-fold-entry') ? 'entry' : 'row' } : null)
+  }
 
   return (
-    <section
-      ref={sheetRef}
-      id={id}
-      className={`nx-sheet${playing ? ' is-playing' : ''}`}
-      style={{ '--nx-sheet-top': `${top}px` }}
-      role="dialog"
-      aria-labelledby={titleId}
-    >
+    <section ref={sheetRef} id={id} className={`nx-sheet${playing ? ' is-playing' : ''}${arms.length === 1 ? ' is-one-town' : ''}`} style={{ '--nx-sheet-top': `${top}px`, '--nx-towns': arms.length }} role="dialog" aria-labelledby={titleId} onFocusCapture={trackFocus} onBlurCapture={event => { if (!event.currentTarget.contains(event.relatedTarget)) setFocusOwner(null) }}>
       <header className="nx-sheet-head">
         <div>
           <h2 id={titleId} ref={headingRef} tabIndex={-1}>{COPY.numbers.title}</h2>
-          <p className="nx-sheet-lead">{COPY.numbers.lead(arms.length, weekLabel(tick))}</p>
-          <p className="nx-sheet-hint">{COPY.numbers.hint}</p>
           {live && <p className="nx-notice" role="status" aria-live="polite">{liveStatus(live, arms)}</p>}
           <ul className="nx-sheet-towns" aria-label={COPY.numbers.towns}>
-            {arms.map((arm, i) => (
-              <li key={arm.label} className="nx-tchip">
-                <i style={{ background: arm.color }} aria-hidden="true" />
-                <b>{arm.label}</b>
-                {capitalise(describePolicy(rulesDiff(rulesAt(arm, tick))))}
-                {notes[i] && <span className="nx-tchip-note">{notes[i]}</span>}
-              </li>
-            ))}
+            {arms.map(arm => <li key={arm.label} className="nx-tchip">
+              <i style={{ background: arm.color }} aria-hidden="true" /><b>{arm.label}</b>
+              {capitalise(describePolicy(rulesDiff(rulesAt(arm, tick))))}
+            </li>)}
           </ul>
         </div>
         <button ref={headBackRef} type="button" className="nx-abtn is-dark" onClick={onClose}><BackIcon />{COPY.numbers.back}</button>
       </header>
-
-      <nav className="nx-jump" aria-label={COPY.numbers.jump} hidden={Boolean(big)}>
-        <div className="nx-jump-links">
-          {sections.map(section => (
-            <a key={section.id} href={`#${section.id}`} onClick={jump(section.id)}>{section.label}</a>
-          ))}
+      <div className="nx-number-answer-wrap"><AnswerCard arms={arms} rows={rows} tick={tick} foldedKeys={foldedKeys} onJump={jump} /></div>
+      <div className={`nx-number-columns${stuck ? ' has-back' : ''}`} role="group" aria-label={COPY.numbers.columns.label}>
+        <div ref={columnScrollRef} className="nx-number-column-scroll">
+        <div className={`nx-number-grid${arms.length === 1 ? ' is-one-town' : ''}`}>
+          <span><span className="nx-sr">{COPY.numbers.columns.measure}</span></span>
+          {arms.map((arm, index) => <span className="nx-number-column-town" key={arm.label}>
+            <span><i style={{ background: arm.color }} aria-hidden="true" />{arm.label}</span>
+            {notes[index] && <small>{notes[index]}</small>}
+          </span>)}
+          {arms.length > 1 && <span className="nx-number-column-difference">{arms.length === 2 ? COPY.numbers.columns.difference(arms[1].label, arms[0].label) : COPY.numbers.columns.differences(arms[0].label)}</span>}
+          <span className="nx-number-column-run">{COPY.numbers.columns.run}</span><span />
         </div>
-        <button type="button" className="nx-abtn" style={{ visibility: stuck ? 'visible' : 'hidden' }} onClick={onClose}>
-          <BackIcon />{COPY.numbers.back}
-        </button>
-      </nav>
-
-      <ul className="nx-ckey" aria-label={COPY.numbers.key.label}>
-        <li><i className="nx-ckey-warm" aria-hidden="true" />{COPY.numbers.key.warm}</li>
-        <li><i className="nx-ckey-now" aria-hidden="true" />{COPY.numbers.key.now}</li>
-        <li><i className="nx-ckey-future" aria-hidden="true" />{COPY.numbers.key.future}</li>
-      </ul>
-
-      <div className="nx-sheet-body">
-        {big && <SeeItBig key={big} metricKey={big} arms={arms} tick={tick} onClose={closeBig} playing={playing} />}
-        {/* While a chart is big the sections are hidden, keep their state (an
-            open rules group, the tile to come back to) and update only when
-            React is idle. */}
-        <Activity mode={big ? 'hidden' : 'visible'}>
-          <div className="nx-sheet-secs">
-            <RulesInForce id={sections[0].id} arms={arms} tick={tick} notes={notes} />
-            <AtAGlance id={sections[1].id} arms={arms} tick={tick} notes={notes} />
-            {NUMBER_GROUPS.map(group => {
-              const copy = COPY.numbers.groups[group.id] ?? { title: group.id, blurb: '' }
-              const headId = `${sectionId(group.id)}-title`
-              return (
-                <section key={group.id} id={sectionId(group.id)} className="nx-nsec" aria-labelledby={headId}>
-                  <div className="nx-sh">
-                    <h3 id={headId} tabIndex={-1}>{copy.title}</h3>
-                    <p>{copy.blurb}</p>
-                  </div>
-                  <div className="nx-ngrid">
-                    {cardsOf(group).map(({ id, extra }) => {
-                      const span = `nx-s${SPAN[id] ?? 4}`
-                      if (extra) {
-                        const Extra = EXTRAS[id]
-                        return Extra ? <Extra key={id} arms={arms} tick={tick} onSeeBig={setBig} className={span} /> : null
-                      }
-                      const Visual = KEY_VISUALS[id]
-                      if (Visual) return <Visual key={id} metricKey={id} arms={arms} tick={tick} onSeeBig={setBig} className={span} />
-                      const note = hardshipNote(id, arms, tick)
-                      return (
-                        <Tile key={id} metricKey={id} arms={arms} tick={tick} onSeeBig={setBig} className={span} height={TILE_HEIGHT[id]}>
-                          {note && <p className="nx-quiet">{note}</p>}
-                        </Tile>
-                      )
-                    })}
-                  </div>
-                </section>
-              )
-            })}
-          </div>
-        </Activity>
+        </div>
+        <button type="button" className="nx-abtn nx-number-back" style={{ visibility: stuck ? 'visible' : 'hidden' }} onClick={onClose}><BackIcon />{COPY.numbers.back}</button>
       </div>
-      <p className="nx-tap" hidden={Boolean(big)}><TapIcon />{COPY.numbers.tap}</p>
+      <div className="nx-sheet-body" onScroll={event => { if (columnScrollRef.current) columnScrollRef.current.scrollLeft = event.currentTarget.scrollLeft }}>
+        {NUMBER_GROUPS.map(group => {
+          const copy = COPY.numbers.groups[group.id]
+          const ownRows = visibleRows(arms, group.rows, tick)
+          const headingId = `nx-number-group-${uid}-${group.id}`
+          return <section key={group.id} className="nx-number-group" aria-labelledby={headingId}>
+            <div className="nx-number-group-heading"><h3 id={headingId}>{copy.title}</h3><p>{copy.blurb}</p></div>
+            {ownRows.map(row => <div key={row.key} className={`nx-row-motion${layout[row.key]?.promoted ? ' is-promoted' : ''}${focusOwner?.kind === 'row' && focusOwner.key === row.key ? ' has-focus' : ''}`} data-metric={row.key} data-state={layout[row.key]?.phase} aria-hidden={!(focusOwner?.kind === 'row' && focusOwner.key === row.key) && ['folded', 'leaving-entry', 'entering-entry', 'leaving-row'].includes(layout[row.key]?.phase)} inert={!(focusOwner?.kind === 'row' && focusOwner.key === row.key) && ['folded', 'leaving-entry', 'entering-entry', 'leaving-row'].includes(layout[row.key]?.phase)}>
+              <div className="nx-row-motion-inner"><NumberRow id={rowId(row.key)} row={row} arms={arms} tick={tick} open={Boolean(expanded[row.key])} onToggle={() => setExpanded(all => ({ ...all, [row.key]: !all[row.key] }))}>
+              <RowVisual row={row} arms={arms} tick={tick} playing={playing} />
+            </NumberRow></div></div>)}
+            {arms.length > 1 && <FoldLines arms={arms} rows={ownRows} tick={tick} onJump={jump} layout={layout} focusedKey={focusOwner?.kind === 'entry' ? focusOwner.key : null} />}
+            {group.rules && <RulesLine arms={arms} tick={tick} />}
+          </section>
+        })}
+      </div>
     </section>
   )
 }

@@ -1,6 +1,6 @@
 import { useId, useState } from 'react'
 import { COPY, LEVERS, WARMUP_TICKS, leverName, leverValuePhrase, townTextColor } from '../catalog.js'
-import { rulesTable } from '../data/derive.js'
+import { rulesAt, rulesDiff, rulesTable } from '../data/derive.js'
 import { weekLabel } from '../narration.js'
 import '../next.css'
 
@@ -10,6 +10,36 @@ const ruleName = lever => COPY.numbers.rules.names[lever] ?? leverName(lever)
 // A group opens by itself when a rule in it differs between towns or changed
 // during the run; the viewer's Show and Hide win after that.
 const opensByItself = group => group.rows.some(row => row.differs || row.changes.some(Boolean))
+
+// The compact sheet lists each rule only here or in a header chip. A rule
+// changed during the run remains listed even when its current setting is
+// already named in the chip, preserving the change history.
+export function RulesLine({ arms, tick }) {
+  const [open, setOpen] = useState(false)
+  const uid = `nx-other-rules-${useId().replace(/:/g, '')}`
+  const named = new Set(arms.flatMap(arm => Object.keys(rulesDiff(rulesAt(arm, tick)))))
+  const rows = rulesTable(arms, tick).flatMap(group => group.rows)
+    .filter(row => !named.has(row.lever) || row.changes.some(Boolean))
+  const changed = rows.some(row => row.differs || row.changes.some(Boolean))
+  const copy = COPY.numbers.rulesLine
+  const summary = arms.length === 1
+    ? (changed || named.size ? copy.singleChanged(rows.length) : copy.usual(rows.length))
+    : (changed ? copy.changed(rows.length) : copy.same(rows.length, arms.length))
+  return <div className="nx-number-rules">
+    <p><b>{copy.label}</b>{' '}{summary}{' '}
+      <button type="button" aria-expanded={open} aria-controls={uid} onClick={() => setOpen(value => !value)}>{open ? copy.hide : copy.show}</button>
+    </p>
+    <ul id={uid} hidden={!open}>
+      {rows.map(row => <li key={row.lever}>
+        <b>{ruleName(row.lever)}:</b>{' '}
+        {!row.differs ? leverValuePhrase(row.lever, row.values[0]) : row.values.map((value, i) => copy.townSetting(arms[i].label, leverValuePhrase(row.lever, value))).join(COPY.numbers.rules.settingsJoin)}
+        {row.changes.map((change, i) => change && <small key={arms[i].label}>
+          {copy.townSetting(arms[i].label, COPY.numbers.rules.changed(weekLabel(change.changedAt), leverValuePhrase(row.lever, change.was), change.changedAt <= WARMUP_TICKS))}
+        </small>)}
+      </li>)}
+    </ul>
+  </div>
+}
 
 function GroupSummary({ group, townCount }) {
   const differ = group.rows.filter(row => row.differs).length
