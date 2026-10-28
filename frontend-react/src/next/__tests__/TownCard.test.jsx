@@ -32,6 +32,15 @@ describe('TownCard', () => {
     expect(container.querySelector('.lt-lost')).toBeNull()
   })
 
+  test('a town beside a lost one keeps an empty marker line so the row stays level', () => {
+    const { container, rerender } = render(<TownCard arm={A} tick={30} lostRow />)
+    const line = container.querySelector('.lt-lost')
+    expect(line).toHaveAttribute('aria-hidden', 'true')
+    expect(line.textContent.trim()).toBe('')
+    rerender(<TownCard arm={A} tick={30} />)
+    expect(container.querySelector('.lt-lost')).toBeNull()
+  })
+
   test('a town lost before its first week still has a marker', () => {
     render(<TownCard arm={A} tick={1} lostTick={0} />)
     expect(screen.getByText('lost its connection before its first week')).toBeInTheDocument()

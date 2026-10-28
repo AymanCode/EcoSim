@@ -222,7 +222,9 @@ describe('NextApp live', { timeout: WHOLE_SCREEN_MS }, () => {
     flush()
     const cards = container.querySelectorAll('.lt-towns .lt-card')
     expect(cards[lostIndex].querySelector('.lt-lost')).toHaveTextContent('lost its connection in Year 1, week 12')
-    expect(cards[1 - lostIndex].querySelector('.lt-lost')).toBeNull()
+    // The other card keeps only an empty, hidden line so the row stays level.
+    expect(cards[1 - lostIndex].querySelector('.lt-lost')).toHaveAttribute('aria-hidden', 'true')
+    expect(cards[1 - lostIndex].querySelector('.lt-lost').textContent.trim()).toBe('')
     fireEvent.change(screen.getByRole('slider', { name: 'Week of the run' }), { target: { value: '11' } })
     expect(cards[lostIndex].querySelector('.lt-lost')).toHaveTextContent('lost its connection in Year 1, week 12')
     expect(screen.queryByRole('button', { name: 'Back to live' })).toBeNull()

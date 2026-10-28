@@ -345,6 +345,7 @@ export default function RunScreen({
                     scrubs={scrubs}
                     ended={ended}
                     lostTick={live?.towns?.find(town => town.label === arm.label && town.status === 'lost')?.lastTick ?? null}
+                    lostRow={Boolean(live?.towns?.some(town => town.status === 'lost'))}
                     canFocus={!single}
                     focused={focus === arm.label}
                     hidden={Boolean(focus) && focus !== arm.label}

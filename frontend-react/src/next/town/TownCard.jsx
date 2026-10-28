@@ -65,7 +65,7 @@ function factsOf({ out, pay, open, struggling, hallCash }) {
 }
 
 export default function TownCard({
-  arm: armNow, tick: tickNow, focused = false, canFocus = false, onFocus, towns = 1, hidden = false, playing = false, scrubs = 0, ended = false, lostTick = null, children,
+  arm: armNow, tick: tickNow, focused = false, canFocus = false, onFocus, towns = 1, hidden = false, playing = false, scrubs = 0, ended = false, lostTick = null, lostRow = false, children,
 }) {
   // A card hidden by Enlarge keeps the week it showed when it was hidden and
   // does no work (no model, no weather, no motion) until it is shown again.
@@ -100,7 +100,11 @@ export default function TownCard({
           </button>
         )}
       </header>
-      {lostTick !== null && <p className="lt-lost">{COPY.numbers.lost(lostTick ? weekLabel(lostTick) : null)}</p>}
+      {/* Once any town is lost, every card keeps the marker's line so the
+          pictures and facts stay level across the row. */}
+      {lostTick !== null
+        ? <p className="lt-lost">{COPY.numbers.lost(lostTick ? weekLabel(lostTick) : null)}</p>
+        : lostRow && <p className="lt-lost" aria-hidden="true">{' '}</p>}
       <div className="lt-canvas" {...handlers}>
         <Diorama model={model} color={arm.color} playing={playing} towns={towns} scrubs={scrubs} hidden={hidden} ended={ended} />
         {overlay}
