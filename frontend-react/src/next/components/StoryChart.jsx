@@ -22,6 +22,7 @@ const HEIGHT = 320
 const PAD_TOP = 44
 const PAD_RIGHT = 156
 const COMPACT_BELOW = 560
+const PHONE_BELOW = 400
 const PAD_BOTTOM = 30
 const FALLBACK_WIDTH = 720
 const WEEKS_PER_YEAR = 52
@@ -219,8 +220,11 @@ export default function StoryChart({
 
   const W = size.width || FALLBACK_WIDTH
   const H = HEIGHT
-  // Narrow charts put the town and its value on two lines to leave room for the plot.
-  const compact = W < COMPACT_BELOW
+  // Phones keep a text identity at each endpoint; wider narrow charts also
+  // show the value on a second line. Inline numbers charts keep their layout.
+  const phone = !inline && W < PHONE_BELOW
+  const compact = !phone && W < COMPACT_BELOW
+  const endTownLabel = arm => phone ? arm.label.replace(/^Town ([A-Z])$/, '$1') : arm.label
   const values = arms.flatMap(arm => (arm.series?.[metricKey] ?? []).filter(value => value !== null))
   // The y-axis is set by the real weeks; warm-up values may fall outside it.
   const liveValues = arms.flatMap(arm => (arm.series?.[metricKey] ?? [])
@@ -229,6 +233,7 @@ export default function StoryChart({
   const yLabels = scale.ticks.map(value => formatMetricShort(metricKey, value))
   const padL = Math.max(44, Math.ceil(Math.max(...yLabels.map(label => textWidth(label, 12))) + 14))
   const endLines = item => {
+    if (phone) return [endTownLabel(item.arm)]
     const value = formatEndLabel(metricKey, item.value)
     return compact ? [item.arm.label, value] : [COPY.chart.endLabel(item.arm.label, value)]
   }
@@ -242,10 +247,12 @@ export default function StoryChart({
     .filter(item => item.value !== null)
   // Sized for the widest label the whole recording could need, so the plot
   // keeps its width while the replay plays.
-  const endWidth = compact
+  const endWidth = phone
+    ? Math.max(0, ...arms.map(arm => textWidth(endTownLabel(arm), 13, true)))
+    : compact
     ? Math.max(0, ...arms.map(arm => textWidth(arm.label, 13, true)), ...values.map(value => textWidth(formatEndLabel(metricKey, value), 13, true)))
     : 0
-  const plotRight = W - (hideEndLabels ? 16 : compact ? Math.ceil(endWidth) + 20 : PAD_RIGHT)
+  const plotRight = W - (hideEndLabels ? 16 : phone || compact ? Math.ceil(endWidth) + 20 : PAD_RIGHT)
   const x = t => padL + (t / end) * (plotRight - padL)
   const y = v => PAD_TOP + (1 - (v - scale.lo) / (scale.hi - scale.lo || 1)) * (H - PAD_TOP - PAD_BOTTOM)
   const plotTop = PAD_TOP - 10
@@ -270,7 +277,8 @@ export default function StoryChart({
   const taken = hideEndLabels ? [] : ends.map(item => item.box)
 
   const note = inline && tick <= WARMUP_TICKS ? null : startNote(arms.length)
-  if (note) taken.push({ x: padL, y: 6, w: textWidth(note, 12.5, true), h: 18 })
+  const noteX = phone ? 0 : padL
+  if (note) taken.push({ x: noteX, y: 6, w: textWidth(note, 12.5, true), h: 18 })
 
   // "setting up" sits at the top of the warm-up band, or its foot if a label is there.
   let warmLabel = null
@@ -315,7 +323,7 @@ export default function StoryChart({
         candidates.push({ x: at - 7 - w, y: top, w, h, anchor: 'end' })
       }
       const fits = candidates.filter(box => box.x >= padL - 4 && box.x + box.w <= W)
-      const spot = place(fits, taken)
+      const spot = phone ? null : place(fits, taken)
       if (spot) taken.push(spot)
       markers.push({ key: `${arm.label}:${week}`, arm, at, lines, spot })
     }
@@ -366,7 +374,12 @@ export default function StoryChart({
         <p className="cs">{metric.meaning}</p>
         <MetricChips metricKey={metricKey} metricKeys={metricKeys} onMetricChange={onMetricChange} />
       </>}
-      <div ref={ref} className={`nx-chart${playing ? ' is-playing' : ''}`} style={{ height: H }} {...interaction}>
+      {phone && markers.length > 0 && <div className="nx-phone-rules cs" style={{ marginTop: 8 }}>
+        {markers.map(({ key, lines }) => <div key={key}>
+          <b>{lines[0]}</b>{' '}{lines.slice(1).join(' ')}
+        </div>)}
+      </div>}
+      <div key="plot" ref={ref} className={`nx-chart${playing ? ' is-playing' : ''}`} style={{ height: H }} {...interaction}>
         <svg width={W} height={H} viewBox={`0 0 ${W} ${H}`} aria-hidden="true" focusable="false">
           <defs>
             <clipPath id={clipId}>
@@ -424,7 +437,7 @@ export default function StoryChart({
               )
             })}
           </g>
-          {note && <text className="nx-ann is-bold" x={padL} y={20}>{note}</text>}
+          {note && <text className="nx-ann is-bold" x={noteX} y={20}>{note}</text>}
           {warmLabel && <text className="nx-warm-label" x={round(warmLabel.x)} y={round(warmLabel.y + 13)}>{COPY.chart.settingUp}</text>}
           {markers.map(({ key, arm, at, lines, spot }) => (
             <g key={key} className="nx-marker">

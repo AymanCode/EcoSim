@@ -96,7 +96,7 @@ describe('StoryChart', () => {
   })
 
   test('a narrow chart puts each town and its value on two lines', () => {
-    const measure = vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({ width: 340, height: 320, top: 0, left: 0, right: 340, bottom: 320 })
+    const measure = vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({ width: 440, height: 320, top: 0, left: 0, right: 440, bottom: 320 })
     try {
       const { container } = draw({ tick: 11 })
       const labels = [...container.querySelectorAll('.nx-endl')]
@@ -105,7 +105,7 @@ describe('StoryChart', () => {
       const ys = labels.map(label => Number(label.getAttribute('y'))).sort((a, b) => a - b)
       expect(ys[1] - ys[0]).toBeGreaterThanOrEqual(32)
       const plotRight = Math.max(...[...container.querySelectorAll('.nx-yaxis line')].map(line => Number(line.getAttribute('x2'))))
-      expect(340 - plotRight).toBeLessThan(110)
+      expect(440 - plotRight).toBeLessThan(110)
     } finally {
       measure.mockRestore()
     }
