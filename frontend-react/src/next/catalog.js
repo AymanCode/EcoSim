@@ -961,12 +961,13 @@ export const COPY = {
     closeLabel: 'Close the town hall',
     towns: 'Which town',
     note: townCount => (townCount > 1
-      ? 'Changes start at the next week. The other towns keep their own rules.'
+      ? "Changes start at each town's next week, which can be a few weeks ahead of the week shown. The other towns keep their own rules."
       : 'Changes start at the next week.'),
     apply: 'Change from next week',
     receipts: 'Your changes',
     waiting: 'Waiting for next week…',
-    applied: (week, phrase) => `${week}: ${capitalise(phrase)}.`,
+    // `ahead` = weeks the change starts after the week on screen; named only past 1.
+    applied: (week, phrase, ahead = 0) => `${week}${ahead > 1 ? ` (in ${ahead} weeks)` : ''}: ${capitalise(phrase)}.`,
     rejected: (lever, reason) => `${capitalise(lever)} was not changed: ${reason}`,
     failed: message => `Couldn't change the rules: ${message}`,
     // Why the rules cannot change right now, by experiment phase.

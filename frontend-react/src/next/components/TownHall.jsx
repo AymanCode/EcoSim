@@ -30,7 +30,15 @@ function changesFrom(draft, current) {
   return changed
 }
 
-function ReceiptLines({ receipt }) {
+// How many weeks after the week on screen a change starts: only past one week
+// (towns run ahead of the screen, which shows the slowest). Worked out at render.
+function weeksAhead(effectiveTick, tick) {
+  if (typeof effectiveTick !== 'number' || typeof tick !== 'number') return 0
+  const gap = effectiveTick - tick
+  return gap > 1 ? gap : 0
+}
+
+function ReceiptLines({ receipt, tick }) {
   if (receipt.status === 'sending' || receipt.status === 'queued') return <span>{COPY.hall.waiting}</span>
   if (receipt.status === 'failed') return <span>{COPY.hall.failed(receipt.message ?? '')}</span>
   const rejected = Object.entries(receipt.rejected ?? {})
@@ -38,7 +46,7 @@ function ReceiptLines({ receipt }) {
   const showApplied = Object.keys(receipt.applied ?? {}).length > 0 || rejected.length === 0
   return (
     <>
-      {showApplied && <span>{COPY.hall.applied(weekLabel(receipt.effectiveTick), describePolicy(receipt.applied))}</span>}
+      {showApplied && <span>{COPY.hall.applied(weekLabel(receipt.effectiveTick), describePolicy(receipt.applied), weeksAhead(receipt.effectiveTick, tick))}</span>}
       {rejected.map(([lever, reason]) => (
         <span key={lever} className="is-rejected">{COPY.hall.rejected(leverName(lever), reason)}</span>
       ))}
@@ -50,7 +58,7 @@ function ReceiptLines({ receipt }) {
 // what the town hall did with each change. `locked` (a sentence) disables the
 // change button and says why. With `autoFocus` (opened from its toggle) focus
 // moves to the drawer's heading when it opens.
-export default function TownHall({ id, arms, onConfigure, onClose, locked = null, autoFocus = false }) {
+export default function TownHall({ id, arms, tick, onConfigure, onClose, locked = null, autoFocus = false }) {
   const uid = useId()
   const headingRef = useRef(null)
   // Only on opening: the drawer keeps whatever focus it has after that.
@@ -111,7 +119,7 @@ export default function TownHall({ id, arms, onConfigure, onClose, locked = null
             <h3 id={`${uid}-receipts`}>{COPY.hall.receipts}</h3>
             <ul aria-live="polite">
               {receipts.map(({ receipt, key }) => (
-                <li key={key} className={`is-${receipt.status}`}><ReceiptLines receipt={receipt} /></li>
+                <li key={key} className={`is-${receipt.status}`}><ReceiptLines receipt={receipt} tick={tick} /></li>
               ))}
             </ul>
           </section>
