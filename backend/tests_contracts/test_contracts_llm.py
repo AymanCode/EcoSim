@@ -1540,3 +1540,41 @@ def test_contract_policy_memory_labels_wage_ineligible_seekers_honestly():
     for impact in (memory["short_term_impact"], memory["mature_impact"]):
         assert "consumer_distress_delta_pct" not in impact
         assert impact["wage_ineligible_seekers_delta_pct"] == pytest.approx(25.0)
+
+
+def test_surplus_choice_through_structured_llm_decisions(tiny_economy_factory):
+    economy = tiny_economy_factory(government_cash=200_000.0)
+    provider = QueueProvider([json.dumps({"changes": change}) for change in (
+        {"surplus_distribution": "on"}, {}, {"surplus_distribution": "invalid"},
+        {"surplus_distribution": "off"},
+    )])
+    advisor = LLMGovernmentAdvisor(provider, CONFIG.llm)
+    on = asyncio.run(advisor.decide(economy))
+    assert on["decisions"]["surplus_distribution"] == "on"
+    assert economy.government.surplus_distribution == "on"
+    assert "surplus_distribution: enum [off | on]" in provider.prompts[0]["system"]
+    assert observe_node({}, economy)["current_policy"]["surplus_distribution"] == "on"
+    hold = asyncio.run(advisor.decide(economy))
+    assert "surplus_distribution" not in hold["decisions"]
+    assert economy.government.surplus_distribution == "on"
+    invalid = asyncio.run(advisor.decide(economy))
+    assert any(item["reason"] == "invalid_enum_value" for item in invalid["rejected_changes"])
+    assert economy.government.surplus_distribution == "on"
+    off = asyncio.run(advisor.decide(economy))
+    assert off["decisions"]["surplus_distribution"] == "off"
+    assert economy.government.surplus_distribution == "off"
+
+
+def test_surplus_choice_uses_existing_llm_fiscal_stress_guard():
+    gov = GovernmentAgent(cash_balance=-1.0)
+    current = gov.to_dict()
+    clean, rejected = sanitize_llm_government_changes(
+        {"surplus_distribution": "on"}, current, gov, 1000.0, 0.0,
+    )
+    assert clean == {}
+    assert rejected[0]["reason"] == "spending_increase_during_fiscal_stress"
+    gov.set_lever("surplus_distribution", "on")
+    clean, rejected = sanitize_llm_government_changes(
+        {"surplus_distribution": "off"}, gov.to_dict(), gov, 1000.0, 0.0,
+    )
+    assert clean == {"surplus_distribution": "off"} and not rejected

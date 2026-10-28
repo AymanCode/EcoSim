@@ -1,6 +1,8 @@
+import asyncio
 import sys
 from pathlib import Path
 
+import pytest
 from fastapi.testclient import TestClient
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -271,3 +273,65 @@ def test_reset_discards_queued_config(monkeypatch):
         until(ws, lambda m: m.get("type") == "RESET")
         assert manager.pending_config_updates == []
         assert manager.economy.government.benefit_level != "high"
+
+
+
+@pytest.mark.parametrize("sequence", ["income_first", "income_late", "legacy"])
+def test_surplus_choice_websocket_setup_runtime_and_retention(monkeypatch, sequence):
+    client, registry = _client(monkeypatch)
+    config = {**SMALL, "frame_profile": "lean", "payment_sequence": sequence}
+    with client.websocket_connect("/ws") as ws:
+        session = _session(ws)
+        reply = setup(ws, config)
+        assert reply["type"] == "SETUP_COMPLETE", reply
+        assert reply["config"]["applied_policy"]["surplus_distribution"] == "off"
+        manager = registry.get(session["sessionId"])
+
+        receipt = _config(ws, {"surplusDistribution": "on"})
+        assert receipt["applied"] == {"surplus_distribution": "on"}
+        assert manager.economy.government.surplus_distribution == "on"
+        assert _config(ws, {"benefitLevel": "high"})["applied"] == {"benefit_level": "high"}
+        assert manager.economy.government.surplus_distribution == "on"
+        rejected = _config(ws, {"surplus_distribution": "bad"})
+        assert "surplus_distribution" in rejected["rejected"] and not rejected["applied"]
+        assert manager.economy.government.surplus_distribution == "on"
+        assert _config(ws, {"surplus_distribution": "off"})["applied"] == {"surplus_distribution": "off"}
+        assert manager.economy.government.surplus_distribution == "off"
+
+        reply = setup(ws, {**config, "initial_policy": {"surplus_distribution": "on"}})
+        assert reply["type"] == "SETUP_COMPLETE", reply
+        assert reply["config"]["applied_policy"]["surplus_distribution"] == "on"
+        assert manager.economy.government.surplus_distribution == "on"
+
+
+def test_surplus_choice_setup_runtime_and_receipts(monkeypatch):
+    monkeypatch.setenv("ECOSIM_ENABLE_WAREHOUSE", "0")
+    manager = server.SimulationManager()
+    manager.initialize({**SMALL, "frame_profile": "lean",
+                        "initial_policy": {"surplus_distribution": "on"}})
+    assert manager.setup_config["applied_policy"]["surplus_distribution"] == "on"
+    assert manager.economy.government.to_dict()["surplus_distribution"] == "on"
+    assert asyncio.run(manager._apply_config_updates({"benefitLevel": "high"}))["applied"]["benefit_level"] == "high"
+    assert manager._snapshot_government_levers()["surplus_distribution"] == "on"
+    rejected = asyncio.run(manager._apply_config_updates({"surplus_distribution": "bad"}))
+    assert "surplus_distribution" in rejected["rejected"]
+    assert manager.economy.government.surplus_distribution == "on"
+    receipt = asyncio.run(manager._apply_config_updates({"surplus_distribution": "off"}))
+    assert receipt["applied"]["surplus_distribution"] == "off"
+    assert manager._snapshot_government_levers()["surplus_distribution"] == "off"
+    with pytest.raises(ValueError, match="surplus_distribution"):
+        server.SetupConfig(initial_policy={"surplus_distribution": "bad"})
+
+
+def test_surplus_choice_warehouse_action_reconstructs_initial_and_runtime(monkeypatch):
+    monkeypatch.setenv("ECOSIM_ENABLE_WAREHOUSE", "0")
+    manager = server.SimulationManager(session_id="surplus-policy")
+    manager.enable_warehouse = True
+    manager.warehouse_manager = _FakeWarehouse()
+    manager.initialize({**SMALL, "initial_policy": {"surplus_distribution": "on"}})
+    initial = manager.policy_actions_batch[-1]
+    assert initial.tick == 0 and initial.action_type == "surplus_distribution"
+    assert server._build_policy_state(None, [vars(initial)])["surplus_distribution"] == "on"
+    asyncio.run(manager._apply_config_updates({"surplus_distribution": "off"}))
+    actions = [vars(action) for action in manager.policy_actions_batch]
+    assert server._build_policy_state(None, actions)["surplus_distribution"] == "off"

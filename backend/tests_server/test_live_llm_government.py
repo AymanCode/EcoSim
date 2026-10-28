@@ -76,3 +76,15 @@ def test_runtime_config_updates_apply_government_levers(monkeypatch):
     assert gov.bailout_policy == "sector"
     assert gov.bailout_target == "food"
     assert gov.bailout_budget == 10000
+
+
+def test_surplus_choice_applies_at_live_llm_boundary():
+    manager = server.SimulationManager()
+    manager.economy = make_economy(num_households=12, num_firms_per_category=1, disable_shocks=True, seed=912)
+    manager.config.llm.enable_llm_government = True
+    for decision, expected in [({"surplus_distribution": "on"}, "on"), ({}, "on"),
+                               ({"surplus_distribution": "off"}, "off")]:
+        manager.pending_llm_decision = {"decisions": decision}
+        manager._apply_llm_decision_at_boundary()
+        assert manager.economy.government.surplus_distribution == expected
+        assert manager.latest_government_decision["current_policy_after"]["surplus_distribution"] == expected

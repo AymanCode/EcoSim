@@ -737,6 +737,7 @@ class Economy:
             "benefit_level": str(gov.benefit_level),
             "unemployment_benefit_level": float(gov.unemployment_benefit_level),
             "public_works_toggle": str(gov.public_works_toggle),
+            "surplus_distribution": str(gov.surplus_distribution),
             "minimum_wage_policy": str(gov.minimum_wage_policy),
             "sector_subsidy_target": (
                 str(gov.sector_subsidy_target)
@@ -3445,7 +3446,7 @@ class Economy:
         # owed. A K06-1 payout change must keep that guard ahead of the surplus.
         self.government.settle_public_debt(self.bank)
 
-        # Bond purchases with surplus — redirect to Misc firm
+        # Selected surplus distribution (historical bonds key) with surplus — redirect to Misc firm
         govt_investments = self.government.make_investments()
         total_bond_purchases = sum(govt_investments.values()) if govt_investments else 0.0
 
@@ -9638,6 +9639,7 @@ class Economy:
         metrics["gov_investment_tax_rate"] = gov.investment_tax_rate
         metrics["gov_benefit_level"] = gov.benefit_level
         metrics["gov_public_works"] = gov.public_works_toggle
+        metrics["gov_surplus_distribution"] = gov.surplus_distribution
         metrics["gov_minimum_wage_policy"] = gov.minimum_wage_policy
         metrics["gov_sector_subsidy_target"] = gov.sector_subsidy_target
         metrics["gov_sector_subsidy_level"] = gov.sector_subsidy_level

@@ -441,6 +441,7 @@ LEVER EFFECTS:
 - investment_tax_rate higher: Higher investment_tax_rate taxes firm R&D directly; quality growth and R&D spending down.
 - benefit_level higher: unemployed income up, reservation wages and fiscal cost up.
 - public_works on: unemployment can fall quickly, government cash falls quickly.
+- surplus_distribution on: eligible surplus flows through Misc to households after a tax skim; no bond asset is acquired.
 - minimum_wage_policy higher: wage floor up; workers may earn more but fragile firms may hire less.
 - infrastructure_spending: productivity rises slowly over many ticks.
 - technology_spending: effective quality rises slowly, may improve demand.
@@ -1657,6 +1658,7 @@ def observe_node(state: GovernmentState, economy: Any) -> Dict[str, Any]:
         "investment_tax_rate": gov.investment_tax_rate,
         "benefit_level": gov.benefit_level,
         "public_works": gov.public_works_toggle,
+        "surplus_distribution": gov.surplus_distribution,
         "minimum_wage_policy": gov.minimum_wage_policy,
         "sector_subsidy_target": gov.sector_subsidy_target,
         "sector_subsidy_level": gov.sector_subsidy_level,

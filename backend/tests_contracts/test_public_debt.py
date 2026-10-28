@@ -114,7 +114,7 @@ def test_surplus_above_one_week_of_spending_repays_debt():
 
 
 def test_no_bond_buy_while_debt_is_owed_and_main_bond_buy_without_debt():
-    gov = GovernmentAgent(cash_balance=200_000.0)
+    gov = GovernmentAgent(cash_balance=200_000.0, surplus_distribution="on")
     gov.public_debt = 1_000.0
     assert gov.make_investments()["bonds"] == 0.0
     gov.public_debt = 0.0
@@ -298,6 +298,7 @@ def test_no_bond_buy_while_debt_is_owed_after_each_step(monkeypatch):
     with contextlib.redirect_stdout(io.StringIO()):
         economy = create_large_economy(300, 5)
     gov = economy.government
+    gov.set_lever("surplus_distribution", "on")
     gov.set_lever("benefit_level", "crisis")
     gov.set_lever("infrastructure_spending", "high")
     gov.set_lever("technology_spending", "high")
