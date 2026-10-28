@@ -1,0 +1,5056 @@
+{
+  "scope": "Existing frozen economic cases; exported after owner acceptance without new simulations",
+  "baseline_commit": "a7a8cf38e09cbd02629eec94ca599e85082d10a7",
+  "candidate_commit": "558a6a005c25ea47ce0c0a58a68b59b580ebe53f",
+  "packaging_parent_commit": "2262eaa5c31b8b4b3e86a26802148d855164ff88",
+  "integrated_main": "b233cd74fc570ab0b38665fcc94187f6ca37ef27",
+  "backend_identical_to_tested_candidate": true,
+  "worker_sha256": "98516502b73d0e0a12ec1efd61f6b70189cbd00117f92fe6e7f491e766e73620",
+  "source_manifest_sha256": {
+    "baseline": "042194ad03080f70dc4828426ee0b34213621432d6fbd96257ed0a8ff5b53e7c",
+    "candidate": "5b91fc8ac13b5d374e297c6b140a7e6402e9da3249e8497481e8a25b0b5c832d"
+  },
+  "checks": {
+    "case_count": 12,
+    "completed_ticks": 2400,
+    "late_start": 101,
+    "all_integrity_pass": true,
+    "max_money_residual": 7.156282663345337e-06,
+    "max_clearing_residual": 5.68775249121245e-10,
+    "accounting_within_tolerance": true
+  },
+  "control_prefix_checks": {
+    "scope": "recorded prefix only, not hidden state",
+    "cases": [
+      {
+        "case": "income_first-1000-s42-r0-baseline",
+        "old_path": "C:\\Users\\ayman\\Documents\\ecosim-review\\reports\\business-map-20261025\\research-spending-followup\\economy\\cases\\income_first-1000-s42-r0-project_cash.json",
+        "old_sha256": "e3c8e376e8ea175d66f66d8d38c209223cfece5ecd59631958917f379bcc19cb",
+        "initial_equal": true,
+        "rows_equal": true,
+        "different_ticks": []
+      },
+      {
+        "case": "income_first-1000-s43-r0-baseline",
+        "old_path": "C:\\Users\\ayman\\Documents\\ecosim-review\\reports\\business-map-20261025\\research-spending-followup\\economy\\cases\\income_first-1000-s43-r0-project_cash.json",
+        "old_sha256": "2f1a0f34c644472d460ae4afcdbe8a0412b0e45d44c4f5e27accd87ccb998a05",
+        "initial_equal": true,
+        "rows_equal": true,
+        "different_ticks": []
+      },
+      {
+        "case": "income_first-1000-s44-r0-baseline",
+        "old_path": "C:\\Users\\ayman\\Documents\\ecosim-review\\reports\\business-map-20261025\\research-spending-followup\\economy\\cases\\income_first-1000-s44-r0-project_cash.json",
+        "old_sha256": "0314d94e0a8d89650c854296acc9905f117452436272f2065d4e9ea56990e809",
+        "initial_equal": true,
+        "rows_equal": true,
+        "different_ticks": []
+      },
+      {
+        "case": "income_late-1000-s42-r0-baseline",
+        "old_path": "C:\\Users\\ayman\\Documents\\ecosim-review\\reports\\business-map-20261025\\research-spending-followup\\economy\\cases\\income_late-1000-s42-r0-project_cash.json",
+        "old_sha256": "397739d0c302f4e236d52815ab2c7942f01d75782c2ff8146eacf0f516d53cf1",
+        "initial_equal": true,
+        "rows_equal": true,
+        "different_ticks": []
+      },
+      {
+        "case": "income_late-1000-s43-r0-baseline",
+        "old_path": "C:\\Users\\ayman\\Documents\\ecosim-review\\reports\\business-map-20261025\\research-spending-followup\\economy\\cases\\income_late-1000-s43-r0-project_cash.json",
+        "old_sha256": "2da1a089c28de82f62a06feb743d0911a70e04da984b49124d129da70b86ff4a",
+        "initial_equal": true,
+        "rows_equal": true,
+        "different_ticks": []
+      },
+      {
+        "case": "income_late-1000-s44-r0-baseline",
+        "old_path": "C:\\Users\\ayman\\Documents\\ecosim-review\\reports\\business-map-20261025\\research-spending-followup\\economy\\cases\\income_late-1000-s44-r0-project_cash.json",
+        "old_sha256": "5a5b3bf6bae95f73a7d989ac23b17c765899b42a5c61ec39dee5a94ce9d36fe4",
+        "initial_equal": true,
+        "rows_equal": true,
+        "different_ticks": []
+      }
+    ]
+  },
+  "cases": [
+    {
+      "sequence": "income_first",
+      "population": 1000,
+      "seed": 42,
+      "repeat": 0,
+      "arm": "baseline",
+      "raw_case_sha256": "a11cb31e0e1846046cafef24899bd5cbe51e61d45b9b8c8f62746dca528de448",
+      "initial": {
+        "nonquality_profile_hash": "4849d6f9a47d9588c4684cb9663bd981bfcd4c34e43790d197e0a82a673740ed",
+        "rng_hash": "4a42e677e407e52609668c6657fee9d83cf5ea7f3fd881a3f5cec2d77a3a057a",
+        "quality": [
+          [
+            1,
+            "Food",
+            true,
+            0.1
+          ],
+          [
+            2,
+            "Housing",
+            true,
+            3.032197614685701
+          ],
+          [
+            3,
+            "Services",
+            true,
+            0.1
+          ],
+          [
+            4,
+            "Healthcare",
+            true,
+            2.9806054023794877
+          ],
+          [
+            5,
+            "Food",
+            false,
+            0.4923715303865891
+          ],
+          [
+            6,
+            "Food",
+            false,
+            0.4615101930053809
+          ],
+          [
+            7,
+            "Food",
+            false,
+            0.6000923031871525
+          ],
+          [
+            8,
+            "Food",
+            false,
+            0.2632740772795186
+          ],
+          [
+            9,
+            "Food",
+            false,
+            0.3778734949489672
+          ],
+          [
+            10,
+            "Food",
+            false,
+            0.531169063000136
+          ],
+          [
+            11,
+            "Food",
+            false,
+            0.62870796377635
+          ],
+          [
+            12,
+            "Food",
+            false,
+            0.39605034912588155
+          ],
+          [
+            13,
+            "Food",
+            false,
+            0.8037272724394644
+          ],
+          [
+            14,
+            "Food",
+            false,
+            0.6517102217987353
+          ],
+          [
+            15,
+            "Food",
+            false,
+            0.7545846826087161
+          ],
+          [
+            16,
+            "Food",
+            false,
+            0.8169233644577398
+          ],
+          [
+            17,
+            "Food",
+            false,
+            0.538046847203802
+          ],
+          [
+            18,
+            "Food",
+            false,
+            0.7599837868519868
+          ],
+          [
+            19,
+            "Food",
+            false,
+            1.0651130288573867
+          ],
+          [
+            20,
+            "Food",
+            false,
+            0.5408677794479109
+          ],
+          [
+            21,
+            "Food",
+            false,
+            0.45839253864175755
+          ],
+          [
+            22,
+            "Food",
+            false,
+            0.4603978349373978
+          ],
+          [
+            23,
+            "Food",
+            false,
+            0.5371118621880234
+          ],
+          [
+            24,
+            "Food",
+            false,
+            0.35512864066921396
+          ],
+          [
+            25,
+            "Services",
+            false,
+            0.6906602453136823
+          ],
+          [
+            26,
+            "Services",
+            false,
+            0.14071238097274438
+          ],
+          [
+            27,
+            "Services",
+            false,
+            0.91365705122453
+          ],
+          [
+            28,
+            "Services",
+            false,
+            0.9393188918468783
+          ],
+          [
+            29,
+            "Services",
+            false,
+            0.6278532301678281
+          ],
+          [
+            30,
+            "Services",
+            false,
+            0.3032308166667293
+          ],
+          [
+            31,
+            "Services",
+            false,
+            0.637336282980366
+          ],
+          [
+            32,
+            "Services",
+            false,
+            0.1444519989282961
+          ],
+          [
+            33,
+            "Services",
+            false,
+            0.44930091619550344
+          ],
+          [
+            34,
+            "Services",
+            false,
+            0.9651694553701695
+          ],
+          [
+            35,
+            "Services",
+            false,
+            0.6197199964865244
+          ],
+          [
+            36,
+            "Services",
+            false,
+            0.6551288381773673
+          ],
+          [
+            37,
+            "Services",
+            false,
+            0.405314625379226
+          ],
+          [
+            38,
+            "Services",
+            false,
+            0.936274312357692
+          ],
+          [
+            39,
+            "Services",
+            false,
+            0.7398089415896241
+          ],
+          [
+            40,
+            "Services",
+            false,
+            0.784315730024189
+          ],
+          [
+            41,
+            "Services",
+            false,
+            0.7085707815451654
+          ],
+          [
+            42,
+            "Services",
+            false,
+            0.25980344230669494
+          ],
+          [
+            43,
+            "Services",
+            false,
+            0.6311345446495659
+          ],
+          [
+            44,
+            "Services",
+            false,
+            0.21464844123187699
+          ]
+        ],
+        "quality_hash": "96f3ffa5849e12e537950fc53f59df9b70ccf9e1c8e0200ba1e081afce710645"
+      },
+      "comparable_config_hash": "30155b3b188e3addd5a39995df3726f3e2179a27c119bfb997d1e97d1bbc8301",
+      "late_means_101_200": {
+        "tick": 150.5,
+        "active_firms": 36.0,
+        "queued_firms": 9.0,
+        "private_food_services": 32.0,
+        "entries": 0.0,
+        "exits": 0.0,
+        "activations": 0.0,
+        "quality_mean": 1.0006076902326375,
+        "quality_max": 2.4788273196085657,
+        "quality_p50": 0.8719268956521532,
+        "quality_p90": 1.7983373760152603,
+        "effective_quality_max": 2.4788273196085657,
+        "quality_near_perfect": 0.0,
+        "effective_quality_near_perfect": 0.0,
+        "baseline_quality_max": 0.09999999999999981,
+        "private_sales_share": 0.9825011158343077,
+        "research_active": 12.16,
+        "research_paused": 15.36,
+        "research_open": 27.52,
+        "research_private_cash": 188223.06400008328,
+        "food_units": 3359.853880027436,
+        "services_units": 733.9522084671557,
+        "food_access": 1000.0,
+        "services_access": 768.69,
+        "housing_access": 897.46,
+        "food_output": 3386.9539220030683,
+        "services_output": 741.6660050816275,
+        "services_workers": 194.9,
+        "services_slots": 195.72,
+        "jobs": 454.49,
+        "paid_wages": 23404.4920431559,
+        "dividends": 5886.916025295381,
+        "wage_claims": 290540.20100764796,
+        "household_cash": 214497.98471344684,
+        "household_deposits": 3564423.7725842465,
+        "firm_cash": 875216.9543132416,
+        "firm_bank_debt": 79858.59814847403,
+        "firm_treasury_debt": 205816.90401062314,
+        "private_operating_profit": 10687.470303474218,
+        "food_mean_price": 4.883076824255568,
+        "services_mean_price": 32.04343094702052,
+        "government_cash": 13335.233077887948,
+        "bank_cash": 4986132.31491186,
+        "gdp": 35116.99234001453,
+        "happiness": 0.42219018291146454,
+        "health": 0.633750774571048,
+        "money_residual": -3.5736430436372758e-06,
+        "clearing_residual": -1.1152678780490532e-11,
+        "food_quality_mean": 1.171234326696462,
+        "food_quality_max": 2.4788273196085657,
+        "food_private_sales_share": 0.9937775879799083,
+        "services_quality_mean": 0.7162299627929325,
+        "services_quality_max": 1.2844323174406727,
+        "services_private_sales_share": 0.9695889507727249
+      },
+      "late_misc_means_101_200": {
+        "misc_firm_revenue": 3317.51297999131,
+        "diagnostic_bank_writeoffs_cumulative": 0.0,
+        "diagnostic_firm_delinquent_loans": 0.0,
+        "diagnostic_unpaid_research_commitments": 118503.2630711103,
+        "private_fs_wage_claim_stock": 12078.165390713313,
+        "private_fs_current_unpaid_gross": 392.8006553948225,
+        "private_fs_payroll_credit_funded": 0.0,
+        "private_fs_financial_layoffs": 0.0,
+        "private_fs_cancelled_hires": 0.0
+      },
+      "week_200": {
+        "tick": 200,
+        "active_firms": 36,
+        "queued_firms": 9,
+        "private_food_services": 32,
+        "entries": 0,
+        "exits": 0,
+        "activations": 0,
+        "quality_mean": 1.144313218957555,
+        "quality_max": 2.9774346645659637,
+        "quality_p50": 0.9459206432879914,
+        "quality_p90": 2.1098440610949116,
+        "effective_quality_max": 2.9774346645659637,
+        "quality_near_perfect": 0,
+        "effective_quality_near_perfect": 0,
+        "baseline_quality_max": 0.1,
+        "private_sales_share": 0.9875759469465836,
+        "research_active": 13,
+        "research_paused": 12,
+        "research_open": 25,
+        "research_private_cash": 293189.3161459077,
+        "food_units": 3571.127314868219,
+        "services_units": 1369.600921524224,
+        "food_access": 1000,
+        "services_access": 975,
+        "housing_access": 997,
+        "food_output": 3592.7855520507474,
+        "services_output": 1382.2098398481048,
+        "services_workers": 355,
+        "services_slots": 357.5,
+        "jobs": 636,
+        "paid_wages": 31718.886707016365,
+        "dividends": 7404.511728436376,
+        "wage_claims": 298662.31457667635,
+        "household_cash": 206303.43897782866,
+        "household_deposits": 3344670.54127598,
+        "firm_cash": 1166346.6272278337,
+        "firm_bank_debt": 152739.83805752103,
+        "firm_treasury_debt": 77125.33395033836,
+        "private_operating_profit": 14375.302187170086,
+        "food_mean_price": 4.771206242184995,
+        "services_mean_price": 26.418595315879696,
+        "government_cash": 22324.722135756056,
+        "bank_cash": 4695363.017778686,
+        "gdp": 48917.71000406004,
+        "happiness": 0.4160519364829333,
+        "health": 0.6312388450739889,
+        "money_residual": -5.364418029785156e-06,
+        "clearing_residual": -7.185008144006133e-11,
+        "food_quality_mean": 1.2969591496112798,
+        "food_quality_max": 2.9774346645659637,
+        "food_private_sales_share": 0.9959298640094074,
+        "services_quality_mean": 0.8899033345346798,
+        "services_quality_max": 1.613830321621467,
+        "services_private_sales_share": 0.9821222201457387
+      },
+      "week_200_misc": {
+        "misc_firm_revenue": 2162.1938745312905,
+        "diagnostic_bank_writeoffs_cumulative": 0.0,
+        "diagnostic_firm_delinquent_loans": 0,
+        "diagnostic_unpaid_research_commitments": 82729.69035865171,
+        "private_fs_wage_claim_stock": 39280.06553948212,
+        "private_fs_current_unpaid_gross": 765.3225145950536,
+        "private_fs_payroll_credit_funded": 0,
+        "private_fs_financial_layoffs": 0,
+        "private_fs_cancelled_hires": 0
+      }
+    },
+    {
+      "sequence": "income_first",
+      "population": 1000,
+      "seed": 42,
+      "repeat": 0,
+      "arm": "candidate",
+      "raw_case_sha256": "05a90cc80ccf1a680553aa3787c1ebb20f74d26343cea14c9e7bfb4277a39c70",
+      "initial": {
+        "nonquality_profile_hash": "4849d6f9a47d9588c4684cb9663bd981bfcd4c34e43790d197e0a82a673740ed",
+        "rng_hash": "4a42e677e407e52609668c6657fee9d83cf5ea7f3fd881a3f5cec2d77a3a057a",
+        "quality": [
+          [
+            1,
+            "Food",
+            true,
+            0.1
+          ],
+          [
+            2,
+            "Housing",
+            true,
+            3.032197614685701
+          ],
+          [
+            3,
+            "Services",
+            true,
+            0.1
+          ],
+          [
+            4,
+            "Healthcare",
+            true,
+            2.9806054023794877
+          ],
+          [
+            5,
+            "Food",
+            false,
+            0.4923715303865891
+          ],
+          [
+            6,
+            "Food",
+            false,
+            0.4615101930053809
+          ],
+          [
+            7,
+            "Food",
+            false,
+            0.6000923031871525
+          ],
+          [
+            8,
+            "Food",
+            false,
+            0.2632740772795186
+          ],
+          [
+            9,
+            "Food",
+            false,
+            0.3778734949489672
+          ],
+          [
+            10,
+            "Food",
+            false,
+            0.531169063000136
+          ],
+          [
+            11,
+            "Food",
+            false,
+            0.62870796377635
+          ],
+          [
+            12,
+            "Food",
+            false,
+            0.39605034912588155
+          ],
+          [
+            13,
+            "Food",
+            false,
+            0.8037272724394644
+          ],
+          [
+            14,
+            "Food",
+            false,
+            0.6517102217987353
+          ],
+          [
+            15,
+            "Food",
+            false,
+            0.7545846826087161
+          ],
+          [
+            16,
+            "Food",
+            false,
+            0.8169233644577398
+          ],
+          [
+            17,
+            "Food",
+            false,
+            0.538046847203802
+          ],
+          [
+            18,
+            "Food",
+            false,
+            0.7599837868519868
+          ],
+          [
+            19,
+            "Food",
+            false,
+            1.0651130288573867
+          ],
+          [
+            20,
+            "Food",
+            false,
+            0.5408677794479109
+          ],
+          [
+            21,
+            "Food",
+            false,
+            0.45839253864175755
+          ],
+          [
+            22,
+            "Food",
+            false,
+            0.4603978349373978
+          ],
+          [
+            23,
+            "Food",
+            false,
+            0.5371118621880234
+          ],
+          [
+            24,
+            "Food",
+            false,
+            0.35512864066921396
+          ],
+          [
+            25,
+            "Services",
+            false,
+            0.6906602453136823
+          ],
+          [
+            26,
+            "Services",
+            false,
+            0.14071238097274438
+          ],
+          [
+            27,
+            "Services",
+            false,
+            0.91365705122453
+          ],
+          [
+            28,
+            "Services",
+            false,
+            0.9393188918468783
+          ],
+          [
+            29,
+            "Services",
+            false,
+            0.6278532301678281
+          ],
+          [
+            30,
+            "Services",
+            false,
+            0.3032308166667293
+          ],
+          [
+            31,
+            "Services",
+            false,
+            0.637336282980366
+          ],
+          [
+            32,
+            "Services",
+            false,
+            0.1444519989282961
+          ],
+          [
+            33,
+            "Services",
+            false,
+            0.44930091619550344
+          ],
+          [
+            34,
+            "Services",
+            false,
+            0.9651694553701695
+          ],
+          [
+            35,
+            "Services",
+            false,
+            0.6197199964865244
+          ],
+          [
+            36,
+            "Services",
+            false,
+            0.6551288381773673
+          ],
+          [
+            37,
+            "Services",
+            false,
+            0.405314625379226
+          ],
+          [
+            38,
+            "Services",
+            false,
+            0.936274312357692
+          ],
+          [
+            39,
+            "Services",
+            false,
+            0.7398089415896241
+          ],
+          [
+            40,
+            "Services",
+            false,
+            0.784315730024189
+          ],
+          [
+            41,
+            "Services",
+            false,
+            0.7085707815451654
+          ],
+          [
+            42,
+            "Services",
+            false,
+            0.25980344230669494
+          ],
+          [
+            43,
+            "Services",
+            false,
+            0.6311345446495659
+          ],
+          [
+            44,
+            "Services",
+            false,
+            0.21464844123187699
+          ]
+        ],
+        "quality_hash": "96f3ffa5849e12e537950fc53f59df9b70ccf9e1c8e0200ba1e081afce710645"
+      },
+      "comparable_config_hash": "30155b3b188e3addd5a39995df3726f3e2179a27c119bfb997d1e97d1bbc8301",
+      "late_means_101_200": {
+        "tick": 150.5,
+        "active_firms": 35.93,
+        "queued_firms": 5.0,
+        "private_food_services": 31.93,
+        "entries": 0.0,
+        "exits": 0.07,
+        "activations": 0.07,
+        "quality_mean": 0.9973359051626922,
+        "quality_max": 2.4788273196085657,
+        "quality_p50": 0.8329861335793192,
+        "quality_p90": 1.7936765353314699,
+        "effective_quality_max": 2.4788273196085657,
+        "quality_near_perfect": 0.0,
+        "effective_quality_near_perfect": 0.0,
+        "baseline_quality_max": 0.09999999999999981,
+        "private_sales_share": 0.9838164492982372,
+        "research_active": 15.51,
+        "research_paused": 13.4,
+        "research_open": 28.91,
+        "research_private_cash": 248095.220139725,
+        "food_units": 3291.535454103871,
+        "services_units": 953.5436201474253,
+        "food_access": 999.72,
+        "services_access": 847.81,
+        "housing_access": 993.55,
+        "food_output": 3289.5063722260234,
+        "services_output": 984.5287401830205,
+        "services_workers": 239.61,
+        "services_slots": 255.965,
+        "jobs": 500.36,
+        "paid_wages": 27528.83370710289,
+        "dividends": 6951.118866073133,
+        "wage_claims": 277306.1706148407,
+        "household_cash": 217489.43310266163,
+        "household_deposits": 3491649.684210257,
+        "firm_cash": 997541.9493391917,
+        "firm_bank_debt": 98051.02612229498,
+        "firm_treasury_debt": 202210.6818257243,
+        "private_operating_profit": 13214.939622764045,
+        "food_mean_price": 5.181872056079332,
+        "services_mean_price": 33.678054433176385,
+        "government_cash": 29025.741178219076,
+        "bank_cash": 4883620.719463674,
+        "gdp": 41773.421341263376,
+        "happiness": 0.4377477603310179,
+        "health": 0.6225777818795654,
+        "money_residual": -1.9831489771604537e-06,
+        "clearing_residual": -1.6862515828108827e-11,
+        "food_quality_mean": 1.3181855487057885,
+        "food_quality_max": 2.4788273196085657,
+        "food_private_sales_share": 0.9923548450911345,
+        "services_quality_mean": 0.67556832062753,
+        "services_quality_max": 1.212940071065434,
+        "services_private_sales_share": 0.9745433092337192
+      },
+      "late_misc_means_101_200": {
+        "misc_firm_revenue": 4822.156914269064,
+        "diagnostic_bank_writeoffs_cumulative": 11579.92703440802,
+        "diagnostic_firm_delinquent_loans": 0.35,
+        "diagnostic_unpaid_research_commitments": 122877.942426005,
+        "private_fs_wage_claim_stock": 0.0,
+        "private_fs_current_unpaid_gross": 0.0,
+        "private_fs_payroll_credit_funded": 0.0,
+        "private_fs_financial_layoffs": 0.62,
+        "private_fs_cancelled_hires": 1.45
+      },
+      "week_200": {
+        "tick": 200,
+        "active_firms": 36,
+        "queued_firms": 2,
+        "private_food_services": 32,
+        "entries": 0,
+        "exits": 0,
+        "activations": 0,
+        "quality_mean": 1.2053888601122342,
+        "quality_max": 2.9774346645659637,
+        "quality_p50": 1.1624346139212771,
+        "quality_p90": 2.0135349671091545,
+        "effective_quality_max": 2.9774346645659637,
+        "quality_near_perfect": 0,
+        "effective_quality_near_perfect": 0,
+        "baseline_quality_max": 0.1,
+        "private_sales_share": 0.9884771877345805,
+        "research_active": 21,
+        "research_paused": 9,
+        "research_open": 30,
+        "research_private_cash": 441820.1135043557,
+        "food_units": 3751.291754052239,
+        "services_units": 1875.6929915014414,
+        "food_access": 1000,
+        "services_access": 1000,
+        "housing_access": 1000,
+        "food_output": 3723.503104719118,
+        "services_output": 2025.9482266054292,
+        "services_workers": 483,
+        "services_slots": 503.5,
+        "jobs": 776,
+        "paid_wages": 43237.37590118194,
+        "dividends": 8527.357743321658,
+        "wage_claims": 263903.4105211626,
+        "household_cash": 215268.90706151756,
+        "household_deposits": 3128630.8997072503,
+        "firm_cash": 1392381.0845659957,
+        "firm_bank_debt": 180558.06153196798,
+        "firm_treasury_debt": 86033.47795641252,
+        "private_operating_profit": 16933.117519670046,
+        "food_mean_price": 5.239872276827947,
+        "services_mean_price": 30.28072665011062,
+        "government_cash": 110007.87924251857,
+        "bank_cash": 4434174.166998946,
+        "gdp": 62032.356531292724,
+        "happiness": 0.4359177845978508,
+        "health": 0.624875488366522,
+        "money_residual": -4.602596163749695e-06,
+        "clearing_residual": 1.3776002560916822e-10,
+        "food_quality_mean": 1.5837917752945467,
+        "food_quality_max": 2.9774346645659637,
+        "food_private_sales_share": 0.9935874991232373,
+        "services_quality_mean": 0.9110754816371023,
+        "services_quality_max": 1.6864163458745685,
+        "services_private_sales_share": 0.9858167259575178
+      },
+      "week_200_misc": {
+        "misc_firm_revenue": 10667.962126419197,
+        "diagnostic_bank_writeoffs_cumulative": 16319.417936479815,
+        "diagnostic_firm_delinquent_loans": 0,
+        "diagnostic_unpaid_research_commitments": 105146.25174056366,
+        "private_fs_wage_claim_stock": 0,
+        "private_fs_current_unpaid_gross": 0.0,
+        "private_fs_payroll_credit_funded": 0.0,
+        "private_fs_financial_layoffs": 1,
+        "private_fs_cancelled_hires": 0
+      }
+    },
+    {
+      "sequence": "income_first",
+      "population": 1000,
+      "seed": 43,
+      "repeat": 0,
+      "arm": "candidate",
+      "raw_case_sha256": "3b472326a4aa9c1ec4ad6b0665401fc3649f7315d95c9da581fb3ea281ddb3c9",
+      "initial": {
+        "nonquality_profile_hash": "5ceb64f75827f856be3f9c4c46c528176ad4b9ecb2ce6c21b85d9f7a2d505d06",
+        "rng_hash": "bd8cc226b3a726e379639cba2726ac418a01f98db1bbf414ed9411394a6b485a",
+        "quality": [
+          [
+            1,
+            "Food",
+            true,
+            0.1
+          ],
+          [
+            2,
+            "Housing",
+            true,
+            2.9574325800582115
+          ],
+          [
+            3,
+            "Services",
+            true,
+            0.1
+          ],
+          [
+            4,
+            "Healthcare",
+            true,
+            3.0082830496194717
+          ],
+          [
+            5,
+            "Food",
+            false,
+            0.4803988382194974
+          ],
+          [
+            6,
+            "Food",
+            false,
+            0.529747856487348
+          ],
+          [
+            7,
+            "Food",
+            false,
+            0.5656286745588676
+          ],
+          [
+            8,
+            "Food",
+            false,
+            0.349126048886407
+          ],
+          [
+            9,
+            "Food",
+            false,
+            0.5112652334261477
+          ],
+          [
+            10,
+            "Food",
+            false,
+            0.7532042654851413
+          ],
+          [
+            11,
+            "Food",
+            false,
+            0.4917997122141309
+          ],
+          [
+            12,
+            "Food",
+            false,
+            0.3901612282654181
+          ],
+          [
+            13,
+            "Food",
+            false,
+            0.6597864650809018
+          ],
+          [
+            14,
+            "Food",
+            false,
+            0.2604864387589798
+          ],
+          [
+            15,
+            "Food",
+            false,
+            0.8824488216205653
+          ],
+          [
+            16,
+            "Food",
+            false,
+            0.30947644300728505
+          ],
+          [
+            17,
+            "Food",
+            false,
+            0.5061576434410949
+          ],
+          [
+            18,
+            "Food",
+            false,
+            0.669060981234352
+          ],
+          [
+            19,
+            "Food",
+            false,
+            0.7182697885261222
+          ],
+          [
+            20,
+            "Food",
+            false,
+            0.4429835676802701
+          ],
+          [
+            21,
+            "Food",
+            false,
+            0.6640576066815757
+          ],
+          [
+            22,
+            "Food",
+            false,
+            0.5094723306811467
+          ],
+          [
+            23,
+            "Food",
+            false,
+            0.5096136778712255
+          ],
+          [
+            24,
+            "Food",
+            false,
+            0.5635930463250776
+          ],
+          [
+            25,
+            "Services",
+            false,
+            0.8044243397863404
+          ],
+          [
+            26,
+            "Services",
+            false,
+            0.7432263217132696
+          ],
+          [
+            27,
+            "Services",
+            false,
+            0.6439994398485652
+          ],
+          [
+            28,
+            "Services",
+            false,
+            0.5930622486919137
+          ],
+          [
+            29,
+            "Services",
+            false,
+            0.5368905368320818
+          ],
+          [
+            30,
+            "Services",
+            false,
+            0.5501847431697451
+          ],
+          [
+            31,
+            "Services",
+            false,
+            0.6793263491990839
+          ],
+          [
+            32,
+            "Services",
+            false,
+            0.5182590494866647
+          ],
+          [
+            33,
+            "Services",
+            false,
+            0.42887281658822796
+          ],
+          [
+            34,
+            "Services",
+            false,
+            0.8604966536377948
+          ],
+          [
+            35,
+            "Services",
+            false,
+            0.6203264004379339
+          ],
+          [
+            36,
+            "Services",
+            false,
+            0.8503228554088245
+          ],
+          [
+            37,
+            "Services",
+            false,
+            0.36923864411684637
+          ],
+          [
+            38,
+            "Services",
+            false,
+            0.47764368896517345
+          ],
+          [
+            39,
+            "Services",
+            false,
+            0.8164658355194188
+          ],
+          [
+            40,
+            "Services",
+            false,
+            0.2991910279702071
+          ],
+          [
+            41,
+            "Services",
+            false,
+            1.0858212687925781
+          ],
+          [
+            42,
+            "Services",
+            false,
+            0.4289002000676502
+          ],
+          [
+            43,
+            "Services",
+            false,
+            0.4362956379407293
+          ],
+          [
+            44,
+            "Services",
+            false,
+            0.8096248661629097
+          ]
+        ],
+        "quality_hash": "3990093f4fd5bf9fc6bdd6d3f9b3f21066e375c56fe4bb310ccaf8e1aaff172d"
+      },
+      "comparable_config_hash": "900324bff15fc770722205e1027bcf38f9f518fc22871f7949971aa88b6db758",
+      "late_means_101_200": {
+        "tick": 150.5,
+        "active_firms": 35.98,
+        "queued_firms": 7.88,
+        "private_food_services": 31.98,
+        "entries": 0.0,
+        "exits": 0.02,
+        "activations": 0.02,
+        "quality_mean": 1.0111857406954172,
+        "quality_max": 2.1410666891853567,
+        "quality_p50": 0.9084601097167959,
+        "quality_p90": 1.6104784270498573,
+        "effective_quality_max": 2.1410666891853567,
+        "quality_near_perfect": 0.0,
+        "effective_quality_near_perfect": 0.0,
+        "baseline_quality_max": 0.09999999999999981,
+        "private_sales_share": 0.9847649789869,
+        "research_active": 18.39,
+        "research_paused": 11.2,
+        "research_open": 29.59,
+        "research_private_cash": 266881.6435000188,
+        "food_units": 3562.240836569613,
+        "services_units": 1020.1456009596054,
+        "food_access": 1000.0,
+        "services_access": 895.47,
+        "housing_access": 998.83,
+        "food_output": 3557.153165704529,
+        "services_output": 1052.1243068379406,
+        "services_workers": 298.77,
+        "services_slots": 300.015,
+        "jobs": 567.6,
+        "paid_wages": 28830.143750608964,
+        "dividends": 5356.461551175709,
+        "wage_claims": 284076.45403843035,
+        "household_cash": 208685.58973473005,
+        "household_deposits": 3259893.2345092217,
+        "firm_cash": 1170886.1534531768,
+        "firm_bank_debt": 78850.6723199081,
+        "firm_treasury_debt": 211662.64800016434,
+        "private_operating_profit": 14459.438584906251,
+        "food_mean_price": 5.0035175800275535,
+        "services_mean_price": 31.33130287966378,
+        "government_cash": 36607.909085526175,
+        "bank_cash": 4682629.807283972,
+        "gdp": 44169.76568133853,
+        "happiness": 0.47015398547614995,
+        "health": 0.6690212823432335,
+        "money_residual": -4.5007932931184765e-06,
+        "clearing_residual": 8.745928425923922e-12,
+        "food_quality_mean": 1.153059547013443,
+        "food_quality_max": 2.1410666891853567,
+        "food_private_sales_share": 0.9919669629864775,
+        "services_quality_mean": 0.8097685698669095,
+        "services_quality_max": 1.5028288766837263,
+        "services_private_sales_share": 0.9784399881039483
+      },
+      "late_misc_means_101_200": {
+        "misc_firm_revenue": 4890.540438093563,
+        "diagnostic_bank_writeoffs_cumulative": 6.208534968015281,
+        "diagnostic_firm_delinquent_loans": 0.07,
+        "diagnostic_unpaid_research_commitments": 90451.02836684263,
+        "private_fs_wage_claim_stock": 0.0,
+        "private_fs_current_unpaid_gross": 0.0,
+        "private_fs_payroll_credit_funded": 0.0,
+        "private_fs_financial_layoffs": 0.54,
+        "private_fs_cancelled_hires": 0.97
+      },
+      "week_200": {
+        "tick": 200,
+        "active_firms": 36,
+        "queued_firms": 7,
+        "private_food_services": 32,
+        "entries": 0,
+        "exits": 0,
+        "activations": 0,
+        "quality_mean": 1.2411443268251696,
+        "quality_max": 2.4306992868174015,
+        "quality_p50": 1.121112924877322,
+        "quality_p90": 1.9700932954254933,
+        "effective_quality_max": 2.4306992868174015,
+        "quality_near_perfect": 0,
+        "effective_quality_near_perfect": 0,
+        "baseline_quality_max": 0.1,
+        "private_sales_share": 0.9876674848209093,
+        "research_active": 21,
+        "research_paused": 9,
+        "research_open": 30,
+        "research_private_cash": 460089.6283550643,
+        "food_units": 3802.623108286742,
+        "services_units": 1654.6781714265207,
+        "food_access": 1000,
+        "services_access": 1000,
+        "housing_access": 1000,
+        "food_output": 3865.214258746786,
+        "services_output": 1812.1695830306796,
+        "services_workers": 514,
+        "services_slots": 519.5,
+        "jobs": 800,
+        "paid_wages": 40108.06940632599,
+        "dividends": 5658.84103880789,
+        "wage_claims": 284140.1588985881,
+        "household_cash": 179476.65084138885,
+        "household_deposits": 2845417.249722294,
+        "firm_cash": 1593554.8917754618,
+        "firm_bank_debt": 140803.5693681437,
+        "firm_treasury_debt": 77315.65462350623,
+        "private_operating_profit": 16879.86604169149,
+        "food_mean_price": 5.014996978115379,
+        "services_mean_price": 27.319093316002412,
+        "government_cash": 119779.70124943636,
+        "bank_cash": 4207866.2413262855,
+        "gdp": 58489.01811535231,
+        "happiness": 0.47453742433912544,
+        "health": 0.6558103119449419,
+        "money_residual": -7.156282663345337e-06,
+        "clearing_residual": 2.0759216567967087e-10,
+        "food_quality_mean": 1.3568041623788631,
+        "food_quality_max": 2.4306992868174015,
+        "food_private_sales_share": 0.9944462065052978,
+        "services_quality_mean": 1.0924388239704206,
+        "services_quality_max": 1.907663052426046,
+        "services_private_sales_share": 0.9842795179495195
+      },
+      "week_200_misc": {
+        "misc_firm_revenue": 11822.51480027119,
+        "diagnostic_bank_writeoffs_cumulative": 15.142768214671417,
+        "diagnostic_firm_delinquent_loans": 0,
+        "diagnostic_unpaid_research_commitments": 135163.23534658944,
+        "private_fs_wage_claim_stock": 0,
+        "private_fs_current_unpaid_gross": 0.0,
+        "private_fs_payroll_credit_funded": 0.0,
+        "private_fs_financial_layoffs": 3,
+        "private_fs_cancelled_hires": 0
+      }
+    },
+    {
+      "sequence": "income_first",
+      "population": 1000,
+      "seed": 43,
+      "repeat": 0,
+      "arm": "baseline",
+      "raw_case_sha256": "5f29fc765fdf349bc4ddcd8b5e2117ba9470036a394aac799f3d2adf96ee4afb",
+      "initial": {
+        "nonquality_profile_hash": "5ceb64f75827f856be3f9c4c46c528176ad4b9ecb2ce6c21b85d9f7a2d505d06",
+        "rng_hash": "bd8cc226b3a726e379639cba2726ac418a01f98db1bbf414ed9411394a6b485a",
+        "quality": [
+          [
+            1,
+            "Food",
+            true,
+            0.1
+          ],
+          [
+            2,
+            "Housing",
+            true,
+            2.9574325800582115
+          ],
+          [
+            3,
+            "Services",
+            true,
+            0.1
+          ],
+          [
+            4,
+            "Healthcare",
+            true,
+            3.0082830496194717
+          ],
+          [
+            5,
+            "Food",
+            false,
+            0.4803988382194974
+          ],
+          [
+            6,
+            "Food",
+            false,
+            0.529747856487348
+          ],
+          [
+            7,
+            "Food",
+            false,
+            0.5656286745588676
+          ],
+          [
+            8,
+            "Food",
+            false,
+            0.349126048886407
+          ],
+          [
+            9,
+            "Food",
+            false,
+            0.5112652334261477
+          ],
+          [
+            10,
+            "Food",
+            false,
+            0.7532042654851413
+          ],
+          [
+            11,
+            "Food",
+            false,
+            0.4917997122141309
+          ],
+          [
+            12,
+            "Food",
+            false,
+            0.3901612282654181
+          ],
+          [
+            13,
+            "Food",
+            false,
+            0.6597864650809018
+          ],
+          [
+            14,
+            "Food",
+            false,
+            0.2604864387589798
+          ],
+          [
+            15,
+            "Food",
+            false,
+            0.8824488216205653
+          ],
+          [
+            16,
+            "Food",
+            false,
+            0.30947644300728505
+          ],
+          [
+            17,
+            "Food",
+            false,
+            0.5061576434410949
+          ],
+          [
+            18,
+            "Food",
+            false,
+            0.669060981234352
+          ],
+          [
+            19,
+            "Food",
+            false,
+            0.7182697885261222
+          ],
+          [
+            20,
+            "Food",
+            false,
+            0.4429835676802701
+          ],
+          [
+            21,
+            "Food",
+            false,
+            0.6640576066815757
+          ],
+          [
+            22,
+            "Food",
+            false,
+            0.5094723306811467
+          ],
+          [
+            23,
+            "Food",
+            false,
+            0.5096136778712255
+          ],
+          [
+            24,
+            "Food",
+            false,
+            0.5635930463250776
+          ],
+          [
+            25,
+            "Services",
+            false,
+            0.8044243397863404
+          ],
+          [
+            26,
+            "Services",
+            false,
+            0.7432263217132696
+          ],
+          [
+            27,
+            "Services",
+            false,
+            0.6439994398485652
+          ],
+          [
+            28,
+            "Services",
+            false,
+            0.5930622486919137
+          ],
+          [
+            29,
+            "Services",
+            false,
+            0.5368905368320818
+          ],
+          [
+            30,
+            "Services",
+            false,
+            0.5501847431697451
+          ],
+          [
+            31,
+            "Services",
+            false,
+            0.6793263491990839
+          ],
+          [
+            32,
+            "Services",
+            false,
+            0.5182590494866647
+          ],
+          [
+            33,
+            "Services",
+            false,
+            0.42887281658822796
+          ],
+          [
+            34,
+            "Services",
+            false,
+            0.8604966536377948
+          ],
+          [
+            35,
+            "Services",
+            false,
+            0.6203264004379339
+          ],
+          [
+            36,
+            "Services",
+            false,
+            0.8503228554088245
+          ],
+          [
+            37,
+            "Services",
+            false,
+            0.36923864411684637
+          ],
+          [
+            38,
+            "Services",
+            false,
+            0.47764368896517345
+          ],
+          [
+            39,
+            "Services",
+            false,
+            0.8164658355194188
+          ],
+          [
+            40,
+            "Services",
+            false,
+            0.2991910279702071
+          ],
+          [
+            41,
+            "Services",
+            false,
+            1.0858212687925781
+          ],
+          [
+            42,
+            "Services",
+            false,
+            0.4289002000676502
+          ],
+          [
+            43,
+            "Services",
+            false,
+            0.4362956379407293
+          ],
+          [
+            44,
+            "Services",
+            false,
+            0.8096248661629097
+          ]
+        ],
+        "quality_hash": "3990093f4fd5bf9fc6bdd6d3f9b3f21066e375c56fe4bb310ccaf8e1aaff172d"
+      },
+      "comparable_config_hash": "900324bff15fc770722205e1027bcf38f9f518fc22871f7949971aa88b6db758",
+      "late_means_101_200": {
+        "tick": 150.5,
+        "active_firms": 36.0,
+        "queued_firms": 9.0,
+        "private_food_services": 32.0,
+        "entries": 0.0,
+        "exits": 0.0,
+        "activations": 0.0,
+        "quality_mean": 1.0154823518465654,
+        "quality_max": 2.1410666891853567,
+        "quality_p50": 0.8963739116424573,
+        "quality_p90": 1.6276441679866245,
+        "effective_quality_max": 2.1410666891853567,
+        "quality_near_perfect": 0.0,
+        "effective_quality_near_perfect": 0.0,
+        "baseline_quality_max": 0.09999999999999981,
+        "private_sales_share": 0.9854955206541195,
+        "research_active": 18.61,
+        "research_paused": 10.56,
+        "research_open": 29.17,
+        "research_private_cash": 285042.50398666394,
+        "food_units": 3689.0105471740353,
+        "services_units": 1063.826622075408,
+        "food_access": 1000.0,
+        "services_access": 892.46,
+        "housing_access": 997.58,
+        "food_output": 3714.9173735041545,
+        "services_output": 1100.0469440015172,
+        "services_workers": 302.82,
+        "services_slots": 304.185,
+        "jobs": 581.86,
+        "paid_wages": 29103.283658762077,
+        "dividends": 5356.365025932777,
+        "wage_claims": 291821.7942938047,
+        "household_cash": 205579.89461435124,
+        "household_deposits": 3231786.690737417,
+        "firm_cash": 1181844.112866656,
+        "firm_bank_debt": 73219.5860703065,
+        "firm_treasury_debt": 209952.37583319042,
+        "private_operating_profit": 15089.841246890512,
+        "food_mean_price": 4.986792520241322,
+        "services_mean_price": 31.159453560723897,
+        "government_cash": 39634.803728656385,
+        "bank_cash": 4659987.382934823,
+        "gdp": 45491.97660421488,
+        "happiness": 0.47214925687367987,
+        "health": 0.6812700990539646,
+        "money_residual": -1.6697123646736144e-06,
+        "clearing_residual": 1.77351466845721e-13,
+        "food_quality_mean": 1.1249903799605894,
+        "food_quality_max": 2.1410666891853567,
+        "food_private_sales_share": 0.9923704836094273,
+        "services_quality_mean": 0.8329689716565243,
+        "services_quality_max": 1.497295295334913,
+        "services_private_sales_share": 0.9797035829683165
+      },
+      "late_misc_means_101_200": {
+        "misc_firm_revenue": 5453.80585384361,
+        "diagnostic_bank_writeoffs_cumulative": 0.0,
+        "diagnostic_firm_delinquent_loans": 0.0,
+        "diagnostic_unpaid_research_commitments": 97065.53811445879,
+        "private_fs_wage_claim_stock": 6618.54792254733,
+        "private_fs_current_unpaid_gross": 285.83970691695504,
+        "private_fs_payroll_credit_funded": 0.0,
+        "private_fs_financial_layoffs": 0.0,
+        "private_fs_cancelled_hires": 0.0
+      },
+      "week_200": {
+        "tick": 200,
+        "active_firms": 36,
+        "queued_firms": 9,
+        "private_food_services": 32,
+        "entries": 0,
+        "exits": 0,
+        "activations": 0,
+        "quality_mean": 1.2447601195487785,
+        "quality_max": 2.4306992868174015,
+        "quality_p50": 1.121112924877322,
+        "quality_p90": 1.9700932954254933,
+        "effective_quality_max": 2.4306992868174015,
+        "quality_near_perfect": 0,
+        "effective_quality_near_perfect": 0,
+        "baseline_quality_max": 0.1,
+        "private_sales_share": 0.9884460173161973,
+        "research_active": 20,
+        "research_paused": 7,
+        "research_open": 27,
+        "research_private_cash": 427111.727050958,
+        "food_units": 3925.870320604058,
+        "services_units": 1852.4596853930864,
+        "food_access": 1000,
+        "services_access": 996,
+        "housing_access": 999,
+        "food_output": 4011.244680066744,
+        "services_output": 1957.3001350974914,
+        "services_workers": 543,
+        "services_slots": 545.0,
+        "jobs": 841,
+        "paid_wages": 40863.282991292304,
+        "dividends": 5970.955987999038,
+        "wage_claims": 317931.4022279992,
+        "household_cash": 187253.0900535215,
+        "household_deposits": 2833480.4133823738,
+        "firm_cash": 1552862.6472144914,
+        "firm_bank_debt": 123272.45465116366,
+        "firm_treasury_debt": 47033.25853002068,
+        "private_operating_profit": 18859.943280042997,
+        "food_mean_price": 4.999931279257985,
+        "services_mean_price": 25.375859480528334,
+        "government_cash": 125334.75607185341,
+        "bank_cash": 4212877.029600699,
+        "gdp": 62763.49679709853,
+        "happiness": 0.4728303296282513,
+        "health": 0.6624560119281314,
+        "money_residual": -3.0156224966049194e-06,
+        "clearing_residual": -4.838511813431978e-10,
+        "food_quality_mean": 1.295141550905887,
+        "food_quality_max": 2.4306992868174015,
+        "food_private_sales_share": 0.9945568904340834,
+        "services_quality_mean": 1.160791067286931,
+        "services_quality_max": 1.907663052426046,
+        "services_private_sales_share": 0.985462250879821
+      },
+      "week_200_misc": {
+        "misc_firm_revenue": 14172.47705641872,
+        "diagnostic_bank_writeoffs_cumulative": 0.0,
+        "diagnostic_firm_delinquent_loans": 0,
+        "diagnostic_unpaid_research_commitments": 126532.19635690204,
+        "private_fs_wage_claim_stock": 28583.970691695366,
+        "private_fs_current_unpaid_gross": 739.9594251015083,
+        "private_fs_payroll_credit_funded": 0,
+        "private_fs_financial_layoffs": 0,
+        "private_fs_cancelled_hires": 0
+      }
+    },
+    {
+      "sequence": "income_first",
+      "population": 1000,
+      "seed": 44,
+      "repeat": 0,
+      "arm": "baseline",
+      "raw_case_sha256": "87d0910912b022ce4700224494a89a440f7a6372022b7d7bf48e4c14e18b2e1f",
+      "initial": {
+        "nonquality_profile_hash": "6e7a23aa6d1c9a496c1abcd5753eaeed6101bb57130439322a261c911546ffa4",
+        "rng_hash": "ef22b01daecabc7b4db0f9c48b3ab982f4ec0a32c747b74d50052f1d4aa7c840",
+        "quality": [
+          [
+            1,
+            "Food",
+            true,
+            0.1
+          ],
+          [
+            2,
+            "Housing",
+            true,
+            3.0111496704304814
+          ],
+          [
+            3,
+            "Services",
+            true,
+            0.1
+          ],
+          [
+            4,
+            "Healthcare",
+            true,
+            3.0168107702069484
+          ],
+          [
+            5,
+            "Food",
+            false,
+            0.5103887871422483
+          ],
+          [
+            6,
+            "Food",
+            false,
+            0.8369858733342
+          ],
+          [
+            7,
+            "Food",
+            false,
+            0.9365157690904022
+          ],
+          [
+            8,
+            "Food",
+            false,
+            0.9973358087114506
+          ],
+          [
+            9,
+            "Food",
+            false,
+            0.6722039961580738
+          ],
+          [
+            10,
+            "Food",
+            false,
+            0.8767359906819848
+          ],
+          [
+            11,
+            "Food",
+            false,
+            0.5405802771121321
+          ],
+          [
+            12,
+            "Food",
+            false,
+            1.0200415611937086
+          ],
+          [
+            13,
+            "Food",
+            false,
+            0.43449646621928184
+          ],
+          [
+            14,
+            "Food",
+            false,
+            0.31732239539535356
+          ],
+          [
+            15,
+            "Food",
+            false,
+            0.36980350196137385
+          ],
+          [
+            16,
+            "Food",
+            false,
+            0.36204216458201993
+          ],
+          [
+            17,
+            "Food",
+            false,
+            1.0444150626321218
+          ],
+          [
+            18,
+            "Food",
+            false,
+            0.5607873124935987
+          ],
+          [
+            19,
+            "Food",
+            false,
+            0.635152921878395
+          ],
+          [
+            20,
+            "Food",
+            false,
+            0.6494688183705616
+          ],
+          [
+            21,
+            "Food",
+            false,
+            0.6393321652511033
+          ],
+          [
+            22,
+            "Food",
+            false,
+            0.4580908252682982
+          ],
+          [
+            23,
+            "Food",
+            false,
+            0.591200670562326
+          ],
+          [
+            24,
+            "Food",
+            false,
+            0.6109067439245177
+          ],
+          [
+            25,
+            "Services",
+            false,
+            0.6222897753248687
+          ],
+          [
+            26,
+            "Services",
+            false,
+            0.6912059121152945
+          ],
+          [
+            27,
+            "Services",
+            false,
+            0.8775274643700501
+          ],
+          [
+            28,
+            "Services",
+            false,
+            0.7880846133830454
+          ],
+          [
+            29,
+            "Services",
+            false,
+            0.7131473257103753
+          ],
+          [
+            30,
+            "Services",
+            false,
+            0.22621446342141288
+          ],
+          [
+            31,
+            "Services",
+            false,
+            0.2999512981683893
+          ],
+          [
+            32,
+            "Services",
+            false,
+            0.8233961255761747
+          ],
+          [
+            33,
+            "Services",
+            false,
+            0.7168563524685649
+          ],
+          [
+            34,
+            "Services",
+            false,
+            0.3431904027261428
+          ],
+          [
+            35,
+            "Services",
+            false,
+            0.451777056546603
+          ],
+          [
+            36,
+            "Services",
+            false,
+            0.7265666115336618
+          ],
+          [
+            37,
+            "Services",
+            false,
+            0.5192775816916095
+          ],
+          [
+            38,
+            "Services",
+            false,
+            0.9902500469136052
+          ],
+          [
+            39,
+            "Services",
+            false,
+            0.7836072733249012
+          ],
+          [
+            40,
+            "Services",
+            false,
+            0.774778345643244
+          ],
+          [
+            41,
+            "Services",
+            false,
+            0.2716963963071692
+          ],
+          [
+            42,
+            "Services",
+            false,
+            0.4804099865421492
+          ],
+          [
+            43,
+            "Services",
+            false,
+            0.3569689283860007
+          ],
+          [
+            44,
+            "Services",
+            false,
+            0.4540888135222363
+          ]
+        ],
+        "quality_hash": "62d6fd90f24018d5b26d077c97c03b4e22836fd872eac0a41ca9304e34b4e1af"
+      },
+      "comparable_config_hash": "4b9c8fb2ee409f11ef6c7789497db34d84c9745804da5641e701a244b4b1a987",
+      "late_means_101_200": {
+        "tick": 150.5,
+        "active_firms": 36.0,
+        "queued_firms": 9.0,
+        "private_food_services": 32.0,
+        "entries": 0.0,
+        "exits": 0.0,
+        "activations": 0.0,
+        "quality_mean": 1.0689884706954187,
+        "quality_max": 1.8456633086589607,
+        "quality_p50": 1.034554574020308,
+        "quality_p90": 1.6874171377692915,
+        "effective_quality_max": 1.8456633086589607,
+        "quality_near_perfect": 0.0,
+        "effective_quality_near_perfect": 0.0,
+        "baseline_quality_max": 0.09999999999999981,
+        "private_sales_share": 0.9858574346181302,
+        "research_active": 16.53,
+        "research_paused": 12.31,
+        "research_open": 28.84,
+        "research_private_cash": 265198.59339735226,
+        "food_units": 3739.205154642595,
+        "services_units": 1292.749639282723,
+        "food_access": 1000.0,
+        "services_access": 898.21,
+        "housing_access": 998.47,
+        "food_output": 3760.0059240292403,
+        "services_output": 1298.573015419139,
+        "services_workers": 291.06,
+        "services_slots": 292.41,
+        "jobs": 567.84,
+        "paid_wages": 28192.7082837792,
+        "dividends": 4971.022379119181,
+        "wage_claims": 299612.5975974456,
+        "household_cash": 195089.9702405484,
+        "household_deposits": 2930640.5480381413,
+        "firm_cash": 1486307.3688136677,
+        "firm_bank_debt": 65530.54878496052,
+        "firm_treasury_debt": 209664.4863842875,
+        "private_operating_profit": 15836.586897035548,
+        "food_mean_price": 5.187386904852215,
+        "services_mean_price": 35.854750428519026,
+        "government_cash": 39659.52031414468,
+        "bank_cash": 4366510.312762055,
+        "gdp": 45976.19733324445,
+        "happiness": 0.4781650956897536,
+        "health": 0.6865271306057565,
+        "money_residual": -1.5985965728759766e-06,
+        "clearing_residual": -6.527898221975193e-12,
+        "food_quality_mean": 1.215129588877154,
+        "food_quality_max": 1.8448268821723497,
+        "food_private_sales_share": 0.9921671180408745,
+        "services_quality_mean": 0.8254199403925254,
+        "services_quality_max": 1.523530143763548,
+        "services_private_sales_share": 0.9801133168957133
+      },
+      "late_misc_means_101_200": {
+        "misc_firm_revenue": 4932.827867986607,
+        "diagnostic_bank_writeoffs_cumulative": 0.0,
+        "diagnostic_firm_delinquent_loans": 0.0,
+        "diagnostic_unpaid_research_commitments": 125603.04239154974,
+        "private_fs_wage_claim_stock": 3806.9350530075153,
+        "private_fs_current_unpaid_gross": 188.49081649771333,
+        "private_fs_payroll_credit_funded": 0.0,
+        "private_fs_financial_layoffs": 0.0,
+        "private_fs_cancelled_hires": 0.0
+      },
+      "week_200": {
+        "tick": 200,
+        "active_firms": 36,
+        "queued_firms": 9,
+        "private_food_services": 32,
+        "entries": 0,
+        "exits": 0,
+        "activations": 0,
+        "quality_mean": 1.268726719070208,
+        "quality_max": 2.2777963726328014,
+        "quality_p50": 1.2873123896180774,
+        "quality_p90": 1.994027555562539,
+        "effective_quality_max": 2.2777963726328014,
+        "quality_near_perfect": 0,
+        "effective_quality_near_perfect": 0,
+        "baseline_quality_max": 0.1,
+        "private_sales_share": 0.9897808866259473,
+        "research_active": 21,
+        "research_paused": 8,
+        "research_open": 29,
+        "research_private_cash": 432759.09545350366,
+        "food_units": 3535.5832918921674,
+        "services_units": 2192.654171726716,
+        "food_access": 1000,
+        "services_access": 996,
+        "housing_access": 998,
+        "food_output": 3732.677835940873,
+        "services_output": 2221.9427563207473,
+        "services_workers": 506,
+        "services_slots": 507.75,
+        "jobs": 778,
+        "paid_wages": 37504.92930605784,
+        "dividends": 5870.109029725646,
+        "wage_claims": 319439.0527341952,
+        "household_cash": 159579.92206524822,
+        "household_deposits": 2441485.6866969294,
+        "firm_cash": 1970019.9183209147,
+        "firm_bank_debt": 116980.51741679375,
+        "firm_treasury_debt": 54794.319037172594,
+        "private_operating_profit": 16766.065939496937,
+        "food_mean_price": 5.000537786079598,
+        "services_mean_price": 27.91606819900559,
+        "government_cash": 122978.26960524489,
+        "bank_cash": 3826354.291032761,
+        "gdp": 56734.43015064794,
+        "happiness": 0.4584787128520263,
+        "health": 0.6678902606137715,
+        "money_residual": -2.4670735001564026e-06,
+        "clearing_residual": -2.2851054382044822e-11,
+        "food_quality_mean": 1.3943205112643173,
+        "food_quality_max": 2.2777963726328014,
+        "food_private_sales_share": 0.9940125451035751,
+        "services_quality_mean": 1.0594037320800256,
+        "services_quality_max": 2.047846393042775,
+        "services_private_sales_share": 0.987836826082803
+      },
+      "week_200_misc": {
+        "misc_firm_revenue": 13567.598973363878,
+        "diagnostic_bank_writeoffs_cumulative": 0.0,
+        "diagnostic_firm_delinquent_loans": 0,
+        "diagnostic_unpaid_research_commitments": 183951.72843851673,
+        "private_fs_wage_claim_stock": 17737.980268312058,
+        "private_fs_current_unpaid_gross": 668.3105062365892,
+        "private_fs_payroll_credit_funded": 0,
+        "private_fs_financial_layoffs": 0,
+        "private_fs_cancelled_hires": 0
+      }
+    },
+    {
+      "sequence": "income_first",
+      "population": 1000,
+      "seed": 44,
+      "repeat": 0,
+      "arm": "candidate",
+      "raw_case_sha256": "10a7c610bdecc0e9b193db20172840c619048c0bba073eb977ef40c99f20d16e",
+      "initial": {
+        "nonquality_profile_hash": "6e7a23aa6d1c9a496c1abcd5753eaeed6101bb57130439322a261c911546ffa4",
+        "rng_hash": "ef22b01daecabc7b4db0f9c48b3ab982f4ec0a32c747b74d50052f1d4aa7c840",
+        "quality": [
+          [
+            1,
+            "Food",
+            true,
+            0.1
+          ],
+          [
+            2,
+            "Housing",
+            true,
+            3.0111496704304814
+          ],
+          [
+            3,
+            "Services",
+            true,
+            0.1
+          ],
+          [
+            4,
+            "Healthcare",
+            true,
+            3.0168107702069484
+          ],
+          [
+            5,
+            "Food",
+            false,
+            0.5103887871422483
+          ],
+          [
+            6,
+            "Food",
+            false,
+            0.8369858733342
+          ],
+          [
+            7,
+            "Food",
+            false,
+            0.9365157690904022
+          ],
+          [
+            8,
+            "Food",
+            false,
+            0.9973358087114506
+          ],
+          [
+            9,
+            "Food",
+            false,
+            0.6722039961580738
+          ],
+          [
+            10,
+            "Food",
+            false,
+            0.8767359906819848
+          ],
+          [
+            11,
+            "Food",
+            false,
+            0.5405802771121321
+          ],
+          [
+            12,
+            "Food",
+            false,
+            1.0200415611937086
+          ],
+          [
+            13,
+            "Food",
+            false,
+            0.43449646621928184
+          ],
+          [
+            14,
+            "Food",
+            false,
+            0.31732239539535356
+          ],
+          [
+            15,
+            "Food",
+            false,
+            0.36980350196137385
+          ],
+          [
+            16,
+            "Food",
+            false,
+            0.36204216458201993
+          ],
+          [
+            17,
+            "Food",
+            false,
+            1.0444150626321218
+          ],
+          [
+            18,
+            "Food",
+            false,
+            0.5607873124935987
+          ],
+          [
+            19,
+            "Food",
+            false,
+            0.635152921878395
+          ],
+          [
+            20,
+            "Food",
+            false,
+            0.6494688183705616
+          ],
+          [
+            21,
+            "Food",
+            false,
+            0.6393321652511033
+          ],
+          [
+            22,
+            "Food",
+            false,
+            0.4580908252682982
+          ],
+          [
+            23,
+            "Food",
+            false,
+            0.591200670562326
+          ],
+          [
+            24,
+            "Food",
+            false,
+            0.6109067439245177
+          ],
+          [
+            25,
+            "Services",
+            false,
+            0.6222897753248687
+          ],
+          [
+            26,
+            "Services",
+            false,
+            0.6912059121152945
+          ],
+          [
+            27,
+            "Services",
+            false,
+            0.8775274643700501
+          ],
+          [
+            28,
+            "Services",
+            false,
+            0.7880846133830454
+          ],
+          [
+            29,
+            "Services",
+            false,
+            0.7131473257103753
+          ],
+          [
+            30,
+            "Services",
+            false,
+            0.22621446342141288
+          ],
+          [
+            31,
+            "Services",
+            false,
+            0.2999512981683893
+          ],
+          [
+            32,
+            "Services",
+            false,
+            0.8233961255761747
+          ],
+          [
+            33,
+            "Services",
+            false,
+            0.7168563524685649
+          ],
+          [
+            34,
+            "Services",
+            false,
+            0.3431904027261428
+          ],
+          [
+            35,
+            "Services",
+            false,
+            0.451777056546603
+          ],
+          [
+            36,
+            "Services",
+            false,
+            0.7265666115336618
+          ],
+          [
+            37,
+            "Services",
+            false,
+            0.5192775816916095
+          ],
+          [
+            38,
+            "Services",
+            false,
+            0.9902500469136052
+          ],
+          [
+            39,
+            "Services",
+            false,
+            0.7836072733249012
+          ],
+          [
+            40,
+            "Services",
+            false,
+            0.774778345643244
+          ],
+          [
+            41,
+            "Services",
+            false,
+            0.2716963963071692
+          ],
+          [
+            42,
+            "Services",
+            false,
+            0.4804099865421492
+          ],
+          [
+            43,
+            "Services",
+            false,
+            0.3569689283860007
+          ],
+          [
+            44,
+            "Services",
+            false,
+            0.4540888135222363
+          ]
+        ],
+        "quality_hash": "62d6fd90f24018d5b26d077c97c03b4e22836fd872eac0a41ca9304e34b4e1af"
+      },
+      "comparable_config_hash": "4b9c8fb2ee409f11ef6c7789497db34d84c9745804da5641e701a244b4b1a987",
+      "late_means_101_200": {
+        "tick": 150.5,
+        "active_firms": 35.99,
+        "queued_firms": 8.32,
+        "private_food_services": 31.99,
+        "entries": 0.0,
+        "exits": 0.01,
+        "activations": 0.01,
+        "quality_mean": 1.0703103751164484,
+        "quality_max": 1.8347642556575374,
+        "quality_p50": 1.0319256139974649,
+        "quality_p90": 1.6718742600013479,
+        "effective_quality_max": 1.8347642556575374,
+        "quality_near_perfect": 0.0,
+        "effective_quality_near_perfect": 0.0,
+        "baseline_quality_max": 0.09999999999999981,
+        "private_sales_share": 0.9860255967208296,
+        "research_active": 17.26,
+        "research_paused": 11.92,
+        "research_open": 29.18,
+        "research_private_cash": 276463.97114614764,
+        "food_units": 3720.6393979158443,
+        "services_units": 1377.2771170140986,
+        "food_access": 1000.0,
+        "services_access": 871.79,
+        "housing_access": 999.79,
+        "food_output": 3718.363327158261,
+        "services_output": 1385.7267120505805,
+        "services_workers": 303.49,
+        "services_slots": 305.5825,
+        "jobs": 574.84,
+        "paid_wages": 28828.014862054348,
+        "dividends": 5043.921129820466,
+        "wage_claims": 299195.61882429896,
+        "household_cash": 196469.27879829,
+        "household_deposits": 2929392.1228691405,
+        "firm_cash": 1504747.5904249232,
+        "firm_bank_debt": 80315.39525007938,
+        "firm_treasury_debt": 214873.71537631578,
+        "private_operating_profit": 16281.034303022641,
+        "food_mean_price": 5.1260841412930995,
+        "services_mean_price": 32.39148696464072,
+        "government_cash": 42161.798613006424,
+        "bank_cash": 4350662.1822028,
+        "gdp": 46806.468306763105,
+        "happiness": 0.4789419469441786,
+        "health": 0.6842041070453853,
+        "money_residual": -5.1142368465662e-06,
+        "clearing_residual": 9.934524314303417e-12,
+        "food_quality_mean": 1.2081088394328203,
+        "food_quality_max": 1.8333702115131854,
+        "food_private_sales_share": 0.9921783971595514,
+        "services_quality_mean": 0.8404279108571536,
+        "services_quality_max": 1.5170102952385343,
+        "services_private_sales_share": 0.9805103351864888
+      },
+      "late_misc_means_101_200": {
+        "misc_firm_revenue": 5259.149955867851,
+        "diagnostic_bank_writeoffs_cumulative": 0.0,
+        "diagnostic_firm_delinquent_loans": 0.0,
+        "diagnostic_unpaid_research_commitments": 121172.42524348051,
+        "private_fs_wage_claim_stock": 0.0,
+        "private_fs_current_unpaid_gross": 0.0,
+        "private_fs_payroll_credit_funded": 0.0,
+        "private_fs_financial_layoffs": 0.82,
+        "private_fs_cancelled_hires": 0.72
+      },
+      "week_200": {
+        "tick": 200,
+        "active_firms": 36,
+        "queued_firms": 8,
+        "private_food_services": 32,
+        "entries": 0,
+        "exits": 0,
+        "activations": 0,
+        "quality_mean": 1.264934632278529,
+        "quality_max": 2.047846393042775,
+        "quality_p50": 1.2873123896180774,
+        "quality_p90": 1.9221432407500267,
+        "effective_quality_max": 2.047846393042775,
+        "quality_near_perfect": 0,
+        "effective_quality_near_perfect": 0,
+        "baseline_quality_max": 0.1,
+        "private_sales_share": 0.9906146104185363,
+        "research_active": 23,
+        "research_paused": 8,
+        "research_open": 31,
+        "research_private_cash": 442010.7272779312,
+        "food_units": 3761.7940963051246,
+        "services_units": 2478.3415987062876,
+        "food_access": 1000,
+        "services_access": 998,
+        "housing_access": 1000,
+        "food_output": 3684.9784776295005,
+        "services_output": 2555.5662870564292,
+        "services_workers": 597,
+        "services_slots": 598.25,
+        "jobs": 866,
+        "paid_wages": 42303.470956410834,
+        "dividends": 5903.977004582379,
+        "wage_claims": 304729.39062098734,
+        "household_cash": 189600.7288685823,
+        "household_deposits": 2414745.2510180715,
+        "firm_cash": 1988208.350844784,
+        "firm_bank_debt": 136386.4637341954,
+        "firm_treasury_debt": 67590.89838557152,
+        "private_operating_profit": 18178.46260286664,
+        "food_mean_price": 5.0921004426356,
+        "services_mean_price": 22.494397880814557,
+        "government_cash": 129520.71822497739,
+        "bank_cash": 3780730.420448524,
+        "gdp": 62557.26166480727,
+        "happiness": 0.45668350931994806,
+        "health": 0.6683885079934103,
+        "money_residual": -4.7907233238220215e-06,
+        "clearing_residual": 1.887201506178826e-10,
+        "food_quality_mean": 1.3745136946482783,
+        "food_quality_max": 2.0199655101557377,
+        "food_private_sales_share": 0.9940885693702187,
+        "services_quality_mean": 1.0823028616622803,
+        "services_quality_max": 2.047846393042775,
+        "services_private_sales_share": 0.9890607904622781
+      },
+      "week_200_misc": {
+        "misc_firm_revenue": 14439.781608341116,
+        "diagnostic_bank_writeoffs_cumulative": 0.0,
+        "diagnostic_firm_delinquent_loans": 0,
+        "diagnostic_unpaid_research_commitments": 175650.29550852318,
+        "private_fs_wage_claim_stock": 0,
+        "private_fs_current_unpaid_gross": 0.0,
+        "private_fs_payroll_credit_funded": 0.0,
+        "private_fs_financial_layoffs": 1,
+        "private_fs_cancelled_hires": 9
+      }
+    },
+    {
+      "sequence": "income_late",
+      "population": 1000,
+      "seed": 42,
+      "repeat": 0,
+      "arm": "baseline",
+      "raw_case_sha256": "cc8d369ef105fe2e6e3b70eed389eb9d1a12e9919a08d2b1cf64055281e0fbde",
+      "initial": {
+        "nonquality_profile_hash": "4849d6f9a47d9588c4684cb9663bd981bfcd4c34e43790d197e0a82a673740ed",
+        "rng_hash": "4a42e677e407e52609668c6657fee9d83cf5ea7f3fd881a3f5cec2d77a3a057a",
+        "quality": [
+          [
+            1,
+            "Food",
+            true,
+            0.1
+          ],
+          [
+            2,
+            "Housing",
+            true,
+            3.032197614685701
+          ],
+          [
+            3,
+            "Services",
+            true,
+            0.1
+          ],
+          [
+            4,
+            "Healthcare",
+            true,
+            2.9806054023794877
+          ],
+          [
+            5,
+            "Food",
+            false,
+            0.4923715303865891
+          ],
+          [
+            6,
+            "Food",
+            false,
+            0.4615101930053809
+          ],
+          [
+            7,
+            "Food",
+            false,
+            0.6000923031871525
+          ],
+          [
+            8,
+            "Food",
+            false,
+            0.2632740772795186
+          ],
+          [
+            9,
+            "Food",
+            false,
+            0.3778734949489672
+          ],
+          [
+            10,
+            "Food",
+            false,
+            0.531169063000136
+          ],
+          [
+            11,
+            "Food",
+            false,
+            0.62870796377635
+          ],
+          [
+            12,
+            "Food",
+            false,
+            0.39605034912588155
+          ],
+          [
+            13,
+            "Food",
+            false,
+            0.8037272724394644
+          ],
+          [
+            14,
+            "Food",
+            false,
+            0.6517102217987353
+          ],
+          [
+            15,
+            "Food",
+            false,
+            0.7545846826087161
+          ],
+          [
+            16,
+            "Food",
+            false,
+            0.8169233644577398
+          ],
+          [
+            17,
+            "Food",
+            false,
+            0.538046847203802
+          ],
+          [
+            18,
+            "Food",
+            false,
+            0.7599837868519868
+          ],
+          [
+            19,
+            "Food",
+            false,
+            1.0651130288573867
+          ],
+          [
+            20,
+            "Food",
+            false,
+            0.5408677794479109
+          ],
+          [
+            21,
+            "Food",
+            false,
+            0.45839253864175755
+          ],
+          [
+            22,
+            "Food",
+            false,
+            0.4603978349373978
+          ],
+          [
+            23,
+            "Food",
+            false,
+            0.5371118621880234
+          ],
+          [
+            24,
+            "Food",
+            false,
+            0.35512864066921396
+          ],
+          [
+            25,
+            "Services",
+            false,
+            0.6906602453136823
+          ],
+          [
+            26,
+            "Services",
+            false,
+            0.14071238097274438
+          ],
+          [
+            27,
+            "Services",
+            false,
+            0.91365705122453
+          ],
+          [
+            28,
+            "Services",
+            false,
+            0.9393188918468783
+          ],
+          [
+            29,
+            "Services",
+            false,
+            0.6278532301678281
+          ],
+          [
+            30,
+            "Services",
+            false,
+            0.3032308166667293
+          ],
+          [
+            31,
+            "Services",
+            false,
+            0.637336282980366
+          ],
+          [
+            32,
+            "Services",
+            false,
+            0.1444519989282961
+          ],
+          [
+            33,
+            "Services",
+            false,
+            0.44930091619550344
+          ],
+          [
+            34,
+            "Services",
+            false,
+            0.9651694553701695
+          ],
+          [
+            35,
+            "Services",
+            false,
+            0.6197199964865244
+          ],
+          [
+            36,
+            "Services",
+            false,
+            0.6551288381773673
+          ],
+          [
+            37,
+            "Services",
+            false,
+            0.405314625379226
+          ],
+          [
+            38,
+            "Services",
+            false,
+            0.936274312357692
+          ],
+          [
+            39,
+            "Services",
+            false,
+            0.7398089415896241
+          ],
+          [
+            40,
+            "Services",
+            false,
+            0.784315730024189
+          ],
+          [
+            41,
+            "Services",
+            false,
+            0.7085707815451654
+          ],
+          [
+            42,
+            "Services",
+            false,
+            0.25980344230669494
+          ],
+          [
+            43,
+            "Services",
+            false,
+            0.6311345446495659
+          ],
+          [
+            44,
+            "Services",
+            false,
+            0.21464844123187699
+          ]
+        ],
+        "quality_hash": "96f3ffa5849e12e537950fc53f59df9b70ccf9e1c8e0200ba1e081afce710645"
+      },
+      "comparable_config_hash": "c83cdc5e2c2a6cd40cc055262c19a8460ba9b8ed9e9b65dd28948c6e8e5aaa0e",
+      "late_means_101_200": {
+        "tick": 150.5,
+        "active_firms": 36.0,
+        "queued_firms": 9.0,
+        "private_food_services": 32.0,
+        "entries": 0.0,
+        "exits": 0.0,
+        "activations": 0.0,
+        "quality_mean": 0.9693552554841297,
+        "quality_max": 2.4788273196085657,
+        "quality_p50": 0.7784011780459142,
+        "quality_p90": 1.8096033422937905,
+        "effective_quality_max": 2.4788273196085657,
+        "quality_near_perfect": 0.0,
+        "effective_quality_near_perfect": 0.0,
+        "baseline_quality_max": 0.09999999999999981,
+        "private_sales_share": 0.9819898210091748,
+        "research_active": 11.62,
+        "research_paused": 17.59,
+        "research_open": 29.21,
+        "research_private_cash": 179896.30749615602,
+        "food_units": 3119.966597553997,
+        "services_units": 727.4006193360883,
+        "food_access": 997.68,
+        "services_access": 811.36,
+        "housing_access": 982.74,
+        "food_output": 3142.486133289576,
+        "services_output": 733.9056867244931,
+        "services_workers": 192.48,
+        "services_slots": 193.265,
+        "jobs": 439.18,
+        "paid_wages": 22592.652167209922,
+        "dividends": 6049.070259911229,
+        "wage_claims": 292125.1476779136,
+        "household_cash": 222517.7586017215,
+        "household_deposits": 3517480.872714992,
+        "firm_cash": 911473.2909396887,
+        "firm_bank_debt": 76985.90873564384,
+        "firm_treasury_debt": 206253.49745139453,
+        "private_operating_profit": 10406.63550478682,
+        "food_mean_price": 4.877134344470111,
+        "services_mean_price": 32.07788328218835,
+        "government_cash": 13373.70504836655,
+        "bank_cash": 4941949.1947318325,
+        "gdp": 34075.73437649074,
+        "happiness": 0.4033875818303392,
+        "health": 0.586320292089934,
+        "money_residual": -1.4364905655384064e-06,
+        "clearing_residual": -2.1509549696929755e-12,
+        "food_quality_mean": 1.1205333896921201,
+        "food_quality_max": 2.4788273196085657,
+        "food_private_sales_share": 0.9936881378694514,
+        "services_quality_mean": 0.7173916984708103,
+        "services_quality_max": 1.2844323174406727,
+        "services_private_sales_share": 0.9696231840590491
+      },
+      "late_misc_means_101_200": {
+        "misc_firm_revenue": 3186.0506769541435,
+        "diagnostic_bank_writeoffs_cumulative": 0.0,
+        "diagnostic_firm_delinquent_loans": 0.0,
+        "diagnostic_unpaid_research_commitments": 116319.59381835382,
+        "private_fs_wage_claim_stock": 14607.735228403688,
+        "private_fs_current_unpaid_gross": 438.59659131179217,
+        "private_fs_payroll_credit_funded": 0.0,
+        "private_fs_financial_layoffs": 0.0,
+        "private_fs_cancelled_hires": 0.0
+      },
+      "week_200": {
+        "tick": 200,
+        "active_firms": 36,
+        "queued_firms": 9,
+        "private_food_services": 32,
+        "entries": 0,
+        "exits": 0,
+        "activations": 0,
+        "quality_mean": 1.1031528915343156,
+        "quality_max": 2.9774346645659637,
+        "quality_p50": 0.9016431606309797,
+        "quality_p90": 2.1098440610949116,
+        "effective_quality_max": 2.9774346645659637,
+        "quality_near_perfect": 0,
+        "effective_quality_near_perfect": 0,
+        "baseline_quality_max": 0.1,
+        "private_sales_share": 0.9860700336536679,
+        "research_active": 12,
+        "research_paused": 15,
+        "research_open": 27,
+        "research_private_cash": 294684.34433711553,
+        "food_units": 3495.9786036090527,
+        "services_units": 1316.729487080635,
+        "food_access": 1000,
+        "services_access": 994,
+        "housing_access": 995,
+        "food_output": 3484.9914403811927,
+        "services_output": 1336.3606241874859,
+        "services_workers": 341,
+        "services_slots": 343.5,
+        "jobs": 618,
+        "paid_wages": 31733.313790093638,
+        "dividends": 7244.6436919338275,
+        "wage_claims": 293184.6771346465,
+        "household_cash": 222058.56264041294,
+        "household_deposits": 3273532.228830331,
+        "firm_cash": 1217833.0189704166,
+        "firm_bank_debt": 145220.91342398344,
+        "firm_treasury_debt": 77597.27584353204,
+        "private_operating_profit": 13889.961042444325,
+        "food_mean_price": 4.795002594644394,
+        "services_mean_price": 26.66215304388303,
+        "government_cash": 18940.299026689037,
+        "bank_cash": 4631642.075322715,
+        "gdp": 48168.50620576802,
+        "happiness": 0.3907347681971474,
+        "health": 0.5887738461963138,
+        "money_residual": -2.68593430519104e-06,
+        "clearing_residual": -7.139533408917487e-11,
+        "food_quality_mean": 1.2311026257340971,
+        "food_quality_max": 2.9774346645659637,
+        "food_private_sales_share": 0.9958406599900136,
+        "services_quality_mean": 0.8899033345346798,
+        "services_quality_max": 1.613830321621467,
+        "services_private_sales_share": 0.9795903596423847
+      },
+      "week_200_misc": {
+        "misc_firm_revenue": 2026.044037081333,
+        "diagnostic_bank_writeoffs_cumulative": 0.0,
+        "diagnostic_firm_delinquent_loans": 0,
+        "diagnostic_unpaid_research_commitments": 83121.63831349583,
+        "private_fs_wage_claim_stock": 43848.03113486298,
+        "private_fs_current_unpaid_gross": 832.7561013488477,
+        "private_fs_payroll_credit_funded": 0,
+        "private_fs_financial_layoffs": 0,
+        "private_fs_cancelled_hires": 0
+      }
+    },
+    {
+      "sequence": "income_late",
+      "population": 1000,
+      "seed": 42,
+      "repeat": 0,
+      "arm": "candidate",
+      "raw_case_sha256": "7d8b3bc09bc69ba1bcd259a81509cd2495dea25625dd3c57fe38024bed1a058b",
+      "initial": {
+        "nonquality_profile_hash": "4849d6f9a47d9588c4684cb9663bd981bfcd4c34e43790d197e0a82a673740ed",
+        "rng_hash": "4a42e677e407e52609668c6657fee9d83cf5ea7f3fd881a3f5cec2d77a3a057a",
+        "quality": [
+          [
+            1,
+            "Food",
+            true,
+            0.1
+          ],
+          [
+            2,
+            "Housing",
+            true,
+            3.032197614685701
+          ],
+          [
+            3,
+            "Services",
+            true,
+            0.1
+          ],
+          [
+            4,
+            "Healthcare",
+            true,
+            2.9806054023794877
+          ],
+          [
+            5,
+            "Food",
+            false,
+            0.4923715303865891
+          ],
+          [
+            6,
+            "Food",
+            false,
+            0.4615101930053809
+          ],
+          [
+            7,
+            "Food",
+            false,
+            0.6000923031871525
+          ],
+          [
+            8,
+            "Food",
+            false,
+            0.2632740772795186
+          ],
+          [
+            9,
+            "Food",
+            false,
+            0.3778734949489672
+          ],
+          [
+            10,
+            "Food",
+            false,
+            0.531169063000136
+          ],
+          [
+            11,
+            "Food",
+            false,
+            0.62870796377635
+          ],
+          [
+            12,
+            "Food",
+            false,
+            0.39605034912588155
+          ],
+          [
+            13,
+            "Food",
+            false,
+            0.8037272724394644
+          ],
+          [
+            14,
+            "Food",
+            false,
+            0.6517102217987353
+          ],
+          [
+            15,
+            "Food",
+            false,
+            0.7545846826087161
+          ],
+          [
+            16,
+            "Food",
+            false,
+            0.8169233644577398
+          ],
+          [
+            17,
+            "Food",
+            false,
+            0.538046847203802
+          ],
+          [
+            18,
+            "Food",
+            false,
+            0.7599837868519868
+          ],
+          [
+            19,
+            "Food",
+            false,
+            1.0651130288573867
+          ],
+          [
+            20,
+            "Food",
+            false,
+            0.5408677794479109
+          ],
+          [
+            21,
+            "Food",
+            false,
+            0.45839253864175755
+          ],
+          [
+            22,
+            "Food",
+            false,
+            0.4603978349373978
+          ],
+          [
+            23,
+            "Food",
+            false,
+            0.5371118621880234
+          ],
+          [
+            24,
+            "Food",
+            false,
+            0.35512864066921396
+          ],
+          [
+            25,
+            "Services",
+            false,
+            0.6906602453136823
+          ],
+          [
+            26,
+            "Services",
+            false,
+            0.14071238097274438
+          ],
+          [
+            27,
+            "Services",
+            false,
+            0.91365705122453
+          ],
+          [
+            28,
+            "Services",
+            false,
+            0.9393188918468783
+          ],
+          [
+            29,
+            "Services",
+            false,
+            0.6278532301678281
+          ],
+          [
+            30,
+            "Services",
+            false,
+            0.3032308166667293
+          ],
+          [
+            31,
+            "Services",
+            false,
+            0.637336282980366
+          ],
+          [
+            32,
+            "Services",
+            false,
+            0.1444519989282961
+          ],
+          [
+            33,
+            "Services",
+            false,
+            0.44930091619550344
+          ],
+          [
+            34,
+            "Services",
+            false,
+            0.9651694553701695
+          ],
+          [
+            35,
+            "Services",
+            false,
+            0.6197199964865244
+          ],
+          [
+            36,
+            "Services",
+            false,
+            0.6551288381773673
+          ],
+          [
+            37,
+            "Services",
+            false,
+            0.405314625379226
+          ],
+          [
+            38,
+            "Services",
+            false,
+            0.936274312357692
+          ],
+          [
+            39,
+            "Services",
+            false,
+            0.7398089415896241
+          ],
+          [
+            40,
+            "Services",
+            false,
+            0.784315730024189
+          ],
+          [
+            41,
+            "Services",
+            false,
+            0.7085707815451654
+          ],
+          [
+            42,
+            "Services",
+            false,
+            0.25980344230669494
+          ],
+          [
+            43,
+            "Services",
+            false,
+            0.6311345446495659
+          ],
+          [
+            44,
+            "Services",
+            false,
+            0.21464844123187699
+          ]
+        ],
+        "quality_hash": "96f3ffa5849e12e537950fc53f59df9b70ccf9e1c8e0200ba1e081afce710645"
+      },
+      "comparable_config_hash": "c83cdc5e2c2a6cd40cc055262c19a8460ba9b8ed9e9b65dd28948c6e8e5aaa0e",
+      "late_means_101_200": {
+        "tick": 150.5,
+        "active_firms": 35.94,
+        "queued_firms": 5.7,
+        "private_food_services": 31.94,
+        "entries": 0.0,
+        "exits": 0.06,
+        "activations": 0.06,
+        "quality_mean": 0.9986895354990329,
+        "quality_max": 2.4788273196085657,
+        "quality_p50": 0.8204953135839684,
+        "quality_p90": 1.7998605449305665,
+        "effective_quality_max": 2.4788273196085657,
+        "quality_near_perfect": 0.0,
+        "effective_quality_near_perfect": 0.0,
+        "baseline_quality_max": 0.09999999999999981,
+        "private_sales_share": 0.9833195067302278,
+        "research_active": 14.48,
+        "research_paused": 15.36,
+        "research_open": 29.84,
+        "research_private_cash": 225072.2592687403,
+        "food_units": 3227.2453224530177,
+        "services_units": 933.450869030426,
+        "food_access": 997.84,
+        "services_access": 821.75,
+        "housing_access": 990.06,
+        "food_output": 3226.8326872207754,
+        "services_output": 961.1168957949501,
+        "services_workers": 241.57,
+        "services_slots": 246.83,
+        "jobs": 495.66,
+        "paid_wages": 27054.512656644114,
+        "dividends": 6494.125386411158,
+        "wage_claims": 272391.68726801843,
+        "household_cash": 234650.26956191313,
+        "household_deposits": 3501860.3199140984,
+        "firm_cash": 958817.3446332695,
+        "firm_bank_debt": 100851.02384254354,
+        "firm_treasury_debt": 200022.470114581,
+        "private_operating_profit": 12271.291196134021,
+        "food_mean_price": 5.075835027041911,
+        "services_mean_price": 32.930186607193505,
+        "government_cash": 25578.472888877466,
+        "bank_cash": 4901975.88512717,
+        "gdp": 40208.72115575679,
+        "happiness": 0.41162013604005593,
+        "health": 0.603536994299617,
+        "money_residual": -1.141941174864769e-06,
+        "clearing_residual": 9.837917147592634e-12,
+        "food_quality_mean": 1.282650661868978,
+        "food_quality_max": 2.4788273196085657,
+        "food_private_sales_share": 0.9923615767359476,
+        "services_quality_mean": 0.7099193441135089,
+        "services_quality_max": 1.2887874788958587,
+        "services_private_sales_share": 0.9741110803491903
+      },
+      "late_misc_means_101_200": {
+        "misc_firm_revenue": 4478.027787629491,
+        "diagnostic_bank_writeoffs_cumulative": 379.1401798059256,
+        "diagnostic_firm_delinquent_loans": 0.31,
+        "diagnostic_unpaid_research_commitments": 123235.92532369282,
+        "private_fs_wage_claim_stock": 0.0,
+        "private_fs_current_unpaid_gross": 0.0,
+        "private_fs_payroll_credit_funded": 0.0,
+        "private_fs_financial_layoffs": 0.48,
+        "private_fs_cancelled_hires": 1.52
+      },
+      "week_200": {
+        "tick": 200,
+        "active_firms": 36,
+        "queued_firms": 3,
+        "private_food_services": 32,
+        "entries": 0,
+        "exits": 0,
+        "activations": 0,
+        "quality_mean": 1.2277304241293288,
+        "quality_max": 2.9774346645659637,
+        "quality_p50": 1.1624346139212771,
+        "quality_p90": 2.1098440610949116,
+        "effective_quality_max": 2.9774346645659637,
+        "quality_near_perfect": 0,
+        "effective_quality_near_perfect": 0,
+        "baseline_quality_max": 0.1,
+        "private_sales_share": 0.9883557759187367,
+        "research_active": 19,
+        "research_paused": 9,
+        "research_open": 28,
+        "research_private_cash": 417033.45662789256,
+        "food_units": 3845.4637729621854,
+        "services_units": 1812.1805604005535,
+        "food_access": 1000,
+        "services_access": 996,
+        "housing_access": 1000,
+        "food_output": 3649.5230767549124,
+        "services_output": 1923.5029414264975,
+        "services_workers": 469,
+        "services_slots": 496.0,
+        "jobs": 756,
+        "paid_wages": 41251.44077963301,
+        "dividends": 8306.204887981752,
+        "wage_claims": 251481.10300626268,
+        "household_cash": 233853.2992983341,
+        "household_deposits": 3167247.861039767,
+        "firm_cash": 1346827.5043368437,
+        "firm_bank_debt": 191603.79452738227,
+        "firm_treasury_debt": 104598.86513469026,
+        "private_operating_profit": 17457.273859265093,
+        "food_mean_price": 5.069028328858923,
+        "services_mean_price": 30.23225685186073,
+        "government_cash": 96609.31213377205,
+        "bank_cash": 4467049.219647988,
+        "gdp": 61605.81448936474,
+        "happiness": 0.4172844378624182,
+        "health": 0.616686060840746,
+        "money_residual": -1.0970979928970337e-06,
+        "clearing_residual": -3.4788172342814505e-11,
+        "food_quality_mean": 1.5836273235491214,
+        "food_quality_max": 2.9774346645659637,
+        "food_private_sales_share": 0.9937738655232109,
+        "services_quality_mean": 0.9509217245806014,
+        "services_quality_max": 1.6864163458745685,
+        "services_private_sales_share": 0.9855212303173572
+      },
+      "week_200_misc": {
+        "misc_firm_revenue": 8160.6645819647265,
+        "diagnostic_bank_writeoffs_cumulative": 10866.71979498043,
+        "diagnostic_firm_delinquent_loans": 0,
+        "diagnostic_unpaid_research_commitments": 94208.52999245479,
+        "private_fs_wage_claim_stock": 0,
+        "private_fs_current_unpaid_gross": 0.0,
+        "private_fs_payroll_credit_funded": 0.0,
+        "private_fs_financial_layoffs": 1,
+        "private_fs_cancelled_hires": 1
+      }
+    },
+    {
+      "sequence": "income_late",
+      "population": 1000,
+      "seed": 43,
+      "repeat": 0,
+      "arm": "candidate",
+      "raw_case_sha256": "f3caf000099951711344b8e8ed265920927a4e31637f8be63ead55fecf010427",
+      "initial": {
+        "nonquality_profile_hash": "5ceb64f75827f856be3f9c4c46c528176ad4b9ecb2ce6c21b85d9f7a2d505d06",
+        "rng_hash": "bd8cc226b3a726e379639cba2726ac418a01f98db1bbf414ed9411394a6b485a",
+        "quality": [
+          [
+            1,
+            "Food",
+            true,
+            0.1
+          ],
+          [
+            2,
+            "Housing",
+            true,
+            2.9574325800582115
+          ],
+          [
+            3,
+            "Services",
+            true,
+            0.1
+          ],
+          [
+            4,
+            "Healthcare",
+            true,
+            3.0082830496194717
+          ],
+          [
+            5,
+            "Food",
+            false,
+            0.4803988382194974
+          ],
+          [
+            6,
+            "Food",
+            false,
+            0.529747856487348
+          ],
+          [
+            7,
+            "Food",
+            false,
+            0.5656286745588676
+          ],
+          [
+            8,
+            "Food",
+            false,
+            0.349126048886407
+          ],
+          [
+            9,
+            "Food",
+            false,
+            0.5112652334261477
+          ],
+          [
+            10,
+            "Food",
+            false,
+            0.7532042654851413
+          ],
+          [
+            11,
+            "Food",
+            false,
+            0.4917997122141309
+          ],
+          [
+            12,
+            "Food",
+            false,
+            0.3901612282654181
+          ],
+          [
+            13,
+            "Food",
+            false,
+            0.6597864650809018
+          ],
+          [
+            14,
+            "Food",
+            false,
+            0.2604864387589798
+          ],
+          [
+            15,
+            "Food",
+            false,
+            0.8824488216205653
+          ],
+          [
+            16,
+            "Food",
+            false,
+            0.30947644300728505
+          ],
+          [
+            17,
+            "Food",
+            false,
+            0.5061576434410949
+          ],
+          [
+            18,
+            "Food",
+            false,
+            0.669060981234352
+          ],
+          [
+            19,
+            "Food",
+            false,
+            0.7182697885261222
+          ],
+          [
+            20,
+            "Food",
+            false,
+            0.4429835676802701
+          ],
+          [
+            21,
+            "Food",
+            false,
+            0.6640576066815757
+          ],
+          [
+            22,
+            "Food",
+            false,
+            0.5094723306811467
+          ],
+          [
+            23,
+            "Food",
+            false,
+            0.5096136778712255
+          ],
+          [
+            24,
+            "Food",
+            false,
+            0.5635930463250776
+          ],
+          [
+            25,
+            "Services",
+            false,
+            0.8044243397863404
+          ],
+          [
+            26,
+            "Services",
+            false,
+            0.7432263217132696
+          ],
+          [
+            27,
+            "Services",
+            false,
+            0.6439994398485652
+          ],
+          [
+            28,
+            "Services",
+            false,
+            0.5930622486919137
+          ],
+          [
+            29,
+            "Services",
+            false,
+            0.5368905368320818
+          ],
+          [
+            30,
+            "Services",
+            false,
+            0.5501847431697451
+          ],
+          [
+            31,
+            "Services",
+            false,
+            0.6793263491990839
+          ],
+          [
+            32,
+            "Services",
+            false,
+            0.5182590494866647
+          ],
+          [
+            33,
+            "Services",
+            false,
+            0.42887281658822796
+          ],
+          [
+            34,
+            "Services",
+            false,
+            0.8604966536377948
+          ],
+          [
+            35,
+            "Services",
+            false,
+            0.6203264004379339
+          ],
+          [
+            36,
+            "Services",
+            false,
+            0.8503228554088245
+          ],
+          [
+            37,
+            "Services",
+            false,
+            0.36923864411684637
+          ],
+          [
+            38,
+            "Services",
+            false,
+            0.47764368896517345
+          ],
+          [
+            39,
+            "Services",
+            false,
+            0.8164658355194188
+          ],
+          [
+            40,
+            "Services",
+            false,
+            0.2991910279702071
+          ],
+          [
+            41,
+            "Services",
+            false,
+            1.0858212687925781
+          ],
+          [
+            42,
+            "Services",
+            false,
+            0.4289002000676502
+          ],
+          [
+            43,
+            "Services",
+            false,
+            0.4362956379407293
+          ],
+          [
+            44,
+            "Services",
+            false,
+            0.8096248661629097
+          ]
+        ],
+        "quality_hash": "3990093f4fd5bf9fc6bdd6d3f9b3f21066e375c56fe4bb310ccaf8e1aaff172d"
+      },
+      "comparable_config_hash": "4dcf141bac751a14389e80efd9207c777fe74f2ff3bc0fb7ce93157ff7ad08d7",
+      "late_means_101_200": {
+        "tick": 150.5,
+        "active_firms": 35.98,
+        "queued_firms": 8.03,
+        "private_food_services": 31.98,
+        "entries": 0.0,
+        "exits": 0.02,
+        "activations": 0.02,
+        "quality_mean": 1.0056454256347303,
+        "quality_max": 2.152031698489293,
+        "quality_p50": 0.8845507790822503,
+        "quality_p90": 1.6270227816384715,
+        "effective_quality_max": 2.152031698489293,
+        "quality_near_perfect": 0.0,
+        "effective_quality_near_perfect": 0.0,
+        "baseline_quality_max": 0.09999999999999981,
+        "private_sales_share": 0.9856549404229606,
+        "research_active": 18.4,
+        "research_paused": 10.79,
+        "research_open": 29.19,
+        "research_private_cash": 290334.0193596223,
+        "food_units": 3647.4605685124607,
+        "services_units": 1106.115496095448,
+        "food_access": 999.22,
+        "services_access": 911.65,
+        "housing_access": 999.57,
+        "food_output": 3642.7674302116807,
+        "services_output": 1143.9682077780858,
+        "services_workers": 314.45,
+        "services_slots": 315.835,
+        "jobs": 592.18,
+        "paid_wages": 30138.295999253147,
+        "dividends": 5342.694480171533,
+        "wage_claims": 284769.10460648994,
+        "household_cash": 227234.11045459853,
+        "household_deposits": 3212345.5977651663,
+        "firm_cash": 1192021.013986023,
+        "firm_bank_debt": 78647.03726091035,
+        "firm_treasury_debt": 209122.29107258905,
+        "private_operating_profit": 15194.777403529648,
+        "food_mean_price": 5.06901104488475,
+        "services_mean_price": 31.229175303529424,
+        "government_cash": 41815.179960675676,
+        "bank_cash": 4635191.312912139,
+        "gdp": 46363.6235525961,
+        "happiness": 0.4704096338847392,
+        "health": 0.6780638917608408,
+        "money_residual": -1.0761898010969162e-06,
+        "clearing_residual": 1.2068621657590483e-11,
+        "food_quality_mean": 1.1382927956201636,
+        "food_quality_max": 2.152031698489293,
+        "food_private_sales_share": 0.9920304846789593,
+        "services_quality_mean": 0.8133859789840663,
+        "services_quality_max": 1.5014215015706844,
+        "services_private_sales_share": 0.9803117878957296
+      },
+      "late_misc_means_101_200": {
+        "misc_firm_revenue": 5938.3826854875115,
+        "diagnostic_bank_writeoffs_cumulative": 0.0,
+        "diagnostic_firm_delinquent_loans": 0.0,
+        "diagnostic_unpaid_research_commitments": 98475.30479291128,
+        "private_fs_wage_claim_stock": 0.0,
+        "private_fs_current_unpaid_gross": 0.0,
+        "private_fs_payroll_credit_funded": 0.0,
+        "private_fs_financial_layoffs": 0.55,
+        "private_fs_cancelled_hires": 1.01
+      },
+      "week_200": {
+        "tick": 200,
+        "active_firms": 36,
+        "queued_firms": 7,
+        "private_food_services": 32,
+        "entries": 0,
+        "exits": 0,
+        "activations": 0,
+        "quality_mean": 1.2401494758791074,
+        "quality_max": 2.4306992868174015,
+        "quality_p50": 1.121112924877322,
+        "quality_p90": 1.9700932954254933,
+        "effective_quality_max": 2.4306992868174015,
+        "quality_near_perfect": 0,
+        "effective_quality_near_perfect": 0,
+        "baseline_quality_max": 0.1,
+        "private_sales_share": 0.9879753101994072,
+        "research_active": 21,
+        "research_paused": 8,
+        "research_open": 29,
+        "research_private_cash": 463144.1548980166,
+        "food_units": 3729.527543238107,
+        "services_units": 1813.9813256049154,
+        "food_access": 1000,
+        "services_access": 998,
+        "housing_access": 1000,
+        "food_output": 3640.251519371303,
+        "services_output": 1950.5402619945748,
+        "services_workers": 542,
+        "services_slots": 546.0,
+        "jobs": 817,
+        "paid_wages": 41293.86676855904,
+        "dividends": 5318.183295060166,
+        "wage_claims": 288691.32228286855,
+        "household_cash": 210740.72510155966,
+        "household_deposits": 2814179.5531580346,
+        "firm_cash": 1593399.3106062731,
+        "firm_bank_debt": 143801.26830234658,
+        "firm_treasury_debt": 68736.79257810225,
+        "private_operating_profit": 15056.87222230013,
+        "food_mean_price": 5.052018934814335,
+        "services_mean_price": 24.43450566266996,
+        "government_cash": 122671.50708789188,
+        "bank_cash": 4173100.4262305764,
+        "gdp": 57525.242613430506,
+        "happiness": 0.47813547476138823,
+        "health": 0.6592672310051444,
+        "money_residual": -5.289912223815918e-07,
+        "clearing_residual": 6.582467904081568e-11,
+        "food_quality_mean": 1.3464583721251058,
+        "food_quality_max": 2.4306992868174015,
+        "food_private_sales_share": 0.9938951163178263,
+        "services_quality_mean": 1.1034666092771097,
+        "services_quality_max": 1.907663052426046,
+        "services_private_sales_share": 0.984830500339221
+      },
+      "week_200_misc": {
+        "misc_firm_revenue": 12588.030973170105,
+        "diagnostic_bank_writeoffs_cumulative": 0.0,
+        "diagnostic_firm_delinquent_loans": 0,
+        "diagnostic_unpaid_research_commitments": 159256.84385576184,
+        "private_fs_wage_claim_stock": 0,
+        "private_fs_current_unpaid_gross": 0.0,
+        "private_fs_payroll_credit_funded": 0.0,
+        "private_fs_financial_layoffs": 0,
+        "private_fs_cancelled_hires": 8
+      }
+    },
+    {
+      "sequence": "income_late",
+      "population": 1000,
+      "seed": 43,
+      "repeat": 0,
+      "arm": "baseline",
+      "raw_case_sha256": "11d7d6c8051021a293f23ac02a584a96b83d5952b8b60afa44b987ee4ee9d080",
+      "initial": {
+        "nonquality_profile_hash": "5ceb64f75827f856be3f9c4c46c528176ad4b9ecb2ce6c21b85d9f7a2d505d06",
+        "rng_hash": "bd8cc226b3a726e379639cba2726ac418a01f98db1bbf414ed9411394a6b485a",
+        "quality": [
+          [
+            1,
+            "Food",
+            true,
+            0.1
+          ],
+          [
+            2,
+            "Housing",
+            true,
+            2.9574325800582115
+          ],
+          [
+            3,
+            "Services",
+            true,
+            0.1
+          ],
+          [
+            4,
+            "Healthcare",
+            true,
+            3.0082830496194717
+          ],
+          [
+            5,
+            "Food",
+            false,
+            0.4803988382194974
+          ],
+          [
+            6,
+            "Food",
+            false,
+            0.529747856487348
+          ],
+          [
+            7,
+            "Food",
+            false,
+            0.5656286745588676
+          ],
+          [
+            8,
+            "Food",
+            false,
+            0.349126048886407
+          ],
+          [
+            9,
+            "Food",
+            false,
+            0.5112652334261477
+          ],
+          [
+            10,
+            "Food",
+            false,
+            0.7532042654851413
+          ],
+          [
+            11,
+            "Food",
+            false,
+            0.4917997122141309
+          ],
+          [
+            12,
+            "Food",
+            false,
+            0.3901612282654181
+          ],
+          [
+            13,
+            "Food",
+            false,
+            0.6597864650809018
+          ],
+          [
+            14,
+            "Food",
+            false,
+            0.2604864387589798
+          ],
+          [
+            15,
+            "Food",
+            false,
+            0.8824488216205653
+          ],
+          [
+            16,
+            "Food",
+            false,
+            0.30947644300728505
+          ],
+          [
+            17,
+            "Food",
+            false,
+            0.5061576434410949
+          ],
+          [
+            18,
+            "Food",
+            false,
+            0.669060981234352
+          ],
+          [
+            19,
+            "Food",
+            false,
+            0.7182697885261222
+          ],
+          [
+            20,
+            "Food",
+            false,
+            0.4429835676802701
+          ],
+          [
+            21,
+            "Food",
+            false,
+            0.6640576066815757
+          ],
+          [
+            22,
+            "Food",
+            false,
+            0.5094723306811467
+          ],
+          [
+            23,
+            "Food",
+            false,
+            0.5096136778712255
+          ],
+          [
+            24,
+            "Food",
+            false,
+            0.5635930463250776
+          ],
+          [
+            25,
+            "Services",
+            false,
+            0.8044243397863404
+          ],
+          [
+            26,
+            "Services",
+            false,
+            0.7432263217132696
+          ],
+          [
+            27,
+            "Services",
+            false,
+            0.6439994398485652
+          ],
+          [
+            28,
+            "Services",
+            false,
+            0.5930622486919137
+          ],
+          [
+            29,
+            "Services",
+            false,
+            0.5368905368320818
+          ],
+          [
+            30,
+            "Services",
+            false,
+            0.5501847431697451
+          ],
+          [
+            31,
+            "Services",
+            false,
+            0.6793263491990839
+          ],
+          [
+            32,
+            "Services",
+            false,
+            0.5182590494866647
+          ],
+          [
+            33,
+            "Services",
+            false,
+            0.42887281658822796
+          ],
+          [
+            34,
+            "Services",
+            false,
+            0.8604966536377948
+          ],
+          [
+            35,
+            "Services",
+            false,
+            0.6203264004379339
+          ],
+          [
+            36,
+            "Services",
+            false,
+            0.8503228554088245
+          ],
+          [
+            37,
+            "Services",
+            false,
+            0.36923864411684637
+          ],
+          [
+            38,
+            "Services",
+            false,
+            0.47764368896517345
+          ],
+          [
+            39,
+            "Services",
+            false,
+            0.8164658355194188
+          ],
+          [
+            40,
+            "Services",
+            false,
+            0.2991910279702071
+          ],
+          [
+            41,
+            "Services",
+            false,
+            1.0858212687925781
+          ],
+          [
+            42,
+            "Services",
+            false,
+            0.4289002000676502
+          ],
+          [
+            43,
+            "Services",
+            false,
+            0.4362956379407293
+          ],
+          [
+            44,
+            "Services",
+            false,
+            0.8096248661629097
+          ]
+        ],
+        "quality_hash": "3990093f4fd5bf9fc6bdd6d3f9b3f21066e375c56fe4bb310ccaf8e1aaff172d"
+      },
+      "comparable_config_hash": "4dcf141bac751a14389e80efd9207c777fe74f2ff3bc0fb7ce93157ff7ad08d7",
+      "late_means_101_200": {
+        "tick": 150.5,
+        "active_firms": 36.0,
+        "queued_firms": 9.0,
+        "private_food_services": 32.0,
+        "entries": 0.0,
+        "exits": 0.0,
+        "activations": 0.0,
+        "quality_mean": 0.9980706245340646,
+        "quality_max": 2.152031698489293,
+        "quality_p50": 0.8804555551461613,
+        "quality_p90": 1.6269233776630452,
+        "effective_quality_max": 2.152031698489293,
+        "quality_near_perfect": 0.0,
+        "effective_quality_near_perfect": 0.0,
+        "baseline_quality_max": 0.09999999999999981,
+        "private_sales_share": 0.9856393433939873,
+        "research_active": 18.07,
+        "research_paused": 11.49,
+        "research_open": 29.56,
+        "research_private_cash": 278399.07099348475,
+        "food_units": 3652.1187853187507,
+        "services_units": 1068.8438681679636,
+        "food_access": 999.18,
+        "services_access": 911.27,
+        "housing_access": 999.55,
+        "food_output": 3679.4664134225704,
+        "services_output": 1100.2801695298688,
+        "services_workers": 302.12,
+        "services_slots": 303.685,
+        "jobs": 580.71,
+        "paid_wages": 28996.986025016275,
+        "dividends": 5402.990745924734,
+        "wage_claims": 291749.32265271194,
+        "household_cash": 224229.74942233704,
+        "household_deposits": 3211769.006556068,
+        "firm_cash": 1180049.788334893,
+        "firm_bank_debt": 71038.65466683164,
+        "firm_treasury_debt": 210489.3711758448,
+        "private_operating_profit": 15255.1761895409,
+        "food_mean_price": 4.988429468509309,
+        "services_mean_price": 31.534793487694582,
+        "government_cash": 40258.63531580136,
+        "bank_cash": 4642136.973692628,
+        "gdp": 45612.58127753352,
+        "happiness": 0.46882240008839754,
+        "health": 0.6779649338593096,
+        "money_residual": -1.2434273958206176e-06,
+        "clearing_residual": 1.405169314239174e-12,
+        "food_quality_mean": 1.0964950246681666,
+        "food_quality_max": 2.152031698489293,
+        "food_private_sales_share": 0.9924246753737591,
+        "services_quality_mean": 0.8340299576438945,
+        "services_quality_max": 1.5014215015706844,
+        "services_private_sales_share": 0.9799660206136923
+      },
+      "late_misc_means_101_200": {
+        "misc_firm_revenue": 5824.853233096899,
+        "diagnostic_bank_writeoffs_cumulative": 0.0,
+        "diagnostic_firm_delinquent_loans": 0.0,
+        "diagnostic_unpaid_research_commitments": 98050.56579535903,
+        "private_fs_wage_claim_stock": 7002.427338884815,
+        "private_fs_current_unpaid_gross": 294.4804845327834,
+        "private_fs_payroll_credit_funded": 0.0,
+        "private_fs_financial_layoffs": 0.0,
+        "private_fs_cancelled_hires": 0.0
+      },
+      "week_200": {
+        "tick": 200,
+        "active_firms": 36,
+        "queued_firms": 9,
+        "private_food_services": 32,
+        "entries": 0,
+        "exits": 0,
+        "activations": 0,
+        "quality_mean": 1.2186021372750306,
+        "quality_max": 2.4306992868174015,
+        "quality_p50": 1.099992023733059,
+        "quality_p90": 1.9700932954254933,
+        "effective_quality_max": 2.4306992868174015,
+        "quality_near_perfect": 0,
+        "effective_quality_near_perfect": 0,
+        "baseline_quality_max": 0.1,
+        "private_sales_share": 0.9876329694682797,
+        "research_active": 19,
+        "research_paused": 10,
+        "research_open": 29,
+        "research_private_cash": 430550.51809617213,
+        "food_units": 3774.714579997384,
+        "services_units": 1749.5870612254498,
+        "food_access": 999,
+        "services_access": 999,
+        "housing_access": 999,
+        "food_output": 3894.974959477359,
+        "services_output": 1878.999803498483,
+        "services_workers": 520,
+        "services_slots": 524.5,
+        "jobs": 807,
+        "paid_wages": 38939.538432777845,
+        "dividends": 5608.810118249583,
+        "wage_claims": 317754.98813172535,
+        "household_cash": 204053.19973921982,
+        "household_deposits": 2810073.1891558575,
+        "firm_cash": 1560642.1263290062,
+        "firm_bank_debt": 129085.0913192606,
+        "firm_treasury_debt": 53337.229994015965,
+        "private_operating_profit": 16619.189617188862,
+        "food_mean_price": 4.872576677816959,
+        "services_mean_price": 25.159538675029843,
+        "government_cash": 123408.6462001729,
+        "bank_cash": 4183660.100277674,
+        "gdp": 58115.28194614616,
+        "happiness": 0.47317918740801884,
+        "health": 0.6591309522788249,
+        "money_residual": -5.755573511123657e-07,
+        "clearing_residual": 1.2732925824820995e-11,
+        "food_quality_mean": 1.2532887792678904,
+        "food_quality_max": 2.4306992868174015,
+        "food_private_sales_share": 0.9944563304886731,
+        "services_quality_mean": 1.160791067286931,
+        "services_quality_max": 1.907663052426046,
+        "services_private_sales_share": 0.9842047864368495
+      },
+      "week_200_misc": {
+        "misc_firm_revenue": 20735.92745335154,
+        "diagnostic_bank_writeoffs_cumulative": 0.0,
+        "diagnostic_firm_delinquent_loans": 0,
+        "diagnostic_unpaid_research_commitments": 142642.80145755864,
+        "private_fs_wage_claim_stock": 29448.048453278185,
+        "private_fs_current_unpaid_gross": 833.1981989986739,
+        "private_fs_payroll_credit_funded": 0,
+        "private_fs_financial_layoffs": 0,
+        "private_fs_cancelled_hires": 0
+      }
+    },
+    {
+      "sequence": "income_late",
+      "population": 1000,
+      "seed": 44,
+      "repeat": 0,
+      "arm": "baseline",
+      "raw_case_sha256": "d1b221c3c357c5f1b1d05766043e625abb02cf8f43bdb940a5452cc6dbe5e23f",
+      "initial": {
+        "nonquality_profile_hash": "6e7a23aa6d1c9a496c1abcd5753eaeed6101bb57130439322a261c911546ffa4",
+        "rng_hash": "ef22b01daecabc7b4db0f9c48b3ab982f4ec0a32c747b74d50052f1d4aa7c840",
+        "quality": [
+          [
+            1,
+            "Food",
+            true,
+            0.1
+          ],
+          [
+            2,
+            "Housing",
+            true,
+            3.0111496704304814
+          ],
+          [
+            3,
+            "Services",
+            true,
+            0.1
+          ],
+          [
+            4,
+            "Healthcare",
+            true,
+            3.0168107702069484
+          ],
+          [
+            5,
+            "Food",
+            false,
+            0.5103887871422483
+          ],
+          [
+            6,
+            "Food",
+            false,
+            0.8369858733342
+          ],
+          [
+            7,
+            "Food",
+            false,
+            0.9365157690904022
+          ],
+          [
+            8,
+            "Food",
+            false,
+            0.9973358087114506
+          ],
+          [
+            9,
+            "Food",
+            false,
+            0.6722039961580738
+          ],
+          [
+            10,
+            "Food",
+            false,
+            0.8767359906819848
+          ],
+          [
+            11,
+            "Food",
+            false,
+            0.5405802771121321
+          ],
+          [
+            12,
+            "Food",
+            false,
+            1.0200415611937086
+          ],
+          [
+            13,
+            "Food",
+            false,
+            0.43449646621928184
+          ],
+          [
+            14,
+            "Food",
+            false,
+            0.31732239539535356
+          ],
+          [
+            15,
+            "Food",
+            false,
+            0.36980350196137385
+          ],
+          [
+            16,
+            "Food",
+            false,
+            0.36204216458201993
+          ],
+          [
+            17,
+            "Food",
+            false,
+            1.0444150626321218
+          ],
+          [
+            18,
+            "Food",
+            false,
+            0.5607873124935987
+          ],
+          [
+            19,
+            "Food",
+            false,
+            0.635152921878395
+          ],
+          [
+            20,
+            "Food",
+            false,
+            0.6494688183705616
+          ],
+          [
+            21,
+            "Food",
+            false,
+            0.6393321652511033
+          ],
+          [
+            22,
+            "Food",
+            false,
+            0.4580908252682982
+          ],
+          [
+            23,
+            "Food",
+            false,
+            0.591200670562326
+          ],
+          [
+            24,
+            "Food",
+            false,
+            0.6109067439245177
+          ],
+          [
+            25,
+            "Services",
+            false,
+            0.6222897753248687
+          ],
+          [
+            26,
+            "Services",
+            false,
+            0.6912059121152945
+          ],
+          [
+            27,
+            "Services",
+            false,
+            0.8775274643700501
+          ],
+          [
+            28,
+            "Services",
+            false,
+            0.7880846133830454
+          ],
+          [
+            29,
+            "Services",
+            false,
+            0.7131473257103753
+          ],
+          [
+            30,
+            "Services",
+            false,
+            0.22621446342141288
+          ],
+          [
+            31,
+            "Services",
+            false,
+            0.2999512981683893
+          ],
+          [
+            32,
+            "Services",
+            false,
+            0.8233961255761747
+          ],
+          [
+            33,
+            "Services",
+            false,
+            0.7168563524685649
+          ],
+          [
+            34,
+            "Services",
+            false,
+            0.3431904027261428
+          ],
+          [
+            35,
+            "Services",
+            false,
+            0.451777056546603
+          ],
+          [
+            36,
+            "Services",
+            false,
+            0.7265666115336618
+          ],
+          [
+            37,
+            "Services",
+            false,
+            0.5192775816916095
+          ],
+          [
+            38,
+            "Services",
+            false,
+            0.9902500469136052
+          ],
+          [
+            39,
+            "Services",
+            false,
+            0.7836072733249012
+          ],
+          [
+            40,
+            "Services",
+            false,
+            0.774778345643244
+          ],
+          [
+            41,
+            "Services",
+            false,
+            0.2716963963071692
+          ],
+          [
+            42,
+            "Services",
+            false,
+            0.4804099865421492
+          ],
+          [
+            43,
+            "Services",
+            false,
+            0.3569689283860007
+          ],
+          [
+            44,
+            "Services",
+            false,
+            0.4540888135222363
+          ]
+        ],
+        "quality_hash": "62d6fd90f24018d5b26d077c97c03b4e22836fd872eac0a41ca9304e34b4e1af"
+      },
+      "comparable_config_hash": "66729c92e91d632de97f32b3efcb42d9d51e4f459d458965f94a39c753479a62",
+      "late_means_101_200": {
+        "tick": 150.5,
+        "active_firms": 36.0,
+        "queued_firms": 9.0,
+        "private_food_services": 32.0,
+        "entries": 0.0,
+        "exits": 0.0,
+        "activations": 0.0,
+        "quality_mean": 1.0733096587959805,
+        "quality_max": 1.8275234323676182,
+        "quality_p50": 1.0632022361183797,
+        "quality_p90": 1.6594884993437413,
+        "effective_quality_max": 1.8275234323676182,
+        "quality_near_perfect": 0.0,
+        "effective_quality_near_perfect": 0.0,
+        "baseline_quality_max": 0.09999999999999981,
+        "private_sales_share": 0.9856246255446698,
+        "research_active": 15.95,
+        "research_paused": 13.05,
+        "research_open": 29.0,
+        "research_private_cash": 254331.1171716462,
+        "food_units": 3675.21561783824,
+        "services_units": 1254.2780010998508,
+        "food_access": 999.14,
+        "services_access": 891.81,
+        "housing_access": 999.73,
+        "food_output": 3689.8800887731422,
+        "services_output": 1260.3448242200384,
+        "services_workers": 283.77,
+        "services_slots": 285.03,
+        "jobs": 556.41,
+        "paid_wages": 27631.351528298826,
+        "dividends": 4862.94352127367,
+        "wage_claims": 299032.21700977144,
+        "household_cash": 215580.21524560283,
+        "household_deposits": 2923767.3190297415,
+        "firm_cash": 1479323.4465632038,
+        "firm_bank_debt": 68684.21643866118,
+        "firm_treasury_debt": 209558.92384040507,
+        "private_operating_profit": 15427.45321187386,
+        "food_mean_price": 5.162498577007381,
+        "services_mean_price": 36.21473029100327,
+        "government_cash": 36504.60144684682,
+        "bank_cash": 4356524.309885535,
+        "gdp": 44897.808642293865,
+        "happiness": 0.4721519902097139,
+        "health": 0.681447951219163,
+        "money_residual": -1.5303771942853928e-06,
+        "clearing_residual": 5.802576197311282e-12,
+        "food_quality_mean": 1.224446589965395,
+        "food_quality_max": 1.8261293882232659,
+        "food_private_sales_share": 0.9921293802827442,
+        "services_quality_mean": 0.8214147735136259,
+        "services_quality_max": 1.5162755043467888,
+        "services_private_sales_share": 0.979858549628523
+      },
+      "late_misc_means_101_200": {
+        "misc_firm_revenue": 4567.426857282053,
+        "diagnostic_bank_writeoffs_cumulative": 0.0,
+        "diagnostic_firm_delinquent_loans": 0.0,
+        "diagnostic_unpaid_research_commitments": 128873.88208694963,
+        "private_fs_wage_claim_stock": 3445.204274564977,
+        "private_fs_current_unpaid_gross": 172.73687522651795,
+        "private_fs_payroll_credit_funded": 0.0,
+        "private_fs_financial_layoffs": 0.0,
+        "private_fs_cancelled_hires": 0.0
+      },
+      "week_200": {
+        "tick": 200,
+        "active_firms": 36,
+        "queued_firms": 9,
+        "private_food_services": 32,
+        "entries": 0,
+        "exits": 0,
+        "activations": 0,
+        "quality_mean": 1.2577901775365399,
+        "quality_max": 2.047846393042775,
+        "quality_p50": 1.2873123896180774,
+        "quality_p90": 1.9221432407500267,
+        "effective_quality_max": 2.047846393042775,
+        "quality_near_perfect": 0,
+        "effective_quality_near_perfect": 0,
+        "baseline_quality_max": 0.1,
+        "private_sales_share": 0.9902154957412216,
+        "research_active": 21,
+        "research_paused": 9,
+        "research_open": 30,
+        "research_private_cash": 415739.04831465497,
+        "food_units": 3758.357225697778,
+        "services_units": 2146.3037924482514,
+        "food_access": 1000,
+        "services_access": 998,
+        "housing_access": 1000,
+        "food_output": 3778.4683226127627,
+        "services_output": 2182.5385019907712,
+        "services_workers": 506,
+        "services_slots": 507.25,
+        "jobs": 781,
+        "paid_wages": 37537.68457661098,
+        "dividends": 6156.46970950283,
+        "wage_claims": 316873.2869885893,
+        "household_cash": 190743.23875677434,
+        "household_deposits": 2440593.0208137515,
+        "firm_cash": 1957221.921294599,
+        "firm_bank_debt": 128499.7768856496,
+        "firm_treasury_debt": 54839.095227737314,
+        "private_operating_profit": 18395.165278188968,
+        "food_mean_price": 4.977463411760132,
+        "services_mean_price": 28.937500538474925,
+        "government_cash": 117966.00765799053,
+        "bank_cash": 3814576.7045557485,
+        "gdp": 58637.183170543096,
+        "happiness": 0.4549663371135988,
+        "health": 0.6648488103784952,
+        "money_residual": -2.1103769540786743e-06,
+        "clearing_residual": 1.2107648217352107e-10,
+        "food_quality_mean": 1.3768220448104485,
+        "food_quality_max": 2.0199655101557377,
+        "food_private_sales_share": 0.9945987794449536,
+        "services_quality_mean": 1.0594037320800256,
+        "services_quality_max": 2.047846393042775,
+        "services_private_sales_share": 0.9881253596749577
+      },
+      "week_200_misc": {
+        "misc_firm_revenue": 11992.127732777833,
+        "diagnostic_bank_writeoffs_cumulative": 0.0,
+        "diagnostic_firm_delinquent_loans": 0,
+        "diagnostic_unpaid_research_commitments": 167905.05191847018,
+        "private_fs_wage_claim_stock": 16187.14042582609,
+        "private_fs_current_unpaid_gross": 618.5631147388171,
+        "private_fs_payroll_credit_funded": 0,
+        "private_fs_financial_layoffs": 0,
+        "private_fs_cancelled_hires": 0
+      }
+    },
+    {
+      "sequence": "income_late",
+      "population": 1000,
+      "seed": 44,
+      "repeat": 0,
+      "arm": "candidate",
+      "raw_case_sha256": "0f170d82f5c1815a9af86e51a5bd5b198f1987be8c450db0d2f3e4db9bcfc2ef",
+      "initial": {
+        "nonquality_profile_hash": "6e7a23aa6d1c9a496c1abcd5753eaeed6101bb57130439322a261c911546ffa4",
+        "rng_hash": "ef22b01daecabc7b4db0f9c48b3ab982f4ec0a32c747b74d50052f1d4aa7c840",
+        "quality": [
+          [
+            1,
+            "Food",
+            true,
+            0.1
+          ],
+          [
+            2,
+            "Housing",
+            true,
+            3.0111496704304814
+          ],
+          [
+            3,
+            "Services",
+            true,
+            0.1
+          ],
+          [
+            4,
+            "Healthcare",
+            true,
+            3.0168107702069484
+          ],
+          [
+            5,
+            "Food",
+            false,
+            0.5103887871422483
+          ],
+          [
+            6,
+            "Food",
+            false,
+            0.8369858733342
+          ],
+          [
+            7,
+            "Food",
+            false,
+            0.9365157690904022
+          ],
+          [
+            8,
+            "Food",
+            false,
+            0.9973358087114506
+          ],
+          [
+            9,
+            "Food",
+            false,
+            0.6722039961580738
+          ],
+          [
+            10,
+            "Food",
+            false,
+            0.8767359906819848
+          ],
+          [
+            11,
+            "Food",
+            false,
+            0.5405802771121321
+          ],
+          [
+            12,
+            "Food",
+            false,
+            1.0200415611937086
+          ],
+          [
+            13,
+            "Food",
+            false,
+            0.43449646621928184
+          ],
+          [
+            14,
+            "Food",
+            false,
+            0.31732239539535356
+          ],
+          [
+            15,
+            "Food",
+            false,
+            0.36980350196137385
+          ],
+          [
+            16,
+            "Food",
+            false,
+            0.36204216458201993
+          ],
+          [
+            17,
+            "Food",
+            false,
+            1.0444150626321218
+          ],
+          [
+            18,
+            "Food",
+            false,
+            0.5607873124935987
+          ],
+          [
+            19,
+            "Food",
+            false,
+            0.635152921878395
+          ],
+          [
+            20,
+            "Food",
+            false,
+            0.6494688183705616
+          ],
+          [
+            21,
+            "Food",
+            false,
+            0.6393321652511033
+          ],
+          [
+            22,
+            "Food",
+            false,
+            0.4580908252682982
+          ],
+          [
+            23,
+            "Food",
+            false,
+            0.591200670562326
+          ],
+          [
+            24,
+            "Food",
+            false,
+            0.6109067439245177
+          ],
+          [
+            25,
+            "Services",
+            false,
+            0.6222897753248687
+          ],
+          [
+            26,
+            "Services",
+            false,
+            0.6912059121152945
+          ],
+          [
+            27,
+            "Services",
+            false,
+            0.8775274643700501
+          ],
+          [
+            28,
+            "Services",
+            false,
+            0.7880846133830454
+          ],
+          [
+            29,
+            "Services",
+            false,
+            0.7131473257103753
+          ],
+          [
+            30,
+            "Services",
+            false,
+            0.22621446342141288
+          ],
+          [
+            31,
+            "Services",
+            false,
+            0.2999512981683893
+          ],
+          [
+            32,
+            "Services",
+            false,
+            0.8233961255761747
+          ],
+          [
+            33,
+            "Services",
+            false,
+            0.7168563524685649
+          ],
+          [
+            34,
+            "Services",
+            false,
+            0.3431904027261428
+          ],
+          [
+            35,
+            "Services",
+            false,
+            0.451777056546603
+          ],
+          [
+            36,
+            "Services",
+            false,
+            0.7265666115336618
+          ],
+          [
+            37,
+            "Services",
+            false,
+            0.5192775816916095
+          ],
+          [
+            38,
+            "Services",
+            false,
+            0.9902500469136052
+          ],
+          [
+            39,
+            "Services",
+            false,
+            0.7836072733249012
+          ],
+          [
+            40,
+            "Services",
+            false,
+            0.774778345643244
+          ],
+          [
+            41,
+            "Services",
+            false,
+            0.2716963963071692
+          ],
+          [
+            42,
+            "Services",
+            false,
+            0.4804099865421492
+          ],
+          [
+            43,
+            "Services",
+            false,
+            0.3569689283860007
+          ],
+          [
+            44,
+            "Services",
+            false,
+            0.4540888135222363
+          ]
+        ],
+        "quality_hash": "62d6fd90f24018d5b26d077c97c03b4e22836fd872eac0a41ca9304e34b4e1af"
+      },
+      "comparable_config_hash": "66729c92e91d632de97f32b3efcb42d9d51e4f459d458965f94a39c753479a62",
+      "late_means_101_200": {
+        "tick": 150.5,
+        "active_firms": 35.99,
+        "queued_firms": 8.36,
+        "private_food_services": 31.99,
+        "entries": 0.0,
+        "exits": 0.01,
+        "activations": 0.01,
+        "quality_mean": 1.0771939330749947,
+        "quality_max": 1.8275234323676182,
+        "quality_p50": 1.0645236953419894,
+        "quality_p90": 1.6550579340085247,
+        "effective_quality_max": 1.8275234323676182,
+        "quality_near_perfect": 0.0,
+        "effective_quality_near_perfect": 0.0,
+        "baseline_quality_max": 0.09999999999999981,
+        "private_sales_share": 0.9856919593032235,
+        "research_active": 16.69,
+        "research_paused": 12.82,
+        "research_open": 29.51,
+        "research_private_cash": 267801.5449396587,
+        "food_units": 3657.1501592767354,
+        "services_units": 1311.4264813945567,
+        "food_access": 999.13,
+        "services_access": 870.26,
+        "housing_access": 999.46,
+        "food_output": 3657.532508212328,
+        "services_output": 1318.6555330206581,
+        "services_workers": 290.8,
+        "services_slots": 292.89,
+        "jobs": 561.67,
+        "paid_wages": 28186.31832537855,
+        "dividends": 4820.470006943744,
+        "wage_claims": 295984.6118659436,
+        "household_cash": 215902.61083478777,
+        "household_deposits": 2922073.668086244,
+        "firm_cash": 1492805.7369258308,
+        "firm_bank_debt": 75427.51668528246,
+        "firm_treasury_debt": 214989.36039842677,
+        "private_operating_profit": 15857.595320645843,
+        "food_mean_price": 5.199943146894961,
+        "services_mean_price": 32.361957541356816,
+        "government_cash": 36969.053710620785,
+        "bank_cash": 4348152.592011057,
+        "gdp": 45640.97945235311,
+        "happiness": 0.46986739612606176,
+        "health": 0.6801072319956205,
+        "money_residual": -1.5496090054512025e-06,
+        "clearing_residual": 1.1056044968427159e-11,
+        "food_quality_mean": 1.221181030511323,
+        "food_quality_max": 1.8261293882232659,
+        "food_private_sales_share": 0.9920626308582865,
+        "services_quality_mean": 0.836982443221881,
+        "services_quality_max": 1.5162755043467888,
+        "services_private_sales_share": 0.9799998618768945
+      },
+      "late_misc_means_101_200": {
+        "misc_firm_revenue": 5070.006516153875,
+        "diagnostic_bank_writeoffs_cumulative": 0.0,
+        "diagnostic_firm_delinquent_loans": 0.0,
+        "diagnostic_unpaid_research_commitments": 127679.10534526332,
+        "private_fs_wage_claim_stock": 0.0,
+        "private_fs_current_unpaid_gross": 0.0,
+        "private_fs_payroll_credit_funded": 0.0,
+        "private_fs_financial_layoffs": 0.62,
+        "private_fs_cancelled_hires": 0.28
+      },
+      "week_200": {
+        "tick": 200,
+        "active_firms": 36,
+        "queued_firms": 8,
+        "private_food_services": 32,
+        "entries": 0,
+        "exits": 0,
+        "activations": 0,
+        "quality_mean": 1.2663773511298855,
+        "quality_max": 2.047846393042775,
+        "quality_p50": 1.2873123896180774,
+        "quality_p90": 1.9221432407500267,
+        "effective_quality_max": 2.047846393042775,
+        "quality_near_perfect": 0,
+        "effective_quality_near_perfect": 0,
+        "baseline_quality_max": 0.1,
+        "private_sales_share": 0.9904079642295741,
+        "research_active": 22,
+        "research_paused": 8,
+        "research_open": 30,
+        "research_private_cash": 445729.73389550496,
+        "food_units": 3694.7651828128887,
+        "services_units": 2259.4163514873535,
+        "food_access": 1000,
+        "services_access": 997,
+        "housing_access": 1000,
+        "food_output": 3656.9247840453118,
+        "services_output": 2296.8805438797717,
+        "services_workers": 522,
+        "services_slots": 523.75,
+        "jobs": 788,
+        "paid_wages": 39096.141819246615,
+        "dividends": 5887.600007506869,
+        "wage_claims": 300566.70609017916,
+        "household_cash": 189936.5488099428,
+        "household_deposits": 2425045.735104552,
+        "firm_cash": 1985527.5219893022,
+        "firm_bank_debt": 143574.71925491176,
+        "firm_treasury_debt": 67870.5200094014,
+        "private_operating_profit": 19248.409703471945,
+        "food_mean_price": 5.018308224874691,
+        "services_mean_price": 23.145736861195676,
+        "government_cash": 122423.94563845177,
+        "bank_cash": 3784040.7098226445,
+        "gdp": 60220.746497494365,
+        "happiness": 0.45068776342216393,
+        "health": 0.6653953101851409,
+        "money_residual": -2.169981598854065e-06,
+        "clearing_residual": 8.049028110690415e-11,
+        "food_quality_mean": 1.3768220448104485,
+        "food_quality_max": 2.0199655101557377,
+        "food_private_sales_share": 0.9944590165369014,
+        "services_quality_mean": 1.0823028616622803,
+        "services_quality_max": 2.047846393042775,
+        "services_private_sales_share": 0.9885842798709608
+      },
+      "week_200_misc": {
+        "misc_firm_revenue": 20571.273737488358,
+        "diagnostic_bank_writeoffs_cumulative": 0.0,
+        "diagnostic_firm_delinquent_loans": 0,
+        "diagnostic_unpaid_research_commitments": 170054.17277800574,
+        "private_fs_wage_claim_stock": 0,
+        "private_fs_current_unpaid_gross": 0.0,
+        "private_fs_payroll_credit_funded": 0.0,
+        "private_fs_financial_layoffs": 3,
+        "private_fs_cancelled_hires": 0
+      }
+    }
+  ],
+  "local_tests": {
+    "fresh_focused_passed": 236,
+    "fresh_log_sha256": "705b6ea3d84692954fe74e4ce5ebbce1dcb3eb20cc2fcbb36f837328c1a55e11",
+    "full_linux_suite_passed": 1569,
+    "full_linux_suite_log_sha256": "57ed80fe8983d4a04f20aec8c3fba657037578bf598f260d8dcca6dfa27eb257"
+  },
+  "timing": {
+    "status": "Owner curtailed, no complete-panel acceptance claim",
+    "completed_cases": 31,
+    "further_runs": "none"
+  }
+}

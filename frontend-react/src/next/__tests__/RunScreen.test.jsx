@@ -207,15 +207,15 @@ describe('RunScreen', { timeout: WHOLE_SCREEN_MS }, () => {
     const arms = [fixtureArm(TOWN_A), townB()]
     const { container } = render(<Clocked arms={arms} />)
     fireEvent.click(sheetLink(container))
-    const tile = within(sheet()).getByRole('article', { name: 'People out of work' })
-    const shown = () => [...tile.querySelectorAll('.nx-pv b')].map(value => value.textContent)
-    const expected = week => arms.map(arm => formatMetric('peopleOutOfWorkPer100', valueAt(arm, 'peopleOutOfWorkPer100', week)))
+    const tile = within(sheet()).getByRole('button', { name: 'People out of work' })
+    const shown = () => [...tile.querySelectorAll('.nx-number-value')].map(value => value.textContent)
+    const expected = week => { const shown = arms.map(arm => formatMetric('peopleOutOfWorkPer100', valueAt(arm, 'peopleOutOfWorkPer100', week))); return shown.map((value, i) => i && shown[0] === value ? 'same as Town A' : value) }
     scrubTo(5)
     expect(shown()).toEqual(expected(5))
     scrubTo(15)
     expect(expected(15)).not.toEqual(expected(5))
     expect(shown()).toEqual(expected(15))
-    expect(sheet()).toHaveTextContent('Everything we measure in both towns, in Year 1, week 15.')
+    expect(screen.getByRole('slider', { name: 'Week of the run' })).toBeInTheDocument()
     expect(weekShown(container)).toBe('Year 1, week 15')
   })
 

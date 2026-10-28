@@ -38,6 +38,7 @@ from typing import TYPE_CHECKING, Any, Dict, List, Optional
 import numpy as np
 
 from config import CONFIG
+from firm_research import PROJECT_MODELS, RESEARCH_CATEGORIES, ResearchBudget, ResearchState
 from policy_schema import ORDERED_LEVERS as POLICY_ORDERED_LEVERS, SIMPLE_ENUM_LEVERS, TAX_LIMITS
 
 
@@ -1746,7 +1747,15 @@ class HouseholdAgent(AgentMixin):
         """
         self.employer_id = outcome["employer_id"]
         self.wage = outcome["wage"]
-        employer_category = outcome.get("employer_category", None)
+        self._apply_labor_history(
+            outcome.get("employer_category"), market_wage_anchor, current_tick,
+        )
+
+    def _apply_labor_history(
+        self, employer_category: Optional[str],
+        market_wage_anchor: Optional[float] = None, current_tick: int = 0,
+    ) -> None:
+        """Credit history once after the coordinator finalizes funded employment."""
 
         # Track experience in category (increment by 1 tick if employed)
         if self.is_employed:
@@ -1994,6 +2003,7 @@ class FirmAgent(AgentMixin):
     quality_improvement_per_rd_dollar: float = 0.0002  # quality points per $ of R&D (slowed 50x)
     quality_decay_rate: float = 0.0  # quality decay removed
     accumulated_rd_investment: float = 0.0  # total R&D spending lifetime
+    research_state: Optional[ResearchState] = None
 
     # Hidden happiness boost (Services category only) - households don't know this value
     happiness_boost_per_unit: float = 0.0  # 0.0 to 0.05 happiness gain per unit consumed
@@ -2195,6 +2205,9 @@ class FirmAgent(AgentMixin):
             )
         if not (0.0 <= self.quality_level <= 10.0):
             raise ValueError(f"quality_level must be in [0,10], got {self.quality_level}")
+        if (CONFIG.firms.quality_research_model != "instant" and self.is_baseline
+                and self.good_category.lower() in RESEARCH_CATEGORIES):
+            self.quality_level = 0.1
         if not (0.0 <= self.sales_expectation_alpha <= 1.0):
             raise ValueError(
                 f"sales_expectation_alpha must be in [0,1], got {self.sales_expectation_alpha}"
@@ -2313,6 +2326,7 @@ class FirmAgent(AgentMixin):
             "healthcare_requests_last_tick": self.healthcare_requests_last_tick,
             "healthcare_completed_visits_last_tick": self.healthcare_completed_visits_last_tick,
             "healthcare_capacity_carryover": self.healthcare_capacity_carryover,
+            **({"research_state": self.research_state.to_dict()} if self.research_state is not None else {}),
         }
 
     # -------------------------------------------------------------------------
@@ -5469,6 +5483,46 @@ class FirmAgent(AgentMixin):
         self.decision_diagnostics["service_upgrade_requested"] = True
         return True
 
+    def advance_research(
+        self, *, tick: int, operating_cash_generation: float,
+        operating_costs: Optional[float] = None, available_cash: Optional[float] = None,
+        blocked: bool = False,
+    ) -> float:
+        """Fund one complete research installment and commit any completed gain."""
+        variant = self._firm_config().quality_research_model
+        if (variant not in PROJECT_MODELS or self.good_category.lower() not in RESEARCH_CATEGORIES
+                or self.is_baseline):
+            return 0.0
+        debt_values = (self.bank_loan_payment_per_tick, self.bank_loan_remaining,
+                       self.loan_payment_per_tick, self.government_loan_remaining)
+        if any(not math.isfinite(value) or value < 0.0 for value in debt_values):
+            raise ValueError("research debt schedules must be finite and nonnegative")
+        if not math.isfinite(self.accumulated_rd_investment) or self.accumulated_rd_investment < 0.0:
+            raise ValueError("research accumulated spending must be finite and nonnegative")
+        if not math.isfinite(self.payment_wage_arrears) or self.payment_wage_arrears < 0.0:
+            raise ValueError("research wage arrears must be finite and nonnegative")
+        budget = ResearchBudget(
+            generation=operating_cash_generation,
+            cash=self.cash_balance,
+            available_cash=self.cash_balance if available_cash is None else available_cash,
+            operating_costs=self.last_tick_total_costs if operating_costs is None else operating_costs,
+            debt_reserve=(min(6.0 * self.bank_loan_payment_per_tick, self.bank_loan_remaining)
+                          + min(6.0 * self.loan_payment_per_tick, self.government_loan_remaining)),
+            risk_tolerance=self.risk_tolerance,
+        )
+        state = self.research_state or ResearchState(CONFIG.random_seed, f"initial:{self.firm_id}")
+        funding_variant = state.project.variant if state.project is not None else variant
+        result = state.advance(
+            tick=tick, quality=self.quality_level, variant=variant, budget=budget,
+            blocked=(blocked or self.payment_wage_arrears > 1e-6
+                     or (funding_variant != "project_cash" and self.survival_mode)),
+        )
+        self.research_state = state
+        self.cash_balance -= result.spending
+        self.accumulated_rd_investment += result.spending
+        self.quality_level += result.gain
+        return result.spending
+
     def apply_rd_and_quality_update(
         self, revenue: float, available_cash: Optional[float] = None
     ) -> float:
@@ -5486,6 +5540,10 @@ class FirmAgent(AgentMixin):
             Amount spent on R&D (to be redirected to Misc firm)
         """
         firm_config = self._firm_config()
+
+        if (firm_config.quality_research_model != "instant"
+                and self.good_category.lower() in RESEARCH_CATEGORIES):
+            return 0.0
 
         # Feature 1: No R&D spending during survival mode (preserve cash)
         if self.survival_mode:

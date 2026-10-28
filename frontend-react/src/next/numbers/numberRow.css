@@ -1,0 +1,49 @@
+/* Shared by the column bar and every measure so values stay aligned. */
+.nx .nx-number-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) repeat(var(--nx-towns, 2), 100px) 120px 84px 14px;
+  min-width: var(--nx-grid-min, calc(480px + var(--nx-towns, 2) * 100px));
+  gap: 10px;
+  align-items: center;
+}
+.nx .nx-number-grid.is-one-town {
+  grid-template-columns: minmax(0, 1fr) 100px 84px 14px;
+  min-width: var(--nx-grid-min, 460px);
+}
+.nx .nx-number-row { min-width: var(--nx-grid-min, calc(480px + var(--nx-towns, 2) * 100px)); scroll-margin-top: calc(var(--nx-sheet-top, 0px) + 74px) }
+.nx .nx-number-row.is-one-town { min-width: var(--nx-grid-min, 460px) }
+.nx .nx-number-button {
+  width: 100%; min-height: 46px; padding: 8px 16px;
+  border: 0; border-top: 1px solid var(--nx-line); border-radius: 0;
+  background: transparent; color: var(--nx-ink2); text-align: left;
+}
+.nx .nx-number-button:hover, .nx .nx-number-row.is-open { background: color-mix(in srgb, var(--nx-page) 65%, var(--nx-panel)) }
+.nx .nx-number-button:focus-visible { position: relative; z-index: 1; outline-offset: -3px; border-radius: 0 }
+.nx .nx-number-name { color: var(--nx-ink); font-size: 13.5px; line-height: 1.35; font-weight: 600 }
+.nx .nx-number-name small { display: block; margin-top: 2px; color: var(--nx-ink3-text); font-size: 12px; font-weight: 400 }
+.nx .nx-number-value { color: var(--nx-ink); font-size: 14px; font-weight: 600; font-variant-numeric: tabular-nums; line-height: 1.35; white-space: nowrap }
+.nx .nx-number-value.is-not-measured { font-size: 11.5px; font-weight: 400; color: var(--nx-ink3-text); white-space: normal }
+.nx .nx-number-value.is-same-value { font-size: 12px; font-weight: 400; color: var(--nx-ink3-text); white-space: normal }
+.nx .nx-number-differences, .nx .nx-number-difference { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; min-width: 0; font-size: 12.5px; line-height: 1.35 }
+.nx .nx-number-differences { gap: 7px }
+.nx .nx-number-comparison-town { display: inline-flex; align-items: center; gap: 5px; font-size: 11.5px; font-weight: 600 }
+.nx .nx-number-comparison-town i { width: 7px; height: 7px; flex: none; border-radius: 2px }
+.nx .nx-number-tag { display: inline-flex; padding: 1px 7px; border-radius: 99px; font-size: 11.5px; font-weight: 600; white-space: nowrap }
+.nx .nx-number-tag.is-better { color: var(--nx-work-text); background: color-mix(in srgb, var(--nx-work) 14%, var(--nx-panel)) }
+.nx .nx-number-tag.is-worse { color: var(--nx-home-text); background: color-mix(in srgb, var(--nx-home) 14%, var(--nx-panel)) }
+.nx .nx-number-spark { display: block; width: 84px; height: 26px }
+.nx .nx-number-spark svg { display: block; max-width: 100% }
+.nx .nx-number-chevron { width: 9px; height: 9px; margin: -4px 2px 0; border-right: 1.5px solid var(--nx-line2); border-bottom: 1.5px solid var(--nx-line2); transform: rotate(45deg); transition: transform 160ms var(--nx-ease) }
+.nx .nx-number-row.is-open .nx-number-chevron { margin-top: 4px; transform: rotate(225deg) }
+.nx .nx-number-expand-motion {
+  display: grid; grid-template-rows: 0fr; opacity: 0;
+  transition: grid-template-rows var(--nx-change, 420ms) var(--nx-ease, ease), opacity var(--nx-change, 420ms) var(--nx-ease, ease);
+}
+.nx .nx-number-expand-motion[data-state="open"] { grid-template-rows: 1fr; opacity: 1 }
+.nx .nx-number-expand-clip { min-height: 0; overflow: hidden }
+.nx .nx-number-expanded { padding: 4px 16px 14px }
+.nx .nx-number-meaning, .nx .nx-number-counted { margin-top: 6px; font-size: 12.5px; line-height: 1.45; color: var(--nx-ink3-text) }
+.nx .nx-number-expanded > .nx-number-meaning, .nx .nx-number-expanded > .nx-number-counted { margin-top: 6px }
+@media (prefers-reduced-motion: reduce) {
+  .nx .nx-number-chevron, .nx .nx-number-expand-motion { transition: none }
+}

@@ -155,7 +155,7 @@ def test_real_tick_project_hire_is_paid_and_excluded_from_current_output(factory
             {1: {"employer_id": 3, "wage": 50.0, "employer_category": "Services"},
              2: {"employer_id": 3, "wage": 50.0, "employer_category": "Services"}},
         ))
-        monkeypatch.setattr(economy, "_batch_plan_consumption", lambda *_: {
+        monkeypatch.setattr(economy, "_batch_plan_consumption", lambda *_, **__: {
             1: {"planned_purchases": {}, "budget": 0.0},
             2: {"planned_purchases": {}, "budget": 0.0},
         })

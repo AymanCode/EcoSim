@@ -75,11 +75,11 @@ function Strip({ rows, tick }) {
 // with a mark for each week a business opened or closed, the totals so far
 // above it and the window's under it. From the town-wide event counts; a week
 // with no counts draws nothing.
-export default function OpenedClosed({ arms, tick, className = '' }) {
+export default function OpenedClosed({ arms, tick, className = '', inline = false }) {
   const copy = COPY.numbers.openClose
   const measured = [OPENED, CLOSED].some(key => everCounted(arms, key))
   const perTown = arms.map(arm => weeklyCounts(arm, [OPENED, CLOSED], tick, WEEKS))
-  const soFar = arms.map(arm => weeklyCounts(arm, [OPENED, CLOSED], tick, Math.max(1, Math.floor(tick))))
+  const soFar = inline ? [] : arms.map(arm => weeklyCounts(arm, [OPENED, CLOSED], tick, Math.max(1, Math.floor(tick))))
   const weeks = perTown[0]?.length ?? 0
   const listed = (rows, key) => rows.filter(row => row[key] > 0).map(row => copy.weekCount(weekLabel(row.tick), row[key]))
 
@@ -96,7 +96,7 @@ export default function OpenedClosed({ arms, tick, className = '' }) {
             <div className="nx-vpanel" key={arm.label}>
               <div className="nx-vhead">
                 <TownName arm={arm} />
-                <span><Bolded parts={copy.soFar(total(soFar[i], OPENED), total(soFar[i], CLOSED))} /></span>
+                {!inline && <span><Bolded parts={copy.soFar(total(soFar[i], OPENED), total(soFar[i], CLOSED))} /></span>}
               </div>
               <Strip rows={rows} tick={tick} />
               <WindowAxis first={rows[0].tick} weeks={WEEKS} tick={tick} />
@@ -104,9 +104,23 @@ export default function OpenedClosed({ arms, tick, className = '' }) {
             </div>
           )
         })}
-        <p className="nx-sr">{arms.map((arm, i) => copy.alt(arm.label, listed(perTown[i], OPENED), listed(perTown[i], CLOSED))).join(' ')}</p>
+        {inline ? <div className="nx-sr"><table>
+          <caption>{COPY.numbers.chart.table(copy.title)}</caption>
+          <thead><tr><th scope="col">{COPY.numbers.chart.week}</th>{arms.flatMap(arm => [
+            <th key={`${arm.label}-o`} scope="col">{COPY.numbers.column(arm.label, COPY.numbers.chart.opened)}</th>,
+            <th key={`${arm.label}-c`} scope="col">{COPY.numbers.column(arm.label, COPY.numbers.chart.closed)}</th>,
+          ])}</tr></thead>
+          <tbody>{perTown[0].map((row, index) => <tr key={row.tick}>
+            <th scope="row">{weekLabel(row.tick)}</th>
+            {perTown.flatMap((rows, i) => [
+              <td key={`${arms[i].label}-o`}>{rows[index][OPENED] ?? COPY.numbers.notRecorded}</td>,
+              <td key={`${arms[i].label}-c`}>{rows[index][CLOSED] ?? COPY.numbers.notRecorded}</td>,
+            ])}
+          </tr>)}</tbody>
+        </table></div> : <p className="nx-sr">{arms.map((arm, i) => copy.alt(arm.label, listed(perTown[i], OPENED), listed(perTown[i], CLOSED))).join(' ')}</p>}
       </>
     )
   }
+  if (inline) return <div className={`nx-number-visual${className ? ` ${className}` : ''}`}>{body}</div>
   return <Card title={copy.title} className={className}>{body}</Card>
 }

@@ -1,4 +1,4 @@
-import { useId } from 'react'
+import { useId, useState } from 'react'
 import useMeasured from '../../charts/useMeasured.js'
 import { COPY, COUNTED_EVERY_5, METRICS, STORY_METRICS, WARMUP_TICKS, formatEndLabel, formatMetric, formatMetricShort, townTextColor } from '../catalog.js'
 import { countedAt, countedSeriesUpTo, seriesUpTo, valueAt } from '../data/derive.js'
@@ -10,10 +10,14 @@ import '../next.css'
 // per policy change. The warm-up weeks sit in a hatched "setting up" band with
 // the lines dashed there, and the y-axis ignores them. Label widths are
 // estimated (no DOM measuring), so every label keeps a little slack.
-// The numbers sheet's "See it big" reuses it for any METRICS key: `metricKeys`
-// lists its chips (STORY_METRICS by default, as on the Run screen), and with
+// The numbers sheet reuses it for any METRICS key: `metricKeys` lists its
+// chips (STORY_METRICS by default, as on the Run screen), and with
 // `countedWeeks` a COUNTED_EVERY_5 number is drawn only at the weeks it was
 // counted, its dot on the last count, and its table lists counts.
+// `inline` omits the card, heading and chips, adds a local chart key, and
+// gives every recorded week in the table. `hideEndLabels` and `interactive`
+// independently opt into label-free lines and a pointer/keyboard crosshair.
+// All three default off so the Run screen keeps its existing output.
 const HEIGHT = 320
 const PAD_TOP = 44
 const PAD_RIGHT = 156
@@ -169,14 +173,19 @@ function weeklyRows(arms, metricKey, tick) {
   return weeks.map(week => ({ week, values: arms.map(arm => valueAt(arm, metricKey, week)) }))
 }
 
-function ValueTable({ arms, metricKey, tick, name, counted }) {
-  const rows = counted ? countRows(arms, metricKey, tick) : weeklyRows(arms, metricKey, tick)
-  return (
-    <table className="nx-sr">
-      <caption>{counted ? COPY.chart.countedCaption(name) : COPY.chart.tableCaption(name)}</caption>
+function ValueTable({ arms, metricKey, tick, name, counted, inline }) {
+  let rows
+  if (inline) {
+    const byTown = arms.map(arm => new Map((counted ? countedSeriesUpTo : seriesUpTo)(arm, metricKey, tick).map(point => [point.tick, point.value])))
+    const weeks = [...new Set(byTown.flatMap(points => [...points.keys()]))].sort((a, b) => a - b)
+    rows = weeks.map(week => ({ week, values: byTown.map(points => points.get(week) ?? null) }))
+  } else rows = counted ? countRows(arms, metricKey, tick) : weeklyRows(arms, metricKey, tick)
+  const table = (
+    <table className={inline ? undefined : 'nx-sr'}>
+      <caption>{inline ? COPY.numbers.chart.table(name) : counted ? COPY.chart.countedCaption(name) : COPY.chart.tableCaption(name)}</caption>
       <thead>
         <tr>
-          <th scope="col">{COPY.chart.weekColumn}</th>
+          <th scope="col">{inline ? COPY.numbers.chart.week : COPY.chart.weekColumn}</th>
           {arms.map(arm => <th key={arm.label} scope="col">{arm.label}</th>)}
         </tr>
       </thead>
@@ -184,22 +193,26 @@ function ValueTable({ arms, metricKey, tick, name, counted }) {
         {rows.map(({ week, values }) => (
           <tr key={week}>
             <th scope="row">{weekLabel(week)}</th>
-            {arms.map((arm, i) => <td key={arm.label}>{formatMetric(metricKey, values[i])}</td>)}
+            {arms.map((arm, i) => <td key={arm.label}>{inline && values[i] === null ? COPY.numbers.notMeasured : formatMetric(metricKey, values[i])}</td>)}
           </tr>
         ))}
       </tbody>
     </table>
   )
+  return inline ? <div className="nx-sr">{table}</div> : table
 }
 
 export default function StoryChart({
   arms, metricKey, tick, horizon, onMetricChange, playing = false, metricKeys = STORY_METRICS, countedWeeks = false,
+  hideEndLabels = false, inline = false, interactive = false, className = '',
 }) {
   const [ref, size] = useMeasured()
+  const [hoverWeek, setHoverWeek] = useState(null)
   const uid = useId().replace(/:/g, '')
   const clipId = `nx-plot-${uid}`
   const linesClipId = `nx-lines-${uid}`
   const hatchId = `nx-hatch-${uid}`
+  const tooltipId = `nx-tooltip-${uid}`
   const metric = METRICS[metricKey] ?? { name: metricKey, meaning: '', format: 'count' }
   const end = Math.max(1, Number(horizon) || 0, tick)
   const counted = countedWeeks && COUNTED_EVERY_5.includes(metricKey)
@@ -232,7 +245,7 @@ export default function StoryChart({
   const endWidth = compact
     ? Math.max(0, ...arms.map(arm => textWidth(arm.label, 13, true)), ...values.map(value => textWidth(formatEndLabel(metricKey, value), 13, true)))
     : 0
-  const plotRight = W - (compact ? Math.ceil(endWidth) + 20 : PAD_RIGHT)
+  const plotRight = W - (hideEndLabels ? 16 : compact ? Math.ceil(endWidth) + 20 : PAD_RIGHT)
   const x = t => padL + (t / end) * (plotRight - padL)
   const y = v => PAD_TOP + (1 - (v - scale.lo) / (scale.hi - scale.lo || 1)) * (H - PAD_TOP - PAD_BOTTOM)
   const plotTop = PAD_TOP - 10
@@ -254,7 +267,7 @@ export default function StoryChart({
     const w = Math.max(...lines.map(line => textWidth(line, 13, true))) + 4
     return { ...item, lines, box: { x: cursorX + 10, y: item.y - endHeight / 2, w, h: endHeight } }
   })
-  const taken = ends.map(item => item.box)
+  const taken = hideEndLabels ? [] : ends.map(item => item.box)
 
   const note = startNote(arms.length)
   if (note) taken.push({ x: padL, y: 6, w: textWidth(note, 12.5, true), h: 18 })
@@ -308,12 +321,52 @@ export default function StoryChart({
     }
   })
 
+  // Hover never reaches the not-yet-played weeks. For counted metrics the
+  // crosshair uses the last actual count, just as the endpoint does.
+  const selectedWeek = interactive && hoverWeek !== null ? Math.max(0, Math.min(tick, hoverWeek)) : null
+  const hoverValues = selectedWeek === null ? [] : arms.map(arm => {
+    const count = counted ? countedAt(arm, metricKey, selectedWeek) : null
+    return { arm, value: counted ? count?.value ?? null : valueAt(arm, metricKey, selectedWeek), at: count?.asOfTick ?? selectedWeek }
+  })
+  const pointerMove = event => {
+    const bounds = event.currentTarget.getBoundingClientRect()
+    const px = ((event.clientX - bounds.left) / (bounds.width || W)) * W
+    if (px < padL || px > plotRight) return setHoverWeek(null)
+    setHoverWeek(Math.max(0, Math.min(tick, Math.round(((px - padL) / (plotRight - padL || 1)) * end))))
+  }
+  const inspectWeek = event => {
+    let week
+    if (event.key === 'ArrowLeft') week = (selectedWeek ?? tick) - 1
+    else if (event.key === 'ArrowRight') week = (selectedWeek ?? tick) + 1
+    else if (event.key === 'Home') week = arms.reduce((first, arm) => Math.min(first, arm.ticks[0] ?? tick), tick)
+    else if (event.key === 'End') week = tick
+    else if (event.key === 'Escape') {
+      setHoverWeek(null)
+      return // Escape still reaches the sheet's close handler.
+    } else return
+    event.preventDefault()
+    setHoverWeek(Math.max(0, Math.min(tick, week)))
+  }
+  const interaction = interactive ? {
+    tabIndex: 0,
+    role: 'group',
+    'aria-label': COPY.numbers.chart.tooltip(metric.name),
+    'aria-describedby': selectedWeek === null ? undefined : tooltipId,
+    onPointerMove: pointerMove,
+    onPointerLeave: () => setHoverWeek(null),
+    onFocus: () => setHoverWeek(tick),
+    onBlur: () => setHoverWeek(null),
+    onKeyDown: inspectWeek,
+  } : {}
+
   return (
-    <div className="nx-card nx-storyc">
-      <h3>{metric.name}</h3>
-      <p className="cs">{metric.meaning}</p>
-      <MetricChips metricKey={metricKey} metricKeys={metricKeys} onMetricChange={onMetricChange} />
-      <div ref={ref} className={`nx-chart${playing ? ' is-playing' : ''}`} style={{ height: H }}>
+    <div className={`${inline ? 'nx-storyc nx-story-inline' : 'nx-card nx-storyc'}${className ? ` ${className}` : ''}`}>
+      {!inline && <>
+        <h3>{metric.name}</h3>
+        <p className="cs">{metric.meaning}</p>
+        <MetricChips metricKey={metricKey} metricKeys={metricKeys} onMetricChange={onMetricChange} />
+      </>}
+      <div ref={ref} className={`nx-chart${playing ? ' is-playing' : ''}`} style={{ height: H }} {...interaction}>
         <svg width={W} height={H} viewBox={`0 0 ${W} ${H}`} aria-hidden="true" focusable="false">
           <defs>
             <clipPath id={clipId}>
@@ -391,20 +444,40 @@ export default function StoryChart({
           ))}
           {ends.map(item => (
             <g key={item.arm.label}>
-              {Math.abs(item.y - item.dotY) > 4 && (
+              {!hideEndLabels && Math.abs(item.y - item.dotY) > 4 && (
                 <path className="nx-leader" d={`M${round(item.dotX + 5)} ${round(item.dotY)} L${round(cursorX + 9)} ${round(item.y)}`} style={{ stroke: item.arm.color }} />
               )}
               <circle className="nx-dot" cx={round(item.dotX)} cy={round(item.dotY)} r={5} style={{ fill: item.arm.color }} />
-              <text className="nx-endl" x={round(cursorX + 12)} y={round(item.y + 4.5 - ((item.lines.length - 1) * LINE_H) / 2)} style={{ fill: townTextColor(item.arm.color) }}>
+              {!hideEndLabels && <text className="nx-endl" x={round(cursorX + 12)} y={round(item.y + 4.5 - ((item.lines.length - 1) * LINE_H) / 2)} style={{ fill: townTextColor(item.arm.color) }}>
                 {item.lines.length === 1 ? item.lines[0] : item.lines.map((line, i) => (
                   <tspan key={line} x={round(cursorX + 12)} dy={i ? LINE_H : 0}>{line}</tspan>
                 ))}
-              </text>
+              </text>}
             </g>
           ))}
+          {selectedWeek !== null && <g className="nx-crosshair" clipPath={`url(#${linesClipId})`}>
+            <line x1={round(x(selectedWeek))} x2={round(x(selectedWeek))} y1={plotTop} y2={plotBottom} style={{ stroke: 'var(--nx-ink3)', strokeWidth: 1, strokeDasharray: '3 3' }} />
+            {hoverValues.filter(item => item.value !== null).map(item => (
+              <circle key={item.arm.label} className="nx-dot" cx={round(x(item.at))} cy={round(clampY(y(item.value)))} r={4} style={{ fill: item.arm.color }} />
+            ))}
+          </g>}
         </svg>
+        {selectedWeek !== null && <div id={tooltipId} role="tooltip" className="nx-chart-tooltip" style={{
+          position: 'absolute', top: 0, left: Math.max(0, Math.min(W - 220, x(selectedWeek) + 10)),
+          maxWidth: '100%', padding: '8px 10px', border: '1px solid var(--nx-line2)', borderRadius: 8,
+          background: 'var(--nx-panel)', color: 'var(--nx-ink)', fontSize: 12, pointerEvents: 'none', zIndex: 1,
+        }}>
+          <b>{weekLabel(selectedWeek)}</b>
+          {hoverValues.map(item => <div key={item.arm.label} style={{ color: townTextColor(item.arm.color) }}>
+            {COPY.numbers.column(item.arm.label, item.value === null ? COPY.numbers.notMeasured : formatMetric(metricKey, item.value))}
+          </div>)}
+        </div>}
       </div>
-      <ValueTable arms={arms} metricKey={metricKey} tick={tick} name={metric.name} counted={counted} />
+      {inline && <ul className="nx-skey" aria-label={COPY.numbers.chart.label}>
+        {warmEnd > 0 && <li><i className="nx-ckey-warm" aria-hidden="true" />{COPY.numbers.chart.warm}</li>}
+        {tick < end && <li><i aria-hidden="true" style={{ background: 'var(--nx-future)' }} />{COPY.numbers.chart.future}</li>}
+      </ul>}
+      <ValueTable arms={arms} metricKey={metricKey} tick={tick} name={metric.name} counted={counted} inline={inline} />
     </div>
   )
 }

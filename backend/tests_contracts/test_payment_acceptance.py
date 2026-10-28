@@ -51,7 +51,7 @@ def _one_worker(factory, monkeypatch, timing, performance_mode=False):
          2: {"hired_households_ids": [], "confirmed_layoffs_ids": [], "actual_wages": {}}},
         {1: {"employer_id": 1, "wage": 100.0, "employer_category": "Food"}},
     ))
-    monkeypatch.setattr(economy, "_batch_plan_consumption", lambda *_: {
+    monkeypatch.setattr(economy, "_batch_plan_consumption", lambda *_, **__: {
         1: {"planned_purchases": {1: 2.0}, "budget": 20.0}
     })
     monkeypatch.setattr(economy, "_maybe_create_new_firms", lambda: 0)
@@ -98,8 +98,11 @@ def test_invalid_withholding_cannot_partially_debit_employer(factory):
         assert (firm.cash_balance, worker.cash_balance, gov.cash_balance, economy.payment_state) == before
 
 
-def test_public_step_partial_wages_withholding_and_landlord_property_tax(factory, monkeypatch):
+def test_public_step_baseline_partial_wages_withholding_and_landlord_property_tax(factory, monkeypatch):
     cfg, economy, worker, firm, landlord = _one_worker(factory, monkeypatch, "income_first")
+    # Baseline funding is outside the private pre-work payroll constraint.
+    firm.is_baseline = True
+    economy.government.register_baseline_firm("Food", firm.firm_id)
     firm.cash_balance = 60.0
     economy.government.wage_tax_rate = 0.15
     landlord.property_tax_rate = 0.01

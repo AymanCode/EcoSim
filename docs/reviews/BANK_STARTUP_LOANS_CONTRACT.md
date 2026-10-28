@@ -2,6 +2,8 @@
 
 Status: selected and authorized by Ayman, 2026-10-27; implementation and local 1,000-household evidence complete; selected for PR publication. Coordinator: Terra/ultra. Baseline `b233cd74fc570ab0b38665fcc94187f6ca37ef27`, frozen zip SHA256 `464295AF64E0768478D38119F6C2557B77F89F24762236F216CBBAA8DAECC9AB`. Agent rules v1.18; R01?R12, M05/M06, K02/K03 and working-contract L01?L12 apply. Role: private firms, bank and integration; no W-ticket implied.
 
+Integration after PR #68: the common rules version is **v1.21**, retaining its research and payroll revisions v1.18-v1.20. The v1.18 above identifies this experiment's original standalone contract; its frozen economic evidence is unchanged. See the [combined integration receipt](PR68_69_INTEGRATION.md) for current validation and the ID-policy regression.
+
 ## 1. Problem and evidence
 
 Question: what happens when the bank, rather than Treasury or founder alone, can finance an eligible private entrant under a bounded startup product? Source finding: `Economy._activate_queued_firms` uses `_issue_firm_loan` whose named path applies historical-revenue and settled-cashflow tests and falls back to Treasury. `_maybe_create_new_firms` routes its named Treasury tier to a direct pooled claim, otherwise founder equity; `payment_loans.originate_v2` owns bank claims and funder debit. A startup cannot supply its own operating history. This is a modeling limitation, not measured performance or evidence of a calibrated risk threshold.

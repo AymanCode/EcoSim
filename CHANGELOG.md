@@ -4,6 +4,18 @@ Notable changes and decisions for EcoSim, newest first. The project does not use
 
 ## Unreleased
 
+### 2026-10-27: Fund private work and budget from received pay
+
+Private Food/Services secure the actual wage bill before production through cash and approved bank credit, reducing unaffordable staffing before work instead of creating new wage IOUs. Shopping budgets in the standard flow use received wages and funded benefits without counting those receipts again as savings, while seller choices and decision cadence are preserved. Baseline Healthcare retains its minimum-base-wage/profit-bonus rule and protected staffing; old claims and public-provider funding remain separate from this change, with economic/runtime comparisons still pending.
+
+### 2026-10-27: Post-payment cash research experiment
+
+Owner-selected QUALITY-CASH-01 adds an opt-in research program funded from actual cash left above protected operating and debt reserves. It removes the recent-profit funding cap and fixed small project ceiling while preserving long, uncertain quality progress and existing payment recipients. Controls and the default remain unchanged while local comparisons measure cash circulation, repayment safety and household outcomes.
+
+### 2026-10-27: Food and Services quality research experiment
+
+Owner-selected QUALITY-RESEARCH-01 defines basic baseline quality, bounded private entry quality and two funded multi-month research alternatives under rules v1.18. Research pauses during cash trouble, preserves the existing recipients and leaves Housing/Healthcare rules and unrelated business mechanisms unchanged. The default remains `instant`; local comparisons met the quality goal but reduced jobs and Services delivery, with a severe housing-access loss in one seed.
+
 ### 2026-10-26: Affordable household orders and Services expansion funding
 
 Owner-selected continuation under rules v1.17. Named household plans distinguish expected pre-shopping income from existing savings; `income_first` can anticipate its early receipts while `income_late` cannot spend held income. Actual clearing prices, cash and funded subsidy bound attempted orders. Firm capacity feedback counts only affordable stockouts after purchases and priority payments, without reusing household or subsidy funds; unaffordable household needs still affect wellbeing. Seller choice, payment priority and update cadence remain.

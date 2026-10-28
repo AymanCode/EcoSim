@@ -99,7 +99,7 @@ def test_step_debt_then_funded_rd_reconciles_through_exit(
             {1: {"hired_households_ids": [], "confirmed_layoffs_ids": [], "actual_wages": {}}},
             {1: {"employer_id": None, "wage": 0.0}},
         ))
-        monkeypatch.setattr(economy, "_batch_plan_consumption", lambda *_: {
+        monkeypatch.setattr(economy, "_batch_plan_consumption", lambda *_, **__: {
             1: {"planned_purchases": {1: 2.0} if economy.current_tick == 5 else {},
                 "budget": 20.0 if economy.current_tick == 5 else 0.0}
         })

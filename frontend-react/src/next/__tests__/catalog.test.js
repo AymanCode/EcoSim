@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest'
 import {
-  COPY, COUNTED_EVERY_5, DEFAULT_POLICY, GLANCE_KEYS, LEVER_GROUPS, LEVERS, METRICS, NUMBER_GROUPS, QUESTIONS, capitalise, describePolicy, formatMetric,
+  COPY, COUNTED_EVERY_5, DEFAULT_POLICY, NUMBER_HERO_KEYS, LEVER_GROUPS, LEVERS, METRICS, NUMBER_GROUPS, QUESTIONS, capitalise, describePolicy, formatMetric,
   formatEndLabel, formatMetricShort, formatMoneyShort, leverValuePhrase, shownValue,
 } from '../catalog.js'
 import { policyProblems } from '../policyRules.js'
@@ -111,7 +111,7 @@ describe('formatMetric', () => {
 })
 
 describe('the numbers sheet catalog', () => {
-  const FORMATS = ['per100', 'money', 'price', 'ratio', 'count', 'outOf100', 'percent']
+  const FORMATS = ['per100', 'money', 'price', 'ratio', 'count', 'outOf100', 'percent', 'signed']
 
   test('every metric has a name, a one-sentence meaning, a known format and a direction', () => {
     for (const [key, m] of Object.entries(METRICS)) {
@@ -143,32 +143,24 @@ describe('the numbers sheet catalog', () => {
     expect(METRICS.townHallIncome.meaning).toMatch(/taxes/i)
     expect(METRICS.familySupportPaid.meaning).toMatch(/welcome payment/i)
     // The money group's blurb says no more than its tiles.
-    expect(COPY.numbers.groups.money.blurb).toMatch(/main taxes/)
-    expect(COPY.numbers.groups.money.blurb).toMatch(/apart from rent/)
+    expect(COPY.numbers.groups.townhall.blurb).toMatch(/money/)
+    expect(COPY.numbers.groups.townhall.blurb).toMatch(/rules/)
   })
 
   test('six groups, each with a title and blurb, and every key a metric', () => {
-    expect(NUMBER_GROUPS).toEqual([
-      { id: 'work', keys: ['peopleOutOfWorkPer100', 'typicalWeeklyPay', 'publicWorksJobs'], extras: ['hiresAndLayoffs'] },
-      { id: 'prices', keys: ['priceFood', 'priceHousing', 'priceServices', 'priceHealthcare', 'foodSpendPerHousehold'] },
-      { id: 'richpoor', keys: ['gini', 'topTenthShare', 'bottomHalfShare'], extras: ['wealthLadder'] },
-      { id: 'business', keys: ['firmsOpen'], extras: ['firmStates', 'openedClosed'] },
-      { id: 'money', keys: ['townHallCash', 'salesExceptRentThisWeek', 'bankActiveLoans'], extras: ['moneyInOut', 'loansWrittenOff'] },
-      { id: 'wellbeing', keys: ['homelessHouseholds', 'careDenials', 'happiness'] },
-    ])
+    expect(NUMBER_GROUPS.map(group => group.id)).toEqual(['work','prices','richpoor','hardship','business','townhall'])
     for (const group of NUMBER_GROUPS) {
       expect(COPY.numbers.groups[group.id].title.length, group.id).toBeGreaterThan(2)
       expect(COPY.numbers.groups[group.id].blurb, group.id).toMatch(/^[A-Z].*\.$/)
-      for (const key of group.keys) expect(METRICS[key], key).toBeTruthy()
+      for (const { key } of group.rows) expect(METRICS[key], key).toBeTruthy()
     }
     expect(Object.keys(COPY.numbers.groups)).toEqual(NUMBER_GROUPS.map(group => group.id))
   })
 
-  test('eight numbers at a glance, all metrics', () => {
-    expect(GLANCE_KEYS).toEqual([
-      'peopleOutOfWorkPer100', 'typicalWeeklyPay', 'foodSpendPerHousehold', 'gini', 'townHallCash', 'firmsOpen', 'happiness', 'salesExceptRentThisWeek',
-    ])
-    for (const key of GLANCE_KEYS) expect(METRICS[key], key).toBeTruthy()
+  test('each metric has one home, in a hero or one row', () => {
+    const keys = [...NUMBER_HERO_KEYS, ...NUMBER_GROUPS.flatMap(group => group.rows.map(row => row.key))]
+    expect(new Set(keys).size).toBe(keys.length)
+    keys.forEach(key => expect(METRICS[key]).toBeTruthy())
   })
 
   test('the numbers counted every 5 weeks', () => {

@@ -9,7 +9,7 @@ const STATES = ['growing', 'steady', 'struggling']
 // stacked bar, growing, steady and struggling, its length set by how many are
 // open against the town with the most; the counts are written underneath. It
 // opens big on the growing businesses, with the three counts as chips.
-export default function FirmStates({ arms, tick, onSeeBig, className = '' }) {
+export default function FirmStates({ arms, tick, onSeeBig, className = '', inline = false }) {
   const copy = COPY.numbers.states
   const measured = ['firmsGrowing', 'firmsSteady', 'firmsStruggling'].every(key => everMeasured(arms, key))
   const counts = arms.map(arm => firmStatesAt(arm, tick))
@@ -29,7 +29,7 @@ export default function FirmStates({ arms, tick, onSeeBig, className = '' }) {
             const states = counts[i]
             return (
               <div className="nx-vpanel" key={arm.label}>
-                <TownName arm={arm}>{states && <span> {copy.open(open[i])}</span>}</TownName>
+                <TownName arm={arm}>{!inline && states && <span> {copy.open(open[i])}</span>}</TownName>
                 {states ? (
                   <>
                     <div className="nx-sbar" style={{ width: `${(open[i] / most) * 100}%` }} aria-hidden="true">
@@ -37,7 +37,7 @@ export default function FirmStates({ arms, tick, onSeeBig, className = '' }) {
                         <b key={state} className={`is-${state}`} style={{ width: `${(states[state] / open[i]) * 100}%` }} />
                       ))}
                     </div>
-                    <p className="nx-vline"><Bolded parts={copy.line(states.growing, states.steady, states.struggling)} /></p>
+                    <p className="nx-vline" aria-hidden={inline || undefined}><Bolded parts={copy.line(states.growing, states.steady, states.struggling)} /></p>
                   </>
                 ) : (
                   <p className="nx-quiet">{COPY.numbers.notMeasured}</p>
@@ -46,8 +46,16 @@ export default function FirmStates({ arms, tick, onSeeBig, className = '' }) {
             )
           })}
         </div>
+        {inline && <div className="nx-sr"><table>
+          <caption>{copy.title}</caption>
+          <thead><tr><th scope="col">{COPY.numbers.columns.measure}</th>{arms.map(arm => <th key={arm.label} scope="col">{arm.label}</th>)}</tr></thead>
+          <tbody>{STATES.map(state => <tr key={state}><th scope="row">{copy[state]}</th>{counts.map((states, i) => (
+            <td key={arms[i].label}>{states?.[state] ?? COPY.numbers.notMeasured}</td>
+          ))}</tr>)}</tbody>
+        </table></div>}
       </>
     )
   }
+  if (inline) return <div className={`nx-number-visual${className ? ` ${className}` : ''}`}>{body}</div>
   return <Card title={copy.title} metricKey="firmsGrowing" measured={measured} onSeeBig={onSeeBig} className={className}>{body}</Card>
 }

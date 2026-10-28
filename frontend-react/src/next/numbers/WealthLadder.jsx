@@ -1,5 +1,5 @@
 import useMeasured from '../../charts/useMeasured.js'
-import { COPY, formatMoney, formatMoneyShort, townTextColor } from '../catalog.js'
+import { COPY, METRICS, formatMoney, formatMoneyShort, townTextColor } from '../catalog.js'
 import { countedAt, everMeasured } from '../data/derive.js'
 import { countedNote } from '../narration.js'
 import Card from './Card.jsx'
@@ -18,7 +18,7 @@ function rungs(arm, tick) {
   return [p10, p50, p90].every(isNumber) ? { p10, p50, p90 } : null
 }
 
-function Ladder({ arms, readings }) {
+function Ladder({ arms, readings, inline }) {
   const [ref, size] = useMeasured()
   const W = Math.max(200, size.width || FALLBACK_WIDTH)
   const H = TOP + arms.length * ROW + 20
@@ -49,7 +49,7 @@ function Ladder({ arms, readings }) {
                   <circle className="nx-wdot" cx={r1(x(reading.p50))} cy={cy} r={7} style={{ fill: arm.color }} />
                   <text className="nx-vval" x={r1(x(reading.p10))} y={cy + 22} textAnchor="middle">{formatMoney(reading.p10)}</text>
                   <text className="nx-vval" x={r1(x(reading.p90))} y={cy + 22} textAnchor="middle">{formatMoney(reading.p90)}</text>
-                  <text className="nx-vval is-mid" x={r1(x(reading.p50))} y={cy - 12} textAnchor="middle" style={{ fill: townTextColor(arm.color) }}>{formatMoney(reading.p50)}</text>
+                  {!inline && <text className="nx-vval is-mid" x={r1(x(reading.p50))} y={cy - 12} textAnchor="middle" style={{ fill: townTextColor(arm.color) }}>{formatMoney(reading.p50)}</text>}
                 </>
               ) : (
                 <text className="nx-vval" x={left} y={cy + 4}>{COPY.numbers.notMeasured}</text>
@@ -66,7 +66,7 @@ function Ladder({ arms, readings }) {
 // poorest tenth (wealthP10) to the richest tenth (wealthP90) with a dot for
 // the middle household (wealthP50), on one shared axis, as last counted. It
 // opens big on typical savings, with the three figures as chips.
-export default function WealthLadder({ arms, tick, onSeeBig, className = '' }) {
+export default function WealthLadder({ arms, tick, onSeeBig, className = '', inline = false }) {
   const copy = COPY.numbers.ladder
   const measured = KEYS.every(key => everMeasured(arms, key))
   const readings = arms.map(arm => rungs(arm, tick))
@@ -79,15 +79,26 @@ export default function WealthLadder({ arms, tick, onSeeBig, className = '' }) {
     body = (
       <>
         <p className="def is-top">{copy.lead}</p>
-        <Ladder arms={arms} readings={readings} />
-        <p className="nx-sr">
+        <Ladder arms={arms} readings={readings} inline={inline} />
+        {inline ? (
+          <div className="nx-sr"><table>
+            <caption>{copy.title}</caption>
+            <thead><tr><th scope="col">{COPY.numbers.columns.measure}</th>{arms.map(arm => <th key={arm.label} scope="col">{arm.label}</th>)}</tr></thead>
+            <tbody>{KEYS.map((key, index) => (
+              <tr key={key}><th scope="row">{METRICS[key].name}</th>{readings.map((reading, i) => (
+                <td key={arms[i].label}>{reading ? formatMoney([reading.p10, reading.p50, reading.p90][index]) : COPY.numbers.notMeasured}</td>
+              ))}</tr>
+            ))}</tbody>
+          </table></div>
+        ) : <p className="nx-sr">
           {arms.map((arm, i) => (readings[i]
             ? copy.alt(arm.label, formatMoney(readings[i].p10), formatMoney(readings[i].p50), formatMoney(readings[i].p90))
             : `${arm.label}: ${COPY.numbers.notMeasured}.`)).join(' ')}
-        </p>
-        <p className="nx-foot">{countedNote(asOf)}</p>
+        </p>}
+        {!inline && <p className="nx-foot">{countedNote(asOf)}</p>}
       </>
     )
   }
+  if (inline) return <div className={`nx-number-visual${className ? ` ${className}` : ''}`}>{body}</div>
   return <Card title={copy.title} metricKey="wealthP50" measured={measured} onSeeBig={onSeeBig} className={className}>{body}</Card>
 }
