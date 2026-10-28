@@ -67,7 +67,10 @@
 .nx .nx-fold-motion.is-visible { grid-template-rows: 1fr; opacity: 1 }
 .nx .nx-fold-motion.is-leaving { grid-template-rows: 0fr; opacity: 0 }
 .nx .nx-fold-entry { display: inline-grid; grid-template-columns: 1fr; opacity: 1; vertical-align: bottom; transition: grid-template-columns 160ms var(--nx-ease), opacity 160ms var(--nx-ease) }
-.nx .nx-fold-entry > span { min-width: 0; overflow: hidden }
+/* Keep separator space and the focus ring inside the animated clip. */
+.nx .nx-fold-entry > span { min-width: 0; overflow: hidden; white-space: pre-wrap; word-spacing: 4px }
+.nx .nx-fold-entry > span > * { word-spacing: normal }
+.nx .nx-fold-entry button:focus-visible { outline-offset: -2px }
 .nx .nx-fold-entry[data-state="leaving-entry"] { pointer-events: none; grid-template-columns: 0fr; opacity: 0 }
 .nx .nx-fold-motion.is-leaving .nx-fold-entry[data-state="leaving-entry"] { grid-template-columns: 1fr; opacity: 1 }
 /* New entries fade in; existing entries reverse from their current progress.
