@@ -1,6 +1,6 @@
 ﻿import {
   COPY, COUNTED_EVERY_5, METRICS, NUMBER_DERIVED_ROWS, NUMBER_HERO_KEYS,
-  WARMUP_TICKS, capitalise, formatMetric, formatMoney,
+  WARMUP_TICKS, capitalise, formatMetric, formatMoney, shownValue,
 } from '../catalog.js'
 import {
   countedAt, countedSeriesUpTo, cumulativeUpTo, everMeasured, rulesAt,
@@ -12,9 +12,13 @@ const grouped = new Intl.NumberFormat('en-US', { maximumFractionDigits: 0 })
 const keyOf = row => (typeof row === 'string' ? row : row?.key)
 const asRow = row => (typeof row === 'string' ? { key: row } : row)
 const counted = new Set(COUNTED_EVERY_5)
-const outputPercentage = (a, b) => Math.abs(Math.round((b / a - 1) * 100))
+const outputPercentage = (a, b) => {
+  const base = shownValue('salesExceptRentThisWeek', a)
+  const other = shownValue('salesExceptRentThisWeek', b)
+  return base === 0 ? null : Math.abs(Math.round((other / base - 1) * 100))
+}
 const sameOutput = (a, b) => formatMetric('salesExceptRentThisWeek', a) === formatMetric('salesExceptRentThisWeek', b)
-  || (a !== 0 && outputPercentage(a, b) === 0)
+  || outputPercentage(a, b) === 0
 
 /** Resolve shared metric metadata plus COPY.numbers.rows overrides. */
 export function rowDefinition(row) {
@@ -101,38 +105,32 @@ export function rowStatus(row, a, b, tick = Infinity) {
   return (definition.better === 'higher') === (b > a) ? 'better' : 'worse'
 }
 
-/** Difference B minus A in plain words, matching the mockup's rounding. Output
- * hero uses percentage difference (when a is nonzero); missing returns ''. */
+/** Difference B minus A at the displayed precision and units. Output uses a
+ * whole percentage of the displayed dollars (unless A shows zero). */
 export function differenceWords(row, a, b) {
   if (!isNumber(a) || !isNumber(b)) return ''
   const definition = rowDefinition(row)
   const copy = COPY.numbers.difference
   if (definition.key === 'salesExceptRentThisWeek' && sameOutput(a, b)) return copy.aboutSame
   if (formatMetric(definition.key, a) === formatMetric(definition.key, b)) return copy.same
-  const delta = b - a
+  const base = shownValue(definition.key, a)
+  const delta = shownValue(definition.key, b) - base
+  const amount = Math.abs(delta)
   const more = delta > 0
-  if (definition.key === 'salesExceptRentThisWeek' && a !== 0) {
+  if (definition.key === 'salesExceptRentThisWeek' && base !== 0) {
     return copy.percentage(outputPercentage(a, b), more)
   }
-  // The reference snapshot rounds posted prices to cents, and weekly money
-  // flows/balances to dollars, before comparing. Savings retains its counted
-  // precision: its rounded raw gap is the approved ladder comparison.
   if (definition.format === 'money') {
-    const gap = counted.has(definition.key) ? delta : Math.round(b) - Math.round(a)
-    return (more ? copy.more : copy.less)(formatMoney(Math.abs(gap)))
+    return (more ? copy.more : copy.less)(formatMoney(amount))
   }
   if (definition.format === 'price') {
-    const gap = Number(b.toFixed(2)) - Number(a.toFixed(2))
-    return (more ? copy.more : copy.less)(`$${Math.abs(gap).toFixed(2)}`)
+    return (more ? copy.more : copy.less)(`$${amount.toFixed(2)}`)
   }
-  if (definition.format === 'ratio') return (more ? copy.higher : copy.lower)(Math.abs(delta).toFixed(2))
-  const amount = Math.abs(Math.round(b) - Math.round(a))
+  if (definition.format === 'ratio') return (more ? copy.higher : copy.lower)(amount.toFixed(2))
   if (definition.format === 'outOf100' || definition.format === 'percent') {
     return (more ? copy.higher : copy.lower)(copy.points(amount))
   }
-  // Counts and the signed jobs figure use the rounded raw gap, as the mockup.
-  const difference = definition.format === 'per100' ? amount : Math.abs(Math.round(delta))
-  return (more ? copy.more : copy.fewer)(grouped.format(difference))
+  return (more ? copy.more : copy.fewer)(grouped.format(amount))
 }
 
 /** Only identical displayed values fold. Missing, one-town, open rows and

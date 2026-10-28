@@ -28,7 +28,7 @@ describe('numbers comparison: approved recorded demo at week 104', () => {
     ['foodSpendPerHousehold', '$18.71', '$24.99', '$6.28 more', 'different'],
     ['priceFood', '$5.40', '$6.49', '$1.09 more', 'worse'],
     ['priceServices', '$24.79', '$32.20', '$7.41 more', 'worse'],
-    ['wealthP50', '$85', '$131', '$47 more', 'better'],
+    ['wealthP50', '$85', '$131', '$46 more', 'better'],
     ['bottomHalfShare', '14%', '13%', '1 point lower', 'different'],
     ['careSoFar', '4', '1', '3 fewer', 'better'],
     ['firmsOpen', '15', '16', '1 more', 'better'],
