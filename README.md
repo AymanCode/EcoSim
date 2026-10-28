@@ -15,9 +15,9 @@
 
 EcoSim simulates thousands of households (benchmarked at 10,000) plus firms, a bank, and a government in weekly ticks. Households look for work, earn, spend, borrow, and react to prices and policy. Firms hire, produce, set prices, invest, and close. The government taxes, pays benefits, and spends through a fixed set of policy levers. Labor, goods, housing, healthcare, and credit markets all run inside the same tick.
 
-You change taxes, benefits, and subsidies from a live dashboard while the economy runs and watch both the macro picture (output, unemployment, prices, the government budget) and what happens to individual households and firms. You can also hand the government to an LLM and compare it against a rule-based baseline on the same seed. Every run is seeded, so the same configuration gives the same trajectory, and every tick can be saved to SQLite, PostgreSQL, or TimescaleDB for analysis.
+Run towns side by side, change taxes, benefits, and subsidies in the Town hall drawer, and compare what happens. Follow jobs, pay, prices, household finances, business activity, and town hall cash. Every run is seeded, so the same configuration gives the same trajectory, and every tick can be saved to SQLite, PostgreSQL, or TimescaleDB for analysis.
 
-![EcoSim Command view with macro metrics, stress signals, sector state, and chart history](docs/assets/dashboard-screenshot.png)
+![Two towns after four years, with the usual rules in Town A and a higher minimum wage in Town B](docs/assets/town-run.png)
 
 EcoSim started in Fall 2025 as a UC Berkeley club project that I led as project manager. I wrote the version we presented, and I have built everything in this repo since December 2025.
 
@@ -32,7 +32,7 @@ EcoSim started in Fall 2025 as a UC Berkeley club project that I led as project 
 | Server | FastAPI, WebSockets, Pydantic |
 | LLM government | LangGraph, with OpenRouter, Groq, LM Studio, or Ollama |
 | Storage | SQLite, PostgreSQL, TimescaleDB |
-| Dashboard | React 19, Vite, Tailwind, Recharts |
+| Town view | React 19, Vite, CSS, SVG charts and town drawings |
 | Forecasting | pandas, scikit-learn (see `policy_forecasting/`) |
 | Packaging and CI | Docker Compose, Nginx, GitHub Actions |
 | Cloud batch runs | AWS EC2, S3, and IAM through the AWS CLI (see `ops/aws-runner/`) |
@@ -47,11 +47,11 @@ cd EcoSim
 docker compose up --build -d --wait
 ```
 
-Open http://localhost:5173, keep the defaults in Config, and click **Launch Simulation**. You do not need Python, Node.js, API keys, or a database. Docker runs two containers: the FastAPI backend on port 8002 inside the network, and an Nginx build of the dashboard that proxies `/ws` and `/health` to it. Runs are saved to SQLite in the `ecosim_runtime` volume.
+Open http://localhost:5173/?view=next and click **Start the experiment** to compare two towns with the default minimum-wage question. You do not need Python, Node.js, API keys, or a database. Docker runs two containers: the FastAPI backend on port 8002 inside the network, and an Nginx build of the frontend that proxies `/ws` and `/health` to it. Runs are saved to SQLite in the `ecosim_runtime` volume.
 
 Stop it with `docker compose down`. Your saved runs stay in the volume. To delete them too, run `docker compose down --volumes --rmi local`. More cleanup commands are in [docs/TECHNICAL.md](docs/TECHNICAL.md#docker-storage-cleanup).
 
-If port 5173 is taken, run `ECOSIM_PORT=5183 docker compose up --build -d --wait` and open http://localhost:5183. If startup fails, check `docker compose ps -a` and `docker compose logs --tail 100`.
+If port 5173 is taken, run `ECOSIM_PORT=5183 docker compose up --build -d --wait` and open http://localhost:5183/?view=next. If startup fails, check `docker compose ps -a` and `docker compose logs --tail 100`.
 
 <details>
 <summary>Run from source</summary>
@@ -75,29 +75,32 @@ npm run dev
 
 On Windows, create the environment with `py -3.11 -m venv .venv` and activate it with `.venv\Scripts\Activate.ps1`.
 
-Vite serves the dashboard on http://localhost:5173 and proxies `/ws` and `/health` to port 8002. Saving runs is off by default from source. Set `ECOSIM_ENABLE_WAREHOUSE=1` to turn it on.
+Open the town view at http://localhost:5173/?view=next. Vite proxies `/ws` and `/health` to port 8002. Saving runs is off by default from source. Set `ECOSIM_ENABLE_WAREHOUSE=1` to turn it on.
 
 </details>
 
-## Using the dashboard
+## Using the town view
 
-1. **Configure.** The dashboard opens in Config. Set the population size, seed, and starting tax and spending levels, then launch the run.
-2. **Watch.** The Command view shows macro metrics, stress signals, sector state, and chart history as ticks stream in.
-3. **Change policy.** The Government view holds the policy levers. Every change is checked against the policy schema and applies at the next tick boundary.
-4. **Look closer.** Population follows tracked households, Markets shows sectors and firms, Finance shows credit and fiscal flows, and Logs shows the event stream.
+1. **Set up.** Choose **Compare policies** for two to four towns or **Just play** for one town. Pick a question or **Build my own** to set each town's rules. Choose the households per town and a run length of 1, 2, 5, or 10 years. All towns share the same size and town number, which sets the random seed.
+2. **Run.** Start the experiment to run the towns side by side on the simulation. Pause, resume, or scrub the timeline to inspect earlier weeks. **Back to live** returns to the latest week.
+3. **Change rules.** Open **Town hall**, select a town, and edit its taxes, benefits, minimum wage, spending, or other rules. Click **Change from next week** to apply them. The other towns keep their own rules.
+4. **Compare.** The chart shows unemployment, pay, grocery spending, the wealth gap, or town hall cash over time. **Show me all the numbers** opens the sheet with prices, savings, business activity, town hall finances, loans, hardship, and wellbeing. Its numbers follow the timeline too.
+5. **Continue.** The end-of-run panel summarises the comparison. Click **Add a year** to keep the towns running, or try another question.
 
-To try the LLM government, set up a provider (see [Configuration](#configuration)), then turn on the Policy Assistant in Config before launch or the AI Policy Engine in the Government view during a run. It reads a short economic report on a fixed schedule and proposes changes inside the policy schema. If no provider is reachable, it turns itself off and the manual controls keep working.
+The **Test an AI mayor** card is disabled and labelled **No AI model connected**. An AI mayor needs an LLM connection.
 
-A newer view for first-time users is in progress at http://localhost:5173/?view=next. You pick a question, run one to four towns side by side on the real simulation, pull levers, and compare what happens. `?view=next&demo` plays a recorded two-town demo without starting a run. The classic dashboard stays the default until the new view is finished.
+![Set-up screen with experiment modes, questions, town rules, population size, and run length](docs/assets/town-setup.png)
+
+**Watch the example** opens a recorded two-town run without a backend. Open http://localhost:5173/?view=next&demo and press **Play** to watch it directly.
+
+The classic analyst dashboard remains at http://localhost:5173/, with LLM policy controls in its Government view. With a connected provider, you can hand the government to an LLM and compare it against a rule-based baseline on the same seed; see [Configuration](#configuration).
 
 <details>
-<summary>More dashboard views</summary>
+<summary>More town views</summary>
 
-![Population view with tracked household state, wage reasoning, health, morale, and cash history](docs/assets/subjects-hologram.gif)
+![Town hall drawer with town selection and rule controls](docs/assets/town-hall.png)
 
-![Markets view with sector rollups, tracked firms, prices, wage offers, inventory, revenue, and profit](docs/assets/firms-screenshot.png)
-
-![Government view with policy controls, LLM status, fiscal flow, and decision history](docs/assets/gov-screenshot.png)
+![All the numbers sheet with town comparisons and timeline controls](docs/assets/town-numbers.png)
 
 </details>
 
@@ -105,7 +108,7 @@ A newer view for first-time users is in progress at http://localhost:5173/?view=
 
 ```mermaid
 flowchart TD
-  UI["React dashboard"] -->|WebSocket commands and tick frames| API["FastAPI server"]
+  UI["React town view"] -->|WebSocket commands and tick frames| API["FastAPI server"]
   API --> SM["Per-session simulation manager"]
   SM --> ECO["Economy tick loop"]
   ECO --> AG["Households, firms, bank, government"]
@@ -115,7 +118,7 @@ flowchart TD
   PF["Policy forecasting package"] -.->|uses the engine as a library| ECO
 ```
 
-Each WebSocket connection gets its own simulation and random number generator, up to `ECOSIM_MAX_SESSIONS` (default 8). One schema in `backend/policy_schema.py` defines every policy lever, and the dashboard, runtime updates, and the LLM government all go through it. Policy changes apply at the next tick boundary. LLM calls run outside the tick loop, invalid proposals are rejected before they reach the simulation, and each decision is recorded with its evidence, accepted and rejected changes, latency, and provider.
+Each WebSocket connection gets its own simulation and random number generator, up to `ECOSIM_MAX_SESSIONS` (default 8). The town view uses one connection per town. One schema in `backend/policy_schema.py` defines every policy lever, and the frontend, runtime updates, and the LLM government all go through it. Policy changes apply at the next tick boundary. LLM calls run outside the tick loop, invalid proposals are rejected before they reach the simulation, and each decision is recorded with its evidence, accepted and rejected changes, latency, and provider.
 
 | Part | Where |
 |---|---|
@@ -125,7 +128,7 @@ Each WebSocket connection gets its own simulation and random number generator, u
 | Simulation parameters | `backend/config.py` |
 | Storage and migrations | `backend/data/` |
 | LLM government | `backend/tools/llm/` |
-| Dashboard | `frontend-react/` |
+| Town view | `frontend-react/src/next/` |
 | Forecasting | `policy_forecasting/` |
 | AWS batch runner | `ops/aws-runner/` |
 
@@ -180,7 +183,7 @@ Forecasting tests use their own pins: `pip install -r policy_forecasting/require
 - [docs/SIMULATION.md](docs/SIMULATION.md): tick lifecycle, agents, markets, banking, LLM government
 - [docs/TECHNICAL.md](docs/TECHNICAL.md): entry points, APIs, storage, file layout
 - [docs/WEBSOCKET_PROTOCOL.md](docs/WEBSOCKET_PROTOCOL.md): commands, replies, and tick frames
-- [docs/FRONTEND.md](docs/FRONTEND.md): dashboard views and runtime config
+- [docs/FRONTEND.md](docs/FRONTEND.md): classic dashboard views and runtime config
 - [docs/DATA_STORAGE_ARCHITECTURE.md](docs/DATA_STORAGE_ARCHITECTURE.md): warehouse tables and write cadence
 - [docs/DESIGN_DECISIONS.md](docs/DESIGN_DECISIONS.md): tradeoffs
 - [docs/MODEL_SCOPE.md](docs/MODEL_SCOPE.md): what the model can and cannot support
