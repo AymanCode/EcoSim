@@ -30,7 +30,7 @@ const choose = (name, option) => fireEvent.click(within(screen.getByRole('group'
 const row = (container, lever) => container.querySelector(`[data-lever="${lever}"]`)
 
 describe('LeverEditor', () => {
-  test('all 17 levers render inside 5 fieldsets, in the catalog groups', () => {
+  test('all 18 levers render inside 5 fieldsets, in the catalog groups', () => {
     const { container } = editor({ value: SECTOR_BAILOUTS })
     const fieldsets = [...container.querySelectorAll('fieldset')]
     expect(fieldsets).toHaveLength(5)
@@ -42,7 +42,7 @@ describe('LeverEditor', () => {
     expect(screen.getAllByRole('slider')).toHaveLength(3)
     // Every lever has five options or fewer, so each enum is a segmented group.
     expect(container.querySelectorAll('select')).toHaveLength(0)
-    expect(container.querySelectorAll('[data-lever] [role="group"]')).toHaveLength(14)
+    expect(container.querySelectorAll('[data-lever] [role="group"]')).toHaveLength(15)
   })
 
   test('a tax rate is a labelled slider shown as a percentage', () => {

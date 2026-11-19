@@ -260,7 +260,7 @@ describe('rulesTable', () => {
     expect(row(table, 'benefit_level')).toEqual({
       lever: 'benefit_level', values: ['neutral', 'neutral'], differs: false, changedAt: null, was: null, changes: [null, null],
     })
-    expect(table.flatMap(group => group.rows)).toHaveLength(17)
+    expect(table.flatMap(group => group.rows)).toHaveLength(19)
   })
 
   test('reports a change made mid-run, in the town that made it', () => {

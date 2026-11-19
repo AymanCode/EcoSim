@@ -13,12 +13,13 @@ describe('the default policy and the lever options', () => {
     expect(header.setup.initial_policy).toEqual({})
     const first = messages.find(isFrame)
     expect(first.tick).toBe(1)
-    expect(DEFAULT_POLICY).toEqual(first.metrics.governmentPolicy)
+    // This older recording predates the grocery-benefit policy field.
+    expect(DEFAULT_POLICY).toEqual({ ...first.metrics.governmentPolicy, food_credit_policy: 'off' })
   })
 
-  test('both cover exactly the 17 levers, and every default is an allowed value', () => {
+  test('both cover exactly the 18 catalogued levers, and every default is an allowed value', () => {
     const levers = Object.keys(LEVERS).sort()
-    expect(levers).toHaveLength(17)
+    expect(levers).toHaveLength(18)
     expect(Object.keys(DEFAULT_POLICY).sort()).toEqual(levers)
     expect(Object.keys(LEVER_OPTIONS).sort()).toEqual(levers)
     for (const [lever, value] of Object.entries(DEFAULT_POLICY)) {

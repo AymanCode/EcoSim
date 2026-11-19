@@ -14,6 +14,7 @@ const REQUIRED_METRICS = [
 const SCHEMA = {
   wage_tax_rate: 'rate', profit_tax_rate: 'rate', investment_tax_rate: 'rate',
   benefit_level: ['low', 'neutral', 'high', 'crisis'],
+  food_credit_policy: ['off', 'on'],
   public_works: ['off', 'on'],
   minimum_wage_policy: ['low', 'neutral', 'high'],
   sector_subsidy_target: ['none', 'food', 'housing', 'services', 'healthcare'],
@@ -171,7 +172,7 @@ describe('the numbers sheet catalog', () => {
 })
 
 describe('LEVERS', () => {
-  test('names all 17 levers of the policy schema with a phrase for every value', () => {
+  test('names all 18 catalogued levers with a phrase for every value', () => {
     expect(Object.keys(LEVERS).sort()).toEqual(Object.keys(SCHEMA).sort())
     for (const [lever, values] of Object.entries(SCHEMA)) {
       expect(LEVERS[lever].name.length, lever).toBeGreaterThan(2)
@@ -231,7 +232,7 @@ describe('describePolicy', () => {
 describe('lever groups, help and question cards', () => {
   test('every lever appears in exactly one group, and every group has a title and a blurb', () => {
     const listed = LEVER_GROUPS.flatMap(group => group.levers)
-    expect(listed).toHaveLength(17)
+    expect(listed).toHaveLength(18)
     expect([...listed].sort()).toEqual(Object.keys(LEVERS).sort())
     expect(LEVER_GROUPS.map(group => group.id)).toEqual(['taxes', 'people', 'spending', 'business', 'prices'])
     for (const { id } of LEVER_GROUPS) {

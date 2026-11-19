@@ -152,6 +152,14 @@ export default function Config({
             description="Covered visits require available public care funds."
           />
           <Select
+            label="Grocery benefit (EBT)"
+            value={setupConfig.payment_food_credit_enabled ? 'on' : 'off'}
+            options={[{ value: 'off', label: 'Off' }, { value: 'on', label: 'Food-only credit' }]}
+            disabled={isInitialized || isInitializing || (setupConfig.payment_sequence ?? 'income_first') !== 'income_first'}
+            onChange={(v) => onSetupChange?.('payment_food_credit_enabled', v === 'on')}
+            description="Choose whether the program starts open. The fifth of households with the least cash and withdrawable deposits can receive up to $2.50 each week for food. Unspent credit carries over. Manage the program in Government during the run."
+          />
+          <Select
             label="Use of receipts"
             value={setupConfig.payment_assistance ?? 'reserve'}
             options={[

@@ -10,6 +10,7 @@ export const LEVER_DEFAULTS = Object.freeze({
   profit_tax_rate: 0.2,
   investment_tax_rate: 0.1,
   benefit_level: 'neutral',
+  food_credit_policy: 'off',
   public_works: 'off',
   minimum_wage_policy: 'neutral',
   sector_subsidy_target: 'none',
@@ -40,6 +41,7 @@ export const LEVER_GROUPS = [
     label: 'Welfare & labor',
     levers: [
       { key: 'benefit_level', configKey: 'benefitLevel', label: 'Benefit level', kind: 'enum', options: 'benefit' },
+      { key: 'food_credit_policy', configKey: 'food_credit_policy', label: 'Grocery benefit', kind: 'enum', options: 'foodCredit' },
       { key: 'minimum_wage_policy', configKey: 'minimumWagePolicy', label: 'Minimum wage policy', kind: 'enum', options: 'wagePolicy' },
       { key: 'public_works', configKey: 'publicWorks', label: 'Public works', kind: 'toggle' },
     ],

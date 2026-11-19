@@ -370,6 +370,12 @@ export default function Population({
                 value={usd2(selectedSubject.medicalDebt || 0)}
                 tone={Number(selectedSubject.medicalDebt || 0) > 0 ? 'crit' : undefined}
               />
+              {selectedSubject.groceryCardBalance != null && (
+                <>
+                  <KeyValue label="Grocery card balance" value={usd2(selectedSubject.groceryCardBalance)} />
+                  <KeyValue label="Grocery card spent this week" value={usd2(selectedSubject.groceryCardSpent)} />
+                </>
+              )}
             </div>
 
             <div className="g2" style={{ marginTop: 14 }}>

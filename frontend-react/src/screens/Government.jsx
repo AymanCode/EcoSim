@@ -7,6 +7,7 @@ import SectionTitle from '../ui/SectionTitle.jsx'
 import KeyValue from '../ui/KeyValue.jsx'
 import Ledger from '../charts/Ledger.jsx'
 import {
+  formatCurrency,
   formatInteger,
   formatMillionsAdaptive,
 } from '../format.js'
@@ -43,6 +44,7 @@ export default function Government({
   tick = 0,
   histories: propHistories,
   config = {},
+  setupConfig = {},
   onConfigChange = () => {},
   enumOptions = {},
   isAiActive = false,
@@ -72,6 +74,7 @@ export default function Government({
   const netFlow = Number(metrics.govProfit || 0)
   const govRevenue = Number(metrics.govRevenue || 0)
   const govTransfers = Number(metrics.govTransfers || 0)
+  const foodCredit = metrics.payment?.fiscal?.food_credit
   const govInvestments = Number(metrics.govInvestments || 0)
   const bondPurchases = Number(metrics.bondPurchases || 0)
   const activeLoans = Number(metrics.activeLoans || 0)
@@ -376,7 +379,7 @@ export default function Government({
         <Panel className="s4">
           <SectionTitle
             title="Policy stance"
-            meta={`${activeCount} of 17 off default`}
+            meta={`${activeCount} of ${LEVER_COUNT} off default`}
           />
           {LEVER_GROUPS.map((group) => {
             const levers = group.levers.flatMap((lever) =>
@@ -390,7 +393,9 @@ export default function Government({
                 </div>
                 <div className="lv2">
                   {levers.map((lever) => {
-                    const live = policy[lever.key] ?? config[lever.configKey]
+                    const live = policy[lever.key] ?? (lever.key === 'food_credit_policy'
+                      ? (setupConfig.payment_food_credit_enabled ? 'on' : 'off')
+                      : config[lever.configKey])
                     const isDefault = !isLeverActive(lever.key, live)
                     const lastChange = latestByLever.get(lever.key)
                     const rejectedEntry = rejectedList.find(
@@ -418,6 +423,8 @@ export default function Government({
                         config={config}
                         onConfigChange={onConfigChange}
                         enumOptions={enumOptions}
+                        foodCreditAvailable={(setupConfig.payment_sequence ?? 'income_first') === 'income_first'}
+                        foodCreditBudget={policy.food_credit_weekly_budget}
                       />
                     )
                   })}
@@ -446,6 +453,14 @@ export default function Government({
             net={ledgerNet}
             format={formatMillionsAdaptive}
           />
+          {foodCredit && (
+            <>
+              <SectionTitle title="Grocery benefit" />
+              <KeyValue label="Issued this week" value={formatCurrency(foodCredit.issued, 2)} />
+              <KeyValue label="Spent on food this week" value={formatCurrency(foodCredit.redeemed, 2)} />
+              <KeyValue label="Left on household cards" value={formatCurrency(foodCredit.outstanding, 2)} />
+            </>
+          )}
         </Panel>
 
         <Panel className="s5">
