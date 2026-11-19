@@ -36,11 +36,12 @@ def world(factory, config):
     ec = Economy(households=[hh], firms=[firm], government=factory.government(),
                  bank=BankAgent(cash_reserves=100_000))
     ec.current_tick = 40
+    ec.in_warmup = False
     ec.payment_book = PaymentBook(ec, timing="income_first")
     firm.service_full_utilization_streak = 5
     firm.service_unmet_demand_window = [5, 5, 5, 2, 0]
     firm.service_space_history = [
-        ServiceSpaceObservation(tick, 4, 20, 20, inbound, lost, price, 1)
+        ServiceSpaceObservation(tick, 4, 20, 20, inbound, lost, price, 1, g=price, O=0)
         for tick, inbound, lost, price in zip(
             range(36, 41), (0, 0, 0, 5, 5), firm.service_unmet_demand_window, (15, 15, 15, 5, 5),
         )
@@ -51,6 +52,9 @@ def world(factory, config):
 def test_fractional_quote_materiality_refill_and_break_even(world, config):
     ec, firm = world
     screen = ec._screen_service_space_application
+    apply, trace = screen(firm, "service_infrastructure", 7000, 0.5)
+    assert not apply and trace["capital_hurdle"] == pytest.approx(7000 * ec.bank.base_interest_rate / 52)
+    ec.bank.base_interest_rate = 0.0
     result = screen(firm, "service_infrastructure", 7000, 0.5)
     apply, trace = result
     assert apply and trace["k"] == 1 and trace["phase"] == "late"
@@ -58,7 +62,8 @@ def test_fractional_quote_materiality_refill_and_break_even(world, config):
     assert trace["qualification_after_removal"] is False
     assert trace["weekly_contributions"] == [0, 0, 0, -25, -25]
     assert trace["median_contribution"] == 0
-    assert trace["rows"][3]["X"] == 5
+    assert trace["rows"][3]["R"] == 5
+    assert trace["repeat_inbound_cap"] == 0
     assert trace["rows"][3]["F"] == 2
     assert trace["rows"][3]["adjusted_sales"] == 17
     assert trace["rows"][3]["adjusted_lost_orders"] == 0
@@ -76,11 +81,47 @@ def test_fractional_quote_materiality_refill_and_break_even(world, config):
 @pytest.mark.parametrize("inbound", [0, 4])
 def test_steady_books_keep_ordinary_path(world, inbound):
     ec, firm = world
-    firm.service_space_history = [replace(row, R=inbound) for row in firm.service_space_history]
+    firm.service_space_history = [replace(row, R=inbound, L=5) for row in firm.service_space_history]
     apply, trace = ec._screen_service_space_application(firm, "service_infrastructure", 7000, 1)
     assert apply and trace["qualification_after_removal"] is True
     assert trace["weekly_contributions"] is None
-    assert all(row["X"] == 0 for row in trace["rows"])
+    assert all(row["adjusted_sales"] == 20 for row in trace["rows"])
+    assert trace["reason"] == "qualifies_without_inbound"
+
+
+def test_recurring_inbound_preserves_existing_sales_and_outbound_orders_are_excluded(world):
+    ec, firm = world
+    screen = ec._screen_service_space_application
+    firm.service_space_history = [
+        replace(row, R=8, L=7.5, p=30, g=30)
+        for row in firm.service_space_history
+    ]
+    apply, trace = screen(firm, "service_infrastructure", 7000, 1)
+    assert apply and trace["qualification_after_removal"] is False
+    assert trace["repeat_inbound_cap"] == 8
+    assert trace["median_projected_units"] == 5
+    assert trace["median_contribution"] == 125
+    assert trace["equipment_hurdle"] == pytest.approx(74.03846)
+    firm.cash_balance = 70000
+    assert screen(firm, "service_infrastructure", 7000, 1) == (apply, trace)
+
+    firm.service_space_history = [replace(row, O=7) for row in firm.service_space_history]
+    apply, trace = screen(firm, "service_infrastructure", 7000, 1)
+    assert not apply and trace["median_projected_units"] == 0.5
+    assert trace["median_contribution"] == -10
+
+
+def test_four_of_five_weeks_and_latest_price_bound_repeat_inbound(world):
+    ec, firm = world
+    firm.service_space_history = [
+        replace(row, R=8, L=7.5, p=9, g=price)
+        for row, price in zip(firm.service_space_history, (15, 15, 30, 30, 30))
+    ]
+    firm.service_space_history[-1] = replace(firm.service_space_history[-1], R=3, L=2.5)
+    apply, trace = ec._screen_service_space_application(firm, "service_infrastructure", 7000, 1)
+    assert not apply and trace["repeat_inbound_cap"] == 3
+    assert [row["price_quantity_factor"] for row in trace["rows"]] == [0.5, 0.5, 1, 1, 1]
+    assert trace["median_projected_units"] == 2.5
 
 
 def test_refill_can_remove_lost_order_qualification_at_95_percent(world):
@@ -101,6 +142,7 @@ def test_refill_can_remove_lost_order_qualification_at_95_percent(world):
     ("other_sector", "outside_generic_services"),
     ("other_places", "installed_places_changed"),
     ("excess_inbound", "invalid_history"),
+    ("excess_outbound", "invalid_history"),
     ("gap", "stale_or_nonconsecutive_history"),
     ("missing", "insufficient_history"),
 ])
@@ -116,6 +158,8 @@ def test_unusable_evidence_preserves_ordinary_decision(world, change, reason):
         firm.service_space_history[1] = replace(firm.service_space_history[1], installed_places=5)
     elif change == "excess_inbound":
         firm.service_space_history[1] = replace(firm.service_space_history[1], R=21)
+    elif change == "excess_outbound":
+        firm.service_space_history[1] = replace(firm.service_space_history[1], O=6)
     elif change == "gap":
         firm.service_space_history[1] = replace(firm.service_space_history[1], tick=35)
     else:
@@ -128,9 +172,10 @@ def test_observation_dedup_gap_install_and_unqualified_resets(world):
     ec, firm = world
     firm.last_tick_operating_cash_cost_nonwage = 10
 
-    def observe(sold=20):
+    def observe(sold=20, outbound=0):
         firm.consider_service_infrastructure_upgrade(
             ec, sold, current_paid_inbound_units=0, current_net_goods_revenue=100,
+            current_checkout_price=5, current_outbound_matches=outbound,
         )
 
     for tick in (41, 42, 44):
@@ -138,8 +183,8 @@ def test_observation_dedup_gap_install_and_unqualified_resets(world):
         firm.age_in_ticks += 1
         observe()
         observe()
-    assert firm.service_space_history == [ServiceSpaceObservation(44, 4, 20, 20, 0, 0, 5, 0.5)]
-    for cause in ("understaffed", "no_output", "low_sell_through", "installation"):
+    assert firm.service_space_history == [ServiceSpaceObservation(44, 4, 20, 20, 0, 0, 5, 0.5, g=5, O=0)]
+    for cause in ("understaffed", "no_output", "low_sell_through", "invalid_outbound", "installation"):
         ec.current_tick += 1
         firm.age_in_ticks += 1
         if cause == "understaffed":
@@ -150,7 +195,7 @@ def test_observation_dedup_gap_install_and_unqualified_resets(world):
             firm._add_service_worker_slots(0.5)
             assert firm.service_unmet_demand_window == []
         if cause != "installation":
-            observe(18 if cause == "low_sell_through" else 20)
+            observe(18 if cause == "low_sell_through" else 20, outbound=1 if cause == "invalid_outbound" else 0)
         assert firm.service_space_history == []
         if cause == "installation":
             break
@@ -182,6 +227,7 @@ def test_checkout_observation_prices_only_goods_receipts_at_the_levy_rate(world,
     [row] = firm.service_space_history
     levy = config.market.price_ceiling_tax_rate if over_ceiling else 0
     assert row.p == pytest.approx(firm.price * (1 - levy))
+    assert (row.g, row.O) == (firm.price, 0)
     assert (row.Q, row.S, row.R, row.L, row.c) == (20, 20, 0, 0, 0.5)
     [fiscal] = ec._build_firm_tax_snapshots(tick.per_firm_sales)
     assert fiscal["price_ceiling_tax"] == pytest.approx(20 * firm.price * levy)

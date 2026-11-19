@@ -62,6 +62,7 @@ def test_reroute_debits_fit_the_funded_original_order(checkout, alternate_price,
     assert market.sales[2]["units_sold"] == pytest.approx(delivered)
     assert market.paid_inbound_units[2] == pytest.approx(delivered)
     assert market.accepted[1][1] == pytest.approx(2 + equivalent)
+    assert market.services_outbound_matches == {1: pytest.approx(equivalent)}
     assert ec.services_unmet_demand == pytest.approx(base_units - 2 - equivalent)
     assert ec.services_unmet_demand_by_firm == {1: pytest.approx(base_units - 2)}
     assert ec.current_tick_unmet_demand_by_firm == {1: pytest.approx(base_units - 2)}
@@ -82,6 +83,7 @@ def test_mixed_free_and_paid_alternatives_clear_one_order(checkout, higher_quali
     assert market.sales[2]["units_sold"] == pytest.approx(10 - paid_units)
     assert market.sales[2]["revenue"] == 0
     assert market.paid_inbound_units == {3: pytest.approx(paid_units)}
+    assert market.services_outbound_matches == {1: pytest.approx(10)}
     assert buyer.services_consumed_this_tick == pytest.approx(10)
     assert buyer.cash_balance == pytest.approx(100 - paid_units * 10)
     assert ec.services_unmet_demand == pytest.approx(0)

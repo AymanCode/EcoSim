@@ -1960,6 +1960,21 @@ class ServiceSpaceObservation:
     L: float
     p: float
     c: float
+    g: Optional[float] = None
+    O: Optional[float] = None
+
+    def is_valid(self) -> bool:
+        values = (self.Q, self.S, self.R, self.L, self.p, self.c,
+                  getattr(self, "g", None), getattr(self, "O", None))
+        if not all(isinstance(value, (int, float)) and math.isfinite(value) and value >= 0
+                   for value in values):
+            return False
+        unit_tolerance = 1e-6
+        return (
+            self.Q > 0 and self.S / self.Q >= 0.95
+            and self.S <= self.Q + unit_tolerance
+            and self.R <= self.S + unit_tolerance and self.O <= self.L + unit_tolerance
+        )
 
 
 @dataclass(slots=True)
@@ -5420,6 +5435,8 @@ class FirmAgent(AgentMixin):
         self, economy=None, current_units_sold=None, *,
         current_paid_inbound_units: Optional[float] = None,
         current_net_goods_revenue: Optional[float] = None,
+        current_checkout_price: Optional[float] = None,
+        current_outbound_matches: Optional[float] = None,
     ) -> bool:
         """Flag a bank-financed Services slot upgrade after sustained full utilization.
 
@@ -5441,6 +5458,8 @@ class FirmAgent(AgentMixin):
             current_units_sold: Settled units sold at checkout, if available.
             current_paid_inbound_units: Receiver units sold through rerouting at a positive price.
             current_net_goods_revenue: Checkout goods revenue less the price-ceiling levy.
+            current_checkout_price: Gross price per unit used by the checkout book.
+            current_outbound_matches: Own orders served elsewhere, in this seller's units.
 
         Returns:
             True if an infrastructure loan request was flagged, False otherwise
@@ -5472,24 +5491,30 @@ class FirmAgent(AgentMixin):
             else:
                 self.service_full_utilization_streak = 0
             history = getattr(self, "service_space_history", None)
+            observation = None
             if (
                 qualifying_week
                 and isinstance(unmet_map, dict) and current_units_sold is not None
                 and current_paid_inbound_units is not None and current_net_goods_revenue is not None
+                and current_checkout_price is not None and current_outbound_matches is not None
             ):
-                tick = economy.current_tick
-                if (
-                    not isinstance(history, list) or not history
-                    or not isinstance(history[-1], ServiceSpaceObservation)
-                    or history[-1].tick != tick - 1
-                ):
-                    history = self.service_space_history = []
-                history.append(ServiceSpaceObservation(
-                    tick, slots, float(self.last_units_produced), float(units_sold),
+                observation = ServiceSpaceObservation(
+                    economy.current_tick, slots, float(self.last_units_produced), float(units_sold),
                     current_paid_inbound_units, firm_unmet_this_tick,
                     current_net_goods_revenue / float(units_sold),
                     self.last_tick_operating_cash_cost_nonwage / self.last_units_produced,
-                ))
+                    g=current_checkout_price, O=current_outbound_matches,
+                )
+            if observation is not None and observation.is_valid():
+                if (
+                    not isinstance(history, list) or not history
+                    or not isinstance(history[-1], ServiceSpaceObservation)
+                    or not history[-1].is_valid()
+                    or history[-1].tick != observation.tick - 1
+                    or history[-1].installed_places != slots
+                ):
+                    history = self.service_space_history = []
+                history.append(observation)
                 del history[:-5]
             elif history:
                 self.service_space_history = []

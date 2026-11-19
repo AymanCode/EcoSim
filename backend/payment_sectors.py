@@ -84,6 +84,7 @@ class PaymentGoodsMarket:
         self.considered = defaultdict(lambda: defaultdict(float))
         self.substituted_source_units = {}
         self.paid_inbound_units = defaultdict(float)
+        self.services_outbound_matches = defaultdict(float)
         self.purchases = economy.payment_book.purchases
         self.sales = economy.payment_book.receipts
         self.combined_services_units = defaultdict(float)
@@ -319,6 +320,8 @@ class PaymentGoodsMarket:
                     self.economy.services_unmet_demand += unmet
                     if len(candidates) == 1:
                         fid = candidates[0].firm_id
+                        if substituted:
+                            self.services_outbound_matches[fid] += substituted
                         self.economy.services_unmet_demand_by_firm[fid] = self.economy.services_unmet_demand_by_firm.get(fid, 0.0) + lost_sales
                 if len(candidates) == 1:
                     self.economy._record_firm_unmet_demand(candidates[0].firm_id, lost_sales)

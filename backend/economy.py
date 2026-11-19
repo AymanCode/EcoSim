@@ -36,7 +36,6 @@ import os
 import random
 from dataclasses import asdict, dataclass, fields
 from collections import deque
-from statistics import median
 from typing import TYPE_CHECKING, Dict, List, Tuple, Optional
 
 from config import CONFIG, get_config
@@ -66,6 +65,7 @@ from food_credit import WEEKLY_GRANT, eligible_count, fund_basket, goods_quotes,
 from inflation import ConsumerPriceIndex, WageReview
 from firm_research import PROJECT_MODELS, RESEARCH_CATEGORIES, ResearchState, sample_entry_quality
 from payments import PaymentBook, MONEY_EPS, proportional
+from service_space_investment import SERVICE_INFRASTRUCTURE_TERM_TICKS, evaluate_recurring_overflow
 from household_liquidity import (
     accessible_liquidity as household_accessible_liquidity,
     accessible_liquidity_array,
@@ -3224,6 +3224,8 @@ class Economy:
                             "current_net_goods_revenue": revenue - self._goods_price_ceiling_tax(
                                 firm, revenue, units_sold,
                             ),
+                            "current_checkout_price": goods_market.prices.get(firm.firm_id),
+                            "current_outbound_matches": goods_market.services_outbound_matches.get(firm.firm_id, 0.0),
                         }
                     firm.consider_service_infrastructure_upgrade(
                         economy=self, current_units_sold=units_sold, **checkout,
@@ -7622,15 +7624,19 @@ class Economy:
         observations = getattr(firm, "service_space_history", ())
         if not isinstance(observations, (list, tuple)):
             observations = ()
-        rows = [asdict(row) for row in observations if isinstance(row, ServiceSpaceObservation)]
+        rows = [
+            asdict(row) for row in observations
+            if isinstance(row, ServiceSpaceObservation) and hasattr(row, "g") and hasattr(row, "O")
+        ]
         trace = {
             "route": route, "phase": phase, "decision_tick": self.current_tick,
             "expected_observation_tick": expected_tick,
             "observation_ticks": [row["tick"] for row in rows],
             "project_cost": project_cost, "quoted_gain": quoted_gain,
-            "installed_capacity": installed, "n": n, "k": k, "y": None, "w": None, "r": None,
+            "installed_capacity": installed, "n": n, "k": k, "y": None, "w": None,
             "rows": rows, "qualification_after_removal": None,
-            "weekly_contributions": None, "median_contribution": None,
+            "weekly_contributions": None, "median_contribution": None, "median_projected_units": None,
+            "capital_hurdle": None,
         }
 
         def decision(reason: str, apply: bool = True) -> tuple[bool, dict]:
@@ -7645,6 +7651,8 @@ class Economy:
             return decision("outside_generic_services")
         if firm.is_baseline or self.government.is_baseline_firm(firm.firm_id):
             return decision("baseline_firm")
+        if self.in_warmup:
+            return decision("warmup")
 
         y = firm._service_units_per_worker()
         benefit = self.government.get_unemployment_benefit_level()
@@ -7666,51 +7674,23 @@ class Economy:
         if any(row["installed_places"] != n for row in rows):
             return decision("installed_places_changed")
 
-        for row in rows:
-            if not all(
-                isinstance(row[key], (int, float)) and math.isfinite(row[key]) and row[key] >= 0.0
-                for key in ("Q", "S", "R", "L", "p", "c")
-            ):
-                return decision("invalid_history")
-            if (
-                row["Q"] <= 0.0 or row["R"] > row["S"] + MONEY_EPS
-                or row["S"] > row["Q"] + MONEY_EPS or row["S"] / row["Q"] < 0.95
-            ):
-                return decision("invalid_history")
+        if not all(row.is_valid() for row in observations):
+            return decision("invalid_history")
         if sum(row["L"] > 1e-9 for row in rows) < 2:
             return decision("history_did_not_qualify")
 
-        r = median(row["R"] for row in rows)
-        trace["r"] = r
-        for row in rows:
-            excess_inbound = row["R"] - r
-            X = excess_inbound if excess_inbound >= y else 0.0
-            F = min(row["L"], max(0.0, row["Q"] - (row["S"] - X))) if X else 0.0
-            row.update(X=X, F=F, adjusted_sales=row["S"] - X + F, adjusted_lost_orders=row["L"] - F)
-
-        still_qualifies = (
-            all(row["adjusted_sales"] / row["Q"] >= 0.95 for row in rows)
-            and sum(row["adjusted_lost_orders"] > 1e-9 for row in rows) >= 2
+        cfg = firm._firm_config()
+        annual_rate = self.bank.base_interest_rate if self.bank is not None else firm.current_loan_rate
+        if not math.isfinite(annual_rate) or annual_rate < 0.0:
+            return decision("invalid_quote_inputs")
+        term_ticks = cfg.long_term_capital_term_ticks if phase == "early" else SERVICE_INFRASTRUCTURE_TERM_TICKS
+        apply, evaluation = evaluate_recurring_overflow(
+            rows, n=n, k=k, y=y, w=w, project_cost=project_cost, annual_rate=annual_rate,
+            term_ticks=term_ticks, depreciation_rate=cfg.capital_depreciation_rate,
         )
-        trace["qualification_after_removal"] = still_qualifies
-        if still_qualifies:
-            return decision("qualifies_after_removal")
-
-        newest_p = rows[-1]["p"]
-        added_output = k * y
-        contributions = []
-        for row in rows:
-            repeat_demand = row["adjusted_sales"] + row["adjusted_lost_orders"]
-            u = min(added_output, max(0.0, repeat_demand - max(row["Q"], n * y)))
-            capped_price = min(row["p"], newest_p)
-            contribution = u * capped_price - k * w - added_output * row["c"]
-            row.update(u=u, capped_price=capped_price, contribution=contribution)
-            contributions.append(contribution)
-        median_contribution = median(contributions)
-        trace.update(weekly_contributions=contributions, median_contribution=median_contribution)
-        if median_contribution >= 0.0:
-            return decision("operating_break_even")
-        return decision("below_operating_break_even", apply=False)
+        trace.update(evaluation)
+        trace.update(apply=apply, annual_rate=annual_rate)
+        return apply, trace
 
     def _fund_service_expansion(
         self, firm: FirmAgent, cost: float, annual_rate: float, term_ticks: int,
@@ -7747,7 +7727,7 @@ class Economy:
         if bank is None and self.payment_sequence == "legacy":
             return
 
-        term_ticks = 104
+        term_ticks = SERVICE_INFRASTRUCTURE_TERM_TICKS
         spread = 0.04
 
         for firm in self.firms:
