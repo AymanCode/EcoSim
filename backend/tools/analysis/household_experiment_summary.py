@@ -1,4 +1,8 @@
-"""Summarize household experiment arms against matched-seed controls (weeks 209-312)."""
+"""Summarize household experiment arms against matched-seed controls (weeks 209-312).
+
+Usage: python household_experiment_summary.py <results dir with runs/> [metric ...]
+Runs come from household_experiment.py (batch mode); files are named <arm>-<government>-<seed>.json.
+"""
 import json
 import statistics as st
 import sys
@@ -8,7 +12,7 @@ S = Path(sys.argv[1]).resolve() if len(sys.argv) > 1 and Path(sys.argv[1]).is_di
 EXP = S / "runs" if (S / "runs").is_dir() else S / "exp"
 SEEDS = (42, 43, 44)
 WIN = (209, 312)
-ARMS = ["spending_leak", "timing", "money_lines", "savings_goal", "wellbeing", "job_choices", "all"]
+ARMS = ["spending_leak", "timing", "money_lines", "savings_goal", "wellbeing", "job_choices", "leak_goal", "all"]
 METRICS = {
     "u": "Unemployment (all households)", "u_lf": "Unemployment (able to work)",
     "liq_med": "Median savings", "weeks_med": "Median savings, weeks of essentials",
@@ -71,7 +75,7 @@ def summarize():
 if __name__ == "__main__":
     res = summarize()
     (S / "arms_summary.json").write_text(json.dumps(res))
-    keys = sys.argv[1:] or ["u", "weeks_med", "hap_lo", "hap_med", "mor_med", "health", "gdp", "spent", "wage_mean"]
+    keys = [a for a in sys.argv[1:] if not Path(a).is_dir()] or ["u", "weeks_med", "hap_lo", "hap_med", "mor_med", "health", "gdp", "spent", "wage_mean"]
     print("arm|gov".ljust(24) + "".join(k[:10].rjust(12) for k in keys))
     for gov in ("default", "lean", "generous"):
         c = res["controls"][gov]
