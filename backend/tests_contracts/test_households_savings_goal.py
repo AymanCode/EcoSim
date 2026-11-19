@@ -151,3 +151,18 @@ def test_unemployment_ema_updates_once_per_tick_and_risk_is_capped(factory):
         assert _budget(ec) == pytest.approx(96.04)
         ec.savings_goal_unemployment_ema = 1.0  # uncapped multiplier would exceed 2
         assert _budget(ec) == pytest.approx(92.8)
+
+
+def test_spend_down_rate_applies_only_above_target(factory):
+    cfg, ec, _, _ = _world(factory, cash=300)
+    cfg.households.savings_goal_spend_down_rate = 0.05
+    with use_config(cfg):
+        _settle(ec)
+        # E=30, T=180; cushion 300 is 120 above target: budget = 100 + 0.05 * 120.
+        assert _budget(ec) == pytest.approx(106.0)
+    cfg, ec, _, _ = _world(factory, cash=100)
+    cfg.households.savings_goal_spend_down_rate = 0.05
+    with use_config(cfg):
+        _settle(ec)
+        # Below target the rebuild rate (0.02) still applies: 100 + 0.02 * (100 - 180).
+        assert _budget(ec) == pytest.approx(98.4)

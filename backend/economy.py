@@ -1264,7 +1264,11 @@ class Economy:
                               0.0)
             food_floor = np.fromiter((max(0.0, h.min_food_per_tick) for h in self.households),
                                      dtype=np.float64, count=len(self.households)) * food_reference_price(self)
-            budget = np.clip(income - obligations + cfg.savings_goal_adjust_rate * (savings_liquidity - target),
+            gap = savings_liquidity - target
+            # Above the target the excess is spent down at its own rate; below it
+            # the cushion is rebuilt at savings_goal_adjust_rate.
+            rate = np.where(gap > 0.0, cfg.savings_goal_spend_down_rate, cfg.savings_goal_adjust_rate)
+            budget = np.clip(income - obligations + rate * gap,
                              np.minimum(accessible_liquidity, food_floor), accessible_liquidity)
         else:
             drawdown = drawdown_rates * savings_liquidity
