@@ -3,7 +3,7 @@ import copy
 import pytest
 
 from agents import FirmAgent, GovernmentAgent, HouseholdAgent
-from config import CONFIG
+from config import CONFIG, clone_config, use_config
 from economy import Economy
 from tools.llm.run_household_llm_tester import build_identity_block, build_tick_prompt, snapshot_household
 
@@ -150,13 +150,15 @@ def test_contract_social_multiplier_does_not_scale_healthcare_healing():
     assert hh.health == pytest.approx(0.6, abs=1e-8)
 
 
-def test_contract_wellbeing_mercy_floor_and_consumption_recovery():
+def test_contract_wellbeing_mercy_floor_and_consumption_recovery(monkeypatch):
     """Contract G: Mercy floor pauses natural decay; consumption gives incremental recovery.
 
     Services now contribute +0.0005/tick to happiness (not a large binary boost).
     Unemployment, food shortfall, and wealth loss each have small negative terms.
     The mercy floor stops natural decay from applying, but other signals still fire.
     """
+    # wellbeing_targets: the mercy floor and recovery nudges use the original path.
+    monkeypatch.setattr(CONFIG.households, "wellbeing_targets", False)
     cfg = CONFIG.households
 
     # Mercy floor test: employed, all-needs-met household sitting just below mercy floor.
@@ -295,8 +297,10 @@ def test_contract_household_overrides_leave_omitted_fields_at_default_draws(supp
         assert not changed, f"household {household_id}: supplying {sorted(supplied)} changed {changed}"
 
 
-def test_contract_morale_reacts_to_employment_housing_and_wages():
+def test_contract_morale_reacts_to_employment_housing_and_wages(monkeypatch):
     """Contract I: Morale direction follows employment, housing, and wage satisfaction."""
+    # wellbeing_targets: preserve the original morale nudges.
+    monkeypatch.setattr(CONFIG.households, "wellbeing_targets", False)
     base = _fresh_household(40)
     base.morale = 0.5
     base.morale_decay_rate = 0.0
@@ -331,13 +335,16 @@ def test_contract_morale_reacts_to_employment_housing_and_wages():
     assert delta_underpaid < delta_employed_housed
 
 
-def test_contract_batch_wellbeing_unemployed_unhoused_wealth_loss_with_social_multiplier():
+def test_contract_batch_wellbeing_unemployed_unhoused_wealth_loss_with_social_multiplier(monkeypatch):
     """Contract I2: Batched wellbeing for an unemployed, unhoused household losing cash, multiplier 1.1.
 
     Expected values were pinned from Economy._batch_update_wellbeing at d512de7, where
     this same setup was asserted equal (abs=1e-8) to the since-deleted per-agent
     HouseholdAgent.update_wellbeing.
     """
+    # wellbeing_targets, money_lines_in_weeks: preserve the recorded wellbeing formula.
+    monkeypatch.setattr(CONFIG.households, "wellbeing_targets", False)
+    monkeypatch.setattr(CONFIG.households, "money_lines_in_weeks", False)
     hh_batch = _fresh_household(45)
     hh_batch.happiness = 0.62
     hh_batch.morale = 0.58
@@ -530,7 +537,15 @@ def test_contract_dividends_update_household_visibility_ledger():
     assert hh.last_tick_ledger["dividends"] == pytest.approx(50.0, abs=1e-8)
 
 
-def test_contract_budget_redirect_rules():
+@pytest.fixture(params=[False, True], ids=["legacy-tracker", "current-tracker"])
+def food_tracker(request):
+    cfg = clone_config()
+    cfg.households.fix_food_tracker_lag = request.param
+    with use_config(cfg):
+        yield
+
+
+def test_contract_budget_redirect_rules(food_tracker):
     """Contract J: Food-shortage redirect adjusts and normalizes fractions."""
     base_fractions = {
         "food": 0.40,
@@ -540,8 +555,10 @@ def test_contract_budget_redirect_rules():
 
     hh = _fresh_household(50)
     hh.food_consumed_last_tick = 0.0
+    hh.food_consumed_this_tick = 0.0
     # Isolate food redirect behavior for deterministic expected fractions.
     hh.services_consumed_last_tick = hh.min_services_per_tick
+    hh.services_consumed_this_tick = hh.min_services_per_tick
     debug_food_shift = {}
     hh._plan_category_purchases(
         budget=100.0,
@@ -556,7 +573,7 @@ def test_contract_budget_redirect_rules():
     assert all(0.0 <= value <= 1.0 for value in debug_food_shift.values())
 
 
-def test_contract_services_shortfall_redirect_rules():
+def test_contract_services_shortfall_redirect_rules(food_tracker):
     """Contract J2: Service shortfall redirect shifts some housing share to services."""
     base_fractions = {
         "food": 0.40,
@@ -567,7 +584,9 @@ def test_contract_services_shortfall_redirect_rules():
     hh = _fresh_household(51)
     # Disable food shortfall branch so this test isolates service redirect behavior.
     hh.food_consumed_last_tick = CONFIG.households.food_health_high_threshold
+    hh.food_consumed_this_tick = CONFIG.households.food_health_high_threshold
     hh.services_consumed_last_tick = 0.0
+    hh.services_consumed_this_tick = 0.0
     hh.min_services_per_tick = 2.0
     debug_shift = {}
 

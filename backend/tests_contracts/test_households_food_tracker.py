@@ -9,6 +9,8 @@ from config import clone_config, use_config
 def test_food_shortfall_changes_the_next_plan(factory, timing):
     cfg = clone_config()
     cfg.payment_sequence = timing
+    # fix_food_tracker_lag: compare the original read with the fixed read.
+    cfg.households.fix_food_tracker_lag = False
     with use_config(cfg):
         hh = factory.household(household_id=1, goods_inventory={})
         hh.food_consumed_this_tick = cfg.households.food_health_high_threshold

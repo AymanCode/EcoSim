@@ -137,6 +137,8 @@ def test_cash_pressure_and_wage_floor(factory, cost, line, floor):
 @pytest.mark.parametrize("cash,delta", [(70, 0.0), (90, 0.02), (250, -0.03)])
 def test_wellbeing_only_changes_poverty_comparisons(factory, cash, delta):
     cfg = clone_config()
+    # wellbeing_targets: poverty penalties are part of the original wellbeing path.
+    cfg.households.wellbeing_targets = False
     with use_config(cfg):
         original = factory.household(cash_balance=cash, essential_weekly_cost=40, happiness=0.8)
         firm = factory.firm()

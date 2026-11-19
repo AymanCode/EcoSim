@@ -23,8 +23,8 @@ def _production(hires=0, layoffs=()):
     return {"planned_hires_count": hires, "planned_layoffs_ids": list(layoffs)}
 
 
-def test_setting_defaults_off_and_requires_a_boolean():
-    assert HouseholdBehaviorConfig().job_choices is False
+def test_setting_defaults_on_and_requires_a_boolean():
+    assert HouseholdBehaviorConfig().job_choices is True
     with pytest.raises(ValueError, match="households.job_choices"):
         SimulationConfig(households=HouseholdBehaviorConfig(job_choices=1))
 
@@ -210,6 +210,8 @@ def test_switcher_with_no_hiring_firms_keeps_only_an_existing_contract(factory, 
 
 def test_lifo_layoff_order_uses_wage_then_household_id(factory):
     cfg = clone_config()
+    # job_choices: compare the original roster order with the new LIFO order.
+    cfg.households.job_choices = False
     firm = factory.firm(firm_id=1, employees=[1, 3, 2, 4],
                         actual_wages={1: 50.0, 2: 40.0, 3: 40.0, 4: 30.0},
                         employee_hire_ticks={1: 1, 2: 5, 3: 5, 4: 5})

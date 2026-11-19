@@ -126,6 +126,8 @@ def _switcher_market(factory):
 
 def test_b13_flag_off_switchers_open_vacancies_for_everyone(factory, monkeypatch):
     monkeypatch.setattr(CONFIG.labor_market, "fix_switcher_vacancies", False)
+    # job_choices: preserve the old laid-off switcher fallback.
+    monkeypatch.setattr(CONFIG.households, "job_choices", False)
     economy, production, wages, labor = _switcher_market(factory)
     firm_out, hh_out = economy._match_labor_fast(production, wages, labor)
     # Two switchers give every private idle firm, the laying-off one too, two

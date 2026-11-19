@@ -397,6 +397,10 @@ def test_flag_off_prompt_bundle_matches_selected_economic_baseline():
 
     with use_config(clone_config()):
         CONFIG.government.public_debt_enabled = False
+        # wellbeing_targets, fix_wellbeing_cash_snapshot, fix_food_tracker_lag, fix_dividend_timing, money_lines_in_weeks, job_choices: recorded prompt.
+        for flag in ("wellbeing_targets", "fix_wellbeing_cash_snapshot", "fix_food_tracker_lag",
+                     "fix_dividend_timing", "money_lines_in_weeks", "job_choices"):
+            setattr(CONFIG.households, flag, False)
         # The stored pre-tax-reform trajectory isolates public-debt changes.
         CONFIG.government.profit_tax_style = "legacy_cash_rank"
         CONFIG.firms.price_on_effective_profit_tax = False

@@ -292,7 +292,9 @@ def test_retired_keys_are_gone():
 
 
 def test_paid_education_raises_the_floor_so_it_is_not_worn_off():
-    with _flags(True):
+    with _flags(True) as cfg:
+        # money_lines_in_weeks: keep the original fixed 100 education fee.
+        cfg.households.money_lines_in_weeks = False
         economy = _seeded_economy(households=40)
         _run(economy, 1)
         h = economy.households[0]

@@ -353,19 +353,25 @@ def _deposit_savings(economy, household, amount: float) -> None:
     economy.bank.accept_deposit(household.household_id, amount)
 
 
-def test_a9_deposit_withdrawals_are_recorded_in_household_ledger(fixed_seed, monkeypatch):
+@pytest.mark.parametrize("money_lines_in_weeks", [False, True])
+def test_a9_deposit_withdrawals_are_recorded_in_household_ledger(fixed_seed, monkeypatch, money_lines_in_weeks):
     """Audit A9: every deposit withdrawal appears as a ``bank`` ledger flow.
 
     Over a full tick, rent drawn from deposits (``_ensure_cash_for_payment``)
     must leave the saver's ledger summing to its cash change. The pre-purchase
     withdrawal is then checked directly.
     """
+    monkeypatch.setattr(CONFIG.households, "money_lines_in_weeks", money_lines_in_weeks)
     economy = _legacy_economy_with_bank()
     saver = economy.households[2]
-    # Cash at the subsistence floor: rent needs deposits, but no legacy
-    # consumption loan fires (keeps this test to the withdrawal alone).
-    saver.cash_balance = saver.subsistence_min_cash
+    # Force a deposit-funded rent payment without a consumption loan on either money-line path.
+    saver.cash_balance = 0.0
+    economy.bank.household_credit_scores[saver.household_id] = 0.0
     _deposit_savings(economy, saver, 5_000.0)
+    # Rent exceeds cash left by the planner while remaining affordable from deposits.
+    for firm in economy.firms:
+        if firm.good_category == "Housing":
+            firm.price = 500.0
 
     rent_withdrawals: List[float] = []
     original_ensure = economy._ensure_cash_for_payment

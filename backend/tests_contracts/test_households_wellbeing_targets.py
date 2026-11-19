@@ -31,11 +31,11 @@ def _world(factory, **overrides):
     return factory.economy(households=[hh], firms=firms), hh
 
 
-def test_flags_are_off_by_default_and_initialization_keeps_original_traits(factory):
+def test_flags_are_on_by_default_and_initialization_keeps_original_traits(factory):
     cfg = clone_config()
     cfg.random_seed = 42
-    assert cfg.households.wellbeing_targets is False
-    assert cfg.households.fix_wellbeing_cash_snapshot is False
+    assert cfg.households.wellbeing_targets is True
+    assert cfg.households.fix_wellbeing_cash_snapshot is True
     with use_config(cfg):
         hh = HouseholdAgent(household_id=37, skills_level=0.6, age=35, cash_balance=400.0)
         assert hh.happiness_set_point == hh.happiness
@@ -166,6 +166,8 @@ def test_transfer_between_cash_and_deposits_is_not_a_wealth_loss(factory):
 @pytest.mark.parametrize("food", [0.0, 2.5, 5.0, 8.0])
 def test_targets_do_not_change_health_update(factory, food):
     cfg = clone_config()
+    # wellbeing_targets: compare health with the old and new wellbeing paths.
+    cfg.households.wellbeing_targets = False
     with use_config(cfg):
         e, hh = _world(factory, food_consumed_this_tick=food)
         comparison = copy.deepcopy(hh)

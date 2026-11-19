@@ -31,6 +31,8 @@ def _food_and_services_world(seed):
     household.food_preference = household.services_preference = 1.0
     household.min_food_per_tick = 2.0
     household.services_consumed_last_tick = 10.0  # no services comfort-floor shift
+    household.services_consumed_this_tick = 10.0
+    household.food_consumed_this_tick = CONFIG.households.food_health_high_threshold
     return economy, household
 
 
@@ -61,9 +63,11 @@ def test_budget_below_minimum_food_goes_entirely_to_food():
         assert services_units == 0.0
 
 
-def test_comfortable_household_split_unchanged_beyond_minimum_food():
+@pytest.mark.parametrize("fix_food_tracker_lag", [False, True])
+def test_comfortable_household_split_unchanged_beyond_minimum_food(fix_food_tracker_lag):
     """Services get what the old split gave a budget smaller by the carve-out."""
     with isolated_run(1337):
+        CONFIG.households.fix_food_tracker_lag = fix_food_tracker_lag
         economy, household = _food_and_services_world(1337)
         _, services_with_floor = _plan(economy, 200.0)
         carve_out = household.min_food_per_tick * 10.0
@@ -75,9 +79,11 @@ def test_comfortable_household_split_unchanged_beyond_minimum_food():
         assert services_with_floor == pytest.approx(old_split[2])
 
 
-def test_payment_arm_planner_has_no_food_floor():
+@pytest.mark.parametrize("fix_food_tracker_lag", [False, True])
+def test_payment_arm_planner_has_no_food_floor(fix_food_tracker_lag):
     """Direct and payment-arm planning (settled_income False) keep the pure preference split."""
     with isolated_run(1337):
+        CONFIG.households.fix_food_tracker_lag = fix_food_tracker_lag
         economy, household = _food_and_services_world(1337)
         market = economy._build_category_market_snapshot()
         lookup = economy._build_good_category_lookup()

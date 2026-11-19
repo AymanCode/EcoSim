@@ -94,6 +94,10 @@ class TestLeverSensitivity:
     def test_minimum_wage_avg_wage(self, seed: int, inflation_enabled: bool, monkeypatch) -> None:
         """Higher minimum wage → higher average wage."""
         from config import CONFIG
+        # wellbeing_targets, fix_wellbeing_cash_snapshot, fix_food_tracker_lag, fix_dividend_timing, money_lines_in_weeks, job_choices: historical sweep.
+        for flag in ("wellbeing_targets", "fix_wellbeing_cash_snapshot", "fix_food_tracker_lag",
+                     "fix_dividend_timing", "money_lines_in_weeks", "job_choices"):
+            monkeypatch.setattr(CONFIG.households, flag, False)
         monkeypatch.setattr(CONFIG.inflation, "enabled", inflation_enabled)
         options = ["low", "neutral", "high"]
         wages: List[float] = []

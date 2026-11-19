@@ -87,6 +87,8 @@ def test_roundoff_cannot_authorize_an_underfunded_complete_roster(factory, timin
     cfg, ec, firm, workers, _, outcomes, hh_outcomes = _prepared(
         factory, timing, wages=wages, cash=cash,
     )
+    # job_choices: the expected retained roster uses the original layoff order.
+    cfg.households.job_choices = False
     with use_config(cfg):
         _fund(ec, outcomes, hh_outcomes)
         assert firm.employees == retained

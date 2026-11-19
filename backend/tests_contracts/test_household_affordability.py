@@ -240,12 +240,15 @@ def test_planner_benefit_level_is_not_a_funded_transfer(factory, timing, funded)
 
 
 @pytest.mark.parametrize("timing", ["income_first", "income_late"])
-def test_planner_service_quote_floor_rechecks_funding_before_quantity(factory, timing):
+@pytest.mark.parametrize("fix_food_tracker_lag", [False, True])
+def test_planner_service_quote_floor_rechecks_funding_before_quantity(factory, timing, fix_food_tracker_lag):
     cfg = clone_config()
     cfg.payment_sequence = timing
+    cfg.households.fix_food_tracker_lag = fix_food_tracker_lag
     with use_config(cfg):
         e, hh, firm = _scenario(factory, timing, cash=20)
         hh.category_weights = {"services": 1.0}
+        hh.food_consumed_this_tick = cfg.households.food_health_high_threshold
         firm.good_category = "Services"
         firm.good_name = "ServicesFirm"
         firm.markup = 0.5

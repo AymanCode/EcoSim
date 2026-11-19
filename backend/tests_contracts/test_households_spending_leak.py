@@ -32,19 +32,23 @@ def _world(factory, cfg, *, cash=100.0, category="Food", stocks=(0.0, 100.0), pr
 def test_experiment_defaults():
     config = HouseholdBehaviorConfig()
     assert config.fix_spending_leak is False
-    assert config.fix_food_tracker_lag is False
+    assert config.fix_food_tracker_lag is True
     assert config.stockout_substitution_share == 0.76
 
 
 @pytest.mark.parametrize("source", ["fraction", "biased", "traits"])
-def test_housing_removed_before_shifts_and_purchases(factory, source):
+@pytest.mark.parametrize("fix_food_tracker_lag", [False, True])
+def test_housing_removed_before_shifts_and_purchases(factory, source, fix_food_tracker_lag):
     cfg = clone_config()
     cfg.households.fix_spending_leak = True
+    cfg.households.fix_food_tracker_lag = fix_food_tracker_lag
     with use_config(cfg):
         hh = factory.household(category_weights={"food": 0.4, "housing": 0.3, "services": 0.3},
                                food_preference=1.0, housing_preference=1.0, services_preference=1.0)
         hh.food_consumed_last_tick = cfg.households.food_health_high_threshold
+        hh.food_consumed_this_tick = cfg.households.food_health_high_threshold
         hh.services_consumed_last_tick = hh.min_services_per_tick
+        hh.services_consumed_this_tick = hh.min_services_per_tick
         arrays = {category: {"firm_ids": np.array([fid]), "prices": np.array([10.0]),
                              "qualities": np.array([5.0])}
                   for category, fid in (("food", 1), ("housing", 2), ("services", 3))}

@@ -6,11 +6,16 @@ from economy import _TickScratch
 from tests_contracts.test_households_savings_goal import _budget, _settle, _world
 
 
-def test_new_flags_default_off():
+def test_household_experiment_defaults():
     cfg = HouseholdBehaviorConfig()
-    assert not cfg.money_lines_in_weeks
-    assert not cfg.savings_goal
-    assert not cfg.fix_dividend_timing
+    assert cfg.wellbeing_targets is True
+    assert cfg.fix_wellbeing_cash_snapshot is True
+    assert cfg.fix_food_tracker_lag is True
+    assert cfg.fix_dividend_timing is True
+    assert cfg.money_lines_in_weeks is True
+    assert cfg.job_choices is True
+    assert cfg.fix_spending_leak is False
+    assert cfg.savings_goal is False
 
 
 @pytest.mark.parametrize("mode", ["fix_dividend_timing", "savings_goal"])
@@ -40,6 +45,8 @@ def test_dividends_survive_tick_reset_and_reach_one_budget(factory, mode):
 def test_disabled_flag_does_not_read_or_clear_pending_dividends(factory):
     cfg, ec, hh, firm = _world(factory, cash=0, funded=0, employed=False)
     cfg.households.savings_goal = False
+    # fix_dividend_timing: exercise the original dividend field.
+    cfg.households.fix_dividend_timing = False
     hh.savings_drawdown_rate = 0
     with use_config(cfg):
         firm._credit_dividend_income([1], {1: hh}, 100)

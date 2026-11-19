@@ -10,8 +10,9 @@ the same money is split between cash and deposits.
 import pytest
 
 from agents import GovernmentAgent, HouseholdAgent
-from config import CONFIG
+from config import CONFIG, clone_config, use_config
 from economy import Economy
+from tests_contracts.factories import make_firm
 
 
 def _household(hid, *, cash, deposit, cash_start, deposit_start):
@@ -20,28 +21,41 @@ def _household(hid, *, cash, deposit, cash_start, deposit_start):
     hh.last_tick_cash_start = cash_start
     hh.last_tick_deposit_start = deposit_start
     hh.happiness = 0.6
+    hh.happiness_set_point = 0.6
     hh.happiness_decay_rate = 0.0
     hh.met_housing_need = True
     hh.employer_id = 1
     hh.wage = hh.expected_wage
+    hh.min_food_per_tick = 5.0
     hh.food_consumed_this_tick = hh.min_food_per_tick
     hh.services_consumed_this_tick = 1.0
     return hh
 
 
 def _wellbeing(*households):
-    economy = Economy(households=list(households), firms=[], government=GovernmentAgent(cash_balance=5_000.0))
+    firms = [make_firm(1, category="Food", price=10.0), make_firm(2, category="Housing", price=50.0)]
+    economy = Economy(households=list(households), firms=firms, government=GovernmentAgent(cash_balance=5_000.0))
     economy._batch_update_wellbeing(happiness_multiplier=1.0)
 
 
-def test_depositing_cash_is_not_a_wealth_loss():
+@pytest.fixture(params=[False, True], ids=["legacy-wellbeing", "target-wellbeing"])
+def wellbeing_path(request):
+    cfg = clone_config()
+    # wellbeing_targets and money_lines_in_weeks: compare original and adopted paths.
+    cfg.households.wellbeing_targets = request.param
+    cfg.households.money_lines_in_weeks = request.param
+    with use_config(cfg):
+        yield
+
+
+def test_depositing_cash_is_not_a_wealth_loss(wellbeing_path):
     kept = _household(1, cash=800.0, deposit=0.0, cash_start=800.0, deposit_start=0.0)
     swept = _household(2, cash=500.0, deposit=300.0, cash_start=800.0, deposit_start=0.0)
     _wellbeing(kept, swept)
     assert swept.happiness == pytest.approx(kept.happiness)
 
 
-def test_withdrawing_is_not_a_gain_or_loss_and_real_spending_still_counts():
+def test_withdrawing_is_not_a_gain_or_loss_and_real_spending_still_counts(wellbeing_path):
     steady = _household(1, cash=800.0, deposit=0.0, cash_start=800.0, deposit_start=0.0)
     withdrew = _household(2, cash=800.0, deposit=0.0, cash_start=500.0, deposit_start=300.0)
     spent = _household(3, cash=500.0, deposit=0.0, cash_start=800.0, deposit_start=0.0)
@@ -50,7 +64,7 @@ def test_withdrawing_is_not_a_gain_or_loss_and_real_spending_still_counts():
     assert spent.happiness < steady.happiness
 
 
-def test_savings_in_the_bank_are_not_poverty():
+def test_savings_in_the_bank_are_not_poverty(wellbeing_path):
     threshold = CONFIG.households.poverty_threshold
     cash_only = _household(1, cash=threshold + 50.0, deposit=0.0,
                            cash_start=threshold + 50.0, deposit_start=0.0)
@@ -63,7 +77,7 @@ def test_savings_in_the_bank_are_not_poverty():
     assert poor.happiness < cash_only.happiness
 
 
-def test_snapshot_at_income_settlement_makes_the_deposit_sweep_neutral():
+def test_snapshot_at_income_settlement_makes_the_deposit_sweep_neutral(wellbeing_path):
     """Real phase order: income settlement -> deposit sweep -> wellbeing.
 
     The saver starts the week with stale ``last_tick_*_start`` values from an
