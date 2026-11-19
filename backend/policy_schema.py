@@ -7,6 +7,9 @@ LLM prompt, sanitizer, and GovernmentAgent validation in sync.
 
 from __future__ import annotations
 
+from decimal import Decimal, InvalidOperation
+import math
+from numbers import Number
 from typing import Any, Dict, Iterable, List, Tuple
 
 
@@ -33,6 +36,7 @@ ORDERED_LEVERS: Dict[str, List[Any]] = {
 }
 
 SIMPLE_ENUM_LEVERS: Dict[str, set] = {
+    "food_credit_policy": {"off", "on"},
     "public_works": {"off", "on"},
     "surplus_distribution": {"off", "on"},
     "sector_subsidy_target": {"none", "food", "housing", "services", "healthcare"},
@@ -41,6 +45,8 @@ SIMPLE_ENUM_LEVERS: Dict[str, set] = {
 }
 
 SPENDING_LEVERS = {
+    "food_credit_policy",
+    "food_credit_weekly_budget",
     "benefit_level",
     "public_works",
     "surplus_distribution",
@@ -60,6 +66,8 @@ PROMPT_POLICY_LEVERS: Tuple[str, ...] = (
     "public_works",
     "surplus_distribution",
     "minimum_wage_policy",
+    "food_credit_policy",
+    "food_credit_weekly_budget",
     "sector_subsidy_target",
     "sector_subsidy_level",
     "price_stabilization_target",
@@ -78,6 +86,7 @@ POLICY_SCHEMA: Dict[str, Any] = {
        for lever, (lo, hi) in TAX_LIMITS.items()},
     **{lever: list(values) for lever, values in ORDERED_LEVERS.items()},
     **{lever: sorted(values) for lever, values in SIMPLE_ENUM_LEVERS.items()},
+    "food_credit_weekly_budget": {"type": "currency", "min": 0.0, "precision": 0.01},
 }
 
 VALID_LEVERS = set(POLICY_SCHEMA)
@@ -94,6 +103,31 @@ LEVER_TO_GROUP: Dict[str, str] = {
     for group, levers in POLICY_GROUPS.items()
     for lever in levers
 }
+
+
+def normalize_food_credit_budget(value: Any) -> float:
+    """Validate a nonnegative dollar amount to cents and return its float form.
+
+    Small floating-point arithmetic noise around an exact cent is normalized;
+    actual fractions of a cent and values lost when converted to float are not.
+    """
+
+    message = "food_credit_weekly_budget must be a nonnegative finite number in whole cents"
+    if isinstance(value, bool) or not isinstance(value, Number):
+        raise ValueError(message)
+    try:
+        amount = Decimal(str(value))
+        number = float(value)
+    except (InvalidOperation, TypeError, ValueError, OverflowError):
+        raise ValueError(message) from None
+    if not amount.is_finite() or amount < 0 or not math.isfinite(number):
+        raise ValueError(message)
+    normalized = round(number, 2)
+    if amount != Decimal(str(normalized)):
+        if (not isinstance(value, float) or normalized == 0.0
+                or abs(number - normalized) > 2 * math.ulp(number)):
+            raise ValueError(message)
+    return 0.0 if normalized == 0 else normalized
 
 
 def normalize_current_policy(current_policy: Dict[str, Any]) -> Dict[str, Any]:
@@ -118,6 +152,12 @@ def normalize_current_policy(current_policy: Dict[str, Any]) -> Dict[str, Any]:
             except (TypeError, ValueError):
                 pass
 
+    if "food_credit_weekly_budget" in p:
+        try:
+            p["food_credit_weekly_budget"] = normalize_food_credit_budget(p["food_credit_weekly_budget"])
+        except ValueError:
+            pass
+
     return p
 
 
@@ -133,8 +173,13 @@ def is_ordered_increase(lever: str, current: Any, proposed: Any) -> bool:
 def is_spending_increase(lever: str, current: Any, proposed: Any) -> bool:
     """Return whether a proposed lever change increases discretionary spending."""
 
-    if lever in {"public_works", "surplus_distribution"}:
+    if lever in {"public_works", "surplus_distribution", "food_credit_policy"}:
         return current == "off" and proposed == "on"
+    if lever == "food_credit_weekly_budget":
+        try:
+            return normalize_food_credit_budget(proposed) > normalize_food_credit_budget(current)
+        except ValueError:
+            return False
     if lever in ORDERED_LEVERS:
         return is_ordered_increase(lever, current, proposed)
     return False
@@ -159,13 +204,17 @@ def policy_value_set(lever: str) -> Iterable[Any]:
     return SIMPLE_ENUM_LEVERS.get(lever, set())
 
 
-def render_policy_schema_for_prompt() -> str:
+def render_policy_schema_for_prompt(*, include_food_credit: bool = True) -> str:
     """Render the runtime government policy schema for the LLM prompt."""
 
     lines: List[str] = []
     for lever in PROMPT_POLICY_LEVERS:
+        if lever in {"food_credit_policy", "food_credit_weekly_budget"} and not include_food_credit:
+            continue
         schema = POLICY_SCHEMA[lever]
-        if isinstance(schema, dict) and schema.get("type") == "float":
+        if isinstance(schema, dict) and schema.get("type") == "currency":
+            lines.append(f"- {lever}: nonnegative dollar amount in whole cents; no upper limit")
+        elif isinstance(schema, dict) and schema.get("type") == "float":
             lines.append(
                 f"- {lever}: float [{schema['min']:.2f}, {schema['max']:.2f}], "
                 f"max change {schema['max_step']:.2f} per decision"

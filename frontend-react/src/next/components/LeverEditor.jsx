@@ -3,6 +3,8 @@ import {
   COPY, DEFAULT_POLICY, LEVER_GROUPS, LEVER_OPTIONS, LEVERS, capitalise, leverName, leverValuePhrase,
 } from '../catalog.js'
 import { PROBLEM_LEVERS, policyProblems } from '../policyRules.js'
+import CurrencyInput from '../../ui/CurrencyInput.jsx'
+import { FOOD_CREDIT_BUDGET_HELP } from '../../foodCredit.js'
 import '../next.css'
 
 // Levers with this many options or fewer are a row of buttons, more a select.
@@ -23,7 +25,7 @@ function asOption(lever, value) {
   return options.find(option => String(option) === String(value)) ?? value
 }
 
-// All 17 levers: DEFAULT_POLICY under whatever the vector sets.
+// All catalogued levers: DEFAULT_POLICY under whatever the vector sets.
 function complete(vector) {
   const full = { ...DEFAULT_POLICY }
   for (const lever of Object.keys(DEFAULT_POLICY)) {
@@ -66,7 +68,7 @@ function LeverName({ lever, changed, as: Tag = 'span', labelId, changedId, htmlF
   )
 }
 
-function Lever({ lever, value, changed, id, onPick }) {
+function Lever({ lever, value, changed, id, onPick, foodCreditAvailable, foodCreditPending }) {
   const spec = LEVERS[lever]
   const options = LEVER_OPTIONS[lever]
   const labelId = `${id}-label`
@@ -75,6 +77,7 @@ function Lever({ lever, value, changed, id, onPick }) {
   const labelledBy = changed ? `${labelId} ${changedId}` : labelId
   const nameProps = { lever, changed, labelId, changedId }
   const help = <p className="nx-lhelp" id={helpId}>{spec.help}</p>
+  const unavailable = lever === 'food_credit_policy' && !foodCreditAvailable
 
   if (!Array.isArray(options)) {
     const { min, max } = options
@@ -134,9 +137,10 @@ function Lever({ lever, value, changed, id, onPick }) {
         <LeverName {...nameProps} />
       </div>
       {help}
-      <div className="nx-seg" role="group" aria-labelledby={labelledBy} aria-describedby={helpId}>
+      {unavailable && <p className="nx-lhelp" id={`${id}-unavailable`}>Opening is available only when income arrives before bills.</p>}
+      <div className="nx-seg" role="group" aria-labelledby={labelledBy} aria-describedby={unavailable ? `${helpId} ${id}-unavailable` : helpId}>
         {options.map(option => (
-          <button key={String(option)} type="button" aria-pressed={same(option, value)} onClick={() => onPick(option)}>
+          <button key={String(option)} type="button" aria-pressed={same(option, value)} disabled={lever === 'food_credit_policy' && (foodCreditPending || (option === 'on' && !foodCreditAvailable))} onClick={() => onPick(option)}>
             {optionLabel(option)}
           </button>
         ))}
@@ -147,13 +151,14 @@ function Lever({ lever, value, changed, id, onPick }) {
 
 // Every lever of the town hall in five sections. `value` is the rules being
 // edited, `base` the rules to mark changes against; onChange always gets all
-// 17 levers, numbers as numbers. A group rule the rules break shows under its
+// catalogued levers, numbers as numbers. A group rule the rules break shows under its
 // section. The bailout sector and budget show only when they apply.
-export default function LeverEditor({ value, base = DEFAULT_POLICY, onChange, idPrefix = 'levers' }) {
+export default function LeverEditor({ value, base = DEFAULT_POLICY, onChange, idPrefix = 'levers', foodCreditAvailable = true, foodCreditPending = false, foodCreditBudget = null }) {
   const current = complete(value)
   const baseline = complete(base)
   const problems = Object.entries(policyProblems(current))
   const pick = lever => next => {
+    if (lever === 'food_credit_policy' && (foodCreditPending || (next === 'on' && !foodCreditAvailable))) return
     const option = asOption(lever, next)
     const resets = lever === 'bailout_policy' ? BAILOUT_RESETS[option] : null
     onChange({ ...current, [lever]: option, ...resets })
@@ -182,7 +187,25 @@ export default function LeverEditor({ value, base = DEFAULT_POLICY, onChange, id
                   changed={!same(current[lever], baseline[lever])}
                   id={`${idPrefix}-${lever}`}
                   onPick={pick(lever)}
+                  foodCreditAvailable={foodCreditAvailable}
+                  foodCreditPending={foodCreditPending}
                 />
+                {lever === 'food_credit_policy' && foodCreditBudget && (
+                  <div className="nx-lever">
+                    <div className="nx-lhead"><label className="nx-lname" htmlFor={`${idPrefix}-food-credit-budget`}>Grocery benefit weekly cap ($)</label></div>
+                    <p className="nx-lhelp" id={`${idPrefix}-food-credit-budget-help`}>{FOOD_CREDIT_BUDGET_HELP}</p>
+                    <CurrencyInput
+                      id={`${idPrefix}-food-credit-budget`}
+                      aria-describedby={`${idPrefix}-food-credit-budget-help`}
+                      className="nx-select"
+                      value={foodCreditBudget.value}
+                      placeholder="Awaiting policy"
+                      disabled={!foodCreditAvailable || foodCreditBudget.pending}
+                      onChange={foodCreditBudget.onChange}
+                      onValidityChange={foodCreditBudget.onValidityChange}
+                    />
+                  </div>
+                )}
                 {after(lever).map(([key, text]) => <p key={key} className="nx-lproblem" role="status">{text}</p>)}
               </Fragment>
             ))}

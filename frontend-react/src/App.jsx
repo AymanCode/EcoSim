@@ -26,6 +26,7 @@ export default function EcoSimUI() {
   const reconnectTimerRef = useRef(null);
   const configUpdateTimer = useRef(null);
   const pendingConfigRef = useRef(null);
+  const pendingFoodCreditRef = useRef({});
   const sentConfigRef = useRef(null);
   const [isInitializing, setIsInitializing] = useState(false);
   const [wsConnected, setWsConnected] = useState(false);
@@ -135,6 +136,7 @@ export default function EcoSimUI() {
     profit_tax: 0.20,
     enable_llm_government: false,
     payment_sequence: 'income_first',
+    payment_food_credit_enabled: false,
     payment_care_mode: 'patient_pay',
     payment_assistance: 'reserve',
     disable_stabilizers: false,
@@ -194,6 +196,14 @@ export default function EcoSimUI() {
           setActiveView('DASHBOARD');
           setIsRunning(true);
           const cfg = setupConfigRef.current;
+          const confirmedSetup = data.config || {};
+          if (typeof confirmedSetup.payment_sequence === 'string' || typeof confirmedSetup.payment_food_credit_enabled === 'boolean') {
+            setSetupConfig(prev => ({
+              ...prev,
+              ...(typeof confirmedSetup.payment_sequence === 'string' ? { payment_sequence: confirmedSetup.payment_sequence } : {}),
+              ...(typeof confirmedSetup.payment_food_credit_enabled === 'boolean' ? { payment_food_credit_enabled: confirmedSetup.payment_food_credit_enabled } : {})
+            }));
+          }
           // Sync local config with setup
           setConfig(prev => {
             const synced = {
@@ -263,6 +273,18 @@ export default function EcoSimUI() {
           setIsRunning(false);
           setIsInitialized(false);
           setActiveView('CONFIG'); // Go back to config on reset
+        } else if (data.type === "CONFIG_APPLIED") {
+          const foodCredit = data.applied?.food_credit_policy;
+          const foodBudget = data.applied?.food_credit_weekly_budget;
+          const confirmed = {};
+          if (foodCredit === 'on' || foodCredit === 'off') confirmed.food_credit_policy = foodCredit;
+          if (typeof foodBudget === 'number' && Number.isFinite(foodBudget) && foodBudget >= 0) confirmed.food_credit_weekly_budget = foodBudget;
+          if (Object.keys(confirmed).length) {
+            setMetrics(prev => ({
+              ...prev,
+              governmentPolicy: { ...prev.governmentPolicy, ...confirmed }
+            }));
+          }
         } else if (data.type === "STABILIZERS_UPDATED") {
           console.log("Stabilizers updated:", data.state);
         } else if (data.type === "STARTED") {
@@ -391,16 +413,30 @@ export default function EcoSimUI() {
       const changedConfig = baseline
         ? Object.fromEntries(Object.entries(supportedRuntimeConfig).filter(([key, value]) => !Object.is(baseline[key], value)))
         : supportedRuntimeConfig;
+      // This lever follows the server's policy, which may change independently
+      // of the last request. Only send it when the user explicitly edits it.
+      Object.assign(changedConfig, pendingFoodCreditRef.current);
       if (Object.keys(changedConfig).length > 0) {
         ws.current.send(JSON.stringify({ command: "CONFIG", config: changedConfig }));
         sentConfigRef.current = { ...(baseline || {}), ...changedConfig };
       }
     }
     pendingConfigRef.current = null;
+    pendingFoodCreditRef.current = {};
     configUpdateTimer.current = null;
   };
 
   const handleConfigChange = (key, value) => {
+    if (key === 'food_credit_policy') {
+      if (value === 'on' && setupConfig.payment_sequence !== 'income_first') return;
+      if (value !== 'on' && value !== 'off') return;
+      pendingFoodCreditRef.current[key] = value;
+    }
+    if (key === 'food_credit_weekly_budget') {
+      if (setupConfig.payment_sequence !== 'income_first') return;
+      if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) return;
+      pendingFoodCreditRef.current[key] = value;
+    }
     const newConfig = { ...config, [key]: value };
     setConfig(newConfig);
     pendingConfigRef.current = newConfig;
@@ -461,9 +497,10 @@ export default function EcoSimUI() {
   };
 
   const handleSetupChange = (key, value) => {
-    if (isInitialized && ['payment_sequence', 'payment_care_mode', 'payment_assistance'].includes(key)) return;
+    if (isInitialized && ['payment_sequence', 'payment_care_mode', 'payment_assistance', 'payment_food_credit_enabled'].includes(key)) return;
     setSetupConfig(prev => {
       const next = { ...prev, [key]: value };
+      if (key === 'payment_sequence' && value !== 'income_first') next.payment_food_credit_enabled = false;
       if (key === 'disable_stabilizers' && value === false) {
         next.disabled_agents = [];
       }
@@ -684,6 +721,7 @@ export default function EcoSimUI() {
                 tick={tick}
                 histories={histories}
                 config={config}
+                setupConfig={setupConfig}
                 onConfigChange={handleConfigChange}
                 enumOptions={enumOptions}
                 isAiActive={isPolicyAssistantActive}

@@ -190,7 +190,7 @@ describe('compact numbers sheet', () => {
     sheet({arms:[arms[0]]})
     expect(document.querySelectorAll('.nx-number-row')).toHaveLength(20)
     expect(document.querySelector('.nx-answer-verdict,.nx-answer-tally,.nx-number-differences,.nx-number-fold')).toBeNull()
-    expect(document.querySelector('.nx-number-rules')).toHaveTextContent('17 rules, all at their usual settings.')
+    expect(document.querySelector('.nx-number-rules')).toHaveTextContent('19 rules, all at their usual settings.')
   })
 
   test('three and four towns get a value column and comparison per town', () => {

@@ -1064,6 +1064,7 @@ class SimulationConfig:
     payment_benefit_wage_floor_multiplier: float = 1.5
     payment_bank_startup_loans_enabled: bool = True
     payment_services_project_enabled: bool = False
+    payment_food_credit_enabled: bool = False
     payment_services_project_cost: float = 1000.0
     payment_services_project_lag_ticks: int = 1
     payment_debt_service_share: float = 0.35
@@ -1107,6 +1108,10 @@ class SimulationConfig:
             raise ValueError("payment bank startup loans enabled must be a bool")
         if self.payment_sequence not in {"legacy", "income_first", "income_late"}:
             raise ValueError("unsupported payment sequence")
+        if not isinstance(self.payment_food_credit_enabled, bool):
+            raise ValueError("grocery credit enabled must be a bool")
+        if self.payment_food_credit_enabled and self.payment_sequence != "income_first":
+            raise ValueError("grocery credit requires income_first")
         if self.payment_care_mode not in {"patient_pay", "covered"}:
             raise ValueError("unsupported payment care mode")
         if self.payment_assistance not in {"reserve", "care", "rent", "mixed"}:

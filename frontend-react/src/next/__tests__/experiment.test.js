@@ -334,6 +334,15 @@ describe('createExperiment', () => {
     expect(t.exp.getState().phase).toBe('paused')
   })
 
+  it('sends grocery changes as canonical CONFIG fields, including a zero budget', () => {
+    const t = boot()
+    ready(t)
+    t.exp.configure(0, { food_credit_policy: 'on', food_credit_weekly_budget: 0 })
+    expect(t.sockets[0].sent.at(-1)).toEqual({ command: 'CONFIG', config: { food_credit_policy: 'on', food_credit_weekly_budget: 0 } })
+    t.sockets[0].receive({ type: 'CONFIG_APPLIED', actionId: 'food', applied: { food_credit_policy: 'on', food_credit_weekly_budget: 0 }, rejected: {}, effectiveTick: 1 })
+    expect(t.exp.getState().arms[0].policy).toMatchObject({ food_credit_policy: 'on', food_credit_weekly_budget: 0 })
+  })
+
   it('10b. a command the server could not do becomes a notice on that town until its next week', () => {
     const t = boot()
     ready(t)

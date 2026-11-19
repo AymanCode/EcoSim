@@ -2,7 +2,7 @@
 // this hook so the plan survives a trip to the Run screen and back.
 //
 // state: { mode: 'compare'|'play', questionId: 'minimum-wage'|'custom'|null,
-//          towns: [{ label, color, policy /* all 17 levers */ }], households, years, seed,
+//          towns: [{ label, color, policy /* catalogued levers */ }], households, years, seed,
 //          editing: index of the town whose rules are open, or null }
 import { useMemo, useReducer } from 'react'
 import { DEFAULT_POLICY, QUESTIONS, TOWN_COLORS } from '../catalog.js'

@@ -36,6 +36,7 @@ from typing import Any, Dict, List, Optional
 from typing_extensions import TypedDict
 
 from config import CONFIG
+from food_credit import WEEKLY_GRANT, eligible_count
 from fiscal_guards import (
     annualized_debt_to_gdp,
     can_fund_public_works_startup,
@@ -60,6 +61,7 @@ from policy_schema import (
     is_spending_increase,
     is_tax_decrease,
     normalize_current_policy,
+    normalize_food_credit_budget,
     render_policy_schema_for_prompt,
 )
 
@@ -392,7 +394,20 @@ def _build_system_prompt(
     """
 
     philosophy_label = str(philosophy or "balanced").strip() or "balanced"
-    schema_text = render_policy_schema_for_prompt()
+    food_credit_available = "gov_food_credit_policy" in (raw_metrics or {})
+    schema_text = render_policy_schema_for_prompt(include_food_credit=food_credit_available)
+    eligible_households = eligible_count(max(0, num_households))
+    full_coverage = WEEKLY_GRANT * eligible_households
+    grocery_rule = (
+        f"- food_credit_policy on: issue up to ${WEEKLY_GRANT:.2f} each week per household in the "
+        "least-liquid fifth. The weekly budget and available treasury cash each limit total grants. "
+        "When funds fall short, prorate equally among eligible households. "
+        f"The current population has {eligible_households} eligible households and full coverage costs "
+        f"${full_coverage:.2f} per week. "
+        "You can set the cap independently of opening or closing the program. Once every eligible household "
+        "receives its full grant, the treasury keeps the remainder. Closing stops grants. Existing cards can still buy food.\n"
+        if food_credit_available else ""
+    )
     if _public_debt_visible(raw_metrics):
         objective = (
             "Maximize GDP and mean happiness while keeping labour-force unemployment "
@@ -440,7 +455,7 @@ LEVER EFFECTS:
 - profit_tax_rate higher: government revenue up, firm cash and investment capacity down.
 - investment_tax_rate higher: Higher investment_tax_rate taxes firm R&D directly; quality growth and R&D spending down.
 - benefit_level higher: unemployed income up, reservation wages and fiscal cost up.
-- public_works on: unemployment can fall quickly, government cash falls quickly.
+{grocery_rule}- public_works on: unemployment can fall quickly, government cash falls quickly.
 - surplus_distribution on: eligible surplus flows through Misc to households after a tax skim; no bond asset is acquired.
 - minimum_wage_policy higher: wage floor up; workers may earn more but fragile firms may hire less.
 - infrastructure_spending: productivity rises slowly over many ticks.
@@ -641,7 +656,8 @@ def _format_action_mask(mask: Dict[str, Any]) -> tuple[str, str]:
             continue
         values = allowed_simple.get(lever)
         if values:
-            allowed_lines.append(f"- {lever}: {values}")
+            label = f"{lever} (examples, not exclusive)" if lever == "food_credit_weekly_budget" else lever
+            allowed_lines.append(f"- {label}: {values}")
     for group, combos in sorted(allowed_groups.items()):
         if combos:
             rendered = "; ".join(str(combo) for combo in combos[:8])
@@ -653,7 +669,8 @@ def _format_action_mask(mask: Dict[str, Any]) -> tuple[str, str]:
         values = blocked_simple.get(lever)
         if values:
             rendered = "; ".join(f"{item.get('value')} ({item.get('reason')})" for item in values[:4])
-            blocked_lines.append(f"- {lever}: {rendered}")
+            label = f"{lever} (examples, not exclusive)" if lever == "food_credit_weekly_budget" else lever
+            blocked_lines.append(f"- {label}: {rendered}")
     for group, values in sorted(blocked_groups.items()):
         if values:
             rendered = "; ".join(f"{item.get('value')} ({item.get('reason')})" for item in values[:4])
@@ -1377,6 +1394,22 @@ def _build_user_prompt(
         if lever not in LLM_HIDDEN_POLICY_LEVERS
         if lever in current_policy
     )
+    food_credit_advice = (
+        "Food credit budget amounts in the action mask are examples, not exclusive choices. "
+        "Any nonnegative dollar amount in whole cents may be chosen, including above full coverage; "
+        "increases remain subject to the fiscal spending guard.\n"
+        if "food_credit_weekly_budget" in current_policy else ""
+    )
+    payment = raw_metrics.get("payment") or {}
+    fiscal = (payment.get("fiscal") or {}) if isinstance(payment, dict) else {}
+    food_credit = fiscal.get("food_credit") if isinstance(fiscal, dict) else None
+    food_credit_turnover = (
+        "- Food credit last week: "
+        f"issued ${_safe_float(food_credit.get('issued')):,.2f}, "
+        f"redeemed ${_safe_float(food_credit.get('redeemed')):,.2f}, "
+        f"outstanding ${_safe_float(food_credit.get('outstanding')):,.2f}\n"
+        if "food_credit_weekly_budget" in current_policy and isinstance(food_credit, dict) else ""
+    )
 
     return f"""[OBSERVED ECONOMIC DATA]
 Use these as the government's observed indicators. They may be lagged, noisy, unavailable, or averaged.
@@ -1398,7 +1431,7 @@ MACRO INDICATORS:
 - Government Cash: {_format_money(gov_cash)} (Deficit/Surplus last tick: {_format_money(deficit)})
 {net_position_line}- Public Debt: {_format_money(raw_metrics.get('public_debt', budget_state.get('public_debt', 0.0)))} (Debt/GDP annualized: {float(raw_metrics.get('annualized_debt_to_gdp', budget_state.get('annualized_debt_to_gdp', 0.0)) or 0.0):.3f})
 {debt_lines}- Subsidy Cap: {_format_money(raw_metrics.get('gov_subsidy_cap_this_tick', 0.0))} (denied by cap: {_format_money(raw_metrics.get('gov_subsidy_denied_by_cap_this_tick', 0.0))})
-- Public Works Budget Denied: {_format_money(raw_metrics.get('gov_public_works_denied_by_budget_this_tick', 0.0))}
+{food_credit_turnover}- Public Works Budget Denied: {_format_money(raw_metrics.get('gov_public_works_denied_by_budget_this_tick', 0.0))}
 - Post-Warmup Stimulus: {_format_money(raw_metrics.get('gov_post_warmup_stimulus_this_tick', 0.0))}
 - Mean Health: {mean_health:.3f}
 - Mean Happiness: {mean_happiness:.3f}
@@ -1438,7 +1471,7 @@ Short-term outcomes are provisional when the decision interval is shorter than t
 
 [ALLOWED NEXT POLICY CHANGES]
 Validator-accepted next raw changes. For grouped instruments, output a complete combination if changing that instrument.
-{allowed_text}
+{food_credit_advice}{allowed_text}
 
 [BLOCKED POLICY CHANGES]
 Candidate changes currently rejected by the validator.
@@ -1672,6 +1705,9 @@ def observe_node(state: GovernmentState, economy: Any) -> Dict[str, Any]:
         "bailout_target": gov.bailout_target,
         "bailout_budget": gov.bailout_budget,
     }
+    if getattr(gov, "supports_food_credit", False):
+        current_policy["food_credit_policy"] = gov.food_credit_policy
+        current_policy["food_credit_weekly_budget"] = gov.food_credit_weekly_budget
     allowed_action_mask = build_allowed_government_actions(
         current_policy,
         gov,
@@ -2012,12 +2048,27 @@ def _validate_one_lever_value(
     firms: List[Any],
 ) -> tuple[bool, Any, str]:
     """Validate one raw lever value without applying cross-lever invariants."""
-    if lever not in TAX_LIMITS and lever not in ORDERED_LEVERS and lever not in SIMPLE_ENUM_LEVERS:
+    if lever not in POLICY_SCHEMA:
         return False, raw_value, "unknown_lever"
+    if lever in {"food_credit_policy", "food_credit_weekly_budget"} and not getattr(government, "supports_food_credit", False):
+        return False, raw_value, "food_credit_requires_income_first"
 
     current = current_policy.get(lever, _government_current_value(government, lever))
     if current is None:
         return False, raw_value, "unknown_or_unavailable_current_policy"
+
+    if lever == "food_credit_weekly_budget":
+        try:
+            proposed = normalize_food_credit_budget(raw_value)
+        except ValueError:
+            return False, raw_value, "invalid_food_credit_budget"
+        try:
+            current = normalize_food_credit_budget(current)
+        except ValueError:
+            return False, current, "invalid_current_policy_value"
+        if fiscal_stress and is_spending_increase(lever, current, proposed):
+            return False, proposed, "spending_increase_during_fiscal_stress"
+        return True, proposed, ""
 
     if lever in TAX_LIMITS:
         lo, hi = TAX_LIMITS[lever]
@@ -2297,9 +2348,24 @@ def build_allowed_government_actions(
     for lever, values in SIMPLE_ENUM_LEVERS.items():
         if lever in LLM_HIDDEN_POLICY_LEVERS or lever in grouped_levers:
             continue
+        if lever == "food_credit_policy" and not getattr(government, "supports_food_credit", False):
+            continue
         current = current_policy.get(lever)
         ordered_values = sorted(values)
         candidates[lever] = [value for value in ordered_values if value != current]
+
+    if getattr(government, "supports_food_credit", False) and economy is not None:
+        households = getattr(economy, "households", None)
+        current = current_policy.get("food_credit_weekly_budget", _government_current_value(government, "food_credit_weekly_budget"))
+        try:
+            current = normalize_food_credit_budget(current)
+        except ValueError:
+            pass
+        else:
+            if households is not None:
+                full = WEEKLY_GRANT * eligible_count(len(households))
+                examples = sorted({0.0, round(full / 2, 2), full})
+                candidates["food_credit_weekly_budget"] = [value for value in examples if value != current]
 
     allowed_simple: Dict[str, List[Any]] = {}
     blocked_simple: Dict[str, List[Dict[str, Any]]] = {}
@@ -2726,10 +2792,13 @@ class LLMGovernmentAdvisor:
             log_node(state)
 
         economy.government.begin_decision_cycle()
+        government_after = economy.government.to_dict()
         current_policy_after = {
-            lever: economy.government.to_dict().get(lever)
+            lever: government_after[lever]
             for lever in PROMPT_POLICY_LEVERS
-            if lever in economy.government.to_dict()
+            if lever in government_after
+            if getattr(economy.government, "supports_food_credit", False)
+            or lever not in {"food_credit_policy", "food_credit_weekly_budget"}
         }
         start_tick = max(
             int(getattr(CONFIG.llm, "government_start_tick", 15)),

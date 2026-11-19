@@ -49,7 +49,7 @@ from config import CONFIG, clone_config, use_config  # noqa: E402
 from policy_forecasting.config import FROZEN_ARMS, PolicyArm, canonical_lever_json  # noqa: E402
 from policy_forecasting.distress import DistressHistory  # noqa: E402
 from policy_forecasting.sweep import wrapper  # noqa: E402
-from policy_schema import POLICY_SCHEMA  # noqa: E402
+from policy_schema import POLICY_SCHEMA, normalize_food_credit_budget  # noqa: E402
 
 from .common import (  # noqa: E402
     BenchmarkPaths,
@@ -108,7 +108,9 @@ def validate_levers(levers: Mapping[str, Any]) -> None:
         spec = POLICY_SCHEMA.get(lever)
         if spec is None:
             raise ValueError(f"Unknown policy lever {lever!r}")
-        if isinstance(spec, dict):
+        if lever == "food_credit_weekly_budget":
+            normalize_food_credit_budget(value)
+        elif isinstance(spec, dict):
             low, high = float(spec["min"]), float(spec["max"])
             if not low <= float(value) <= high:
                 raise ValueError(f"{lever}={value!r} is outside [{low}, {high}]")

@@ -10,13 +10,22 @@ const same = (a, b) => (typeof a === 'number' && typeof b === 'number' ? Math.ab
 
 // The rules a town's hall has in force: the latest week's lever vector (with
 // any change it has applied since), or, before any week has run, the rules it
-// was set up with. A change still on its way to the town hall counts as made,
-// so the editor neither snaps back to the old rules nor offers to send the
-// same change again; if the town hall refuses it, the rules in force show.
+// was set up with. Most pending edits stay visible; grocery benefit controls
+// show confirmed server state and wait for their receipt before another edit.
 function currentRules(arm) {
-  const rules = { ...DEFAULT_POLICY, ...(arm?.policy ?? arm?.setup?.initial_policy ?? {}) }
+  const opening = arm?.setup?.initial_policy ?? {}
+  const rules = {
+    ...DEFAULT_POLICY,
+    ...(arm?.setup?.payment_food_credit_enabled ? { food_credit_policy: 'on' } : {}),
+    ...opening,
+    ...(arm?.policy ?? {}),
+  }
   for (const receipt of arm?.receipts ?? []) {
-    if (receipt.status === 'sending' || receipt.status === 'queued') Object.assign(rules, receipt.requested)
+    if (receipt.status === 'sending' || receipt.status === 'queued') {
+      for (const [key, value] of Object.entries(receipt.requested ?? {})) {
+        if (key !== 'food_credit_policy' && key !== 'food_credit_weekly_budget') rules[key] = value
+      }
+    }
   }
   return rules
 }
@@ -68,22 +77,51 @@ export default function TownHall({ id, arms, tick, onConfigure, onClose, locked 
   }, [])
   const [selected, setSelected] = useState(0)
   const [drafts, setDrafts] = useState({})
+  const [invalidBudget, setInvalidBudget] = useState({})
+  const [editorRevision, setEditorRevision] = useState(0)
   const index = Math.min(selected, Math.max(0, arms.length - 1))
   const arm = arms[index]
+  const foodCreditAvailable = arm?.setup?.payment_sequence === 'income_first'
   const current = currentRules(arm)
   const changed = changesFrom(drafts[index], current)
+  if (!foodCreditAvailable) {
+    if (changed.food_credit_policy === 'on') delete changed.food_credit_policy
+    delete changed.food_credit_weekly_budget
+  }
   const proposed = locked ? current : { ...current, ...changed }
-  const ready = !locked && Object.keys(changed).length > 0 && Object.keys(policyProblems(proposed)).length === 0
+  const ready = !locked && !invalidBudget[index] && Object.keys(changed).length > 0 && Object.keys(policyProblems(proposed)).length === 0
   const receipts = (arm?.receipts ?? []).map((receipt, i) => ({ receipt, key: receipt.actionId ?? `r${i}` })).reverse().slice(0, MAX_RECEIPTS)
+  const pending = key => (arm?.receipts ?? []).some(receipt =>
+    (receipt.status === 'sending' || receipt.status === 'queued') && Object.hasOwn(receipt.requested ?? {}, key))
   const titleId = `${uid}-title`
 
   const edit = policy => {
-    if (!locked) setDrafts(all => ({ ...all, [index]: changesFrom(policy, current) }))
+    if (!locked) {
+      const next = changesFrom(policy, current)
+      if (Object.hasOwn(changed, 'food_credit_weekly_budget')) next.food_credit_weekly_budget = changed.food_credit_weekly_budget
+      setDrafts(all => ({ ...all, [index]: next }))
+    }
+  }
+  const editBudget = amount => {
+    if (locked || !foodCreditAvailable || pending('food_credit_weekly_budget')) return
+    setDrafts(all => ({ ...all, [index]: changesFrom({ ...changed, food_credit_weekly_budget: amount }, current) }))
+  }
+  const selectTown = next => {
+    if (next !== index && invalidBudget[index]) {
+      setDrafts(all => {
+        const townDraft = { ...all[index] }
+        delete townDraft.food_credit_weekly_budget
+        return { ...all, [index]: townDraft }
+      })
+      setInvalidBudget(all => ({ ...all, [index]: false }))
+    }
+    setSelected(next)
   }
   const apply = () => {
     if (!ready) return
     onConfigure(index, changed)
     setDrafts(all => ({ ...all, [index]: {} }))
+    setEditorRevision(revision => revision + 1)
   }
 
   return (
@@ -105,7 +143,7 @@ export default function TownHall({ id, arms, tick, onConfigure, onClose, locked 
               type="button"
               aria-pressed={i === index}
               style={{ '--nx-tab': town.color, color: townTextColor(town.color) }}
-              onClick={() => setSelected(i)}
+              onClick={() => selectTown(i)}
             >
               <i style={{ background: town.color }} aria-hidden="true" />
               {town.label}
@@ -127,7 +165,21 @@ export default function TownHall({ id, arms, tick, onConfigure, onClose, locked 
           </section>
         )}
         <fieldset disabled={Boolean(locked)} style={{ border: 0, margin: 0, padding: 0, minWidth: 0 }}>
-          <LeverEditor value={proposed} base={current} onChange={edit} idPrefix={`${uid}-town-${index}`} />
+          <LeverEditor
+            key={`${index}-${editorRevision}`}
+            value={proposed}
+            base={current}
+            onChange={edit}
+            idPrefix={`${uid}-town-${index}`}
+            foodCreditAvailable={foodCreditAvailable}
+            foodCreditPending={pending('food_credit_policy')}
+            foodCreditBudget={{
+              value: proposed.food_credit_weekly_budget,
+              pending: pending('food_credit_weekly_budget'),
+              onChange: editBudget,
+              onValidityChange: valid => setInvalidBudget(all => ({ ...all, [index]: !valid })),
+            }}
+          />
         </fieldset>
       </div>
 

@@ -186,6 +186,17 @@ describe('incremental ingest', () => {
 })
 
 describe('the lever vector in force', () => {
+  test('keeps the confirmed payment sequence and projects grocery policy and a zero budget', () => {
+    const arm = createArm({ ...TOWN_A, setup: { payment_sequence: 'income_first' } })
+    ingest(arm, { type: 'SETUP_COMPLETE', config: { payment_sequence: 'income_late' } })
+    expect(arm.setup.payment_sequence).toBe('income_late')
+    ingest(arm, { tick: 1, metrics: { governmentPolicy: { food_credit_policy: 'on', food_credit_weekly_budget: 123.45 } } })
+    ingest(arm, { tick: 2, metrics: { governmentPolicy: { food_credit_policy: 'off', food_credit_weekly_budget: 0 } } })
+    expect(arm.policy).toEqual({ food_credit_policy: 'off', food_credit_weekly_budget: 0 })
+    ingest(arm, { type: 'CONFIG_APPLIED', applied: { food_credit_weekly_budget: 0 }, rejected: {} })
+    expect(arm.policy.food_credit_weekly_budget).toBe(0)
+  })
+
   test('arm.policy is null before any frame, then follows the latest frame', () => {
     const arm = createArm(TOWN_A)
     expect(arm.policy).toBe(null)

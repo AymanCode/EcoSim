@@ -60,6 +60,7 @@ from agents import (
     build_awareness_market_views,
 )
 from utils.category_utils import build_good_category_lookup
+from food_credit import WEEKLY_GRANT, eligible_count, fund_basket, goods_quotes, select_recipients
 from inflation import ConsumerPriceIndex, WageReview
 from firm_research import PROJECT_MODELS, RESEARCH_CATEGORIES, ResearchState, sample_entry_quality
 from payments import PaymentBook, MONEY_EPS, proportional
@@ -223,6 +224,11 @@ class Economy:
             for field in fields(get_config()) if field.name.startswith("payment_")
         }
         self.payment_sequence = str(getattr(CONFIG, "payment_sequence", "legacy"))
+        self.government.supports_food_credit = self.payment_sequence == "income_first"
+        if self.government.supports_food_credit:
+            self.government.food_credit_weekly_budget = WEEKLY_GRANT * eligible_count(len(households))
+        if CONFIG.payment_food_credit_enabled:
+            self.government.set_lever("food_credit_policy", "on")
         # Inflation model (CONFIG.inflation.enabled): measurement state and one
         # annual pay-review clock per reviewed firm. Observing prices moves no money.
         self.consumer_prices = ConsumerPriceIndex(CONFIG.inflation.basket_weights, CONFIG.time.ticks_per_year)
@@ -738,6 +744,8 @@ class Economy:
             "unemployment_benefit_level": float(gov.unemployment_benefit_level),
             "public_works_toggle": str(gov.public_works_toggle),
             "surplus_distribution": str(gov.surplus_distribution),
+            "food_credit_policy": gov.food_credit_policy,
+            "food_credit_weekly_budget": gov.food_credit_weekly_budget,
             "minimum_wage_policy": str(gov.minimum_wage_policy),
             "sector_subsidy_target": (
                 str(gov.sector_subsidy_target)
@@ -1314,7 +1322,12 @@ class Economy:
         )
         if not out_of_pocket:
             return reserves
-        after_food = np.maximum(np.asarray(liquidity, dtype=np.float64) - self._min_food_cost(), 0.0)
+        food_cost = self._min_food_cost()
+        balances = getattr(self, "payment_state", {}).get("food_credit", {})
+        if balances:
+            credit = np.array([balances.get(h.household_id, 0.0) for h in self.households])
+            food_cost = np.maximum(0.0, food_cost - credit)
+        after_food = np.maximum(np.asarray(liquidity, dtype=np.float64) - food_cost, 0.0)
         for idx, household in enumerate(self.households):
             cost = out_of_pocket.get(household.household_id, 0.0)
             if cost > 0.0:
@@ -1480,9 +1493,16 @@ class Economy:
         ]
 
         all_households = self.households
+        balances = getattr(self, "payment_state", {}).get("food_credit", {}) if settled_income else {}
+        credit_quotes = goods_quotes(self) if balances else {}
         for idx in (range(len(all_households)) if indices is None else indices):
             household = all_households[idx]
             budget = budgets[idx]
+            food_credit = balances.get(household.household_id, 0.0)
+            if food_credit:
+                # This ceiling is used only to select a preferred basket. Price
+                # and fund its actual orders with the two tenders below.
+                budget += food_credit
 
             if budget <= 0:
                 household_consumption_plans[household.household_id] = {
@@ -1586,6 +1606,10 @@ class Economy:
                     "budget": float(budgets[idx]),
                 }
 
+            if food_credit:
+                fund_basket(household, household_consumption_plans[household.household_id],
+                            float(budgets[idx]), food_credit, credit_quotes,
+                            CONFIG.households.food_health_high_threshold)
         return household_consumption_plans
 
     def _apply_cached_consumption_plans(self) -> Dict[int, Dict]:
@@ -2397,6 +2421,8 @@ class Economy:
                 preflight_loans(self)
                 self._payment_fiscal_close()
             self.payment_book = PaymentBook(self, self.payment_sequence)
+            if self.government.food_credit_policy == "on":
+                self.payment_book.food_credit_recipients = select_recipients(self.households)
             if self.config.payment_services_project_enabled:
                 from payment_government import activate_payment_services_slots
                 activate_payment_services_slots(self)
@@ -2845,7 +2871,8 @@ class Economy:
 
     def _plan_payment_consumption(self, tick: _TickScratch, *, settled_income: bool = False) -> None:
         """Move the existing decision without adding seller searches or cache refreshes."""
-        if not self.performance_mode or self.current_tick % 5 == 0:
+        credit_in_use = self.government.food_credit_policy == "on" or self.payment_state.get("food_credit")
+        if not self.performance_mode or self.current_tick % 5 == 0 or credit_in_use or not self._cached_consumption_plans:
             args = (self.last_tick_prices, tick.category_market_snapshot,
                     tick.good_category_lookup, tick.unemployment_rate, tick.gov_benefit)
             tick.household_consumption_plans = (
@@ -2853,7 +2880,8 @@ class Economy:
                 if settled_income else self._batch_plan_consumption(*args)
             )
             if self.performance_mode:
-                self._cached_consumption_plans = tick.household_consumption_plans
+                # Never reuse a basket funded by last week's award after the program closes.
+                self._cached_consumption_plans = {} if credit_in_use else tick.household_consumption_plans
         else:
             tick.household_consumption_plans = self._apply_cached_consumption_plans()
 
@@ -9640,6 +9668,9 @@ class Economy:
         metrics["gov_benefit_level"] = gov.benefit_level
         metrics["gov_public_works"] = gov.public_works_toggle
         metrics["gov_surplus_distribution"] = gov.surplus_distribution
+        if gov.supports_food_credit:
+            metrics["gov_food_credit_policy"] = gov.food_credit_policy
+            metrics["gov_food_credit_weekly_budget"] = gov.food_credit_weekly_budget
         metrics["gov_minimum_wage_policy"] = gov.minimum_wage_policy
         metrics["gov_sector_subsidy_target"] = gov.sector_subsidy_target
         metrics["gov_sector_subsidy_level"] = gov.sector_subsidy_level
@@ -9865,6 +9896,7 @@ class Economy:
             metrics["total_economy_cash"] += self.misc_firm_revenue + sum(f.cash_balance for f in self.queued_firms)
             metrics["total_economy_cash"] += sum(self.payment_state["recovery_holds"].values())
             metrics["total_economy_cash"] += self.payment_state.get("housing_equal_distribution_hold", 0.0)
+            metrics["total_economy_cash"] += sum(self.payment_state.get("food_credit", {}).values())
             if not self.payment_state.get("capital_routes_released", True):
                 metrics["total_economy_cash"] += sum(row["amount"] for row in self.payment_state.get("capital_routes", ()))
             if self.payment_book is not None:

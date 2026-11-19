@@ -4,6 +4,7 @@
 //
 // Kept per tick, because scrubbing goes back to any week:
 //   - every `curated` figure, as one array per key (`series`, aligned to `ticks`);
+//   - grocery benefit status and budget when the frame actually reported them;
 //   - the open firms: id, name, sector, cash, staff, state, isBaseline;
 //   - the tracked households: id, age, isEmployed, canWork, housingSecurity,
 //     employer, employerCategory, wage, cash, rentArrears, unemploymentDuration;
@@ -60,7 +61,7 @@ const isNumber = value => typeof value === 'number' && Number.isFinite(value)
 const numberOrNull = value => (isNumber(value) ? value : null)
 
 // The setup keys SETUP_COMPLETE confirms; the recording's header is the fallback.
-const WIRE_SETUP = ['initial_policy', 'seed', 'num_households', 'horizon_ticks']
+const WIRE_SETUP = ['initial_policy', 'seed', 'num_households', 'horizon_ticks', 'payment_sequence', 'payment_food_credit_enabled']
 
 const pick = (source, keys) => {
   const out = {}
@@ -124,6 +125,8 @@ export function createArm({ label, color, setup } = {}) {
     profiles: {},
     ticks: [],
     series: {},
+    foodCreditBudgets: {},
+    foodCreditStatuses: {},
     snapshots: {},
     eventCounts: {},
     events: [],
@@ -223,6 +226,14 @@ function ingestFrame(arm, frame) {
   }
   // The rules in force are the highest tick's; a late older week leaves them be.
   const policy = frame.metrics?.governmentPolicy
+  const budget = policy?.food_credit_weekly_budget
+  const foodStatus = policy?.food_credit_policy
+  arm.foodCreditBudgets ??= {}
+  arm.foodCreditStatuses ??= {}
+  if (typeof budget === 'number' && Number.isFinite(budget) && budget >= 0) arm.foodCreditBudgets[tick] = budget
+  else delete arm.foodCreditBudgets[tick]
+  if (foodStatus === 'on' || foodStatus === 'off') arm.foodCreditStatuses[tick] = foodStatus
+  else delete arm.foodCreditStatuses[tick]
   if (policy && typeof policy === 'object' && tick === arm.ticks[arm.ticks.length - 1]) arm.policy = { ...policy }
 
   const firms = list(frame.firms)

@@ -1,13 +1,15 @@
 import { formatLeverValue, isLeverActive } from '../../governmentInsights.js'
 import { formatInteger } from '../../format.js'
+import CurrencyInput from '../../ui/CurrencyInput.jsx'
+import { FOOD_CREDIT_BUDGET_HELP } from '../../foodCredit.js'
 
 const tickText = (value) =>
   value === undefined || value === null || value === '' || Number.isNaN(Number(value))
     ? '—'
     : formatInteger(value)
 
-export function LeverControl({ lever, config, onConfigChange, enumOptions }) {
-  const value = config?.[lever.configKey]
+export function LeverControl({ lever, live, config, onConfigChange, enumOptions, foodCreditAvailable = true }) {
+  const value = lever.key === 'food_credit_policy' ? live : config?.[lever.configKey]
   if (lever.kind === 'readonly-percent') {
     return (
       <div style={{ fontSize: '11px', color: 'var(--ink4)', padding: '4px 0' }}>
@@ -53,13 +55,16 @@ export function LeverControl({ lever, config, onConfigChange, enumOptions }) {
     )
   }
   const numeric = lever.kind === 'enum-number'
-  const options = enumOptions?.[lever.options] || []
+  const options = lever.key === 'food_credit_policy'
+    ? [{ value: 'off', label: 'Off' }, { value: 'on', label: 'On' }]
+    : enumOptions?.[lever.options] || []
   return (
+    <>
     <select
       aria-label={lever.label}
       value={String(value ?? '')}
       onChange={(e) =>
-        onConfigChange(
+        (lever.key !== 'food_credit_policy' || e.target.value !== 'on' || foodCreditAvailable) && onConfigChange(
           lever.configKey,
           numeric ? Number(e.target.value) : e.target.value
         )
@@ -68,11 +73,18 @@ export function LeverControl({ lever, config, onConfigChange, enumOptions }) {
       style={{ padding: '4px 8px', fontSize: 11.5, width: '100%' }}
     >
       {options.map((option) => (
-        <option key={option.value} value={option.value}>
+        <option key={option.value} value={option.value} disabled={lever.key === 'food_credit_policy' && option.value === 'on' && !foodCreditAvailable}>
           {option.label}
         </option>
       ))}
     </select>
+    {lever.key === 'food_credit_policy' && (
+      <p className="muted" style={{ fontSize: 11, margin: '6px 0 0' }}>
+        Closing the program stops new awards. Households can still spend the credit on their cards.
+        {!foodCreditAvailable && ' Opening is available only when income arrives before bills.'}
+      </p>
+    )}
+    </>
   )
 }
 
@@ -89,6 +101,8 @@ export default function LeverTile({
   config,
   onConfigChange,
   enumOptions,
+  foodCreditAvailable,
+  foodCreditBudget,
 }) {
   const active = !isDefault && isLeverActive(lever.key, live)
   const isAiMover = lastChange?.actor === 'ai'
@@ -136,15 +150,39 @@ export default function LeverTile({
       <div className="lvc" style={hit && hitColor ? { color: hitColor } : undefined}>
         {foot}
       </div>
+      {lever.key === 'food_credit_policy' && (
+        <div style={{ marginTop: 6 }} onClick={(e) => e.stopPropagation()}>
+          <label htmlFor="food-credit-weekly-budget" style={{ display: 'block', fontSize: 11 }}>
+            Weekly cap ($)
+          </label>
+          <CurrencyInput
+            id="food-credit-weekly-budget"
+            aria-label="Grocery benefit weekly cap"
+            aria-describedby="food-credit-budget-help"
+            className="select"
+            style={{ padding: '4px 8px', fontSize: 11.5, width: '100%' }}
+            value={foodCreditBudget}
+            placeholder="Awaiting policy"
+            disabled={!foodCreditAvailable}
+            commitOnBlur
+            onChange={(amount) => onConfigChange('food_credit_weekly_budget', amount)}
+          />
+          <p id="food-credit-budget-help" className="muted" style={{ fontSize: 11, margin: '6px 0 0' }}>
+            {FOOD_CREDIT_BUDGET_HELP}
+          </p>
+        </div>
+      )}
       <div
-        style={{ display: isOpen ? 'block' : 'none', marginTop: 6 }}
+        style={{ display: isOpen || lever.key === 'food_credit_policy' ? 'block' : 'none', marginTop: 6 }}
         onClick={(e) => e.stopPropagation()}
       >
         <LeverControl
           lever={lever}
+          live={live}
           config={config}
           onConfigChange={onConfigChange}
           enumOptions={enumOptions}
+          foodCreditAvailable={foodCreditAvailable}
         />
       </div>
     </div>

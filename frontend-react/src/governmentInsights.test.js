@@ -25,7 +25,7 @@ const USER_REASON = 'User updated public_works to on'
 describe('lever catalogue', () => {
   test('every grouped lever (including pairs) has a default', () => {
     const keys = LEVER_GROUPS.flatMap(group => group.levers.flatMap(lever => [lever.key, lever.pair?.key].filter(Boolean)))
-    expect(keys).toHaveLength(17)
+    expect(keys).toHaveLength(18)
     keys.forEach(key => expect(LEVER_DEFAULTS).toHaveProperty(key))
   })
 

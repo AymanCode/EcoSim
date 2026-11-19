@@ -2,6 +2,7 @@ import { beforeAll, describe, expect, test } from 'vitest'
 import { fireEvent, render, screen, within } from '@testing-library/react'
 import RulesInForce from '../numbers/RulesInForce.jsx'
 import { TOWN_COLORS } from '../catalog.js'
+import { createArm, ingest } from '../data/session.js'
 import { demoArms, fixtureArm, TOWN_A, TOWN_B } from './fixture.js'
 
 let arms
@@ -58,12 +59,52 @@ describe('RulesInForce', () => {
     expect(within(table).getAllByRole('columnheader').map(cell => cell.textContent)).toEqual(['Rule', 'Town A', 'Town B'])
     // Only the open group's rules head rows; the help sentence is not part of a header.
     expect(within(table).getAllByRole('rowheader').map(cell => cell.textContent))
-      .toEqual(['Minimum wage', 'Help for people out of work', 'Social spending'])
+      .toEqual(['Minimum wage', 'Help for people out of work', 'Grocery benefit', 'Grocery benefit weekly cap', 'Social spending'])
     // The group lines are plain cells, with the group's name as a heading.
     for (const title of ['Taxes', 'Families and work']) {
       expect(group(title).querySelector('th')?.textContent ?? '').not.toContain(title)
       expect(within(group(title)).getByRole('heading', { level: 4, name: title })).toBeInTheDocument()
     }
+  })
+
+  test('compares the recorded grocery caps in dollars and does not invent earlier values', () => {
+    const towns = [
+      createArm({ ...TOWN_A, setup: { payment_sequence: 'income_first' } }),
+      createArm({ ...TOWN_B, setup: { payment_sequence: 'income_first' } }),
+    ]
+    ingest(towns[0], { tick: 1, metrics: { governmentPolicy: { food_credit_policy: 'on', food_credit_weekly_budget: 500 } } })
+    ingest(towns[1], { tick: 1, metrics: { governmentPolicy: { food_credit_policy: 'on', food_credit_weekly_budget: 0 } } })
+    const { rerender } = draw({ arms: towns, tick: 1 })
+    expect(within(row('Grocery benefit$')).getAllByRole('cell').map(cell => cell.textContent)).toEqual(['on', 'on'])
+    let cells = within(row('Grocery benefit weekly cap')).getAllByRole('cell')
+    expect(cells[0]).toHaveTextContent('$500.00')
+    expect(cells[1]).toHaveTextContent('$0.00')
+    expect(cells[1]).toHaveTextContent('different from Town A')
+    expect(screen.getByText(/Each eligible household can receive up to \$2.50/)).toBeInTheDocument()
+
+    ingest(towns[1], { tick: 2, metrics: { governmentPolicy: { food_credit_policy: 'on', food_credit_weekly_budget: 123.45 } } })
+    rerender(<div className="nx"><RulesInForce arms={towns} tick={2} /></div>)
+    cells = within(row('Grocery benefit weekly cap')).getAllByRole('cell')
+    expect(cells[1]).toHaveTextContent('$123.45')
+    ingest(towns[1], { tick: 3, metrics: { governmentPolicy: { food_credit_policy: 'off', food_credit_weekly_budget: 123.45 } } })
+    rerender(<div className="nx"><RulesInForce arms={towns} tick={3} /></div>)
+    expect(within(row('Grocery benefit$')).getAllByRole('cell')[1]).toHaveTextContent('off')
+    rerender(<div className="nx"><RulesInForce arms={towns} tick={0} /></div>)
+    fireEvent.click(screen.getByRole('button', { name: 'Show Families and work' }))
+    expect(within(row('Grocery benefit weekly cap')).getAllByRole('cell').map(cell => cell.textContent)).toEqual(['not recorded', 'not recorded'])
+  })
+
+  test('a town with an older frame has an unrecorded cap beside a recorded value', () => {
+    const towns = [createArm(TOWN_A), createArm(TOWN_B)]
+    ingest(towns[0], { tick: 1, metrics: { governmentPolicy: { food_credit_weekly_budget: 20.5 } } })
+    ingest(towns[1], { tick: 1, metrics: { governmentPolicy: {} } })
+    draw({ arms: towns, tick: 1 })
+    const cells = within(row('Grocery benefit weekly cap')).getAllByRole('cell')
+    expect(cells[0]).toHaveTextContent('$20.50')
+    expect(cells[1]).toHaveTextContent('not recorded')
+    expect(cells[1]).not.toHaveTextContent('different from Town A')
+    expect(screen.getAllByText(/Some settings were not recorded in every town/).length).toBeGreaterThan(0)
+    expect(screen.queryByText(/Both towns run the same rules/)).toBeNull()
   })
 
   test('"Show" expands a collapsed group and "Hide" folds it again', () => {

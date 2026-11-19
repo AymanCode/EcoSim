@@ -9,9 +9,9 @@ const receipt = fields => ({
 })
 
 function towns() {
-  const a = createArm({ label: 'Town A', color: TOWN_COLORS[0] })
+  const a = createArm({ label: 'Town A', color: TOWN_COLORS[0], setup: { payment_sequence: 'income_first' } })
   a.policy = { ...DEFAULT_POLICY, benefit_level: 'high' }
-  const b = createArm({ label: 'Town B', color: TOWN_COLORS[1] })
+  const b = createArm({ label: 'Town B', color: TOWN_COLORS[1], setup: { payment_sequence: 'income_first' } })
   b.policy = { ...DEFAULT_POLICY }
   return [a, b]
 }
@@ -66,6 +66,106 @@ describe('TownHall', () => {
     expect(within(wage).getByRole('button', { name: 'high' })).toHaveAttribute('aria-pressed', 'true')
     expect(within(aside).queryByText('(changed)')).toBeNull()
     expect(apply(aside)).toBeDisabled()
+  })
+
+  test('grocery controls send the actual values and follow server snapshots and receipts', () => {
+    const arms = towns()
+    ingest(arms[0], { tick: 1, metrics: { governmentPolicy: { ...DEFAULT_POLICY, food_credit_policy: 'off', food_credit_weekly_budget: 500 } } })
+    const onConfigure = vi.fn((index, levers) => addPendingConfig(arms[index], levers))
+    const onClose = vi.fn()
+    const { aside, rerender } = hall(arms, { onConfigure, onClose })
+    const redraw = () => rerender(<TownHall arms={[...arms]} tick={20} onConfigure={onConfigure} onClose={onClose} />)
+    const group = () => within(aside).getByRole('group', { name: /^Grocery benefit/ })
+    const budget = () => within(aside).getByRole('textbox', { name: 'Grocery benefit weekly cap ($)' })
+    expect(within(group()).getByRole('button', { name: 'off' })).toHaveAttribute('aria-pressed', 'true')
+    expect(budget()).toHaveValue('500')
+    expect(within(aside).getByText(/Each eligible household can receive up to \$2.50/)).toBeInTheDocument()
+    expect(within(aside).getByText(/turning it off stops new awards and existing cards remain spendable/)).toBeInTheDocument()
+
+    pick(aside, 'Grocery benefit', 'on')
+    fireEvent.click(apply(aside))
+    expect(onConfigure).toHaveBeenLastCalledWith(0, { food_credit_policy: 'on' })
+    expect(within(group()).getByRole('button', { name: 'off' })).toHaveAttribute('aria-pressed', 'true')
+    ingest(arms[0], { type: 'CONFIG_APPLIED', actionId: 'food-on', applied: { food_credit_policy: 'on' }, rejected: {}, effectiveTick: 2 })
+    redraw()
+    expect(within(group()).getByRole('button', { name: 'on' })).toHaveAttribute('aria-pressed', 'true')
+    pick(aside, 'Grocery benefit', 'off')
+    fireEvent.click(apply(aside))
+    expect(onConfigure).toHaveBeenLastCalledWith(0, { food_credit_policy: 'off' })
+    ingest(arms[0], { type: 'CONFIG_APPLIED', actionId: 'food-off', applied: { food_credit_policy: 'off' }, rejected: {}, effectiveTick: 3 })
+    redraw()
+    pick(aside, 'Grocery benefit', 'on')
+    fireEvent.click(apply(aside))
+    expect(onConfigure).toHaveBeenLastCalledWith(0, { food_credit_policy: 'on' })
+    ingest(arms[0], { type: 'CONFIG_APPLIED', actionId: 'food-again', applied: { food_credit_policy: 'on' }, rejected: {}, effectiveTick: 4 })
+    redraw()
+
+    fireEvent.change(budget(), { target: { value: '3' } })
+    fireEvent.change(budget(), { target: { value: '3.456' } })
+    fireEvent.blur(budget())
+    expect(budget()).toHaveAttribute('aria-invalid', 'true')
+    expect(apply(aside)).toBeDisabled()
+    fireEvent.click(apply(aside))
+    expect(onConfigure).toHaveBeenCalledTimes(3)
+    fireEvent.change(budget(), { target: { value: '123.45' } })
+    fireEvent.click(apply(aside))
+    expect(onConfigure).toHaveBeenLastCalledWith(0, { food_credit_weekly_budget: 123.45 })
+    ingest(arms[0], { type: 'CONFIG_APPLIED', actionId: 'cap', applied: { food_credit_weekly_budget: 123.45 }, rejected: {}, effectiveTick: 5 })
+    redraw()
+    expect(budget()).toHaveValue('123.45')
+    fireEvent.change(budget(), { target: { value: '0' } })
+    fireEvent.click(apply(aside))
+    expect(onConfigure).toHaveBeenLastCalledWith(0, { food_credit_weekly_budget: 0 })
+    ingest(arms[0], { type: 'CONFIG_APPLIED', actionId: 'zero', applied: { food_credit_weekly_budget: 0 }, rejected: {}, effectiveTick: 6 })
+    redraw()
+    expect(budget()).toHaveValue('0')
+    ingest(arms[0], { tick: 2, metrics: { governmentPolicy: { ...DEFAULT_POLICY, food_credit_policy: 'off', food_credit_weekly_budget: 17.25 } } })
+    redraw()
+    expect(within(group()).getByRole('button', { name: 'off' })).toHaveAttribute('aria-pressed', 'true')
+    expect(budget()).toHaveValue('17.25')
+  })
+
+  test.each(['income_late', 'legacy', undefined])('does not offer grocery benefit opening for %s', sequence => {
+    const [arm] = towns()
+    arm.setup.payment_sequence = sequence
+    arm.policy = { ...DEFAULT_POLICY, food_credit_policy: 'off', food_credit_weekly_budget: 0 }
+    const { aside, onConfigure } = hall([arm])
+    const benefit = within(aside).getByRole('group', { name: 'Grocery benefit' })
+    expect(within(benefit).getByRole('button', { name: 'on' })).toBeDisabled()
+    expect(within(aside).getByRole('textbox', { name: 'Grocery benefit weekly cap ($)' })).toBeDisabled()
+    fireEvent.click(within(benefit).getByRole('button', { name: 'on' }))
+    expect(apply(aside)).toBeDisabled()
+    expect(onConfigure).not.toHaveBeenCalled()
+  })
+
+  test('switching towns discards an invalid cap draft rather than keeping its valid prefix', () => {
+    const arms = towns()
+    arms[0].policy.food_credit_weekly_budget = 500
+    arms[1].policy.food_credit_weekly_budget = 500
+    const { aside, onConfigure } = hall(arms)
+    const budget = () => within(aside).getByRole('textbox', { name: 'Grocery benefit weekly cap ($)' })
+    fireEvent.change(budget(), { target: { value: '3' } })
+    fireEvent.change(budget(), { target: { value: '3.456' } })
+    fireEvent.blur(budget())
+    fireEvent.click(within(aside).getByRole('button', { name: 'Town B' }))
+    fireEvent.click(within(aside).getByRole('button', { name: 'Town A' }))
+    expect(budget()).toHaveValue('500')
+    expect(apply(aside)).toBeDisabled()
+    expect(onConfigure).not.toHaveBeenCalled()
+  })
+
+  test('an untouched focused cap follows a new server snapshot', () => {
+    const arms = towns()
+    ingest(arms[0], { tick: 1, metrics: { governmentPolicy: { ...DEFAULT_POLICY, food_credit_policy: 'on', food_credit_weekly_budget: 500 } } })
+    const { aside, onConfigure, onClose, rerender } = hall(arms)
+    const budget = within(aside).getByRole('textbox', { name: 'Grocery benefit weekly cap ($)' })
+    budget.focus()
+    ingest(arms[0], { tick: 2, metrics: { governmentPolicy: { ...DEFAULT_POLICY, food_credit_policy: 'on', food_credit_weekly_budget: 300 } } })
+    rerender(<TownHall arms={[...arms]} tick={20} onConfigure={onConfigure} onClose={onClose} />)
+    expect(budget).toHaveValue('300')
+    fireEvent.blur(budget)
+    expect(apply(aside)).toBeDisabled()
+    expect(onConfigure).not.toHaveBeenCalled()
   })
 
   test('after the town hall applies a change, its rules include it, and it can be undone at once', () => {

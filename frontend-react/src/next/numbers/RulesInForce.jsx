@@ -2,6 +2,7 @@ import { useId, useState } from 'react'
 import { COPY, LEVERS, WARMUP_TICKS, leverName, leverValuePhrase, townTextColor } from '../catalog.js'
 import { rulesAt, rulesDiff, rulesTable } from '../data/derive.js'
 import { weekLabel } from '../narration.js'
+import { FOOD_CREDIT_BUDGET_HELP } from '../../foodCredit.js'
 import '../next.css'
 
 const same = (a, b) => (typeof a === 'number' && typeof b === 'number' ? Math.abs(a - b) < 1e-9 : String(a) === String(b))
@@ -9,7 +10,7 @@ const ruleName = lever => COPY.numbers.rules.names[lever] ?? leverName(lever)
 
 // A group opens by itself when a rule in it differs between towns or changed
 // during the run; the viewer's Show and Hide win after that.
-const opensByItself = group => group.rows.some(row => row.differs || row.changes.some(Boolean))
+const opensByItself = group => group.rows.some(row => row.differs || row.incomplete || row.changes.some(Boolean))
 
 // The compact sheet lists each rule only here or in a header chip. A rule
 // changed during the run remains listed even when its current setting is
@@ -19,12 +20,13 @@ export function RulesLine({ arms, tick }) {
   const uid = `nx-other-rules-${useId().replace(/:/g, '')}`
   const named = new Set(arms.flatMap(arm => Object.keys(rulesDiff(rulesAt(arm, tick)))))
   const rows = rulesTable(arms, tick).flatMap(group => group.rows)
-    .filter(row => !named.has(row.lever) || row.changes.some(Boolean))
+    .filter(row => row.lever === 'food_credit_weekly_budget' || !named.has(row.lever) || row.changes.some(Boolean))
   const changed = rows.some(row => row.differs || row.changes.some(Boolean))
+  const incomplete = rows.some(row => row.incomplete)
   const copy = COPY.numbers.rulesLine
   const summary = arms.length === 1
     ? (changed || named.size ? copy.singleChanged(rows.length) : copy.usual(rows.length))
-    : (changed ? copy.changed(rows.length) : copy.same(rows.length, arms.length))
+    : (changed ? copy.changed(rows.length) : incomplete ? copy.incomplete(rows.length) : copy.same(rows.length, arms.length))
   return <div className="nx-number-rules">
     <p><b>{copy.label}</b>{' '}{(arms.length === 1 || tick > WARMUP_TICKS) && summary}{' '}
       <button type="button" aria-expanded={open} aria-controls={uid} onClick={() => setOpen(value => !value)}>{open ? copy.hide : copy.show}</button>
@@ -32,7 +34,7 @@ export function RulesLine({ arms, tick }) {
     <ul id={uid} hidden={!open}>
       {rows.map(row => <li key={row.lever}>
         <b>{ruleName(row.lever)}:</b>{' '}
-        {!row.differs ? leverValuePhrase(row.lever, row.values[0]) : row.values.map((value, i) => copy.townSetting(arms[i].label, leverValuePhrase(row.lever, value))).join(COPY.numbers.rules.settingsJoin)}
+        {!row.differs && !row.incomplete ? leverValuePhrase(row.lever, row.values[0]) : row.values.map((value, i) => copy.townSetting(arms[i].label, leverValuePhrase(row.lever, value))).join(COPY.numbers.rules.settingsJoin)}
         {row.changes.map((change, i) => change && <small key={arms[i].label}>
           {copy.townSetting(arms[i].label, COPY.numbers.rules.changed(weekLabel(change.changedAt), leverValuePhrase(row.lever, change.was), change.changedAt <= WARMUP_TICKS))}
         </small>)}
@@ -44,6 +46,7 @@ export function RulesLine({ arms, tick }) {
 function GroupSummary({ group, townCount }) {
   const differ = group.rows.filter(row => row.differs).length
   if (differ) return <span className="nx-rg-s is-diff">{COPY.numbers.rules.differ(differ)}</span>
+  if (group.rows.some(row => row.incomplete)) return <span className="nx-rg-s">Some settings were not recorded in every town.</span>
   const settings = group.rows.map(row => COPY.numbers.rules.setting(ruleName(row.lever), leverValuePhrase(row.lever, row.values[0])))
   return (
     <span className="nx-rg-s">
@@ -58,13 +61,13 @@ function GroupSummary({ group, townCount }) {
 // row under its name; the values span both rows.
 function RuleRow({ row, arms }) {
   const base = arms[0]?.label
-  const help = row.differs ? LEVERS[row.lever]?.help : null
+  const help = row.differs || row.incomplete ? (row.lever === 'food_credit_weekly_budget' ? FOOD_CREDIT_BUDGET_HELP : LEVERS[row.lever]?.help) : null
   return (
     <>
       <tr className={`nx-rrow${row.differs ? ' is-diff' : ''}${help ? ' has-help' : ''}`}>
         <th scope="row" className="nx-rn">{ruleName(row.lever)}</th>
         {row.values.map((value, i) => {
-          const differs = i > 0 && !same(value, row.values[0])
+          const differs = i > 0 && value != null && row.values[0] != null && !same(value, row.values[0])
           const change = row.changes[i]
           return (
             <td
@@ -103,12 +106,16 @@ export default function RulesInForce({ arms, tick, id, notes = [] }) {
   const groups = rulesTable(arms, tick)
   const townCount = arms.length
   const differences = groups.flatMap(group => group.rows.filter(row => row.differs).map(row => leverName(row.lever)))
+  const incomplete = groups.some(group => group.rows.some(row => row.incomplete))
+  const lead = incomplete && !differences.length
+    ? COPY.numbers.rules.incompleteLead
+    : `${COPY.numbers.rules.lead(townCount, differences)}${incomplete ? ' Some settings were not recorded in every town.' : ''}`
 
   return (
     <section id={id} className="nx-nsec" aria-labelledby={titleId}>
       <div className="nx-sh">
         <h3 id={titleId} tabIndex={-1}>{COPY.numbers.rules.title}</h3>
-        <p>{COPY.numbers.rules.lead(townCount, differences)}</p>
+        <p>{lead}</p>
       </div>
       <div className="nx-scroll">
         <table className="nx-rules" style={{ '--nx-towns': townCount }} aria-labelledby={titleId}>

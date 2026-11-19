@@ -2,7 +2,7 @@
 // Pure functions only: no sockets, no React.
 //
 // Plan = { mode: 'compare'|'play', questionId: string|null,
-//          towns: [{ label, color, policy /* all 17 levers */ }], households, years, seed }
+//          towns: [{ label, color, policy /* catalogued levers */ }], households, years, seed }
 import { COPY, DEFAULT_POLICY } from '../catalog.js'
 
 export const TOWN_LABELS = ['Town A', 'Town B', 'Town C', 'Town D']

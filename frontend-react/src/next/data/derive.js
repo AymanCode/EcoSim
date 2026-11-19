@@ -239,12 +239,34 @@ export function eventsAt(arm, tick) {
 // A policy change's value arrives as text ("wage_tax_rate=0.2"): a lever whose
 // schema value is a number reads it back as one.
 function leverValue(lever, value) {
-  if (typeof DEFAULT_POLICY[lever] !== 'number' || typeof value === 'number') return value
+  if ((typeof DEFAULT_POLICY[lever] !== 'number' && lever !== 'food_credit_weekly_budget') || typeof value === 'number') return value
   const number = Number(value)
   return String(value).trim() !== '' && Number.isFinite(number) ? number : value
 }
 
 const sameValue = (a, b) => (typeof a === 'number' && typeof b === 'number' ? Math.abs(a - b) < 1e-9 : String(a) === String(b))
+
+// An observed weekly value supersedes earlier changes. Older recordings
+// without a cap cannot tell us how many dollars the government authorized.
+function groceryRuleAt(arm, tick, lever) {
+  const isBudget = lever === 'food_credit_weekly_budget'
+  const observations = (isBudget ? arm?.foodCreditBudgets : arm?.foodCreditStatuses) ?? {}
+  const openingStatus = arm?.setup?.payment_food_credit_enabled ? 'on' : 'off'
+  let value = arm?.setup?.initial_policy?.[lever] ?? (isBudget ? null : openingStatus)
+  let snapshotTick = -Infinity
+  for (const week of arm?.ticks ?? []) {
+    if (week > tick) break
+    if (Object.hasOwn(observations, week)) {
+      value = observations[week]
+      snapshotTick = week
+    }
+  }
+  for (const change of arm?.policyChanges ?? []) {
+    if (change.tick > tick) break
+    if (change.policy === lever && change.tick > snapshotTick) value = leverValue(lever, change.value)
+  }
+  return value
+}
 
 // The rules a town has in force at `tick`: DEFAULT_POLICY, then the rules it
 // was set up with, then every change the town hall made up to that week.
@@ -257,6 +279,7 @@ export function rulesAt(arm, tick) {
     if (change.tick > tick) break
     rules[change.policy] = leverValue(change.policy, change.value)
   }
+  rules.food_credit_policy = groceryRuleAt(arm, tick, 'food_credit_policy')
   return rules
 }
 
@@ -272,6 +295,9 @@ function lastChanges(arm, tick) {
     const value = leverValue(lever, change.value)
     const changes = history[lever] ?? (history[lever] = [])
     const last = changes[changes.length - 1]
+    if (last?.changedAt !== change.tick && (lever === 'food_credit_weekly_budget' || lever === 'food_credit_policy')) {
+      rules[lever] = groceryRuleAt(arm, change.tick - 1, lever)
+    }
     if (last?.changedAt === change.tick) {
       if (sameValue(value, last.was)) changes.pop()
     } else if (!sameValue(value, rules[lever])) {
@@ -296,20 +322,28 @@ export function rulesTable(arms, tick) {
   const rules = towns.map(arm => rulesAt(arm, tick))
   const changes = towns.map(arm => lastChanges(arm, tick))
   return LEVER_GROUPS.map(({ id, levers }) => {
-    const rows = levers.map(lever => {
-      const values = rules.map(townRules => townRules[lever])
+    const withBudget = levers.flatMap(lever => lever === 'food_credit_policy' ? [lever, 'food_credit_weekly_budget'] : [lever])
+    const rows = withBudget.map(lever => {
+      const values = lever === 'food_credit_weekly_budget'
+        ? towns.map(arm => groceryRuleAt(arm, tick, lever))
+        : rules.map(townRules => townRules[lever])
+      const known = values.filter(value => value !== undefined && value !== null)
+      const incomplete = lever === 'food_credit_weekly_budget' && known.length > 0 && known.length < values.length
       const own = changes.map(townChanges => townChanges[lever] ?? null)
       const latest = own.reduce((best, change) => (change && (!best || change.changedAt > best.changedAt) ? change : best), null)
       return {
         lever,
         values,
-        differs: values.some(value => !sameValue(value, values[0])),
+        differs: lever === 'food_credit_weekly_budget'
+          ? known.some(value => !sameValue(value, known[0]))
+          : values.some(value => !sameValue(value, values[0])),
+        ...(lever === 'food_credit_weekly_budget' ? { incomplete } : {}),
         changedAt: latest?.changedAt ?? null,
         was: latest ? latest.was : null,
         changes: own,
       }
     })
-    return { group: id, same: rows.every(row => !row.differs), rows }
+    return { group: id, same: rows.every(row => !row.differs && !row.incomplete), rows }
   })
 }
 

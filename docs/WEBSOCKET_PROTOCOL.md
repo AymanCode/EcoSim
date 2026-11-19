@@ -148,6 +148,21 @@ after it recomputes them and `curated.wealthAsOfTick` restarts at `1`.
 Added inside `metrics`:
 
 - `pinnedHouseholdIds`: ids of the pinned households, every tick.
+- In an `income_first` run, `food_credit_policy` (`"on"` or `"off"`) and
+  `food_credit_weekly_budget` (a nonnegative currency amount) are government levers in both
+  the `initial_policy` object of a SETUP config and the `config` object of a runtime CONFIG command.
+  An existing SETUP with `payment_food_credit_enabled: true`
+  opens the program at launch. Explicit initial levers take precedence. Each week starts by ranking
+  households by cash plus withdrawable deposits. The least-liquid fifth qualify, with ties broken by
+  household ID. The default cap funds a full $2.50 grant for each eligible household. The government
+  divides the lesser of that full cost, the chosen cap and free treasury cash equally among recipients.
+  For example, in a town of 1,000 households a $300 cap funds up to $1.50 on each of 200 cards.
+  Closing stops future grants. Unspent credit carries forward and can pay only for food.
+  Current choices appear in `metrics.governmentPolicy`.
+  When the program has recipients or an existing ledger, `metrics.payment.fiscal.food_credit` reports the amounts issued, redeemed and outstanding
+  in currency units under `issued`, `redeemed` and `outstanding`. Tracked household details include
+  `groceryCardSpent` for that week and `groceryCardBalance` at week close. Lean frames include these
+  household details for pinned subjects.
 - Per tracked household in `metrics.trackedSubjects`: `rentArrears` (rent owed,
   `0.0` under the legacy payment sequence) and `leaseRenewalTick` (tick of the
   next lease renewal, `-1` when the household has no lease), every tick.

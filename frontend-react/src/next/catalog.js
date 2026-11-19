@@ -203,6 +203,17 @@ export const NOT_MEASURED = 'not measured'
 
 const isNumber = value => typeof value === 'number' && Number.isFinite(value)
 const grouped = new Intl.NumberFormat('en-US', { maximumFractionDigits: 0 })
+const cents = new Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+
+// Use the displayed value for signs as well as digits, so tiny negatives do
+// not produce a different-looking negative zero.
+const decimalValue = (value, places) => Number(value.toFixed(places)) || 0
+
+export function formatMoneyCents(value) {
+  if (!isNumber(value)) return NOT_MEASURED
+  const rounded = decimalValue(value, 2)
+  return `${rounded < 0 ? '-' : ''}$${cents.format(Math.abs(rounded))}`
+}
 
 export function formatMoney(value) {
   if (!isNumber(value)) return NOT_MEASURED
@@ -397,6 +408,12 @@ export const LEVERS = {
       crisis: 'emergency help for people out of work',
     },
   },
+  food_credit_policy: {
+    name: 'grocery benefit',
+    help: 'When on, eligible households may receive food-only credit; turning it off stops new awards and existing cards remain spendable.',
+    values: { off: 'off', on: 'on' },
+    policy: { off: 'no new grocery benefit awards', on: 'grocery benefit awards' },
+  },
   public_works: {
     name: 'public works jobs',
     help: 'When on, the town hall runs its own business and hires people to work in it, if it can afford to start one.',
@@ -507,6 +524,7 @@ export const DEFAULT_POLICY = {
   profit_tax_rate: 0.2,
   investment_tax_rate: 0.1,
   benefit_level: 'neutral',
+  food_credit_policy: 'off',
   public_works: 'off',
   minimum_wage_policy: 'neutral',
   sector_subsidy_target: 'none',
@@ -524,13 +542,14 @@ export const DEFAULT_POLICY = {
 
 // The values each lever accepts, copied from backend/policy_schema.py: the tax
 // rates (TAX_LIMITS) as { min, max }, the ordered levers (ORDERED_LEVERS) in
-// schema order. The four plain enums (SIMPLE_ENUM_LEVERS, which the schema
+// schema order. The plain enums (SIMPLE_ENUM_LEVERS, which the schema
 // sorts) are in display order, "off" or "none" first. Numbers stay numbers.
 export const LEVER_OPTIONS = {
   wage_tax_rate: { min: 0, max: 0.5 },
   profit_tax_rate: { min: 0, max: 0.5 },
   investment_tax_rate: { min: 0, max: 0.3 },
   benefit_level: ['low', 'neutral', 'high', 'crisis'],
+  food_credit_policy: ['off', 'on'],
   minimum_wage_policy: ['low', 'neutral', 'high'],
   sector_subsidy_level: [0, 10, 25, 50],
   infrastructure_spending: ['none', 'low', 'medium', 'high'],
@@ -550,7 +569,7 @@ export const LEVER_OPTIONS = {
 // Titles and blurbs are in COPY.levers.groups.
 export const LEVER_GROUPS = [
   { id: 'taxes', levers: ['wage_tax_rate', 'profit_tax_rate', 'investment_tax_rate'] },
-  { id: 'people', levers: ['minimum_wage_policy', 'benefit_level', 'social_spending'] },
+  { id: 'people', levers: ['minimum_wage_policy', 'benefit_level', 'food_credit_policy', 'social_spending'] },
   { id: 'spending', levers: ['public_works', 'infrastructure_spending', 'technology_spending'] },
   { id: 'business', levers: ['sector_subsidy_target', 'sector_subsidy_level', 'bailout_policy', 'bailout_target', 'bailout_budget'] },
   { id: 'prices', levers: ['price_stabilization_target', 'price_stabilization_level', 'rent_stabilization_level'] },
@@ -575,10 +594,12 @@ export function capitalise(text) {
 }
 
 export function leverName(lever) {
+  if (lever === 'food_credit_weekly_budget') return 'the grocery benefit weekly cap'
   return LEVERS[lever]?.name ?? String(lever).replace(/_/g, ' ')
 }
 
 export function leverValuePhrase(lever, value) {
+  if (lever === 'food_credit_weekly_budget') return value == null ? 'not recorded' : formatMoneyCents(Number(value))
   const spec = LEVERS[lever]
   if (spec?.kind === 'rate') return percent(value)
   return spec?.values?.[String(value)] ?? String(value)
@@ -744,7 +765,7 @@ export const COPY = {
     signs: { hiring: 'HIRING', sale: 'SALE', closed: 'CLOSED', lease: 'FOR LEASE', fresh: 'NEW', forSale: 'FOR SALE', owes: 'owes', owesSlip: 'OWES', hall: 'TOWN HALL', bank: 'BANK' },
     moments: { closed: 'Closed', opened: 'Opened', lost: n => `−${n} jobs`, gained: n => `+${n} jobs`, badLoans: amount => `Unpaid loans ${amount}` },
     banner: {
-      minimum_wage_policy: 'NEW MIN. WAGE', benefit_level: 'NEW BENEFITS', wage_tax_rate: 'NEW WAGE TAX', profit_tax_rate: 'NEW PROFIT TAX',
+      minimum_wage_policy: 'NEW MIN. WAGE', benefit_level: 'NEW BENEFITS', food_credit_policy: 'GROCERY BENEFIT', food_credit_weekly_budget: 'GROCERY BENEFIT', wage_tax_rate: 'NEW WAGE TAX', profit_tax_rate: 'NEW PROFIT TAX',
       investment_tax_rate: 'NEW INVEST. TAX', public_works: 'PUBLIC WORKS', sector_subsidy_target: 'SUBSIDIES', sector_subsidy_level: 'SUBSIDIES',
       price_stabilization_target: 'PRICE CONTROLS', price_stabilization_level: 'PRICE CONTROLS', rent_stabilization_level: 'RENT CONTROLS',
       infrastructure_spending: 'NEW SPENDING', technology_spending: 'NEW SPENDING', social_spending: 'NEW SPENDING',
@@ -1128,6 +1149,7 @@ export const COPY = {
       same: (count, townCount) => `the other ${count} rules are the same in ${townCount === 2 ? 'both towns' : 'every town'}.`,
       usual: count => `${count} rules, all at their usual settings.`,
       changed: count => `${count} other rules, including changes made during the run.`,
+      incomplete: count => `${count} other rules; some settings were not recorded in every town.`,
       singleChanged: count => `${count} rules; changed settings are listed below.`,
       show: 'Show them', hide: 'Hide them',
       townSetting: (town, value) => `${town}: ${value}`,
@@ -1165,6 +1187,7 @@ export const COPY = {
         return `${intro} The towns differ in ${count}: ${joinPhrases(differences)}.`
       },
       rule: 'Rule',
+      incompleteLead: "The town hall's rules in each town this week. Some settings were not recorded in every town.",
       // Each lever's row name, from mockup 06; its help is LEVERS[lever].help.
       names: {
         wage_tax_rate: 'Tax on wages',
@@ -1172,6 +1195,8 @@ export const COPY = {
         investment_tax_rate: 'Tax on investment',
         minimum_wage_policy: 'Minimum wage',
         benefit_level: 'Help for people out of work',
+        food_credit_policy: 'Grocery benefit',
+        food_credit_weekly_budget: 'Grocery benefit weekly cap',
         social_spending: 'Social spending',
         public_works: 'Public works jobs',
         infrastructure_spending: 'Spending on roads and buildings',
