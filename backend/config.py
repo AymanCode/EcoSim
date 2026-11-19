@@ -114,7 +114,8 @@ class HouseholdBehaviorConfig:
     healthcare_food_first_reserve: bool = True
 
     # Convert household money lines to weeks of own food and rent; default off.
-    money_lines_in_weeks: bool = False
+    # Default on since the owner decision of 2026-11-18 (AUD-005; evidence in docs/testing/household-realism-experiments.md); False restores the previous behavior.
+    money_lines_in_weeks: bool = True
     # extreme_poverty_weeks: default 2.0 weeks. Kaplan, Violante & Weidner
     # (2014, Brookings Papers) use about one week of income for hand-to-mouth
     # wealth; at the settled baseline wages are about 1.8x essentials, rounded
@@ -185,7 +186,8 @@ class HouseholdBehaviorConfig:
     savings_goal_adjust_rate: float = 0.02
 
     # Spend dividends received since the previous plan as income; default off.
-    fix_dividend_timing: bool = False
+    # Default on since the owner decision of 2026-11-18 (AUD-005; evidence in docs/testing/household-realism-experiments.md); False restores the previous behavior.
+    fix_dividend_timing: bool = True
 
     # Job acceptance (H1 - no job worse than benefits)
     min_job_premium_over_unemployment: float = 1.05  # Jobs must pay 5% more than unemployment benefits
@@ -288,7 +290,8 @@ class HouseholdBehaviorConfig:
     # protects workers against layoffs in about 97% of union and 86% of
     # non-union work groups, controlling for worker value. Lower pay as a
     # tenure tie-break is a model choice, used as a productivity proxy.
-    job_choices: bool = False
+    # Default on since the owner decision of 2026-11-18 (AUD-005; evidence in docs/testing/household-realism-experiments.md); False restores the previous behavior.
+    job_choices: bool = True
     initial_happiness_range: Tuple[float, float] = (0.60, 0.80)
     initial_morale_range: Tuple[float, float] = (0.60, 0.80)
     happiness_decay_rate_range: Tuple[float, float] = (0.0015, 0.0025)
@@ -458,9 +461,11 @@ class HouseholdBehaviorConfig:
     performance_max_multiplier: float = 1.5
 
     # Opt-in level-seeking happiness and morale; off preserves weekly nudges.
-    wellbeing_targets: bool = False
+    # Default on since the owner decision of 2026-11-18 (AUD-005; evidence in docs/testing/household-realism-experiments.md); False restores the previous behavior.
+    wellbeing_targets: bool = True
     # Opt-in snapshot before payment-arm wage/benefit settlement; legacy is unchanged.
-    fix_wellbeing_cash_snapshot: bool = False
+    # Default on since the owner decision of 2026-11-18 (AUD-005; evidence in docs/testing/household-realism-experiments.md); False restores the previous behavior.
+    fix_wellbeing_cash_snapshot: bool = True
     # wellbeing_unemployment_weight: default 0.10 on the 0-1 happiness scale.
     # Winkelmann & Winkelmann (1998, Economica) find roughly one point on a
     # 0-10 life-satisfaction scale. Lucas et al. (2004, Psychological Science)
@@ -546,7 +551,8 @@ class HouseholdBehaviorConfig:
     # Experimental household shopping fixes; both preserve the previous path
     # by default. Rent remains a separate housing-market payment.
     fix_spending_leak: bool = False
-    fix_food_tracker_lag: bool = False
+    # Default on since the owner decision of 2026-11-18 (AUD-005; evidence in docs/testing/household-realism-experiments.md); False restores the previous behavior.
+    fix_food_tracker_lag: bool = True
     # Default 0.76 of a stockout's spending is offered to other sellers.
     # Gruen, Corsten & Bharadwaj (2002), Retail Out-of-Stocks, report 31%
     # buying elsewhere, 26% changing brand, and 19% substituting within a
