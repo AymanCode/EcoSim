@@ -17,7 +17,9 @@ from typing import Dict, List
 import pytest
 
 from agents import BankAgent
-from config import CONFIG
+from config import CONFIG, clone_config, use_config
+from payment_sectors import payment_deposit_quotes, settle_payment_rent
+from payments import PaymentBook
 from tests_contracts.conftest import total_money_net_of_injections, total_money_with_bank
 from tests_contracts.factories import (
     make_economy,
@@ -353,49 +355,36 @@ def _deposit_savings(economy, household, amount: float) -> None:
     economy.bank.accept_deposit(household.household_id, amount)
 
 
-def test_a9_deposit_withdrawals_are_recorded_in_household_ledger(fixed_seed, monkeypatch):
-    """Audit A9: every deposit withdrawal appears as a ``bank`` ledger flow.
+def test_a9_deposit_withdrawals_are_recorded_in_household_ledger(factory):
+    """Rent and shopping withdrawals appear as bank flows in the household ledger."""
+    cfg = clone_config()
+    cfg.payment_sequence = "income_first"
+    with use_config(cfg):
+        saver = factory.household(household_id=1, cash_balance=0, renting_from_firm_id=1, monthly_rent=500)
+        shopper = factory.household(household_id=2, cash_balance=0)
+        landlord = factory.firm(firm_id=1, category="Housing", price=500, current_tenants=[1], max_rental_units=1)
+        shop = factory.firm(firm_id=2, category="Food", price=10)
+        economy = factory.economy(households=[saver, shopper], firms=[landlord, shop])
+        economy.bank = BankAgent(cash_reserves=50_000.0)
+        economy.payment_book = PaymentBook(economy, "income_first")
+        _deposit_savings(economy, saver, 5_000.0)
+        _deposit_savings(economy, shopper, 1_000.0)
+        for household in (saver, shopper):
+            household.reset_tick_ledger()
 
-    Over a full tick, rent drawn from deposits (``_ensure_cash_for_payment``)
-    must leave the saver's ledger summing to its cash change. The pre-purchase
-    withdrawal is then checked directly.
-    """
-    economy = _legacy_economy_with_bank()
-    saver = economy.households[2]
-    # Cash at the subsistence floor: rent needs deposits, but no legacy
-    # consumption loan fires (keeps this test to the withdrawal alone).
-    saver.cash_balance = saver.subsistence_min_cash
-    _deposit_savings(economy, saver, 5_000.0)
+        # With no cash, the bank releases $500 to cover rent and $80 for eight $10 food units.
+        quotes = payment_deposit_quotes(economy, {2: {"planned_purchases": {2: 8.0}}}, {})
+        economy._payment_withdraw_deposits(quotes)
+        settle_payment_rent(economy)
+        saver.finalize_tick_ledger()
+        shopper.finalize_tick_ledger()
 
-    rent_withdrawals: List[float] = []
-    original_ensure = economy._ensure_cash_for_payment
-
-    def spy_ensure(household, amount):
-        deposit_before = household.bank_deposit
-        result = original_ensure(household, amount)
-        if household is saver:
-            rent_withdrawals.append(deposit_before - household.bank_deposit)
-        return result
-
-    monkeypatch.setattr(economy, "_ensure_cash_for_payment", spy_ensure)
-    economy.step()
-
-    assert sum(rent_withdrawals) > 0.0, "precondition: the saver did not draw on deposits to pay"
-    assert abs(_ledger_gap(saver)) <= MONEY_TOL, (
-        f"A9: ledger flows miss {_ledger_gap(saver):+.6f} of the saver's cash change "
-        f"(withdrawn to pay {sum(rent_withdrawals):.6f}; ledger {saver.last_tick_ledger})"
-    )
-
-    shopper = economy.households[4]
-    shopper.cash_balance = 0.0
-    _deposit_savings(economy, shopper, 1_000.0)
-    shopper.reset_tick_ledger()
-    economy._withdraw_deposits_for_planned_consumption({shopper.household_id: {"budget": 80.0}})
-    shopper.finalize_tick_ledger()
-    assert shopper.last_tick_ledger["net"] == pytest.approx(80.0)
-    assert abs(_ledger_gap(shopper)) <= MONEY_TOL, (
-        f"A9: pre-purchase withdrawal missing from the ledger (gap {_ledger_gap(shopper):+.6f})"
-    )
+        assert saver.bank_deposit == pytest.approx(4_500.0)
+        assert saver.last_tick_ledger["bank"] == pytest.approx(500.0)
+        assert saver.last_tick_ledger["rent"] == pytest.approx(-500.0)
+        assert abs(_ledger_gap(saver)) <= MONEY_TOL
+        assert shopper.last_tick_ledger["net"] == pytest.approx(80.0)
+        assert abs(_ledger_gap(shopper)) <= MONEY_TOL
 
 
 def test_a9_healthcare_deposit_withdrawal_is_recorded_in_household_ledger(fixed_seed, monkeypatch):

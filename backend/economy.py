@@ -63,6 +63,7 @@ from utils.category_utils import build_good_category_lookup
 from inflation import ConsumerPriceIndex, WageReview
 from firm_research import PROJECT_MODELS, RESEARCH_CATEGORIES, ResearchState, sample_entry_quality
 from payments import PaymentBook, MONEY_EPS, proportional
+from household_costs import essential_weekly_costs
 from household_liquidity import (
     accessible_liquidity as household_accessible_liquidity,
     accessible_liquidity_array,
@@ -1103,12 +1104,12 @@ class Economy:
             net_wages, payment_liquidity, pressure = planning_inputs(self, settled_income=settled_income)
             wages = np.asarray(net_wages, dtype=np.float64)
         drawdown_rates = static_traits["drawdown_rates"]
+        cfg = CONFIG.households
         dividend_incomes = np.array(
-            [max(0.0, float(h.last_dividend_income)) for h in self.households],
+            [max(0.0, float(h.dividends_since_last_plan)) for h in self.households],
             dtype=np.float64,
         )
 
-        cfg = CONFIG.households
         mpc_wage = cfg.mpc_wage
         mpc_benefit = cfg.mpc_benefit
         mpc_dividend = cfg.mpc_dividend
@@ -1217,7 +1218,10 @@ class Economy:
 
         # Desperation mode: when income-based budget < survival minimum, raid savings
         # faster. It raises the drawdown, never lowers it below the normal one (B27).
-        subsistence_min = CONFIG.households.subsistence_min_cash
+        subsistence_min = np.fromiter(
+            (h._money_line(cfg.subsistence_weeks, cfg.subsistence_min_cash) for h in self.households),
+            dtype=np.float64, count=len(self.households),
+        )
         in_desperation = base_budget < subsistence_min
         emergency_rates = np.minimum(drawdown_rates * 5.0, 0.20)
         desperation_drawdown = np.minimum(
@@ -1232,6 +1236,8 @@ class Economy:
             # L - reserve. reserve <= max(0, L - min food), so the budget never
             # drops below min(flag-off budget, min-food cost).
             budget = np.minimum(budget, accessible_liquidity - reserves)
+        for household in self.households:
+            household.dividends_since_last_plan = 0.0
         return budget
 
     def _min_food_cost(self) -> np.ndarray:
@@ -2530,6 +2536,8 @@ class Economy:
             tick.housing_private_inventory,
             housing_baseline_inventory,
         ) = self._build_firm_market_views()
+        for household, cost in zip(self.households, essential_weekly_costs(self)):
+            household.essential_weekly_cost = float(cost)
         if CONFIG.households.fix_category_price_beliefs:
             tick.category_expected_prices = self._median_category_prices(tick.category_market_snapshot)
         tick.total_households = len(self.households)
@@ -2925,7 +2933,7 @@ class Economy:
             wage_anchor_low, wage_anchor_mid, wage_anchor_high = self.cached_wage_percentiles
 
         for firm in self.firms:
-            firm.apply_labor_outcome(firm_labor_outcomes[firm.firm_id])
+            firm.apply_labor_outcome(firm_labor_outcomes[firm.firm_id], current_tick=self.current_tick)
 
         deferred_private_history = []
         private_payroll_ids = set()
@@ -3041,6 +3049,11 @@ class Economy:
         if payment_arm:
             from payment_loans import prepare_household_dues
             from payment_sectors import payment_deposit_quotes
+            # Match legacy's snapshot: after earlier stimulus/credit and
+            # immediately before this week's wage and benefit settlement.
+            for household in self.households:
+                household.last_tick_cash_start = household.cash_balance
+                household.last_tick_deposit_start = household.bank_deposit
             self.payment_book.settle_income(frozen_wages)
             from payment_behavior import observe_settled_tax
             observe_settled_tax(self)
@@ -4590,9 +4603,10 @@ class Economy:
                     "employer_category": None
                 }
 
-        # Sort firms by firm_id for deterministic ordering
-        sorted_firms = sorted(self.firms, key=lambda f: f.firm_id)
-
+        sorted_firms = sorted(
+            self.firms,
+            key=lambda f: (-float(firm_wage_plans[f.firm_id]["wage_offer_next"]), f.firm_id),
+        )
         for firm in sorted_firms:
             firm_id = firm.firm_id
             production_plan = firm_production_plans[firm_id]
@@ -4766,7 +4780,7 @@ class Economy:
         - index candidates by reservation wage level once
         - query "best available candidate under wage_offer" efficiently
         - process only active hiring firms (planned_hires_count > 0)
-        - randomized firm hiring order per tick with deterministic seed
+        - seeded firm order, or descending base offers with job choices enabled
 
         Matching flow:
         1. Build baseline household outcomes (keep incumbents unless laid off).
@@ -4775,7 +4789,7 @@ class Economy:
         3. Bucket pool by reservation wage and sort each bucket by
            (skills desc, household_id asc).
         4. Build prefix-query index (segment tree) across buckets.
-        5. Randomize active hiring firm order (seeded by random_seed + tick).
+        5. Order active hiring firms by a seeded shuffle or by offer and id.
         6. For each firm, repeatedly select the best candidate from all
            reservation_wage <= wage_offer buckets.
         7. Mark hires assigned immediately so candidates cannot be double-hired.
@@ -4796,7 +4810,7 @@ class Economy:
         n_households = len(self.households)
         household_ids = np.empty(n_households, dtype=np.int32)
         skills = np.empty(n_households, dtype=np.float32)
-        reservation_wages = np.empty(n_households, dtype=np.float32)
+        reservation_wages = np.empty(n_households, dtype=np.float64)
         searching = np.zeros(n_households, dtype=np.bool_)
         can_work = np.zeros(n_households, dtype=np.bool_)
         medical_only = np.zeros(n_households, dtype=np.bool_)
@@ -4824,6 +4838,32 @@ class Economy:
             # Keep incumbents by default (unless they are in planned layoffs or
             # actively job-switching — job-switchers re-enter the labor pool).
             is_job_switching = bool(household_labor_plans.get(household_id, {}).get("job_switching", False))
+            if is_job_switching and household.is_employed:
+                # Sorkin (2018, QJE) finds lower pay in about 37% of US job moves,
+                # mostly for non-wage reasons. Here workers switch for pay.
+                old_firm = self.firm_lookup.get(household.employer_id)
+                old_category = old_firm.good_category if old_firm is not None else None
+                experience_ticks = household.category_experience.get(old_category, 0)
+                skill_premium = float(skills[idx]) * 0.25
+                experience_premium = min(experience_ticks / 52.0 * 0.03, 0.3)
+                required_wage = household.wage * (1.0 + household.job_switch_threshold)
+                # Division can round upward even when the offer's actual wage
+                # meets the threshold. The final actual-wage guard remains exact.
+                minimum_offer = math.nextafter(
+                    required_wage / (1.0 + skill_premium + experience_premium), -math.inf
+                )
+                reservation_wages[idx] = max(
+                    float(reservation_wages[idx]), minimum_offer
+                )
+                if household_id not in planned_layoffs_set:
+                    # Preserve the current contract even if no firm enters the
+                    # market or the matcher returns before its failed-switch pass.
+                    household_labor_outcomes[household_id] = {
+                        "employer_id": household.employer_id,
+                        "wage": household.wage,
+                        "employer_category": old_category,
+                    }
+                    continue
             if household.is_employed and household_id not in planned_layoffs_set and not is_job_switching:
                 employer_id = household.employer_id
                 employer_category = None
@@ -4947,12 +4987,11 @@ class Economy:
             buckets[int(bucket_id)].append(candidate_idx)
         for bucket in buckets:
             bucket.sort(key=lambda idx: (-float(skills[idx]), int(household_ids[idx])))
-        employer_ids: List[int] = []
         switcher_order: List[int] = []
+        employer_ids = [
+            -1 if h.employer_id is None else int(h.employer_id) for h in self.households
+        ]
         if fix_switchers:
-            employer_ids = [
-                -1 if h.employer_id is None else int(h.employer_id) for h in self.households
-            ]
             switcher_order = sorted(
                 (int(idx) for idx in candidate_indices
                  if household_labor_plans.get(int(household_ids[idx]), {}).get("job_switching")),
@@ -5025,11 +5064,9 @@ class Economy:
                 right //= 2
             return best
 
-        # Randomize active hiring order per tick to reduce first-mover bias.
-        # Seed formula keeps run-to-run reproducibility under same seed.
-        shuffle_rng = random.Random(int(CONFIG.random_seed) + self.current_tick * 104729 + 911)
-        shuffle_rng.shuffle(active_hiring_firm_ids)
-
+        active_hiring_firm_ids.sort(
+            key=lambda fid: (-float(firm_wage_plans[fid]["wage_offer_next"]), fid)
+        )
         for firm_id in active_hiring_firm_ids:
             firm = self.firm_lookup.get(firm_id)
             if firm is None:
@@ -5075,7 +5112,7 @@ class Economy:
                     # tick; stale entries are skipped lazily.
                     if assigned[candidate_idx]:
                         continue
-                    if fix_switchers and employer_ids[candidate_idx] == firm_id:
+                    if employer_ids[candidate_idx] == firm_id:
                         own_worker_heads.append((bucket_id, head_position))
                         continue
 
@@ -5089,6 +5126,15 @@ class Economy:
                 experience_years = experience_ticks / 52.0
                 experience_premium = min(experience_years * 0.03, 0.3)
                 actual_wage = wage_offer * (1.0 + skill_premium + experience_premium)
+
+                labor_plan = household_labor_plans.get(household_id, {})
+                if (labor_plan.get("job_switching") and household.is_employed
+                        and actual_wage < household.wage * (1.0 + household.job_switch_threshold)):
+                    # Category experience can differ from the current job's.
+                    # Cancel this slot; an incumbent keeps the existing contract.
+                    assigned[candidate_idx] = True
+                    vacancies -= 1
+                    continue
 
                 firm_labor_outcomes[firm_id]["hired_households_ids"].append(household_id)
                 firm_labor_outcomes[firm_id]["actual_wages"][household_id] = actual_wage
@@ -5181,7 +5227,7 @@ class Economy:
             if (labor_plan.get("job_switching")
                     and household_labor_outcomes.get(household_id, {}).get("employer_id") is None
                     and household.employer_id is not None
-                    and not (fix_switchers and household_id in planned_layoffs_set)):
+                    and household_id not in planned_layoffs_set):
                 old_firm = self.firm_lookup.get(household.employer_id)
                 employer_category = old_firm.good_category if old_firm else None
                 household_labor_outcomes[household_id] = {
@@ -5300,6 +5346,10 @@ class Economy:
         for firm in self.firms:
             roster = employees_by_firm.get(firm.firm_id, [])
             firm.employees = roster
+            firm.employee_hire_ticks = {
+                household_id: firm.employee_hire_ticks.get(household_id, self.current_tick)
+                for household_id in roster
+            }
 
             synced_wages: Dict[int, float] = {}
             for household_id in roster:
@@ -5856,20 +5906,10 @@ class Economy:
     # Section: Wellbeing, tax snapshots, production, and firm lifecycle
     # -------------------------------------------------------------------------
     def _batch_update_wellbeing(self, happiness_multiplier: float) -> None:
-        """Vectorized wellbeing update; the only wellbeing implementation (per-agent update_wellbeing was removed).
+        """Update happiness, morale and health for all households.
 
-        The poverty penalties and the wealth-loss term read liquid wealth:
-        ``cash_balance + max(0, bank_deposit)`` now, against
-        ``last_tick_cash_start + max(0, last_tick_deposit_start)``. Both
-        snapshots are taken at income settlement in phase 8
-        (``_apply_household_income``, just before the credit), not at the
-        start of the tick; the deposit sweep runs after that point, so it
-        nets to zero. Moving money between cash and deposits is neither a
-        loss nor poverty. Deposits count at 100%, not with
-        ``accessible_liquidity``'s 0.90 haircut, so a sweep is exactly
-        neutral. On non-legacy payment sequences the snapshots are never set
-        (``payments.settle_income`` bypasses ``_apply_household_income``), so
-        the wealth-loss term is inert there, as on main.
+        Security and wealth loss use cash plus deposits at full value, so
+        moving money between cash and deposits does not affect either measure.
         """
         if not self.households:
             return
@@ -5885,15 +5925,8 @@ class Economy:
         happiness = np.fromiter((h.happiness for h in households), dtype=np.float64, count=n)
         morale = np.fromiter((h.morale for h in households), dtype=np.float64, count=n)
         health = np.fromiter((h.health for h in households), dtype=np.float64, count=n)
-
-        happiness_decay = np.fromiter((h.happiness_decay_rate for h in households), dtype=np.float64, count=n)
-        morale_decay = np.fromiter((h.morale_decay_rate for h in households), dtype=np.float64, count=n)
         health_decay = np.fromiter((h.health_decay_rate for h in households), dtype=np.float64, count=n)
 
-        # Poverty and wealth loss read liquid wealth (cash + bank deposits).
-        # The deposit sweep and bank withdrawals move money between the two
-        # within the tick, so reading cash alone scored saving as a loss and
-        # parked savers below the poverty line (PR7 investigation, item 3).
         liquid_wealth = np.fromiter(
             (household_liquid_wealth(h.cash_balance, h.bank_deposit) for h in households),
             dtype=np.float64, count=n,
@@ -5905,102 +5938,51 @@ class Economy:
         housing_met = np.fromiter((h.met_housing_need for h in households), dtype=np.bool_, count=n)
         food_consumed = np.fromiter((h.food_consumed_this_tick for h in households), dtype=np.float64, count=n)
         min_food = np.fromiter((h.min_food_per_tick for h in households), dtype=np.float64, count=n)
-        services_consumed = np.fromiter((h.services_consumed_this_tick for h in households), dtype=np.float64, count=n)
-
-        # Per-agent morale parameters (randomized per household); the midpoint
-        # fallbacks are constant, so compute them once rather than per household.
-        default_emp_boost = sum(hc.morale_employed_boost_range) / 2.0
-        default_unemp_penalty = sum(hc.morale_unemployed_penalty_range) / 2.0
-        default_unhoused_penalty = sum(hc.morale_unhoused_penalty_range) / 2.0
-        morale_emp_boost = np.fromiter(
-            (h.morale_employed_boost if h.morale_employed_boost is not None
-             else default_emp_boost
-             for h in households),
-            dtype=np.float64, count=n
+        # Security is liquid wealth in weeks of this household's essentials.
+        essentials = essential_weekly_costs(self, households)
+        security = np.clip(liquid_wealth / essentials / hc.wellbeing_security_full_weeks, 0.0, 1.0)
+        food_short = np.clip(
+            (min_food - food_consumed) / np.maximum(min_food, 0.1), 0.0, 1.0,
         )
-        morale_unemp_penalty = np.fromiter(
-            (h.morale_unemployed_penalty if h.morale_unemployed_penalty is not None
-             else default_unemp_penalty
-             for h in households),
-            dtype=np.float64, count=n
+        happiness_baseline = np.fromiter(
+            (h.happiness_set_point for h in households), dtype=np.float64, count=n,
         )
-        morale_unhoused_penalty = np.fromiter(
-            (h.morale_unhoused_penalty if h.morale_unhoused_penalty is not None
-             else default_unhoused_penalty
-             for h in households),
-            dtype=np.float64, count=n
+        happiness_target = np.clip(
+            happiness_baseline
+            + hc.wellbeing_social_weight * (happiness_multiplier - 1.0)
+            - hc.wellbeing_unemployment_weight * (~employed)
+            - hc.wellbeing_security_weight * (1.0 - security)
+            - hc.wellbeing_food_weight * food_short
+            - hc.wellbeing_unhoused_weight * (~housing_met),
+            0.0, 1.0,
         )
-
-        # --- Happiness ---
-        happiness_change = np.zeros(n, dtype=np.float64)
-
-        # Poverty penalties (from config)
-        happiness_change -= np.where(liquid_wealth < hc.extreme_poverty_threshold,
-                                     hc.extreme_poverty_penalty, 0.0)
-        happiness_change -= np.where(
-            (liquid_wealth >= hc.extreme_poverty_threshold) & (liquid_wealth < hc.poverty_threshold),
-            hc.poverty_penalty, 0.0)
-
-        # Government social programs boost
-        if happiness_multiplier > 1.0:
-            happiness_change += (happiness_multiplier - 1.0) * hc.government_happiness_scaling
-
-        # --- Positive recovery terms ---
-        # These were missing from the batch path, causing happiness to only decay
-        # and never recover through normal consumption activity.
-        happiness_change += np.where(food_consumed >= min_food, 0.0008, 0.0)      # Fed adequately
-        happiness_change += np.where(services_consumed > 0, 0.0005, 0.0)          # Used services
-        happiness_change += np.where(housing_met, 0.0007, 0.0)                    # Housing met
-        wage_satisfied = employed & (wages >= expected_wages)
-        happiness_change += np.where(wage_satisfied, 0.0005, 0.0)                 # Fair wage
-
-        # --- New negative terms ---
-        # (a) Unemployment: being jobless hurts happiness independently of poverty
-        happiness_change -= np.where(~employed, hc.unemployed_happiness_penalty, 0.0)
-
-        # (b) Relative wealth-loss: losing liquid wealth hurts proportionally, not just at thresholds
-        has_prior_cash = liquid_prev > 1.0
         cash_loss_pct = np.where(
-            has_prior_cash,
+            liquid_prev > 1.0,
             np.maximum(0.0, (liquid_prev - liquid_wealth) / np.maximum(liquid_prev, 1.0)),
-            0.0
+            0.0,
         )
-        happiness_change -= cash_loss_pct * hc.wealth_loss_happiness_scaling
+        happiness_next = np.clip(
+            happiness + hc.happiness_adjust_rate * (happiness_target - happiness)
+            - cash_loss_pct * hc.wealth_loss_happiness_scaling,
+            0.0, 1.0,
+        )
 
-        # (c) Food shortfall: not meeting minimum food hurts proportionally
-        food_shortfall_ratio = np.maximum(0.0, (min_food - food_consumed) / np.maximum(min_food, 0.1))
-        happiness_change -= food_shortfall_ratio * hc.food_shortfall_happiness_scaling
-
-        # Mercy floor: natural decay pauses below threshold (penalties still apply)
-        effective_decay = np.where(happiness < hc.mercy_floor_threshold, 0.0, happiness_decay)
-        happiness_change -= effective_decay
-        happiness_next = np.clip(happiness + happiness_change, 0.0, 1.0)
-
-        # --- Morale ---
-        morale_change = np.zeros(n, dtype=np.float64)
-
-        # Employed: base boost + wage satisfaction
-        morale_change += np.where(employed, morale_emp_boost, 0.0)
-        satisfied = employed & (wages >= expected_wages)
-        morale_change += np.where(satisfied, hc.wage_satisfaction_boost, 0.0)
-
-        # Underpaid penalty
-        underpaid = employed & (wages < expected_wages)
-        wage_gap_ratio = np.zeros(n, dtype=np.float64)
-        if underpaid.any():
-            wage_gap_ratio[underpaid] = (expected_wages[underpaid] - wages[underpaid]) / np.maximum(
-                expected_wages[underpaid], 1.0
-            )
-        morale_change -= wage_gap_ratio * hc.wage_dissatisfaction_scaling
-
-        # Unemployed penalty
-        morale_change -= np.where(~employed, morale_unemp_penalty, 0.0)
-
-        # Unhoused penalty
-        morale_change -= np.where(~housing_met, morale_unhoused_penalty, 0.0)
-
-        morale_change -= morale_decay
-        morale_next = np.clip(morale + morale_change, 0.0, 1.0)
+        morale_baseline = np.fromiter(
+            (h.morale_set_point for h in households), dtype=np.float64, count=n,
+        )
+        fair_pay = employed & (wages >= expected_wages)
+        underpay = np.maximum(0.0, (expected_wages - wages) / np.maximum(expected_wages, 1.0))
+        morale_target = np.clip(
+            morale_baseline
+            + hc.morale_fair_pay_weight * fair_pay
+            - hc.morale_underpay_weight * underpay * employed
+            - hc.morale_unemployment_weight * (~employed)
+            - hc.morale_unhoused_weight * (~housing_met),
+            0.0, 1.0,
+        )
+        morale_next = np.clip(
+            morale + hc.morale_adjust_rate * (morale_target - morale), 0.0, 1.0,
+        )
 
         # --- Health ---
         # Non-linear food→health: harsh penalty for no food, gentle near threshold.
@@ -7924,7 +7906,7 @@ class Economy:
             firm.last_tick_planned_hires = 0
             if firm.employees:
                 layoff_count = min(len(firm.employees), max(1, int(getattr(firm, "max_fires_per_tick", 1) or 1)))
-                firm.planned_layoffs_ids = list(firm.employees[:layoff_count])
+                firm.planned_layoffs_ids = firm._layoff_candidates(layoff_count)
             else:
                 firm.planned_layoffs_ids = []
             firm.decision_diagnostics["public_works_authorized"] = False
@@ -9124,7 +9106,8 @@ class Economy:
                 hh.add_ledger_flow("bank", interest)
 
             # Per-household liquidity buffer: buffer_weeks × estimated weekly spending
-            weekly_spend = max(hh.last_consumption_spending, min_wage, 50.0)
+            spending_floor = hh._money_line(CONFIG.households.subsistence_weeks, 50.0)
+            weekly_spend = max(hh.last_consumption_spending, min_wage, spending_floor)
             liquidity_floor = weekly_spend * hh.deposit_buffer_weeks
 
             if hh.cash_balance > liquidity_floor:

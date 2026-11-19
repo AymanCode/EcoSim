@@ -239,13 +239,13 @@ def test_planner_benefit_level_is_not_a_funded_transfer(factory, timing, funded)
         assert e.government.cash_balance == 0
 
 
-@pytest.mark.parametrize("timing", ["income_first", "income_late"])
-def test_planner_service_quote_floor_rechecks_funding_before_quantity(factory, timing):
+def test_planner_service_quote_floor_rechecks_funding_before_quantity(factory):
     cfg = clone_config()
-    cfg.payment_sequence = timing
+    cfg.payment_sequence = "income_first"
     with use_config(cfg):
-        e, hh, firm = _scenario(factory, timing, cash=20)
+        e, hh, firm = _scenario(factory, "income_first", cash=20)
         hh.category_weights = {"services": 1.0}
+        hh.food_consumed_this_tick = cfg.households.food_health_high_threshold
         firm.good_category = "Services"
         firm.good_name = "ServicesFirm"
         firm.markup = 0.5

@@ -107,6 +107,20 @@ Key current mechanics:
 - Health, happiness, and morale update from food, housing, services, employment, wage satisfaction, healthcare, poverty stress, and government social multipliers.
 - Medical training has student/resident/doctor stages. Residents and doctors add healthcare capacity; doctors are seeded during large-economy initialization.
 
+### Household behavior
+
+- Happiness moves 5% of the way toward its target each week. The target starts from a personal baseline and reflects employment, liquid savings in weeks of essentials, food, housing, and government social programs. Morale moves 10% toward its own target based on employment, housing, and pay relative to expected wages.
+- Shopping plans use food and services consumed in the latest completed week.
+- Dividends received since the previous budget count as income in the next budget and are then cleared from the planning balance.
+- The wealth-loss term in happiness compares end-of-week cash plus deposits with the balances before wage and benefit settlement.
+- Subsistence, the poverty line for wage expectations, consumption loan size, education eligibility and fees, the wage floor, and shopping affordability use weeks of the household's essentials. Essentials include minimum food at the median posted Food price and rent. Fixed amounts serve as fallbacks before household cost estimates are available.
+- Hiring firms are considered from highest offer to lowest. Workers keep at least their current pay when switching jobs. Layoffs start with the newest hires, with lower pay breaking tenure ties.
+
+**Evidence.** Matched runs compared these behaviors with the earlier model using `income_first`, 1,000 households, seeds 42 and 43, 312 weeks, weeks 209-312, under the default, lean and generous government settings.
+- In all six pairs, nobody stays at happiness or morale 0.
+- The worst unemployment change was +1.1 points.
+- Weekly output was lower in one pair, by 280.
+
 ## Firms
 
 Firms plan before state mutations are applied. The common pattern is:

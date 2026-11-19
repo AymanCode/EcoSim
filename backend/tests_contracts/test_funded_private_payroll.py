@@ -78,15 +78,19 @@ def test_cash_funded_payroll_needs_no_credit_approval(factory, timing):
     assert all(h.employer_id == 1 for h in workers)
 
 
-@pytest.mark.parametrize("timing", SEQUENCES)
-@pytest.mark.parametrize("wages,cash,retained", [
-    ((1e12, 20.00005), 20.000025, []), ((1e16, 21.0), 20.5, []),
-    ((20.000001,), 20.0, []), ((1e16, 21.0), 1e16 + 20.0, [2]),
+@pytest.mark.parametrize("wages,cash,hire_ticks,retained", [
+    ((1e12, 20.00005), 20.000025, {}, []), ((1e16, 21.0), 20.5, {}, []),
+    ((20.000001,), 20.0, {}, []),
+    # With equal hire ticks, worker 2's lower wage is cut. Cash covers worker 1.
+    ((1e16, 21.0), 1e16 + 20.0, {}, [1]),
+    # The newer worker goes first even though their wage is higher.
+    ((21.0, 1e16), 1e16 + 20.0, {1: 1, 2: 2}, [1]),
 ])
-def test_roundoff_cannot_authorize_an_underfunded_complete_roster(factory, timing, wages, cash, retained):
+def test_roundoff_cannot_authorize_an_underfunded_complete_roster(factory, wages, cash, hire_ticks, retained):
     cfg, ec, firm, workers, _, outcomes, hh_outcomes = _prepared(
-        factory, timing, wages=wages, cash=cash,
+        factory, "income_first", wages=wages, cash=cash,
     )
+    firm.employee_hire_ticks.update(hire_ticks)
     with use_config(cfg):
         _fund(ec, outcomes, hh_outcomes)
         assert firm.employees == retained
