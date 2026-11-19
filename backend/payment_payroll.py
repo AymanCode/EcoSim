@@ -79,7 +79,10 @@ def enforce_private_payroll(economy: Any, firm_labor_outcomes: dict, household_l
         if math.fsum([*wages.values(), -available]) > MONEY_EPS:
             # Do not displace an incumbent to retain an unfunded new hire.
             order = [hid for hid in reversed(hires) if hid in wages]
-            order.extend(hid for hid in firm.employees if hid not in hired_set)
+            if CONFIG.households.job_choices:
+                order.extend(hid for hid in firm._layoff_candidates(len(firm.employees)) if hid not in hired_set)
+            else:
+                order.extend(hid for hid in firm.employees if hid not in hired_set)
             # Choose the affordable suffix directly. Subtracting a very large
             # removed wage from a rounded total can erase a small real deficit.
             # Exact binary-float ratios are used only on this distress path;
@@ -116,6 +119,7 @@ def enforce_private_payroll(economy: Any, firm_labor_outcomes: dict, household_l
             firm.employees = [hid for hid in firm.employees if hid not in removed_set]
             for hid in removed:
                 firm.actual_wages.pop(hid, None)
+                firm.employee_hire_ticks.pop(hid, None)
                 outcome.get("actual_wages", {}).pop(hid, None)
             firm._invalidate_wage_bill_cache()
             outcome["hired_households_ids"] = [hid for hid in hires if hid not in removed_set]

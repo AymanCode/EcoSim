@@ -2985,7 +2985,7 @@ class Economy:
             wage_anchor_low, wage_anchor_mid, wage_anchor_high = self.cached_wage_percentiles
 
         for firm in self.firms:
-            firm.apply_labor_outcome(firm_labor_outcomes[firm.firm_id])
+            firm.apply_labor_outcome(firm_labor_outcomes[firm.firm_id], current_tick=self.current_tick)
 
         deferred_private_history = []
         private_payroll_ids = set()
@@ -4656,8 +4656,15 @@ class Economy:
                     "employer_category": None
                 }
 
-        # Sort firms by firm_id for deterministic ordering
-        sorted_firms = sorted(self.firms, key=lambda f: f.firm_id)
+        # The older matcher retains its original id order unless job choices
+        # are enabled; it does not put employed switchers into its candidate pool.
+        if CONFIG.households.job_choices:
+            sorted_firms = sorted(
+                self.firms,
+                key=lambda f: (-float(firm_wage_plans[f.firm_id]["wage_offer_next"]), f.firm_id),
+            )
+        else:
+            sorted_firms = sorted(self.firms, key=lambda f: f.firm_id)
 
         for firm in sorted_firms:
             firm_id = firm.firm_id
@@ -4832,7 +4839,7 @@ class Economy:
         - index candidates by reservation wage level once
         - query "best available candidate under wage_offer" efficiently
         - process only active hiring firms (planned_hires_count > 0)
-        - randomized firm hiring order per tick with deterministic seed
+        - seeded firm order, or descending base offers with job choices enabled
 
         Matching flow:
         1. Build baseline household outcomes (keep incumbents unless laid off).
@@ -4841,7 +4848,7 @@ class Economy:
         3. Bucket pool by reservation wage and sort each bucket by
            (skills desc, household_id asc).
         4. Build prefix-query index (segment tree) across buckets.
-        5. Randomize active hiring firm order (seeded by random_seed + tick).
+        5. Order active hiring firms by a seeded shuffle or by offer and id.
         6. For each firm, repeatedly select the best candidate from all
            reservation_wage <= wage_offer buckets.
         7. Mark hires assigned immediately so candidates cannot be double-hired.
@@ -4858,11 +4865,12 @@ class Economy:
         for plan in firm_production_plans.values():
             planned_layoffs_set.update(plan.get("planned_layoffs_ids", []))
         fix_switchers = bool(CONFIG.labor_market.fix_switcher_vacancies)
+        job_choices = bool(CONFIG.households.job_choices)
 
         n_households = len(self.households)
         household_ids = np.empty(n_households, dtype=np.int32)
         skills = np.empty(n_households, dtype=np.float32)
-        reservation_wages = np.empty(n_households, dtype=np.float32)
+        reservation_wages = np.empty(n_households, dtype=np.float64 if job_choices else np.float32)
         searching = np.zeros(n_households, dtype=np.bool_)
         can_work = np.zeros(n_households, dtype=np.bool_)
         medical_only = np.zeros(n_households, dtype=np.bool_)
@@ -4890,6 +4898,30 @@ class Economy:
             # Keep incumbents by default (unless they are in planned layoffs or
             # actively job-switching — job-switchers re-enter the labor pool).
             is_job_switching = bool(household_labor_plans.get(household_id, {}).get("job_switching", False))
+            if job_choices and is_job_switching and household.is_employed:
+                old_firm = self.firm_lookup.get(household.employer_id)
+                old_category = old_firm.good_category if old_firm is not None else None
+                experience_ticks = household.category_experience.get(old_category, 0)
+                skill_premium = float(skills[idx]) * 0.25
+                experience_premium = min(experience_ticks / 52.0 * 0.03, 0.3)
+                required_wage = household.wage * (1.0 + household.job_switch_threshold)
+                # Division can round upward even when the offer's actual wage
+                # meets the threshold. The final actual-wage guard remains exact.
+                minimum_offer = math.nextafter(
+                    required_wage / (1.0 + skill_premium + experience_premium), -math.inf
+                )
+                reservation_wages[idx] = max(
+                    float(reservation_wages[idx]), minimum_offer
+                )
+                if household_id not in planned_layoffs_set:
+                    # Preserve the current contract even if no firm enters the
+                    # market or the matcher returns before its failed-switch pass.
+                    household_labor_outcomes[household_id] = {
+                        "employer_id": household.employer_id,
+                        "wage": household.wage,
+                        "employer_category": old_category,
+                    }
+                    continue
             if household.is_employed and household_id not in planned_layoffs_set and not is_job_switching:
                 employer_id = household.employer_id
                 employer_category = None
@@ -5015,10 +5047,11 @@ class Economy:
             bucket.sort(key=lambda idx: (-float(skills[idx]), int(household_ids[idx])))
         employer_ids: List[int] = []
         switcher_order: List[int] = []
-        if fix_switchers:
+        if fix_switchers or job_choices:
             employer_ids = [
                 -1 if h.employer_id is None else int(h.employer_id) for h in self.households
             ]
+        if fix_switchers:
             switcher_order = sorted(
                 (int(idx) for idx in candidate_indices
                  if household_labor_plans.get(int(household_ids[idx]), {}).get("job_switching")),
@@ -5091,10 +5124,14 @@ class Economy:
                 right //= 2
             return best
 
-        # Randomize active hiring order per tick to reduce first-mover bias.
-        # Seed formula keeps run-to-run reproducibility under same seed.
-        shuffle_rng = random.Random(int(CONFIG.random_seed) + self.current_tick * 104729 + 911)
-        shuffle_rng.shuffle(active_hiring_firm_ids)
+        if job_choices:
+            active_hiring_firm_ids.sort(
+                key=lambda fid: (-float(firm_wage_plans[fid]["wage_offer_next"]), fid)
+            )
+        else:
+            # Keep the existing seeded shuffle and RNG behavior unchanged.
+            shuffle_rng = random.Random(int(CONFIG.random_seed) + self.current_tick * 104729 + 911)
+            shuffle_rng.shuffle(active_hiring_firm_ids)
 
         for firm_id in active_hiring_firm_ids:
             firm = self.firm_lookup.get(firm_id)
@@ -5141,7 +5178,7 @@ class Economy:
                     # tick; stale entries are skipped lazily.
                     if assigned[candidate_idx]:
                         continue
-                    if fix_switchers and employer_ids[candidate_idx] == firm_id:
+                    if (fix_switchers or job_choices) and employer_ids[candidate_idx] == firm_id:
                         own_worker_heads.append((bucket_id, head_position))
                         continue
 
@@ -5155,6 +5192,15 @@ class Economy:
                 experience_years = experience_ticks / 52.0
                 experience_premium = min(experience_years * 0.03, 0.3)
                 actual_wage = wage_offer * (1.0 + skill_premium + experience_premium)
+
+                labor_plan = household_labor_plans.get(household_id, {})
+                if (job_choices and labor_plan.get("job_switching") and household.is_employed
+                        and actual_wage < household.wage * (1.0 + household.job_switch_threshold)):
+                    # Category experience can differ from the current job's.
+                    # Cancel this slot; an incumbent keeps the existing contract.
+                    assigned[candidate_idx] = True
+                    vacancies -= 1
+                    continue
 
                 firm_labor_outcomes[firm_id]["hired_households_ids"].append(household_id)
                 firm_labor_outcomes[firm_id]["actual_wages"][household_id] = actual_wage
@@ -5247,7 +5293,7 @@ class Economy:
             if (labor_plan.get("job_switching")
                     and household_labor_outcomes.get(household_id, {}).get("employer_id") is None
                     and household.employer_id is not None
-                    and not (fix_switchers and household_id in planned_layoffs_set)):
+                    and not ((fix_switchers or job_choices) and household_id in planned_layoffs_set)):
                 old_firm = self.firm_lookup.get(household.employer_id)
                 employer_category = old_firm.good_category if old_firm else None
                 household_labor_outcomes[household_id] = {
@@ -5366,6 +5412,10 @@ class Economy:
         for firm in self.firms:
             roster = employees_by_firm.get(firm.firm_id, [])
             firm.employees = roster
+            firm.employee_hire_ticks = {
+                household_id: firm.employee_hire_ticks.get(household_id, self.current_tick)
+                for household_id in roster
+            }
 
             synced_wages: Dict[int, float] = {}
             for household_id in roster:
@@ -8148,7 +8198,7 @@ class Economy:
             firm.last_tick_planned_hires = 0
             if firm.employees:
                 layoff_count = min(len(firm.employees), max(1, int(getattr(firm, "max_fires_per_tick", 1) or 1)))
-                firm.planned_layoffs_ids = list(firm.employees[:layoff_count])
+                firm.planned_layoffs_ids = firm._layoff_candidates(layoff_count)
             else:
                 firm.planned_layoffs_ids = []
             firm.decision_diagnostics["public_works_authorized"] = False
