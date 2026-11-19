@@ -51,6 +51,9 @@ class PaymentBook:
         self.wage_taxes = {}
         self.benefits = {}
         self.denied_benefits = 0.0
+        self.food_credit_recipients = []
+        self.food_credit_issued = self.food_credit_redeemed = 0.0
+        self.food_credit_spent_by_household = defaultdict(float)
         self.current_due = {}
         self.current_paid_by_firm_worker = {}
         self.funded_ceo = defaultdict(float)
@@ -191,6 +194,8 @@ class PaymentBook:
         self.income_settled = True
 
     def settle_benefits(self):
+        if self.benefits_settled:
+            return
         economy = self.economy
         eligible = {h.household_id: economy.government.get_unemployment_benefit_level() for h in economy.households if h.employer_id is None}
         allocation = proportional(eligible, economy.payment_state["restrictions"]["B"])
@@ -209,6 +214,9 @@ class PaymentBook:
             else:
                 self.late_income[hid] += paid
         self.denied_benefits = max(0.0, sum(eligible.values()) - sum(allocation.values()))
+        if self.food_credit_recipients:
+            from food_credit import issue
+            issue(self)
         self.benefits_settled = True
 
     def release_late_income(self):
@@ -229,6 +237,12 @@ class PaymentBook:
         public_amount, bank_amount = _amount(public_amount), _amount(bank_amount)
         total = qty * price
         private = total - public_amount - bank_amount
+        balances = self.economy.payment_state.get("food_credit", {})
+        hid = household.household_id
+        credit = 0.0
+        if balances and kind == "goods" and firm.good_category.lower() == "food":
+            credit = min(balances.get(hid, 0.0), max(0.0, private))
+            private -= credit
         if private < -MONEY_EPS or private > max(0.0, household.cash_balance) + MONEY_EPS:
             return False
         restriction = "care" if kind == "care" and public_amount > 0 else "G"
@@ -237,6 +251,12 @@ class PaymentBook:
         if bank_amount > self.medical_funding_pending[household.household_id] + MONEY_EPS:
             return False
         household.cash_balance -= max(0.0, private)
+        if credit:
+            balances[hid] -= credit
+            if balances[hid] == 0:
+                del balances[hid]
+            self.food_credit_redeemed += credit
+            self.food_credit_spent_by_household[hid] += credit
         if bank_amount:
             self.medical_funding_pending[household.household_id] = max(0.0, self.medical_funding_pending[household.household_id] - bank_amount)
         if kind != "care" and private > 0:

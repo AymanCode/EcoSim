@@ -223,12 +223,17 @@ class SetupConfig(BaseModel):
     payment_benefit_wage_floor_multiplier: Literal[0.0, 1.5] = 1.5
     payment_bank_startup_loans_enabled: bool = Field(default=True, strict=True)
     payment_services_project_enabled: bool = False
+    payment_food_credit_enabled: bool = Field(default=False, strict=True)
     payment_services_project_cost: float = Field(default=1000.0, gt=0.0)
     payment_services_project_lag_ticks: int = Field(default=1, ge=1)
     payment_debt_service_share: float = Field(default=0.35, gt=0.0, le=1.0)
 
     @model_validator(mode="after")
     def validate_payment_caps(self):
+        opens_food_credit = self.payment_food_credit_enabled or self.initial_policy.get("food_credit_policy") == "on"
+        grocery_budget = self.initial_policy.get("food_credit_weekly_budget", 0)
+        if self.payment_sequence != "income_first" and (opens_food_credit or grocery_budget):
+            raise ValueError("grocery credit requires income_first")
         if self.payment_renewal_strict_cap > self.payment_renewal_soft_cap:
             raise ValueError("strict renewal cap cannot exceed soft cap")
         return self
@@ -257,6 +262,8 @@ class SetupConfig(BaseModel):
     def world_key(self, seed: int) -> str:
         """The part of the world every arm of an experiment must share."""
         payload = {name: getattr(self, name) for name in type(self).model_fields if name.startswith("payment_")}
+        # This legacy SETUP flag now specifies an opening government policy. Matched towns may differ on it.
+        payload.pop("payment_food_credit_enabled")
         payload.update({"seed": int(seed), "num_firms": self.num_firms, "disable_stabilizers": self.disable_stabilizers,
                         "disabled_agents": sorted(self.disabled_agents)})
         return json.dumps(payload, sort_keys=True, default=str)
@@ -1565,6 +1572,8 @@ class SimulationManager:
             "benefit_level": getattr(gov, "benefit_level", "neutral"),
             "public_works": getattr(gov, "public_works_toggle", "off"),
             "surplus_distribution": getattr(gov, "surplus_distribution", "off"),
+            "food_credit_policy": getattr(gov, "food_credit_policy", "off"),
+            "food_credit_weekly_budget": getattr(gov, "food_credit_weekly_budget", 0.0),
             "minimum_wage_policy": getattr(gov, "minimum_wage_policy", "neutral"),
             "sector_subsidy_target": getattr(gov, "sector_subsidy_target", "none"),
             "sector_subsidy_level": int(getattr(gov, "sector_subsidy_level", 0)),
@@ -2763,6 +2772,9 @@ class SimulationManager:
                 self._select_tracked_firms()
 
                 tracked_subjects = []
+                show_grocery_cards = (
+                    self.economy.government.food_credit_policy == "on" or "food_credit" in self.economy.payment_state
+                )
                 lean_frame = self.frame_profile == "lean"
                 pinned_ids = set(self.pinned_household_ids)
                 wage_anchor_low, wage_anchor_mid, wage_anchor_high = getattr(
@@ -2858,6 +2870,10 @@ class SimulationManager:
                         # Lean frames carry this detail only for pinned households; for the others it is
                         # neither built nor sent, and traits travel in SETUP_COMPLETE and TRACKED instead.
                         if not lean_frame or hid in pinned_ids:
+                            if show_grocery_cards:
+                                book = self.economy.payment_book
+                                subject["groceryCardBalance"] = self.economy.payment_state.get("food_credit", {}).get(hid, 0.0)
+                                subject["groceryCardSpent"] = book.food_credit_spent_by_household.get(hid, 0.0)
                             histories = self.subject_histories.get(hid, {})
                             subject["expectedWageReason"] = self._expected_wage_reason(h, state, medical_status, wage_anchors)
                             subject["traits"] = self._subject_traits(h)
@@ -3201,6 +3217,8 @@ class SimulationManager:
             "benefitLevel": "benefit_level",
             "publicWorks": "public_works",
             "surplusDistribution": "surplus_distribution",
+            "foodCreditPolicy": "food_credit_policy",
+            "foodCreditWeeklyBudget": "food_credit_weekly_budget",
             "minimumWagePolicy": "minimum_wage_policy",
             "sectorSubsidyTarget": "sector_subsidy_target",
             "sectorSubsidyLevel": "sector_subsidy_level",
@@ -3310,7 +3328,7 @@ class SimulationManager:
                     receipt["rejected"][lever] = str(exc)
                     del lever_updates[lever]
                     continue
-                if lever in canonical_levers:
+                if lever in canonical_levers or lever == "food_credit_weekly_budget":
                     lever_updates[lever] = checked
             # Group rules (sector subsidy, bailout) bind only the lean profile, and reject only the requested
             # levers of the group that fails; legacy applies levers one by one, as the old dashboard expects.

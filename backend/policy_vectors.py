@@ -9,7 +9,13 @@ from __future__ import annotations
 import math
 from typing import Any, Dict, Optional
 
-from policy_schema import ORDERED_LEVERS, SIMPLE_ENUM_LEVERS, TAX_LIMITS, VALID_LEVERS
+from policy_schema import (
+    ORDERED_LEVERS,
+    SIMPLE_ENUM_LEVERS,
+    TAX_LIMITS,
+    VALID_LEVERS,
+    normalize_food_credit_budget,
+)
 
 BAILOUT_SECTORS = frozenset(SIMPLE_ENUM_LEVERS["bailout_target"]) - {"none"}
 
@@ -41,6 +47,11 @@ def validate_lever_value(lever: str, value: Any) -> Any:
     """Return the canonical value of one lever, ignoring group rules, or raise PolicyVectorError."""
     if lever not in VALID_LEVERS:
         raise PolicyVectorError(f"unknown lever {lever!r}")
+    if lever == "food_credit_weekly_budget":
+        try:
+            return normalize_food_credit_budget(value)
+        except ValueError as exc:
+            raise PolicyVectorError(str(exc)) from exc
     if lever in TAX_LIMITS:
         low, high = TAX_LIMITS[lever]
         try:

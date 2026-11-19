@@ -85,6 +85,11 @@ def payment_snapshot(economy: Any) -> dict:
         "restricted_cash": {str(name): float(amount) for name, amount in restrictions.items()},
         "total_restricted_cash": sum(float(amount) for amount in restrictions.values()),
     }
+    if getattr(book, "food_credit_recipients", ()) or "food_credit" in state:
+        fiscal["food_credit"] = {
+            "issued": book.food_credit_issued, "redeemed": book.food_credit_redeemed,
+            "outstanding": sum(state.get("food_credit", {}).values()),
+        }
 
     loans = {"v1_active": 0, "v2_active": 0, "v1_outstanding": 0.0, "v2_outstanding": 0.0,
              "v2_missed_claims": 0, "defaults_total": int(state.get("loan_default_history_total", 0)),

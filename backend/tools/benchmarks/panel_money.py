@@ -22,6 +22,7 @@ def payment_holds(economy: Any) -> float:
     state = getattr(economy, "payment_state", None) or {}
     held = sum((state.get("recovery_holds") or {}).values())
     held += float(state.get("housing_equal_distribution_hold", 0.0))
+    held += sum(state.get("food_credit", {}).values())
     if not state.get("capital_routes_released", True):
         held += sum(row["amount"] for row in state.get("capital_routes", ()))
     book = getattr(economy, "payment_book", None)

@@ -39,7 +39,10 @@ import numpy as np
 
 from config import CONFIG
 from firm_research import PROJECT_MODELS, RESEARCH_CATEGORIES, ResearchBudget, ResearchState
-from policy_schema import ORDERED_LEVERS as POLICY_ORDERED_LEVERS, SIMPLE_ENUM_LEVERS, TAX_LIMITS
+from policy_schema import (
+    ORDERED_LEVERS as POLICY_ORDERED_LEVERS, SIMPLE_ENUM_LEVERS, TAX_LIMITS, VALID_LEVERS,
+    normalize_food_credit_budget,
+)
 
 
 from utils.category_utils import get_good_category
@@ -6223,6 +6226,9 @@ class GovernmentAgent(AgentMixin):
     benefit_level: str = "neutral"            # {low, neutral, high, crisis}
     public_works_toggle: str = "off"          # {off, on}
     surplus_distribution: str = "off"        # {off, on}
+    food_credit_policy: str = field(default="off", init=False)
+    supports_food_credit: bool = field(default=False, init=False)
+    food_credit_weekly_budget: float = field(default=0.0, init=False)
     minimum_wage_policy: str = "neutral"      # {low, neutral, high}
     sector_subsidy_target: str = "none"       # {none, food, housing, services, healthcare}
     sector_subsidy_level: int = 0             # {0, 10, 25, 50} — percent of price govt pays
@@ -6413,6 +6419,7 @@ class GovernmentAgent(AgentMixin):
             "benefit_level": ("benefit_level", self.VALID_BENEFIT_LEVELS),
             "public_works": ("public_works_toggle", self.VALID_PUBLIC_WORKS),
             "surplus_distribution": ("surplus_distribution", self.VALID_SURPLUS_DISTRIBUTION),
+            "food_credit_policy": ("food_credit_policy", SIMPLE_ENUM_LEVERS["food_credit_policy"]),
             "minimum_wage_policy": ("minimum_wage_policy", self.VALID_MIN_WAGE_POLICIES),
             "sector_subsidy_target": ("sector_subsidy_target", self.VALID_SUBSIDY_TARGETS),
             "sector_subsidy_level": ("sector_subsidy_level", self.VALID_SUBSIDY_LEVELS),
@@ -6427,7 +6434,12 @@ class GovernmentAgent(AgentMixin):
             "bailout_budget": ("bailout_budget", self.VALID_BAILOUT_BUDGETS),
         }
 
-        if lever in continuous_map:
+        if lever == "food_credit_weekly_budget":
+            budget = normalize_food_credit_budget(value)
+            if budget and not self.supports_food_credit:
+                raise ValueError("Grocery credit requires income_first")
+            self.food_credit_weekly_budget = budget
+        elif lever in continuous_map:
             field_name, (lo, hi) = continuous_map[lever]
             try:
                 numeric_value = round(float(value), 4)
@@ -6440,16 +6452,18 @@ class GovernmentAgent(AgentMixin):
             setattr(self, field_name, numeric_value)
             self.apply_policy_levers()
         elif lever in discrete_map:
+            if lever == "food_credit_policy" and value == "on" and not self.supports_food_credit:
+                raise ValueError("Grocery credit requires income_first")
             field_name, valid_options = discrete_map[lever]
             if value not in valid_options:
                 raise ValueError(f"Invalid value '{value}' for lever '{lever}'. Valid: {valid_options}")
             setattr(self, field_name, value)
-            self.apply_policy_levers()
+            if lever != "food_credit_policy":
+                self.apply_policy_levers()
             if lever in {"bailout_policy", "bailout_target", "bailout_budget"}:
                 self.sync_bailout_cycle_budget()
         else:
-            all_levers = list(continuous_map.keys()) + list(discrete_map.keys())
-            raise ValueError(f"Unknown lever '{lever}'. Valid: {all_levers}")
+            raise ValueError(f"Unknown lever '{lever}'. Valid: {sorted(VALID_LEVERS)}")
 
     def _apply_benefit_level(self) -> None:
         """Set unemployment benefit and transfer parameters from ``benefit_level`` lever.
@@ -6647,6 +6661,8 @@ class GovernmentAgent(AgentMixin):
             "benefit_level": self.benefit_level,
             "public_works": self.public_works_toggle,
             "surplus_distribution": self.surplus_distribution,
+            "food_credit_policy": self.food_credit_policy,
+            "food_credit_weekly_budget": self.food_credit_weekly_budget,
             "minimum_wage_policy": self.minimum_wage_policy,
             "sector_subsidy_target": self.sector_subsidy_target,
             "sector_subsidy_level": self.sector_subsidy_level,

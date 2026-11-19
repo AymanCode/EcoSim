@@ -11,6 +11,7 @@ from collections import defaultdict
 
 from config import CONFIG
 from household_liquidity import accessible_liquidity
+from food_credit import goods_quotes
 from utils.category_utils import get_good_category
 
 EPS = 1e-6
@@ -60,6 +61,7 @@ class PaymentGoodsMarket:
 
     def __init__(self, economy, plans, firms):
         self.economy = economy
+        self.food_credit = economy.payment_state.get("food_credit", {})
         self.firms = [f for f in firms if _category(f) not in {"housing", "healthcare"}]
         self.by_id = {f.firm_id: f for f in self.firms}
         self.by_good = defaultdict(list)
@@ -115,15 +117,18 @@ class PaymentGoodsMarket:
             price = self.prices[fid]
             stock = self.remaining[fid]
             share = self.subsidy_shares[fid]
+            funds = _spendable(household)
+            if self.categories[fid] == "food":
+                funds += self.food_credit.get(hid, 0.0)
             # Affordability bounds the attempted order BEFORE the stock test,
             # so an empty seller sees only quantities this buyer could fund.
             if share == 0.0:
-                fundable = _private_quantity(price, wanted - bought, _spendable(household))
+                fundable = _private_quantity(price, wanted - bought, funds)
                 free_subsidy = 0.0
             else:
                 free_subsidy = _goods_subsidy_available(self.economy)
                 fundable = _sale_quantity(price, wanted - bought, wanted - bought,
-                                          _spendable(household), share, free_subsidy)
+                                          funds, share, free_subsidy)
             if fundable <= EPS:
                 continue
             qty = min(stock, fundable)
@@ -202,6 +207,7 @@ class PaymentGoodsMarket:
             if not considered:
                 continue
             cash = _spendable(household)
+            credit_left = self.food_credit.get(hid, 0.0)
             for target, wanted in targets.items():
                 residual = max(0.0, min(float(wanted), considered.get(target, 0.0)) - self.accepted[hid][target])
                 if residual <= EPS:
@@ -218,13 +224,16 @@ class PaymentGoodsMarket:
                         continue
                     price = self.prices[fid]
                     share = self.subsidy_shares[fid]
+                    eligible = credit_left if self.categories[fid] == "food" else 0.0
                     if share == 0.0:
-                        qty = _private_quantity(price, residual - unmet, cash)
+                        qty = _private_quantity(price, residual - unmet, cash + eligible)
                         public = 0.0
                     else:
-                        qty = _sale_quantity(price, residual - unmet, residual - unmet, cash, share, subsidy)
+                        qty = _sale_quantity(price, residual - unmet, residual - unmet, cash + eligible, share, subsidy)
                         public = min(max(0.0, share) * price * qty, subsidy)
-                    cash = max(0.0, cash - max(0.0, price * qty - public))
+                    tender = min(eligible, max(0.0, price * qty - public))
+                    credit_left -= tender
+                    cash = max(0.0, cash - max(0.0, price * qty - public - tender))
                     subsidy = max(0.0, subsidy - public)
                     unmet += qty
                 if unmet <= EPS:
@@ -244,15 +253,8 @@ class PaymentGoodsMarket:
 
 def payment_deposit_quotes(economy, plans, due_by_household):
     """Gross 5b requests; caller performs the only actual bank withdrawal."""
-    id_prices = {}
-    name_prices = {}
-    for firm in economy.firms:
-        if _category(firm) in {"housing", "healthcare"}:
-            continue
-        supply = economy._estimated_firm_market_supply(firm, current_tick_capacity=True)
-        price = max(0.0, float(economy._effective_market_price(firm, supply)))
-        id_prices[firm.firm_id] = price
-        name_prices[firm.good_name] = min(price, name_prices.get(firm.good_name, math.inf))
+    prices = goods_quotes(economy)
+    balances = economy.payment_state.get("food_credit", {})
     care_capacity = {firm.firm_id: _qualified_capacity(economy, firm)
                      for firm in economy.firms if _category(firm) == "healthcare"}
     cheapest_vacancy = min((max(0.0, float(f.price)) for f in economy.firms
@@ -260,12 +262,16 @@ def payment_deposit_quotes(economy, plans, due_by_household):
     quotes = {}
     for household in economy.households:
         hid = household.household_id
-        goods = 0.0
+        goods = food = 0.0
         for target, qty in plans.get(hid, {}).get("planned_purchases", {}).items():
-            is_id = isinstance(target, int) or getattr(type(target), "__module__", "").startswith("numpy")
-            price = id_prices.get(int(target)) if is_id else name_prices.get(target)
-            if price is not None:
-                goods += max(0.0, float(qty)) * price
+            quote = prices.get(target)
+            if quote is not None:
+                price, category = quote
+                cost = max(0.0, float(qty)) * price
+                goods += cost
+                if category == "food":
+                    food += cost
+        goods -= min(food, balances.get(hid, 0.0))
         rent = max(0.0, float(household.monthly_rent)) + max(0.0, float(getattr(household, "rent_arrears", 0.0))) if household.renting_from_firm_id is not None else cheapest_vacancy
         care = 0.0
         if household.queued_healthcare_firm_id is not None and getattr(economy, "payment_care_mode", "patient_pay") == "patient_pay":
