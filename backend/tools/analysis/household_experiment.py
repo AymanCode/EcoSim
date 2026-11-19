@@ -19,7 +19,7 @@ from pathlib import Path
 from statistics import correlation, median
 from types import SimpleNamespace
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2  # 2: adds the plan-1 illness counter (0 while health_episodes is off)
 
 
 def _pct(sorted_vals, q):
@@ -191,6 +191,7 @@ def run(args):
             }
         extra = {
             "money_full": money_full, "money_drift": money_full - money0,
+            "illnesses": int(getattr(economy, "health_illnesses_this_tick", 0)),
             "care_episodes_opened": economy.care_episodes_opened_this_tick,
             "care_visits_scheduled": economy.care_visits_scheduled_this_tick,
             "care_queue_admissions_new": float(economy.healthcare_requests_this_tick),

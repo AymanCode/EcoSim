@@ -23,10 +23,10 @@ METRICS = {
 }
 
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 REQUIRED_TOP = {"schema_version", "opening", "health_spells", "hand_to_mouth_week_26",
                 "money_tick0", "seed", "sequence", "households", "ticks", "rows", "arm", "overrides", "levers"}
-REQUIRED_ROWS = {"t", "u", "money_full", "money_drift", "external_injection_total",
+REQUIRED_ROWS = {"t", "u", "money_full", "money_drift", "external_injection_total", "illnesses",
                  "care_episodes_opened", "care_visits_scheduled", "care_queue_admissions_new", "care_queue_admissions_retry",
                  "care_deferrals", "care_waits", "care_denials", "care_completed", "care_receipts",
                  "care_pending_visits", "care_visit_slots", "healthcare_firms", "hc_cash", "hc_cash_min_firm",
