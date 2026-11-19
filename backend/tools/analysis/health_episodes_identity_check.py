@@ -58,6 +58,8 @@ def capture(root: Path) -> list[dict[str, str]]:
                 setattr(CONFIG.households, flag, False)
         economy, _ = build_economy_from_setup(setup, seed=42)
         economy._apply_random_shocks = lambda: None
+        if economy.payment_sequence != "income_first":
+            raise RuntimeError(f"identity check must run income_first, got {economy.payment_sequence}")
 
         def state():
             households = sorted(economy.households, key=lambda h: h.household_id)
@@ -99,6 +101,8 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("baseline_worktree", type=Path)
     parser.add_argument("--worker", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument("--baseline-revision", default=BASELINE_REVISION,
+                        help="commit the baseline worktree must be at (default 5c66095; the merged check uses the plan-2 commit)")
     args = parser.parse_args()
     baseline = args.baseline_worktree.resolve()
     if args.worker:
@@ -108,8 +112,8 @@ def main() -> None:
     if baseline == CANDIDATE or not (baseline / "backend/sim_setup.py").is_file():
         parser.error("supply a separate baseline worktree root")
     baseline_head = git_revision(baseline, "HEAD")
-    if baseline_head != git_revision(CANDIDATE, BASELINE_REVISION):
-        parser.error(f"baseline worktree must be at {BASELINE_REVISION}")
+    if baseline_head != git_revision(CANDIDATE, args.baseline_revision):
+        parser.error(f"baseline worktree must be at {args.baseline_revision}")
     if subprocess.run(["git", "-C", str(baseline), "diff", "--quiet", "HEAD", "--", "backend"]).returncode:
         parser.error("baseline backend differs from the pinned commit")
 
