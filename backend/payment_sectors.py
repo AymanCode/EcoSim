@@ -295,7 +295,11 @@ class PaymentGoodsMarket:
             cash = _spendable(household)
             for target, wanted in targets.items():
                 residual = max(0.0, min(float(wanted), considered.get(target, 0.0)) - self.accepted[hid][target])
-                if residual <= EPS:
+                # With fix_spending_leak, money redirected to other sellers is
+                # still a lost sale for the sold-out target (its own signal),
+                # though it is not household unmet demand.
+                substituted = self.substituted.get(hid, {}).get(target, 0.0)
+                if residual <= EPS and substituted <= EPS:
                     continue
                 candidates = self._targets(target)
                 if not candidates:
@@ -318,7 +322,8 @@ class PaymentGoodsMarket:
                     cash = max(0.0, cash - max(0.0, price * qty - public))
                     subsidy = max(0.0, subsidy - public)
                     unmet += qty
-                if unmet <= EPS:
+                lost_sales = unmet + substituted
+                if lost_sales <= EPS:
                     continue
                 category = _category(candidates[0])
                 if category == "food":
@@ -327,9 +332,9 @@ class PaymentGoodsMarket:
                     self.economy.services_unmet_demand += unmet
                     if len(candidates) == 1:
                         fid = candidates[0].firm_id
-                        self.economy.services_unmet_demand_by_firm[fid] = self.economy.services_unmet_demand_by_firm.get(fid, 0.0) + unmet
+                        self.economy.services_unmet_demand_by_firm[fid] = self.economy.services_unmet_demand_by_firm.get(fid, 0.0) + lost_sales
                 if len(candidates) == 1:
-                    self.economy._record_firm_unmet_demand(candidates[0].firm_id, unmet)
+                    self.economy._record_firm_unmet_demand(candidates[0].firm_id, lost_sales)
         return self.purchases, self.sales
 
 

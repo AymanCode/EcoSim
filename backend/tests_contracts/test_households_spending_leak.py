@@ -151,8 +151,11 @@ def test_services_substitution_uses_multiple_pool_sellers_and_id_ties(factory):
         assert "Services4" not in purchases[1]
         assert hh.services_consumed_this_tick == pytest.approx(3.8)
         assert sum(item["revenue"] for item in sales.values()) == pytest.approx(38)
+        # Household unmet demand is what found no seller; the sold-out seller's
+        # own lost-sales signal is its full shortfall (1.2 unserved + 3.8 redirected).
         assert eco.services_unmet_demand == pytest.approx(1.2)
-        assert eco.services_unmet_demand_by_firm[1] == pytest.approx(1.2)
+        assert eco.services_unmet_demand_by_firm[1] == pytest.approx(5.0)
+        assert eco.current_tick_unmet_demand_by_firm[1] == pytest.approx(5.0)
 
 
 def test_no_substitution_for_a_cash_shortfall(factory):
@@ -216,7 +219,7 @@ def test_substitution_uses_funded_subsidy_and_conserves_money(factory):
 
 
 @pytest.mark.parametrize("scaled", [False, True])
-def test_legacy_stockout_and_unmet_use_only_unsatisfied_money(factory, scaled):
+def test_legacy_household_unmet_uses_unsatisfied_money_and_seller_keeps_lost_sales(factory, scaled):
     cfg = clone_config()
     cfg.payment_sequence = "legacy"
     cfg.households.fix_spending_leak = True
@@ -230,7 +233,8 @@ def test_legacy_stockout_and_unmet_use_only_unsatisfied_money(factory, scaled):
         assert purchases[1]["Food2"] == pytest.approx((3.42, 20.0))
         assert sum(s["revenue"] for s in sales.values()) == pytest.approx(78.4)
         assert eco.food_unmet_demand == pytest.approx(2.16)
-        assert eco.current_tick_unmet_demand_by_firm[1] == pytest.approx(2.16)
+        # The sold-out seller lost 9 units of sales even though 6.84 were bought elsewhere.
+        assert eco.current_tick_unmet_demand_by_firm[1] == pytest.approx(9.0)
         initial = hh.cash_balance + sum(f.cash_balance for f in firms) + eco.government.cash_balance
         # Legacy settlement credits sellers first and charges the household at
         # the later household update boundary.

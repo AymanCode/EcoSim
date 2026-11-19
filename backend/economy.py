@@ -5735,6 +5735,9 @@ class Economy:
                             cash_left = max(0.0, cash_left - (qty * price - public))
 
                         shortage = max(0.0, fundable - qty)
+                        # The seller lost this sale whether or not the shopper buys
+                        # elsewhere: its own lost-sales signal keeps the full shortfall.
+                        lost_sales = shortage
                         money_left = CONFIG.households.stockout_substitution_share * shortage * price
                         if purchase_scale is not None:
                             limit = (min(budget_remaining, food_remaining) if category == "food"
@@ -5780,15 +5783,18 @@ class Economy:
                                 money_left = max(0.0, money_left - cost)
                                 if money_left <= 0:
                                     break
+                        # Household telemetry counts only what found no seller.
                         if shortage > 0:
                             if category == "food":
                                 _unmet_food += shortage
                             elif category == "services":
                                 _unmet_services += shortage
+                        if lost_sales > 0:
+                            if category == "services":
                                 services_unmet_by_firm[firm_ids[idx]] = (
-                                    services_unmet_by_firm.get(firm_ids[idx], 0.0) + shortage
+                                    services_unmet_by_firm.get(firm_ids[idx], 0.0) + lost_sales
                                 )
-                            record_firm_unmet(firm_ids[idx], shortage)
+                            record_firm_unmet(firm_ids[idx], lost_sales)
                         continue
                     if available <= 0:
                         _cat = firm_cat_by_idx[idx]
