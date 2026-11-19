@@ -127,6 +127,7 @@ class HouseholdAgent(AgentMixin):
     owns_housing: bool = False  # Track if household already owns housing
     renting_from_firm_id: Optional[int] = None  # Firm ID of housing provider (rental)
     monthly_rent: float = 0.0  # Current rent amount paid per tick
+    essential_weekly_cost: float = 0.0  # Refreshed from food prices and rent before planning
     rent_arrears: float = 0.0
     rent_notice_remaining: int = 0
     lease_renewal_tick: int = -1
@@ -142,6 +143,7 @@ class HouseholdAgent(AgentMixin):
     last_wage_income: float = 0.0
     last_transfer_income: float = 0.0
     last_dividend_income: float = 0.0
+    dividends_since_last_plan: float = 0.0  # Accumulated until a budget consumes it
     last_other_income: float = 0.0
     last_consumption_spending: float = 0.0
     last_tick_cash_start: float = 0.0  # Cash at start of tick for change calculation
@@ -676,6 +678,12 @@ class HouseholdAgent(AgentMixin):
 
         return {category: weight / total for category, weight in normalized.items()}
 
+    def _money_line(self, weeks: float, fallback: float) -> float:
+        """Use this household's current essentials when the money-lines flag is on."""
+        if CONFIG.households.money_lines_in_weeks and self.essential_weekly_cost > 1e-6:
+            return weeks * self.essential_weekly_cost
+        return fallback
+
     def _get_affordability_score(self) -> float:
         """
         Calculate a normalized affordability score based on skills, cash, and wages.
@@ -685,8 +693,9 @@ class HouseholdAgent(AgentMixin):
         """
         wage_basis = self.wage if self.wage > 0 else self.expected_wage
         skill_component = self.skills_level * 1.5
-        cash_component = min(3.0, self.cash_balance / 400.0)
-        wage_component = min(3.0, wage_basis / 40.0)
+        cfg = CONFIG.households
+        cash_component = min(3.0, self.cash_balance / self._money_line(cfg.affordability_cash_weeks, 400.0))
+        wage_component = min(3.0, wage_basis / self._money_line(cfg.affordability_wage_weeks, 40.0))
 
         score = 0.3 * skill_component + 0.35 * cash_component + 0.35 * wage_component
         return max(0.1, min(4.0, score))
@@ -714,7 +723,8 @@ class HouseholdAgent(AgentMixin):
 
         affordability = self._get_affordability_score()
         wage_basis = self.wage if self.wage > 0 else self.expected_wage
-        liquid_cash = max(25.0, self.cash_balance * 0.2 + wage_basis)
+        floor = self._money_line(CONFIG.households.price_cap_floor_weeks, 25.0)
+        liquid_cash = max(floor, self.cash_balance * 0.2 + wage_basis)
 
         base_cap = min_price * (1.2 + 2.5 * affordability)
         median_cap = median_price * (0.8 + affordability)
@@ -1447,6 +1457,8 @@ class HouseholdAgent(AgentMixin):
             expected_housing_price = self.price_beliefs.get("housing", self.default_price_level)
             expected_food_price = self.price_beliefs.get("food", self.default_price_level)
         living_cost = 0.3 * expected_housing_price + self.min_food_per_tick * expected_food_price
+        if CONFIG.households.money_lines_in_weeks and self.essential_weekly_cost > 1e-6:
+            living_cost = self.essential_weekly_cost
 
         # Desperation scaling: the worse off you are, the lower your standards.
         # Factors: low cash, poor health, long unemployment — each independently
@@ -1569,7 +1581,9 @@ class HouseholdAgent(AgentMixin):
         self.needs_consumption_loan = False
         self.consumption_loan_amount = 0.0
 
-        if self.cash_balance >= self.subsistence_min_cash:
+        cfg = CONFIG.households
+        subsistence = self._money_line(cfg.subsistence_weeks, self.subsistence_min_cash)
+        if self.cash_balance >= subsistence:
             return
         if bank is None:
             return
@@ -1578,11 +1592,11 @@ class HouseholdAgent(AgentMixin):
         if credit_score < 0.4:
             return
 
-        amount = self.subsistence_min_cash * 4.0
+        amount = self._money_line(cfg.consumption_loan_weeks, self.subsistence_min_cash * 4.0)
 
         # Leverage check: total consumption debt < 4× weekly income baseline
         weekly_wage = self.wage if self.employer_id is not None else self.expected_wage * 0.5
-        income_baseline = max(weekly_wage, self.subsistence_min_cash)
+        income_baseline = max(weekly_wage, subsistence)
         if self.consumption_loan_remaining + amount > income_baseline * 4.0:
             return
 
@@ -1806,7 +1820,7 @@ class HouseholdAgent(AgentMixin):
             )
             # Cash pressure: broke people adjust fast
             cash_pressure = 0.0
-            cash_threshold = hh_config.poverty_threshold
+            cash_threshold = self._money_line(hh_config.poverty_weeks, hh_config.poverty_threshold)
             if self.cash_balance < cash_threshold:
                 cash_pressure = min(
                     hh_config.happiness_pressure_cap,
@@ -1824,7 +1838,8 @@ class HouseholdAgent(AgentMixin):
                 hh_config.min_decay_factor,
                 hh_config.base_wage_decay - duration_pressure - cash_pressure - health_pressure,
             )
-            decayed_expectation = max(self.expected_wage * decay_factor, hh_config.wage_floor)
+            wage_floor = self._money_line(hh_config.wage_floor_weeks, hh_config.wage_floor)
+            decayed_expectation = max(self.expected_wage * decay_factor, wage_floor)
 
             if market_wage_anchor is not None:
                 anchor_weight = hh_config.unemployed_market_anchor_weight
@@ -1849,18 +1864,21 @@ class HouseholdAgent(AgentMixin):
         """
         Actively invest in education when unemployed and below median skill.
 
-        Trigger: skills < 0.5, cash > 300, unemployed.
-        Cost: $100, Skill gain: +0.005
+        Trigger: skills < 0.5, unemployed, and cash above the education line.
+        The line and fee use fixed amounts or weeks of essentials by configuration;
+        the skill gain is +0.005.
 
         Returns:
-            float: Cost paid (100.0) if education was pursued, 0.0 otherwise
+            float: Actual cost paid if education was pursued, 0.0 otherwise
         """
         if self.is_employed:
             return 0.0
-        if self.skills_level >= 0.5 or self.cash_balance <= 300.0:
+        cfg = CONFIG.households
+        trigger = self._money_line(cfg.education_trigger_weeks, 300.0)
+        if self.skills_level >= 0.5 or self.cash_balance <= trigger:
             return 0.0
 
-        cost = 100.0
+        cost = self._money_line(cfg.education_fee_weeks, 100.0)
         if self.cash_balance >= cost:
             self.cash_balance -= cost
             before = self.skills_level
@@ -5687,9 +5705,10 @@ class FirmAgent(AgentMixin):
         """Credit ``amount_each`` as dividend income to each listed household.
 
         Households missing from ``household_lookup`` are skipped. Each credit
-        raises cash and ``last_dividend_income``, records a ``dividends`` ledger
-        flow and notes this firm in ``last_dividend_firm_ids``. Returns the total
-        credited; the caller deducts it from firm cash.
+        raises cash, ``last_dividend_income`` and the pending planning income,
+        records a ``dividends`` ledger flow and notes this firm in
+        ``last_dividend_firm_ids``. Returns the total credited; the caller
+        deducts it from firm cash.
         """
         paid = 0.0
         for household_id in household_ids:
@@ -5698,6 +5717,7 @@ class FirmAgent(AgentMixin):
                 continue
             household.cash_balance += amount_each
             household.last_dividend_income += amount_each
+            household.dividends_since_last_plan += amount_each
             household.add_ledger_flow("dividends", amount_each)
             if self.firm_id not in household.last_dividend_firm_ids:
                 household.last_dividend_firm_ids.append(self.firm_id)

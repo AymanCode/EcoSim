@@ -63,6 +63,7 @@ from utils.category_utils import build_good_category_lookup
 from inflation import ConsumerPriceIndex, WageReview
 from firm_research import PROJECT_MODELS, RESEARCH_CATEGORIES, ResearchState, sample_entry_quality
 from payments import PaymentBook, MONEY_EPS, proportional
+from household_costs import essential_weekly_costs, food_reference_price
 from household_liquidity import (
     accessible_liquidity as household_accessible_liquidity,
     accessible_liquidity_array,
@@ -406,6 +407,8 @@ class Economy:
         # SOLID: SRP Violation - Unemployment tracking should be in LaborMarketState
         self._unemployment_history: deque = deque(maxlen=CONFIG.firms.unemployment_ma_window)
         self.unemployment_short_ma: float = 0.0
+        self.savings_goal_unemployment_ema: Optional[float] = None
+        self._savings_goal_ema_tick: Optional[int] = None
 
         # SOLID: SRP Violation - Audit state should be in AuditLogger class
         # Audit-mode action log: when enabled, step() stashes all intermediate
@@ -1075,7 +1078,9 @@ class Economy:
         wage and CEO pay after wage tax) and ``last_transfer_income``. Without it
         they are forecast inputs: the contract wage when employed and the
         benefit level when not. The standard funded path explicitly selects
-        settled inputs after this tick's actual wage/benefit payments.
+        settled inputs after this tick's actual wage/benefit payments. The
+        optional savings goal uses funded income and the pending dividends;
+        income-late plans precede wage and benefit settlement.
 
         With ``CONFIG.households.healthcare_food_first_reserve`` on, the money
         is claimed in this order on every payment sequence: rent and loan
@@ -1103,12 +1108,14 @@ class Economy:
             net_wages, payment_liquidity, pressure = planning_inputs(self, settled_income=settled_income)
             wages = np.asarray(net_wages, dtype=np.float64)
         drawdown_rates = static_traits["drawdown_rates"]
+        cfg = CONFIG.households
+        use_pending_dividends = cfg.fix_dividend_timing or cfg.savings_goal
         dividend_incomes = np.array(
-            [max(0.0, float(h.last_dividend_income)) for h in self.households],
+            [max(0.0, float(h.dividends_since_last_plan if use_pending_dividends
+                            else h.last_dividend_income)) for h in self.households],
             dtype=np.float64,
         )
 
-        cfg = CONFIG.households
         mpc_wage = cfg.mpc_wage
         mpc_benefit = cfg.mpc_benefit
         mpc_dividend = cfg.mpc_dividend
@@ -1213,25 +1220,64 @@ class Economy:
                 (pressure[h.household_id]["estimated_savings_liquidity"] for h in self.households),
                 dtype=np.float64, count=len(self.households),
             )
-        drawdown = drawdown_rates * savings_liquidity
+        if cfg.savings_goal:
+            costs = essential_weekly_costs(self)
+            if self.payment_sequence == "legacy":
+                income = np.maximum(np.array(
+                    [h.last_wage_income + h.last_other_income for h in self.households],
+                    dtype=np.float64,
+                ), 0.0) + np.array(
+                    [h.last_transfer_income for h in self.households], dtype=np.float64,
+                ) + dividend_incomes
+                savings_access = accessible_liquidity
+                if not settled_income:
+                    savings_access = np.maximum(accessible_liquidity - self._legacy_obligations_due(), 0.0)
+                savings_liquidity = np.maximum(savings_access - income, 0.0)
+            else:
+                # Later-pay planning occurs before wages and benefits are paid.
+                income = (wage_income + benefit_income if settled_income
+                          else np.zeros(len(self.households), dtype=np.float64)) + dividend_incomes
+            u_ema = (self.savings_goal_unemployment_ema
+                     if self.savings_goal_unemployment_ema is not None else unemployment_rate)
+            risk = min(cfg.savings_goal_risk_cap,
+                       1.0 + cfg.savings_goal_risk_slope * max(0.0, u_ema - cfg.savings_goal_risk_reference))
+            tendencies = np.fromiter((h.saving_tendency for h in self.households),
+                                     dtype=np.float64, count=len(self.households))
+            target = np.where(employment_status,
+                              cfg.savings_goal_weeks * (cfg.savings_goal_tendency_offset + tendencies) * costs * risk,
+                              0.0)
+            food_floor = np.fromiter((max(0.0, h.min_food_per_tick) for h in self.households),
+                                     dtype=np.float64, count=len(self.households)) * food_reference_price(self)
+            budget = np.clip(income + cfg.savings_goal_adjust_rate * (savings_liquidity - target),
+                             np.minimum(accessible_liquidity, food_floor), accessible_liquidity)
+        else:
+            drawdown = drawdown_rates * savings_liquidity
 
-        # Desperation mode: when income-based budget < survival minimum, raid savings
-        # faster. It raises the drawdown, never lowers it below the normal one (B27).
-        subsistence_min = CONFIG.households.subsistence_min_cash
-        in_desperation = base_budget < subsistence_min
-        emergency_rates = np.minimum(drawdown_rates * 5.0, 0.20)
-        desperation_drawdown = np.minimum(
-            emergency_rates * savings_liquidity,
-            np.maximum(0.0, subsistence_min - base_budget),
-        )
-        drawdown = np.where(in_desperation, np.maximum(drawdown, desperation_drawdown), drawdown)
+            # Desperation mode: when income-based budget < survival minimum, raid savings
+            # faster. It raises the drawdown, never lowers it below the normal one (B27).
+            subsistence_min = CONFIG.households.subsistence_min_cash
+            if cfg.money_lines_in_weeks:
+                subsistence_min = np.fromiter(
+                    (h._money_line(cfg.subsistence_weeks, cfg.subsistence_min_cash) for h in self.households),
+                    dtype=np.float64, count=len(self.households),
+                )
+            in_desperation = base_budget < subsistence_min
+            emergency_rates = np.minimum(drawdown_rates * 5.0, 0.20)
+            desperation_drawdown = np.minimum(
+                emergency_rates * savings_liquidity,
+                np.maximum(0.0, subsistence_min - base_budget),
+            )
+            drawdown = np.where(in_desperation, np.maximum(drawdown, desperation_drawdown), drawdown)
 
-        budget = np.minimum(base_budget + drawdown, accessible_liquidity)
+            budget = np.minimum(base_budget + drawdown, accessible_liquidity)
         if cfg.healthcare_food_first_reserve:
             # Flag-off budget on the pre-reserve liquidity L, then capped at
             # L - reserve. reserve <= max(0, L - min food), so the budget never
             # drops below min(flag-off budget, min-food cost).
             budget = np.minimum(budget, accessible_liquidity - reserves)
+        if use_pending_dividends:
+            for household in self.households:
+                household.dividends_since_last_plan = 0.0
         return budget
 
     def _min_food_cost(self) -> np.ndarray:
@@ -2530,12 +2576,22 @@ class Economy:
             tick.housing_private_inventory,
             housing_baseline_inventory,
         ) = self._build_firm_market_views()
+        hh_cfg = CONFIG.households
+        if hh_cfg.money_lines_in_weeks or hh_cfg.savings_goal:
+            for household, cost in zip(self.households, essential_weekly_costs(self)):
+                household.essential_weekly_cost = float(cost)
         if CONFIG.households.fix_category_price_beliefs:
             tick.category_expected_prices = self._median_category_prices(tick.category_market_snapshot)
         tick.total_households = len(self.households)
         tick.housing_inventory_overhang = tick.housing_private_inventory + housing_baseline_inventory
         unemployed_count = sum(1 for h in self.households if not h.is_employed)
         tick.unemployment_rate = (unemployed_count / tick.total_households) if tick.total_households > 0 else 0.0
+        if hh_cfg.savings_goal and self._savings_goal_ema_tick != self.current_tick:
+            alpha = 2.0 / (hh_cfg.savings_goal_risk_ema_weeks + 1.0)
+            previous = self.savings_goal_unemployment_ema
+            self.savings_goal_unemployment_ema = (tick.unemployment_rate if previous is None else
+                                                   alpha * tick.unemployment_rate + (1.0 - alpha) * previous)
+            self._savings_goal_ema_tick = self.current_tick
         self._unemployment_history.append(tick.unemployment_rate)
         self.unemployment_short_ma = sum(self._unemployment_history) / len(self._unemployment_history)
 
@@ -5935,10 +5991,21 @@ class Economy:
         happiness_change = np.zeros(n, dtype=np.float64)
 
         # Poverty penalties (from config)
-        happiness_change -= np.where(liquid_wealth < hc.extreme_poverty_threshold,
+        extreme_line = hc.extreme_poverty_threshold
+        poverty_line = hc.poverty_threshold
+        if hc.money_lines_in_weeks:
+            extreme_line = np.fromiter(
+                (h._money_line(hc.extreme_poverty_weeks, hc.extreme_poverty_threshold) for h in households),
+                dtype=np.float64, count=n,
+            )
+            poverty_line = np.fromiter(
+                (h._money_line(hc.poverty_weeks, hc.poverty_threshold) for h in households),
+                dtype=np.float64, count=n,
+            )
+        happiness_change -= np.where(liquid_wealth < extreme_line,
                                      hc.extreme_poverty_penalty, 0.0)
         happiness_change -= np.where(
-            (liquid_wealth >= hc.extreme_poverty_threshold) & (liquid_wealth < hc.poverty_threshold),
+            (liquid_wealth >= extreme_line) & (liquid_wealth < poverty_line),
             hc.poverty_penalty, 0.0)
 
         # Government social programs boost
@@ -9124,7 +9191,8 @@ class Economy:
                 hh.add_ledger_flow("bank", interest)
 
             # Per-household liquidity buffer: buffer_weeks × estimated weekly spending
-            weekly_spend = max(hh.last_consumption_spending, min_wage, 50.0)
+            spending_floor = hh._money_line(CONFIG.households.subsistence_weeks, 50.0)
+            weekly_spend = max(hh.last_consumption_spending, min_wage, spending_floor)
             liquidity_floor = weekly_spend * hh.deposit_buffer_weeks
 
             if hh.cash_balance > liquidity_floor:

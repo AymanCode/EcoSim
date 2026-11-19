@@ -113,6 +113,80 @@ class HouseholdBehaviorConfig:
     #   Off: identical to main.
     healthcare_food_first_reserve: bool = True
 
+    # Convert household money lines to weeks of own food and rent; default off.
+    money_lines_in_weeks: bool = False
+    # extreme_poverty_weeks: default 2.0 weeks. Kaplan, Violante & Weidner
+    # (2014, Brookings Papers) use about one week of income for hand-to-mouth
+    # wealth; at the settled baseline wages are about 1.8x essentials, rounded
+    # to two weeks. This narrows the old 100 line from about 3.3 weeks.
+    extreme_poverty_weeks: float = 2.0
+    # poverty_weeks: default 13.0 weeks. Prosperity Now defines liquid asset
+    # poverty as under three months of poverty-level expenses; essentials
+    # approximate those expenses. This widens the old 200 line from about 6.7
+    # weeks at the settled baseline.
+    poverty_weeks: float = 13.0
+    # wage_floor_weeks: default 0.33 weeks; no study, converted from the old 10
+    # wage floor at settled essential costs of about 30 per week.
+    wage_floor_weeks: float = 0.33
+    # subsistence_weeks: default 1.0 week, one week of essentials by definition;
+    # no study or departure is needed for this definition.
+    subsistence_weeks: float = 1.0
+    # consumption_loan_weeks: default 2.0 weeks. CFPB (2013), Payday Loans and
+    # Deposit Advance Products, reports a roughly $350 median payday loan;
+    # two weeks of poverty-line single-adult essentials approximate that amount.
+    consumption_loan_weeks: float = 2.0
+    # education_fee_weeks: default 3.3 weeks; no study, converted from 100 at
+    # settled essentials of about 30 per week.
+    education_fee_weeks: float = 3.3
+    # education_trigger_weeks: default 10.0 weeks; no study, converted from 300
+    # at settled essentials of about 30 per week.
+    education_trigger_weeks: float = 10.0
+    # affordability_cash_weeks: default 13.3 weeks; no study, converted from
+    # the cash divider 400 at settled essentials of about 30 per week.
+    affordability_cash_weeks: float = 13.3
+    # affordability_wage_weeks: default 1.33 weeks; no study, converted from
+    # the wage divider 40 at settled essentials of about 30 per week.
+    affordability_wage_weeks: float = 1.33
+    # price_cap_floor_weeks: default 0.83 weeks; no study, converted from the
+    # price-cap liquid floor 25 at settled essentials of about 30 per week.
+    price_cap_floor_weeks: float = 0.83
+
+    # Savings-cushion spending rule, independent of money lines; default off.
+    savings_goal: bool = False
+    # savings_goal_weeks: default 6.0 weeks. JPMorgan Chase Institute,
+    # Weathering Volatility 2.0, finds median cash buffers of 13-26 spending
+    # days by income quartile (2009-2020) and about six weeks of take-home pay
+    # needed for a simultaneous income dip and spending spike. Using weeks of
+    # essentials instead of income is a conversion to the simulation's needs.
+    savings_goal_weeks: float = 6.0
+    # savings_goal_tendency_offset: default 0.5; no study. Centers the target
+    # at six weeks for the midpoint saving tendency and retains a positive goal
+    # for low-saving households, a modeling choice rather than a study result.
+    savings_goal_tendency_offset: float = 0.5
+    # savings_goal_risk_ema_weeks: default 13.0 weeks; no study. A quarter-year
+    # EMA smooths the observed all-household unemployment share, a model choice.
+    savings_goal_risk_ema_weeks: float = 13.0
+    # savings_goal_risk_cap: default 2.0x. Carroll, Dynan & Krane (2003,
+    # REStat) simulate roughly 80% more wealth when job-loss risk doubles;
+    # 2x rounds that effect into a cap. EcoSim unemployment is much higher
+    # than real-world ranges, so the increase is capped.
+    savings_goal_risk_cap: float = 2.0
+    # savings_goal_risk_slope: default 2.0 per unit of unemployment share.
+    # Carroll, Dynan & Krane (2003, REStat) support rising precautionary wealth;
+    # this slope is far below their estimates because EcoSim unemployment is
+    # much higher than real-world ranges and the effect is capped.
+    savings_goal_risk_slope: float = 2.0
+    # savings_goal_risk_reference: default 0.05 jobless share; no study. This
+    # reference is a modeling baseline below which risk does not raise the goal.
+    savings_goal_risk_reference: float = 0.05
+    # savings_goal_adjust_rate: default 0.02 per week. Fagereng, Holm & Natvik
+    # (2021, AEJ: Macro) find most windfall spending within a year; 2% weekly
+    # closes about 65% of a gap in 52 weeks, a conversion to the model's tick.
+    savings_goal_adjust_rate: float = 0.02
+
+    # Spend dividends received since the previous plan as income; default off.
+    fix_dividend_timing: bool = False
+
     # Job acceptance (H1 - no job worse than benefits)
     min_job_premium_over_unemployment: float = 1.05  # Jobs must pay 5% more than unemployment benefits
 
