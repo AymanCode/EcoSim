@@ -15,6 +15,10 @@ from food_credit import goods_quotes
 from utils.category_utils import get_good_category
 
 EPS = 1e-6
+# Gruen, Corsten and Bharadwaj (2002), Retail Out-of-Stocks: 31% buy
+# elsewhere, 26% switch brands, and 19% substitute within a brand. EcoSim
+# represents all three as switching seller and applies that proxy to Services.
+SERVICE_STOCKOUT_SUBSTITUTION_SHARE = 0.76
 
 
 def _category(firm):
@@ -78,6 +82,9 @@ class PaymentGoodsMarket:
         # Largest cumulative fundable quote needing feedback, across both
         # passes. Fully served quotes need no additional per-order record.
         self.considered = defaultdict(lambda: defaultdict(float))
+        self.substituted_source_units = {}
+        self.paid_inbound_units = defaultdict(float)
+        self.services_outbound_matches = defaultdict(float)
         self.purchases = economy.payment_book.purchases
         self.sales = economy.payment_book.receipts
         self.combined_services_units = defaultdict(float)
@@ -110,7 +117,8 @@ class PaymentGoodsMarket:
     def _buy(self, household, target, wanted):
         bought = 0.0
         hid = household.household_id
-        for firm in self._targets(target):
+        targets = self._targets(target)
+        for firm in targets:
             if bought >= wanted - EPS:
                 break
             fid = firm.firm_id
@@ -138,22 +146,87 @@ class PaymentGoodsMarket:
                 )
             if qty <= EPS:
                 continue
-            public = (min(max(0.0, share) * price * qty, free_subsidy) if share else 0.0)
-            if not self.economy.payment_book.commit_sale(household, firm, qty, price, public_amount=public):
+            if not self._commit_goods_sale(household, firm, qty, free_subsidy):
                 self.considered[hid][target] = max(
                     self.considered[hid][target], self.accepted[hid][target] + bought + fundable,
                 )
                 continue
-            self.remaining[fid] -= qty
-            if self.categories[fid] != "services":
-                firm.inventory_units = max(0.0, firm.inventory_units - qty)
-                household.goods_inventory[firm.good_name] = household.goods_inventory.get(firm.good_name, 0.0) + qty
-            else:
-                household.services_consumed_this_tick += qty
-                self.combined_services_units[fid] += qty
             bought += qty
         self.accepted[hid][target] += bought
+        if (
+            len(targets) == 1 and target == targets[0].firm_id
+            and self.categories[target] == "services" and self.prices[target] > EPS
+            and self.remaining[target] <= EPS
+            and getattr(self.economy, "payment_sequence", None) == "income_first"
+            and not getattr(self.economy, "in_warmup", True)
+        ):
+            order = (hid, target)
+            shortage = self.considered.get(hid, {}).get(target, 0.0) - self.accepted[hid][target]
+            if shortage > EPS and order not in self.substituted_source_units:
+                matched, delivered = self._reroute_service_stockout(household, targets[0], shortage)
+                self.substituted_source_units[order] = matched
+                self.accepted[hid][target] += matched
+                bought += delivered
         return bought
+
+    def _commit_goods_sale(self, household, firm, qty, subsidy):
+        fid = firm.firm_id
+        price = self.prices[fid]
+        share = self.subsidy_shares[fid]
+        public = min(max(0.0, share) * price * qty, subsidy) if share else 0.0
+        if not self.economy.payment_book.commit_sale(household, firm, qty, price, public_amount=public):
+            return False
+        self.remaining[fid] -= qty
+        if self.categories[fid] == "services":
+            household.services_consumed_this_tick += qty
+            self.combined_services_units[fid] += qty
+        else:
+            firm.inventory_units = max(0.0, firm.inventory_units - qty)
+            household.goods_inventory[firm.good_name] = household.goods_inventory.get(firm.good_name, 0.0) + qty
+        return True
+
+    def _reroute_service_stockout(self, household, origin, shortage):
+        """Fill the original order elsewhere, measuring its match in source-price units."""
+        origin_price = self.prices[origin.firm_id]
+        remaining_budget = SERVICE_STOCKOUT_SUBSTITUTION_SHARE * shortage * origin_price
+        pool = set(household.awareness_pool.get("services") or ())
+        alternatives = [
+            firm for firm in self.firms
+            if firm.firm_id != origin.firm_id and self.categories[firm.firm_id] == "services"
+            and self.remaining[firm.firm_id] > EPS and (not pool or firm.firm_id in pool)
+        ]
+        if pool:
+            alternatives.sort(key=lambda firm: (
+                household.price_sensitivity * self.prices[firm.firm_id] / origin_price
+                - household.quality_lavishness * self.economy._effective_firm_quality(firm),
+                firm.firm_id,
+            ))
+        else:
+            alternatives.sort(key=lambda firm: (self.prices[firm.firm_id], firm.firm_id))
+
+        matched = delivered = 0.0
+        for firm in alternatives:
+            still_needed = shortage - matched
+            if still_needed <= EPS:
+                break
+            fid = firm.firm_id
+            price = self.prices[fid]
+            quote = min(remaining_budget, still_needed * origin_price)
+            wanted = quote / price if price > 0.0 else still_needed
+            share = self.subsidy_shares[fid]
+            subsidy = _goods_subsidy_available(self.economy) if share else 0.0
+            qty = _sale_quantity(price, wanted, self.remaining[fid], _spendable(household), share, subsidy)
+            if qty <= EPS or not self._commit_goods_sale(household, firm, qty, subsidy):
+                continue
+            delivered += qty
+            if price > 0.0:
+                spent = qty * price
+                remaining_budget = max(0.0, remaining_budget - spent)
+                matched += spent / origin_price
+                self.paid_inbound_units[fid] += qty
+            else:
+                matched += qty
+        return matched, delivered
 
     def first_pass(self):
         if self._first_done:
@@ -210,7 +283,8 @@ class PaymentGoodsMarket:
             credit_left = self.food_credit.get(hid, 0.0)
             for target, wanted in targets.items():
                 residual = max(0.0, min(float(wanted), considered.get(target, 0.0)) - self.accepted[hid][target])
-                if residual <= EPS:
+                substituted = self.substituted_source_units.get((hid, target), 0.0)
+                if residual <= EPS and substituted <= EPS:
                     continue
                 candidates = self._targets(target)
                 if not candidates:
@@ -236,7 +310,8 @@ class PaymentGoodsMarket:
                     cash = max(0.0, cash - max(0.0, price * qty - public - tender))
                     subsidy = max(0.0, subsidy - public)
                     unmet += qty
-                if unmet <= EPS:
+                lost_sales = unmet + substituted
+                if lost_sales <= EPS:
                     continue
                 category = _category(candidates[0])
                 if category == "food":
@@ -245,9 +320,11 @@ class PaymentGoodsMarket:
                     self.economy.services_unmet_demand += unmet
                     if len(candidates) == 1:
                         fid = candidates[0].firm_id
-                        self.economy.services_unmet_demand_by_firm[fid] = self.economy.services_unmet_demand_by_firm.get(fid, 0.0) + unmet
+                        if substituted:
+                            self.services_outbound_matches[fid] += substituted
+                        self.economy.services_unmet_demand_by_firm[fid] = self.economy.services_unmet_demand_by_firm.get(fid, 0.0) + lost_sales
                 if len(candidates) == 1:
-                    self.economy._record_firm_unmet_demand(candidates[0].firm_id, unmet)
+                    self.economy._record_firm_unmet_demand(candidates[0].firm_id, lost_sales)
         return self.purchases, self.sales
 
 
