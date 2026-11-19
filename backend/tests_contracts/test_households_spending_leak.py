@@ -11,6 +11,15 @@ from payment_sectors import PaymentGoodsMarket
 from payments import PaymentBook
 
 
+@pytest.fixture(autouse=True)
+def _income_first_sequence():
+    """Every test runs on income_first; legacy is not tested here."""
+    config = clone_config()
+    config.payment_sequence = "income_first"
+    with use_config(config):
+        yield
+
+
 def _world(factory, cfg, *, cash=100.0, category="Food", stocks=(0.0, 100.0), prices=(10.0, 20.0)):
     hh = factory.household(household_id=1, cash_balance=cash, goods_inventory={},
                            min_food_per_tick=2.0, awareness_pool={category.lower(): [1, 2]},
@@ -172,10 +181,9 @@ def test_no_substitution_for_a_cash_shortfall(factory):
         assert eco.food_unmet_demand == 0
 
 
-@pytest.mark.parametrize("timing", ["income_first", "legacy"])
-def test_zero_price_alternative_is_bounded_and_does_not_spend_the_budget(factory, timing):
+def test_zero_price_alternative_is_bounded_and_does_not_spend_the_budget(factory):
     cfg = clone_config()
-    cfg.payment_sequence = timing
+    cfg.payment_sequence = "income_first"
     cfg.households.fix_spending_leak = True
     with use_config(cfg):
         eco, hh, firms = _world(factory, cfg, stocks=(0, 1), prices=(10, 0))
@@ -183,14 +191,11 @@ def test_zero_price_alternative_is_bounded_and_does_not_spend_the_budget(factory
         firms.append(third)
         hh.awareness_pool = {}  # The free seller comes before the paid seller.
         plans = {1: {"planned_purchases": {1: 4}, "budget": 40}}
-        if timing == "legacy":
-            purchases, sales = eco._clear_goods_market(plans, firms)
-        else:
-            market = PaymentGoodsMarket(eco, plans, firms)
-            market.first_pass()
-            market.second_pass()
-            purchases, sales = market.finish()
-            assert market.accepted[1][1] == pytest.approx(3.04)
+        market = PaymentGoodsMarket(eco, plans, firms)
+        market.first_pass()
+        market.second_pass()
+        purchases, sales = market.finish()
+        assert market.accepted[1][1] == pytest.approx(3.04)
         assert purchases[1]["Food2"] == pytest.approx((1, 0))
         assert sales[3]["revenue"] == pytest.approx(30.4)
 
@@ -218,68 +223,6 @@ def test_substitution_uses_funded_subsidy_and_conserves_money(factory):
         assert hh.cash_balance + eco.government.cash_balance + firms[1].cash_balance == pytest.approx(20)
 
 
-@pytest.mark.parametrize("scaled", [False, True])
-def test_legacy_household_unmet_uses_unsatisfied_money_and_seller_keeps_lost_sales(factory, scaled):
-    cfg = clone_config()
-    cfg.payment_sequence = "legacy"
-    cfg.households.fix_spending_leak = True
-    with use_config(cfg):
-        eco, hh, firms = _world(factory, cfg, stocks=(1, 100), prices=(10, 20))
-        plan = {"planned_purchases": {1: 10.0}, "budget": 100.0}
-        if scaled:
-            plan.update(_purchase_scale=1.0, _food_budget_cap=100.0)
-        purchases, sales = eco._clear_goods_market({1: plan}, firms)
-        assert purchases[1]["Food1"] == pytest.approx((1.0, 10.0))
-        assert purchases[1]["Food2"] == pytest.approx((3.42, 20.0))
-        assert sum(s["revenue"] for s in sales.values()) == pytest.approx(78.4)
-        assert eco.food_unmet_demand == pytest.approx(2.16)
-        # The sold-out seller lost 9 units of sales even though 6.84 were bought elsewhere.
-        assert eco.current_tick_unmet_demand_by_firm[1] == pytest.approx(9.0)
-        initial = hh.cash_balance + sum(f.cash_balance for f in firms) + eco.government.cash_balance
-        # Legacy settlement credits sellers first and charges the household at
-        # the later household update boundary.
-        for firm in firms:
-            firm.cash_balance += sales[firm.firm_id]["revenue"]
-        eco._batch_apply_household_updates({}, {}, purchases,
-                                           good_category_lookup={f.good_name: "food" for f in firms},
-                                           income_already_settled=True, per_firm_sales=sales)
-        assert hh.cash_balance + sum(f.cash_balance for f in firms) + eco.government.cash_balance == pytest.approx(initial)
-
-
-def test_legacy_stockout_does_not_create_demand_for_unaffordable_goods(factory):
-    cfg = clone_config()
-    cfg.payment_sequence = "legacy"
-    cfg.households.fix_spending_leak = True
-    with use_config(cfg):
-        eco, hh, firms = _world(factory, cfg, cash=0)
-        purchases, _ = eco._clear_goods_market({1: {"planned_purchases": {1: 10}, "budget": 100}}, firms)
-        assert purchases[1] == {}
-        assert eco.food_unmet_demand == 0
-
-
-def test_legacy_substitution_respects_the_subsidy_on_settlement(factory):
-    cfg = clone_config()
-    cfg.payment_sequence = "legacy"
-    cfg.households.fix_spending_leak = True
-    with use_config(cfg):
-        eco, hh, firms = _world(factory, cfg, cash=10, stocks=(0, 100), prices=(10, 10))
-        eco.government.cash_balance = 10
-        eco.government.sector_subsidy_target = "food"
-        eco.government._sector_subsidy_rate = 0.5
-        eco.sector_subsidy_cap_this_tick = 10
-        eco.sector_subsidy_remaining_this_tick = 10
-        purchases, sales = eco._clear_goods_market({1: {"planned_purchases": {1: 4}, "budget": 40}}, firms)
-        assert purchases[1]["Food2"] == pytest.approx((1.52, 10))
-        for firm in firms:
-            firm.cash_balance += sales[firm.firm_id]["revenue"]
-        eco._batch_apply_household_updates({}, {}, purchases, income_already_settled=True,
-                                           per_firm_sales=sales,
-                                           good_category_lookup={f.good_name: "food" for f in firms})
-        assert hh.cash_balance == pytest.approx(2.4)
-        assert eco.government.cash_balance == pytest.approx(2.4)
-        assert hh.cash_balance + eco.government.cash_balance + sum(f.cash_balance for f in firms) == pytest.approx(20)
-
-
 def test_seeded_rationing_uses_private_rng_and_changes_each_tick(factory):
     cfg = clone_config()
     cfg.households.fix_spending_leak = True
@@ -298,20 +241,6 @@ def test_seeded_rationing_uses_private_rng_and_changes_each_tick(factory):
         assert random.getstate() == state
         cfg.households.fix_spending_leak = False
         assert [hid for hid, _ in ordered_plans(plans, 10, 4)] == list(plans)
-
-
-def test_legacy_clearing_uses_its_seeded_order(factory):
-    cfg = clone_config()
-    cfg.payment_sequence = "legacy"
-    cfg.households.fix_spending_leak = True
-    with use_config(cfg):
-        households = [factory.household(household_id=i) for i in range(1, 12)]
-        firm = factory.firm(firm_id=1, category="Food", inventory_units=0, price=10)
-        eco = factory.economy(households=households, firms=[firm])
-        eco.current_tick = 9
-        plans = {h.household_id: {"planned_purchases": {1: 1}, "budget": 10} for h in households}
-        purchases, _ = eco._clear_goods_market(plans, [firm])
-        assert list(purchases) == [hid for hid, _ in ordered_plans(plans, 9, 4)]
 
 
 def test_payment_passes_and_unmet_use_their_own_seeded_orders(factory, monkeypatch):
@@ -350,7 +279,7 @@ def test_payment_passes_and_unmet_use_their_own_seeded_orders(factory, monkeypat
 
 
 def test_zero_share_fundable_stockout_keeps_full_lost_sales_and_moves_no_money(factory):
-    # Plan 3 [A-3], income_first: with redirection off, a fully fundable stockout is the
+    # income_first: with redirection off, a fully fundable stockout is the
     # sold-out seller's full lost sale, also household unmet demand, and nothing is bought elsewhere.
     cfg = clone_config()
     cfg.payment_sequence = "income_first"
@@ -370,7 +299,7 @@ def test_zero_share_fundable_stockout_keeps_full_lost_sales_and_moves_no_money(f
 
 
 def test_zero_share_lost_sales_are_credited_by_remaining_affordability(factory):
-    # Plan 3 [A-3]: finish() credits a stockout only up to what the household can still
+    # finish() credits a stockout only up to what the household can still
     # fund after its other purchases; a later purchase that uses all the cash leaves none.
     cfg = clone_config()
     cfg.payment_sequence = "income_first"

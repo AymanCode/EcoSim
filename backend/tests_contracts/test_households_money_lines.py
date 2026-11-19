@@ -8,7 +8,18 @@ from agents import BankAgent
 from config import clone_config, use_config
 from economy import _TickScratch
 from household_costs import essential_weekly_costs, food_reference_price, rent_reference_price
+from payment_loans import prepare_household_dues
+from payments import PaymentBook
 from tests_contracts.factories import patch_agent_method
+
+
+@pytest.fixture(autouse=True)
+def _income_first_sequence():
+    """Every test runs on income_first; legacy is not tested here."""
+    config = clone_config()
+    config.payment_sequence = "income_first"
+    with use_config(config):
+        yield
 
 
 def test_essentials_median_contract_rent_and_snapshot_refresh(factory):
@@ -158,7 +169,10 @@ def test_wellbeing_only_changes_poverty_comparisons(factory, cash, delta):
         assert fallback.happiness == pytest.approx(results[0])
 
 
-@pytest.mark.parametrize("cost,expected", [(40.0, 45.865), (1e-6, 49.865)])
+# income_first plans on take-home pay: 45 * (1 - 0.15 tax belief) * MPC 0.997 = 38.13525.
+# Cost 40: the subsistence line is 1 week = 40, so the desperation draw tops the budget up to 40.
+# Cost ~0: the line falls back to 50; the draw is capped at 5% of 100 savings, so 38.13525 + 5.
+@pytest.mark.parametrize("cost,expected", [(40.0, 40.0), (1e-6, 43.13525)])
 def test_desperation_budget_threshold(factory, cost, expected):
     cfg = clone_config()
     cfg.households.money_lines_in_weeks = True
@@ -168,6 +182,8 @@ def test_desperation_budget_threshold(factory, cost, expected):
         hh = factory.household(employer_id=1, wage=45, cash_balance=100, essential_weekly_cost=cost,
                                spending_tendency=1, frugality=1, savings_drawdown_rate=0.01)
         ec = factory.economy(households=[hh], firms=[factory.firm()])
+        ec.payment_book = PaymentBook(ec, timing="income_first")
+        prepare_household_dues(ec)
         assert ec._household_consumption_budgets(0, 0)[0] == pytest.approx(expected)
 
 

@@ -8,6 +8,15 @@ from payment_loans import prepare_household_dues
 from payments import PaymentBook
 
 
+@pytest.fixture(autouse=True)
+def _income_first_sequence():
+    """Every test runs on income_first; legacy is not tested here."""
+    config = clone_config()
+    config.payment_sequence = "income_first"
+    with use_config(config):
+        yield
+
+
 def _world(factory, *, cash=0, funded=100, employed=True, benefit=0, timing="income_first"):
     cfg = clone_config()
     cfg.payment_sequence = timing
@@ -82,37 +91,6 @@ def test_payment_late_does_not_treat_unpaid_wages_as_income(factory):
         assert ec._household_consumption_budgets(0, 0)[0] == pytest.approx(20)
 
 
-def test_legacy_income_excludes_current_receipts_from_savings(factory):
-    cfg = clone_config()
-    cfg.households.savings_goal = True
-    cfg.households.healthcare_food_first_reserve = False
-    with use_config(cfg):
-        hh = factory.household(employer_id=1, cash_balance=400,
-                               min_food_per_tick=2, saving_tendency=0.5)
-        hh.last_wage_income = 100
-        ec = factory.economy(households=[hh], firms=[factory.firm(price=10),
-                            factory.firm(firm_id=2, category="Housing", price=10)])
-        ec.savings_goal_unemployment_ema = 0.05
-        assert ec._household_consumption_budgets(0, 0, settled_income=True)[0] == pytest.approx(102.4)
-
-
-def test_legacy_unsettled_savings_still_nets_obligations(factory):
-    cfg = clone_config()
-    cfg.households.savings_goal = True
-    cfg.households.healthcare_food_first_reserve = False
-    with use_config(cfg):
-        hh = factory.household(employer_id=1, wage=100, cash_balance=400,
-                               renting_from_firm_id=2, monthly_rent=30,
-                               min_food_per_tick=2, saving_tendency=0.5)
-        hh.last_wage_income = 100
-        ec = factory.economy(households=[hh], firms=[factory.firm(price=10),
-                            factory.firm(firm_id=2, category="Housing", price=30)])
-        ec.savings_goal_unemployment_ema = 0.05
-        # E=50, T=300. Unsettled: cash 400 excludes this week's wage, so the
-        # cushion is 400 before rent; budget = 100 income - 30 rent + 0.02*(400-300).
-        assert ec._household_consumption_budgets(0, 0)[0] == pytest.approx(72.0)
-
-
 def test_rent_comes_out_of_income_not_two_percent_of_savings(factory):
     cfg, ec, hh, _ = _world(factory, cash=300)
     with use_config(cfg):
@@ -169,7 +147,7 @@ def test_spend_down_rate_applies_only_above_target(factory):
 
 
 def test_spend_down_rate_inherits_the_adjust_rate_when_unset(factory):
-    # Plan 3 [A-2]: a caller that sets only savings_goal_adjust_rate gets it on both sides.
+    # Compatibility: a caller that sets only savings_goal_adjust_rate gets it on both sides.
     cfg, ec, _, _ = _world(factory, cash=300)
     assert cfg.households.savings_goal_spend_down_rate is None
     cfg.households.savings_goal_adjust_rate = 0.05

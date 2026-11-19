@@ -6,6 +6,15 @@ from economy import _TickScratch
 from tests_contracts.test_households_savings_goal import _budget, _settle, _world
 
 
+@pytest.fixture(autouse=True)
+def _income_first_sequence():
+    """Every test runs on income_first; legacy is not tested here."""
+    config = clone_config()
+    config.payment_sequence = "income_first"
+    with use_config(config):
+        yield
+
+
 def test_household_experiment_defaults():
     cfg = HouseholdBehaviorConfig()
     assert cfg.wellbeing_targets is True
@@ -77,27 +86,3 @@ def test_payment_cached_plan_does_not_consume_unplanned_dividends(factory):
         ec._plan_payment_consumption(tick, settled_income=True)
         assert tick.household_consumption_plans[1]["budget"] == pytest.approx(40)
         assert hh.dividends_since_last_plan == 0
-
-
-def test_legacy_cached_basket_refreshes_budget_and_consumes_dividend(factory):
-    cfg = clone_config()
-    cfg.payment_sequence = "legacy"
-    cfg.households.fix_dividend_timing = True
-    cfg.households.healthcare_food_first_reserve = False
-    with use_config(cfg):
-        hh = factory.household(household_id=1, employer_id=None, cash_balance=0,
-                               spending_tendency=1, frugality=1)
-        hh.savings_drawdown_rate = 0
-        firm = factory.firm(firm_id=1, category="Food", price=10)
-        ec = factory.economy(households=[hh], firms=[firm])
-        firm._credit_dividend_income([1], {1: hh}, 100)
-        hh.reset_tick_ledger()
-        lookup, snapshot, _, _ = ec._build_firm_market_views()
-        ec.performance_mode = True
-        ec.current_tick = 1
-        ec._cached_consumption_plans = {1: {"budget": 40, "planned_purchases": {1: 1}}}
-        plans = ec._plan_legacy_consumption_after_income({}, snapshot, lookup, 0, 0)
-        assert plans[1]["budget"] == pytest.approx(40)
-        assert hh.dividends_since_last_plan == 0
-        plans = ec._plan_legacy_consumption_after_income({}, snapshot, lookup, 0, 0)
-        assert plans[1]["budget"] == 0

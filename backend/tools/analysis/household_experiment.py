@@ -6,7 +6,7 @@ Usage:
   python hh_experiment.py batch --backend <repo>/backend --plan <plan.json> --jobs 1
 
 Metrics are computed from simulation state only, so the runner works on any branch.
-At most 1,000 households (AGENTS.md); shocks off, as in the policy audit.
+At most 1,000 households (shared-machine limit); shocks off, as in the policy audit.
 """
 from __future__ import annotations
 
@@ -67,7 +67,7 @@ def run(args):
     import sim_setup  # noqa: E402
 
     if args.households > 1000:
-        raise SystemExit("AGENTS.md: at most 1,000 households")
+        raise SystemExit("this runner allows at most 1,000 households")
     if args.sequence != "income_first" or args.seed not in (42, 43):
         raise SystemExit("Household plan requires income_first and seed 42 or 43")
     overrides = json.loads(args.overrides or "{}")
@@ -307,6 +307,6 @@ if __name__ == "__main__":
     ap.add_argument("--sequence", default="income_first")
     ap.add_argument("--overrides")
     ap.add_argument("--levers")
-    ap.add_argument("--jobs", type=int, default=1)  # one simulation process at a time (AGENTS.md)
+    ap.add_argument("--jobs", type=int, default=1)  # one simulation process at a time
     a = ap.parse_args()
     run(a) if a.mode == "run" else batch(a)

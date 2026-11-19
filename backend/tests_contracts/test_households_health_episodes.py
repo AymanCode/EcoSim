@@ -247,6 +247,7 @@ def test_illness_and_multi_visit_trace(cfg, monkeypatch):
     patient = make_household(health=0.8)
     set_conditions(patient, food_short=0.0, unhoused=False)
     economy = build(patient, clinic=True)
+    stored_heal = None  # set at tick 0, checked from tick 1
     for tick in range(4):
         economy.current_tick = tick
         if tick == 1:

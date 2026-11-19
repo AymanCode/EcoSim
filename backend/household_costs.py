@@ -1,7 +1,7 @@
 """Weekly cost of a household's essentials: minimum food plus rent.
 
 Household money thresholds can be expressed as a number of weeks of this cost
-(AUD-005 in PRESUMPTIONS.md) so they move with prices and with the household's
+so they move with prices and with the household's
 own rent instead of staying fixed in currency.
 """
 from __future__ import annotations

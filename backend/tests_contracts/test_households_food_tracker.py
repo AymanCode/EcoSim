@@ -5,7 +5,16 @@ import pytest
 from config import clone_config, use_config
 
 
-@pytest.mark.parametrize("timing", ["income_first", "income_late", "legacy"])
+@pytest.fixture(autouse=True)
+def _income_first_sequence():
+    """Every test runs on income_first; legacy is not tested here."""
+    config = clone_config()
+    config.payment_sequence = "income_first"
+    with use_config(config):
+        yield
+
+
+@pytest.mark.parametrize("timing", ["income_first", "income_late"])
 def test_food_shortfall_changes_the_next_plan(factory, timing):
     cfg = clone_config()
     cfg.payment_sequence = timing

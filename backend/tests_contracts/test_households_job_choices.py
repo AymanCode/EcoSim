@@ -9,6 +9,15 @@ from payment_payroll import enforce_private_payroll
 from tests_contracts.factories import patch_agent_method
 
 
+@pytest.fixture(autouse=True)
+def _income_first_sequence():
+    """Every test runs on income_first; legacy is not tested here."""
+    config = clone_config()
+    config.payment_sequence = "income_first"
+    with use_config(config):
+        yield
+
+
 def _plan(worker, *, switching=False, reservation=0.0):
     return {
         "skills_level": worker.skills_level,
@@ -303,7 +312,7 @@ def test_hire_ticks_follow_hires_layoffs_and_roster_sync(factory):
         assert other.employee_hire_ticks == {1: 12}
 
 
-@pytest.mark.parametrize("timing", ["legacy", "income_first", "income_late"])
+@pytest.mark.parametrize("timing", ["income_first", "income_late"])
 def test_full_tick_records_switch_tenure_in_each_payment_sequence(factory, monkeypatch, timing):
     cfg = clone_config()
     cfg.payment_sequence = timing

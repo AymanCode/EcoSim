@@ -107,6 +107,36 @@ Key current mechanics:
 - Health, happiness, and morale update from food, housing, services, employment, wage satisfaction, healthcare, poverty stress, and government social multipliers.
 - Medical training has student/resident/doctor stages. Residents and doctors add healthcare capacity; doctors are seeded during large-economy initialization.
 
+### Household behavior settings
+
+Each of these is a `CONFIG.households` setting, and turning it off restores the earlier behavior.
+
+**On by default** (since 2026-11-18):
+
+| Setting | Behavior |
+|---|---|
+| `wellbeing_targets` | Each week, happiness moves 5% and morale 10% of the way toward a target. The target is set by savings security, work, food, housing and pay fairness, starting from the household's personal baseline. Households no longer pile up at happiness or morale 0. |
+| `fix_food_tracker_lag` | The shopping plan reads last week's food, not food from two weeks earlier. |
+| `fix_dividend_timing` | Dividends received since the last plan count as income in the next budget. |
+| `fix_wellbeing_cash_snapshot` | On the payment sequences, the "losing savings" happiness term compares against cash before wage and benefit settlement. |
+| `money_lines_in_weeks` | Poverty, extreme-poverty, subsistence and consumption-loan thresholds are weeks of the household's own essentials (minimum food at the median Food price plus rent), not fixed currency. |
+| `job_choices` | Workers reach hiring firms in order of their offers, highest first. Job switches never cut pay. Layoffs go to the newest hires first, then the lowest paid. |
+
+**Evidence for the defaults.** Matched runs compared the defaults with the earlier behavior: `income_first`, 1,000 households, seeds 42 and 43, 312 weeks, weeks 209-312, under the default, lean and generous government settings.
+- In all six pairs, nobody stays at happiness or morale 0.
+- The worst unemployment change was +1.1 points.
+- Weekly output was lower in one pair, by 280.
+
+**Off by default (experiments):**
+
+| Setting | Behavior | Result so far |
+|---|---|---|
+| `fix_spending_leak` and `savings_goal` | The housing-goods line leaves the budget. Stockouts are redirected to other sellers (`stockout_substitution_share`, 0.76 by default). The budget is income less rent and loan payments, moving toward a savings cushion. | Households buy 96-100% of their plan. But redirected money piles up as Food firm cash, and Services shrink, so unemployment rose. |
+| `health_episodes` | Health no longer falls every week. Illness episodes lower it (more likely with hunger, homelessness or frailty), food and housing set a level it returns toward, and every household recovers on its own above the work threshold within 52 weeks. Doctors restore it above that. | At an illness rate of 0.025 a week, doctor visits and healthcare revenue stay within 1.1% of today, and no household stays unable to work for a year (against 54-62 today). Two checks failed: healthcare cash at week 312 on one seed, and unemployment +6.4 points on the other. |
+| `realistic_initial_population` | Skill comes from Beta(2, 2), age is drawn, and starting savings are lognormal (σ = 2.0, from the Federal Reserve's 2023 transaction-account mean and median). The starting total is unchanged. | First-year evictions rise about sevenfold, because households with thin savings fall behind on rent. |
+
+`backend/tools/analysis/household_experiment.py` runs these comparisons: `income_first` only, at most 1,000 households, one process at a time. `household_experiment_summary.py` checks the run files and evaluates the starting-population stop rules.
+
 ## Firms
 
 Firms plan before state mutations are applied. The common pattern is:

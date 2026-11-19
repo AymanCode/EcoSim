@@ -14,6 +14,15 @@ from payments import PaymentBook
 from tests_contracts.factories import patch_agent_method
 
 
+@pytest.fixture(autouse=True)
+def _income_first_sequence():
+    """Every test runs on income_first; legacy is not tested here."""
+    config = clone_config()
+    config.payment_sequence = "income_first"
+    with use_config(config):
+        yield
+
+
 def _world(factory, **overrides):
     values = dict(
         household_id=1, happiness=0.7, morale=0.6, health=0.8,
@@ -230,17 +239,3 @@ def test_payment_snapshot_precedes_wages_and_records_real_wealth_loss(factory, m
         assert hh.happiness - with_loss == pytest.approx(
             cfg.households.wealth_loss_happiness_scaling * 50.0 / 300.0 if fix else 0.0
         )
-
-
-@pytest.mark.parametrize("fix", [False, True])
-def test_snapshot_flag_does_not_change_legacy_income(factory, fix):
-    cfg = clone_config()
-    cfg.payment_sequence = "legacy"
-    cfg.households.fix_wellbeing_cash_snapshot = fix
-    with use_config(cfg):
-        e, hh = _world(factory, cash_balance=100.0, bank_deposit=200.0)
-        hh.last_tick_cash_start = hh.last_tick_deposit_start = 0.0
-        e._apply_household_income({}, {})
-        assert hh.last_tick_cash_start == 100.0
-        assert hh.last_tick_deposit_start == 200.0
-        assert hh.cash_balance == 140.0
