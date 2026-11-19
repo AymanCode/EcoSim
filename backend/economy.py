@@ -69,6 +69,7 @@ from household_liquidity import (
     liquid_wealth as household_liquid_wealth,
     withdrawable_deposit,
 )
+from household_costs import essential_weekly_costs
 
 if TYPE_CHECKING:  # typing only; the payment arm imports it lazily at run time
     from payment_sectors import PaymentGoodsMarket
@@ -3041,6 +3042,12 @@ class Economy:
         if payment_arm:
             from payment_loans import prepare_household_dues
             from payment_sectors import payment_deposit_quotes
+            if CONFIG.households.fix_wellbeing_cash_snapshot:
+                # Match legacy's snapshot: after earlier stimulus/credit and
+                # immediately before this week's wage and benefit settlement.
+                for household in self.households:
+                    household.last_tick_cash_start = household.cash_balance
+                    household.last_tick_deposit_start = household.bank_deposit
             self.payment_book.settle_income(frozen_wages)
             from payment_behavior import observe_settled_tax
             observe_settled_tax(self)
@@ -5867,9 +5874,8 @@ class Economy:
         nets to zero. Moving money between cash and deposits is neither a
         loss nor poverty. Deposits count at 100%, not with
         ``accessible_liquidity``'s 0.90 haircut, so a sweep is exactly
-        neutral. On non-legacy payment sequences the snapshots are never set
-        (``payments.settle_income`` bypasses ``_apply_household_income``), so
-        the wealth-loss term is inert there, as on main.
+        neutral. The optional payment-arm snapshot sets the same fields before
+        ``settle_income``; with the fix off those paths retain their old values.
         """
         if not self.households:
             return
@@ -5931,76 +5937,123 @@ class Economy:
             dtype=np.float64, count=n
         )
 
-        # --- Happiness ---
-        happiness_change = np.zeros(n, dtype=np.float64)
-
-        # Poverty penalties (from config)
-        happiness_change -= np.where(liquid_wealth < hc.extreme_poverty_threshold,
-                                     hc.extreme_poverty_penalty, 0.0)
-        happiness_change -= np.where(
-            (liquid_wealth >= hc.extreme_poverty_threshold) & (liquid_wealth < hc.poverty_threshold),
-            hc.poverty_penalty, 0.0)
-
-        # Government social programs boost
-        if happiness_multiplier > 1.0:
-            happiness_change += (happiness_multiplier - 1.0) * hc.government_happiness_scaling
-
-        # --- Positive recovery terms ---
-        # These were missing from the batch path, causing happiness to only decay
-        # and never recover through normal consumption activity.
-        happiness_change += np.where(food_consumed >= min_food, 0.0008, 0.0)      # Fed adequately
-        happiness_change += np.where(services_consumed > 0, 0.0005, 0.0)          # Used services
-        happiness_change += np.where(housing_met, 0.0007, 0.0)                    # Housing met
-        wage_satisfied = employed & (wages >= expected_wages)
-        happiness_change += np.where(wage_satisfied, 0.0005, 0.0)                 # Fair wage
-
-        # --- New negative terms ---
-        # (a) Unemployment: being jobless hurts happiness independently of poverty
-        happiness_change -= np.where(~employed, hc.unemployed_happiness_penalty, 0.0)
-
-        # (b) Relative wealth-loss: losing liquid wealth hurts proportionally, not just at thresholds
-        has_prior_cash = liquid_prev > 1.0
-        cash_loss_pct = np.where(
-            has_prior_cash,
-            np.maximum(0.0, (liquid_prev - liquid_wealth) / np.maximum(liquid_prev, 1.0)),
-            0.0
-        )
-        happiness_change -= cash_loss_pct * hc.wealth_loss_happiness_scaling
-
-        # (c) Food shortfall: not meeting minimum food hurts proportionally
-        food_shortfall_ratio = np.maximum(0.0, (min_food - food_consumed) / np.maximum(min_food, 0.1))
-        happiness_change -= food_shortfall_ratio * hc.food_shortfall_happiness_scaling
-
-        # Mercy floor: natural decay pauses below threshold (penalties still apply)
-        effective_decay = np.where(happiness < hc.mercy_floor_threshold, 0.0, happiness_decay)
-        happiness_change -= effective_decay
-        happiness_next = np.clip(happiness + happiness_change, 0.0, 1.0)
-
-        # --- Morale ---
-        morale_change = np.zeros(n, dtype=np.float64)
-
-        # Employed: base boost + wage satisfaction
-        morale_change += np.where(employed, morale_emp_boost, 0.0)
-        satisfied = employed & (wages >= expected_wages)
-        morale_change += np.where(satisfied, hc.wage_satisfaction_boost, 0.0)
-
-        # Underpaid penalty
-        underpaid = employed & (wages < expected_wages)
-        wage_gap_ratio = np.zeros(n, dtype=np.float64)
-        if underpaid.any():
-            wage_gap_ratio[underpaid] = (expected_wages[underpaid] - wages[underpaid]) / np.maximum(
-                expected_wages[underpaid], 1.0
+        if hc.wellbeing_targets:
+            # Security is liquid wealth in weeks of this household's essentials.
+            essentials = essential_weekly_costs(self, households)
+            security = np.clip(liquid_wealth / essentials / hc.wellbeing_security_full_weeks, 0.0, 1.0)
+            food_short = np.clip(
+                (min_food - food_consumed) / np.maximum(min_food, 0.1), 0.0, 1.0,
             )
-        morale_change -= wage_gap_ratio * hc.wage_dissatisfaction_scaling
+            happiness_baseline = np.fromiter(
+                (h.happiness_set_point for h in households), dtype=np.float64, count=n,
+            )
+            happiness_target = np.clip(
+                happiness_baseline
+                + hc.wellbeing_social_weight * (happiness_multiplier - 1.0)
+                - hc.wellbeing_unemployment_weight * (~employed)
+                - hc.wellbeing_security_weight * (1.0 - security)
+                - hc.wellbeing_food_weight * food_short
+                - hc.wellbeing_unhoused_weight * (~housing_met),
+                0.0, 1.0,
+            )
+            cash_loss_pct = np.where(
+                liquid_prev > 1.0,
+                np.maximum(0.0, (liquid_prev - liquid_wealth) / np.maximum(liquid_prev, 1.0)),
+                0.0,
+            )
+            happiness_next = np.clip(
+                happiness + hc.happiness_adjust_rate * (happiness_target - happiness)
+                - cash_loss_pct * hc.wealth_loss_happiness_scaling,
+                0.0, 1.0,
+            )
 
-        # Unemployed penalty
-        morale_change -= np.where(~employed, morale_unemp_penalty, 0.0)
+            morale_baseline = np.fromiter(
+                (h.morale_set_point for h in households), dtype=np.float64, count=n,
+            )
+            fair_pay = employed & (wages >= expected_wages)
+            underpay = np.maximum(0.0, (expected_wages - wages) / np.maximum(expected_wages, 1.0))
+            morale_target = np.clip(
+                morale_baseline
+                + hc.morale_fair_pay_weight * fair_pay
+                - hc.morale_underpay_weight * underpay * employed
+                - hc.morale_unemployment_weight * (~employed)
+                - hc.morale_unhoused_weight * (~housing_met),
+                0.0, 1.0,
+            )
+            morale_next = np.clip(
+                morale + hc.morale_adjust_rate * (morale_target - morale), 0.0, 1.0,
+            )
+        else:
+            # --- Happiness ---
+            happiness_change = np.zeros(n, dtype=np.float64)
 
-        # Unhoused penalty
-        morale_change -= np.where(~housing_met, morale_unhoused_penalty, 0.0)
+            # Poverty penalties (from config)
+            happiness_change -= np.where(liquid_wealth < hc.extreme_poverty_threshold,
+                                         hc.extreme_poverty_penalty, 0.0)
+            happiness_change -= np.where(
+                (liquid_wealth >= hc.extreme_poverty_threshold) & (liquid_wealth < hc.poverty_threshold),
+                hc.poverty_penalty, 0.0)
 
-        morale_change -= morale_decay
-        morale_next = np.clip(morale + morale_change, 0.0, 1.0)
+            # Government social programs boost
+            if happiness_multiplier > 1.0:
+                happiness_change += (happiness_multiplier - 1.0) * hc.government_happiness_scaling
+
+            # --- Positive recovery terms ---
+            # These were missing from the batch path, causing happiness to only decay
+            # and never recover through normal consumption activity.
+            happiness_change += np.where(food_consumed >= min_food, 0.0008, 0.0)      # Fed adequately
+            happiness_change += np.where(services_consumed > 0, 0.0005, 0.0)          # Used services
+            happiness_change += np.where(housing_met, 0.0007, 0.0)                    # Housing met
+            wage_satisfied = employed & (wages >= expected_wages)
+            happiness_change += np.where(wage_satisfied, 0.0005, 0.0)                 # Fair wage
+
+            # --- New negative terms ---
+            # (a) Unemployment: being jobless hurts happiness independently of poverty
+            happiness_change -= np.where(~employed, hc.unemployed_happiness_penalty, 0.0)
+
+            # (b) Relative wealth-loss: losing liquid wealth hurts proportionally, not just at thresholds
+            has_prior_cash = liquid_prev > 1.0
+            cash_loss_pct = np.where(
+                has_prior_cash,
+                np.maximum(0.0, (liquid_prev - liquid_wealth) / np.maximum(liquid_prev, 1.0)),
+                0.0
+            )
+            happiness_change -= cash_loss_pct * hc.wealth_loss_happiness_scaling
+
+            # (c) Food shortfall: not meeting minimum food hurts proportionally
+            food_shortfall_ratio = np.maximum(0.0, (min_food - food_consumed) / np.maximum(min_food, 0.1))
+            happiness_change -= food_shortfall_ratio * hc.food_shortfall_happiness_scaling
+
+            # Mercy floor: natural decay pauses below threshold (penalties still apply)
+            effective_decay = np.where(happiness < hc.mercy_floor_threshold, 0.0, happiness_decay)
+            happiness_change -= effective_decay
+            happiness_next = np.clip(happiness + happiness_change, 0.0, 1.0)
+
+            # --- Morale ---
+            morale_change = np.zeros(n, dtype=np.float64)
+
+            # Employed: base boost + wage satisfaction
+            morale_change += np.where(employed, morale_emp_boost, 0.0)
+            satisfied = employed & (wages >= expected_wages)
+            morale_change += np.where(satisfied, hc.wage_satisfaction_boost, 0.0)
+
+            # Underpaid penalty
+            underpaid = employed & (wages < expected_wages)
+            wage_gap_ratio = np.zeros(n, dtype=np.float64)
+            if underpaid.any():
+                wage_gap_ratio[underpaid] = (expected_wages[underpaid] - wages[underpaid]) / np.maximum(
+                    expected_wages[underpaid], 1.0
+                )
+            morale_change -= wage_gap_ratio * hc.wage_dissatisfaction_scaling
+
+            # Unemployed penalty
+            morale_change -= np.where(~employed, morale_unemp_penalty, 0.0)
+
+            # Unhoused penalty
+            morale_change -= np.where(~housing_met, morale_unhoused_penalty, 0.0)
+
+            morale_change -= morale_decay
+            morale_next = np.clip(morale + morale_change, 0.0, 1.0)
 
         # --- Health ---
         # Non-linear food→health: harsh penalty for no food, gentle near threshold.
