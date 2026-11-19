@@ -1238,6 +1238,9 @@ class Economy:
                 # Later-pay planning occurs before wages and benefits are paid.
                 income = (wage_income + benefit_income if settled_income
                           else np.zeros(len(self.households), dtype=np.float64)) + dividend_incomes
+                # Dividends since the last plan are already in cash, so the
+                # savings stock excludes them while they count as income.
+                savings_liquidity = np.maximum(savings_liquidity - dividend_incomes, 0.0)
             u_ema = (self.savings_goal_unemployment_ema
                      if self.savings_goal_unemployment_ema is not None else unemployment_rate)
             risk = min(cfg.savings_goal_risk_cap,
