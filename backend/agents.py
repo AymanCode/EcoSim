@@ -1948,6 +1948,20 @@ _PLANNER_DIAGNOSTIC_KEYS = frozenset((
 ))
 
 
+@dataclass(frozen=True, slots=True)
+class ServiceSpaceObservation:
+    """One qualifying week of installed capacity and settled Services demand."""
+
+    tick: int
+    installed_places: int
+    Q: float
+    S: float
+    R: float
+    L: float
+    p: float
+    c: float
+
+
 @dataclass(slots=True)
 class FirmAgent(AgentMixin):
     """Represents a firm in the economic simulation.
@@ -2175,6 +2189,7 @@ class FirmAgent(AgentMixin):
     service_weak_demand_counted_tick: int = -1
     # Rolling firm-specific Services unmet-demand window (last 5 ticks).
     service_unmet_demand_window: List[float] = field(default_factory=list)
+    service_space_history: List[ServiceSpaceObservation] = field(default_factory=list)
     # Baseline Food: fire half of employees once at warmup→post-warmup transition.
     baseline_food_post_warmup_transition_done: bool = False
     working_capital_support_ticks: int = 0
@@ -2551,6 +2566,7 @@ class FirmAgent(AgentMixin):
         self.service_staffing_recovery_counted_tick = self.age_in_ticks + 1
         self.service_full_utilization_streak = 0
         self.service_unmet_demand_window.clear()
+        self.service_space_history = []
 
     def _service_pricing_costs(self) -> tuple[float, float, float]:
         """Return throughput, payroll and scheduled repayments for planned quotes."""
@@ -5400,7 +5416,11 @@ class FirmAgent(AgentMixin):
         # Cannot expand without cash or bank
         return False
 
-    def consider_service_infrastructure_upgrade(self, economy=None, current_units_sold=None) -> bool:
+    def consider_service_infrastructure_upgrade(
+        self, economy=None, current_units_sold=None, *,
+        current_paid_inbound_units: Optional[float] = None,
+        current_net_goods_revenue: Optional[float] = None,
+    ) -> bool:
         """Flag a bank-financed Services slot upgrade after sustained full utilization.
 
         Services firms operating at >=95% utilization for 5+ ticks with 2+ ticks
@@ -5417,7 +5437,10 @@ class FirmAgent(AgentMixin):
         - Not in housing crisis (unmet demand gate)
 
         Args:
-            economy: Optional Economy reference (currently unused, kept for API compatibility)
+            economy: Economy providing funded own lost orders and the checkout tick.
+            current_units_sold: Settled units sold at checkout, if available.
+            current_paid_inbound_units: Receiver units sold through rerouting at a positive price.
+            current_net_goods_revenue: Checkout goods revenue less the price-ceiling levy.
 
         Returns:
             True if an infrastructure loan request was flagged, False otherwise
@@ -5430,15 +5453,13 @@ class FirmAgent(AgentMixin):
         if not self._is_generic_services_firm():
             return False
 
-        firm_unmet_this_tick = 0.0
-        if economy is not None:
-            unmet_map = getattr(economy, "services_unmet_demand_by_firm", None)
-            if isinstance(unmet_map, dict):
-                firm_unmet_this_tick = float(unmet_map.get(self.firm_id, 0.0))
+        unmet_map = getattr(economy, "services_unmet_demand_by_firm", None)
+        firm_unmet_this_tick = float(unmet_map.get(self.firm_id, 0.0)) if isinstance(unmet_map, dict) else 0.0
         units_sold = self.last_units_sold if current_units_sold is None else current_units_sold
         utilization = max(0.0, float(units_sold)) / max(float(self.last_units_produced), 1e-6)
         slots = max(0, int(self.production_capacity_units))
         fully_staffed = slots > 0 and len(self.employees) >= slots
+        qualifying_week = fully_staffed and self.last_units_produced > 0.0 and utilization >= 0.95
         if self.service_capacity_observation_tick != self.age_in_ticks:
             self.service_capacity_observation_tick = self.age_in_ticks
             if fully_staffed:
@@ -5446,14 +5467,38 @@ class FirmAgent(AgentMixin):
                 self.service_unmet_demand_window[:] = self.service_unmet_demand_window[-5:]
             else:
                 self.service_unmet_demand_window.clear()
-            if fully_staffed and self.last_units_produced > 0.0 and utilization >= 0.95:
+            if qualifying_week:
                 self.service_full_utilization_streak = min(5, self.service_full_utilization_streak + 1)
             else:
                 self.service_full_utilization_streak = 0
+            history = getattr(self, "service_space_history", None)
+            if (
+                qualifying_week
+                and isinstance(unmet_map, dict) and current_units_sold is not None
+                and current_paid_inbound_units is not None and current_net_goods_revenue is not None
+            ):
+                tick = economy.current_tick
+                if (
+                    not isinstance(history, list) or not history
+                    or not isinstance(history[-1], ServiceSpaceObservation)
+                    or history[-1].tick != tick - 1
+                ):
+                    history = self.service_space_history = []
+                history.append(ServiceSpaceObservation(
+                    tick, slots, float(self.last_units_produced), float(units_sold),
+                    current_paid_inbound_units, firm_unmet_this_tick,
+                    current_net_goods_revenue / float(units_sold),
+                    self.last_tick_operating_cash_cost_nonwage / self.last_units_produced,
+                ))
+                del history[:-5]
+            elif history:
+                self.service_space_history = []
         # Re-check physical eligibility even if this observation was already read.
         if not fully_staffed:
             self.service_full_utilization_streak = 0
             self.service_unmet_demand_window.clear()
+            if getattr(self, "service_space_history", None):
+                self.service_space_history = []
 
         ticks_with_unmet = sum(1 for v in self.service_unmet_demand_window if v > 1e-9)
         firm_unmet_demand_recent = sum(self.service_unmet_demand_window)

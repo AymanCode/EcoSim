@@ -34,8 +34,9 @@ Performance optimizations:
 import logging
 import os
 import random
-from dataclasses import dataclass, fields
+from dataclasses import asdict, dataclass, fields
 from collections import deque
+from statistics import median
 from typing import TYPE_CHECKING, Dict, List, Tuple, Optional
 
 from config import CONFIG, get_config
@@ -57,6 +58,7 @@ from agents import (
     GovernmentAgent,
     FirmHealthSnapshot,
     LoanContract,
+    ServiceSpaceObservation,
     build_awareness_market_views,
 )
 from utils.category_utils import build_good_category_lookup
@@ -3208,7 +3210,24 @@ class Economy:
             self._misc_firm_redistribute_revenue()
             for firm in self.firms:
                 if (firm.good_category or "").lower() == "services":
-                    firm.consider_service_infrastructure_upgrade(economy=self, current_units_sold=tick.per_firm_sales.get(firm.firm_id, {}).get("units_sold", 0.0))
+                    sales = tick.per_firm_sales.get(firm.firm_id, {})
+                    units_sold = sales.get("units_sold", 0.0)
+                    checkout = {}
+                    if (
+                        self.payment_sequence == "income_first"
+                        and not firm.is_baseline
+                        and not self.government.is_baseline_firm(firm.firm_id)
+                    ):
+                        revenue = sales.get("revenue", 0.0)
+                        checkout = {
+                            "current_paid_inbound_units": goods_market.paid_inbound_units.get(firm.firm_id, 0.0),
+                            "current_net_goods_revenue": revenue - self._goods_price_ceiling_tax(
+                                firm, revenue, units_sold,
+                            ),
+                        }
+                    firm.consider_service_infrastructure_upgrade(
+                        economy=self, current_units_sold=units_sold, **checkout,
+                    )
             self._offer_service_infrastructure_loans()
         else:
             self._process_healthcare_services(tick.per_firm_sales)
@@ -6175,6 +6194,12 @@ class Economy:
             })
         return snapshots
 
+    @staticmethod
+    def _goods_price_ceiling_tax(firm: FirmAgent, goods_revenue: float, units_sold: float) -> float:
+        if firm.price > CONFIG.market.price_ceiling and units_sold > 0:
+            return goods_revenue * CONFIG.market.price_ceiling_tax_rate
+        return 0.0
+
     def _build_firm_tax_snapshots(
         self,
         per_firm_sales: Dict[int, Dict[str, float]]
@@ -6192,8 +6217,6 @@ class Economy:
             still sees every firm at cash 0.
         """
         snapshots = []
-        PRICE_CEILING = CONFIG.market.price_ceiling
-        PRICE_CEILING_TAX_RATE = CONFIG.market.price_ceiling_tax_rate
 
         for firm in self.firms:
             sales_data = per_firm_sales.get(firm.firm_id, {"revenue": 0.0, "units_sold": 0.0})
@@ -6205,12 +6228,7 @@ class Economy:
                 revenue += self._legacy_rent_revenue(firm.firm_id)
             units_sold = sales_data["units_sold"]
 
-            # Calculate price ceiling tax
-            # If price > $50, firm pays 25% tax on the revenue from those sales
-            price_ceiling_tax = 0.0
-            if firm.price > PRICE_CEILING and units_sold > 0:
-                # Tax applies to revenue from sales above the ceiling
-                price_ceiling_tax = sales_data["revenue"] * PRICE_CEILING_TAX_RATE
+            price_ceiling_tax = self._goods_price_ceiling_tax(firm, sales_data["revenue"], units_sold)
 
             # Compute costs
             wage_bill = firm._current_wage_bill()
@@ -7274,9 +7292,13 @@ class Economy:
         project_cost = loan_amount
         borrowed = loan_amount
         if category == "services" and self.payment_sequence != "legacy":
+            quoted_gain = project_cost / float(cfg.services_capacity_cost_per_unit)
+            apply, _ = self._screen_service_space_application(firm, "long_term_capital", project_cost, quoted_gain)
+            if not apply:
+                return False
             funded = self._fund_service_expansion(
                 firm, project_cost, rate, int(cfg.long_term_capital_term_ticks),
-                "long_term_capital", project_cost / float(cfg.services_capacity_cost_per_unit),
+                "long_term_capital", quoted_gain,
             )
             if funded is None:
                 return False
@@ -7587,6 +7609,109 @@ class Economy:
         contribution = min(cost, max(0.0, cash - reserve - weeks * full_installment))
         return contribution, cost - contribution
 
+    def _screen_service_space_application(
+        self, firm: FirmAgent, route: str, project_cost: float, quoted_gain: float,
+    ) -> tuple[bool, dict]:
+        """Screen an ordinary Services quote using dated, settled checkout evidence."""
+        phase = {"long_term_capital": "early", "service_infrastructure": "late"}.get(route)
+        expected_tick = {"early": self.current_tick - 1, "late": self.current_tick}.get(phase)
+        installed = firm.production_capacity_units
+        n = math.floor(installed) if math.isfinite(installed) else None
+        quoted_installed = installed + quoted_gain
+        k = math.floor(quoted_installed) - n if n is not None and math.isfinite(quoted_installed) else None
+        observations = getattr(firm, "service_space_history", ())
+        if not isinstance(observations, (list, tuple)):
+            observations = ()
+        rows = [asdict(row) for row in observations if isinstance(row, ServiceSpaceObservation)]
+        trace = {
+            "route": route, "phase": phase, "decision_tick": self.current_tick,
+            "expected_observation_tick": expected_tick,
+            "observation_ticks": [row["tick"] for row in rows],
+            "project_cost": project_cost, "quoted_gain": quoted_gain,
+            "installed_capacity": installed, "n": n, "k": k, "y": None, "w": None, "r": None,
+            "rows": rows, "qualification_after_removal": None,
+            "weekly_contributions": None, "median_contribution": None,
+        }
+
+        def decision(reason: str, apply: bool = True) -> tuple[bool, dict]:
+            trace.update(reason=reason, apply=apply)
+            return apply, trace
+
+        if phase is None:
+            return decision("unknown_route")
+        if self.payment_sequence != "income_first":
+            return decision("outside_income_first")
+        if not firm._is_generic_services_firm():
+            return decision("outside_generic_services")
+        if firm.is_baseline or self.government.is_baseline_firm(firm.firm_id):
+            return decision("baseline_firm")
+
+        y = firm._service_units_per_worker()
+        benefit = self.government.get_unemployment_benefit_level()
+        wage_floor = firm.get_wage_offer_floor(benefit)
+        skill_premium = firm._expected_skill_premium()
+        w = max(firm.wage_offer, wage_floor) * max(1.0, 1.0 + skill_premium)
+        trace.update(y=y, w=w, wage_offer=firm.wage_offer, wage_floor=wage_floor,
+                     unemployment_benefit=benefit, expected_skill_premium=skill_premium)
+        if n is None or n <= 0 or k is None or k <= 0 or quoted_gain <= 0.0 or y <= 0.0:
+            return decision("no_usable_quoted_increment")
+        if not all(math.isfinite(value) for value in (project_cost, y, w)) or project_cost <= 0.0 or w < 0.0:
+            return decision("invalid_quote_inputs")
+        if len(observations) < 5:
+            return decision("insufficient_history")
+        if len(observations) != 5 or len(rows) != 5:
+            return decision("invalid_history")
+        if trace["observation_ticks"] != list(range(expected_tick - 4, expected_tick + 1)):
+            return decision("stale_or_nonconsecutive_history")
+        if any(row["installed_places"] != n for row in rows):
+            return decision("installed_places_changed")
+
+        for row in rows:
+            if not all(
+                isinstance(row[key], (int, float)) and math.isfinite(row[key]) and row[key] >= 0.0
+                for key in ("Q", "S", "R", "L", "p", "c")
+            ):
+                return decision("invalid_history")
+            if (
+                row["Q"] <= 0.0 or row["R"] > row["S"] + MONEY_EPS
+                or row["S"] > row["Q"] + MONEY_EPS or row["S"] / row["Q"] < 0.95
+            ):
+                return decision("invalid_history")
+        if sum(row["L"] > 1e-9 for row in rows) < 2:
+            return decision("history_did_not_qualify")
+
+        r = median(row["R"] for row in rows)
+        trace["r"] = r
+        for row in rows:
+            excess_inbound = row["R"] - r
+            X = excess_inbound if excess_inbound >= y else 0.0
+            F = min(row["L"], max(0.0, row["Q"] - (row["S"] - X))) if X else 0.0
+            row.update(X=X, F=F, adjusted_sales=row["S"] - X + F, adjusted_lost_orders=row["L"] - F)
+
+        still_qualifies = (
+            all(row["adjusted_sales"] / row["Q"] >= 0.95 for row in rows)
+            and sum(row["adjusted_lost_orders"] > 1e-9 for row in rows) >= 2
+        )
+        trace["qualification_after_removal"] = still_qualifies
+        if still_qualifies:
+            return decision("qualifies_after_removal")
+
+        newest_p = rows[-1]["p"]
+        added_output = k * y
+        contributions = []
+        for row in rows:
+            repeat_demand = row["adjusted_sales"] + row["adjusted_lost_orders"]
+            u = min(added_output, max(0.0, repeat_demand - max(row["Q"], n * y)))
+            capped_price = min(row["p"], newest_p)
+            contribution = u * capped_price - k * w - added_output * row["c"]
+            row.update(u=u, capped_price=capped_price, contribution=contribution)
+            contributions.append(contribution)
+        median_contribution = median(contributions)
+        trace.update(weekly_contributions=contributions, median_contribution=median_contribution)
+        if median_contribution >= 0.0:
+            return decision("operating_break_even")
+        return decision("below_operating_break_even", apply=False)
+
     def _fund_service_expansion(
         self, firm: FirmAgent, cost: float, annual_rate: float, term_ticks: int,
         subtype: str, slots_added: float,
@@ -7676,6 +7801,12 @@ class Economy:
                     continue
 
             if self.payment_sequence != "legacy":
+                apply, _ = self._screen_service_space_application(
+                    firm, "service_infrastructure", principal, slots_gained,
+                )
+                if not apply:
+                    clear_request()
+                    continue
                 borrowed = self._fund_service_expansion(
                     firm, principal, annual_rate, term_ticks, "service_infrastructure", slots_gained,
                 )
