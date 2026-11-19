@@ -45,6 +45,10 @@ def test_flags_are_off_by_default_and_initialization_keeps_original_traits(facto
         state = dataclasses.asdict(hh)
         state.pop("happiness_set_point")
         state.pop("morale_set_point")
+        # Fields added by other household experiments (money lines, dividend
+        # timing); they are bookkeeping with zero defaults, not sampled traits.
+        state.pop("essential_weekly_cost", None)
+        state.pop("dividends_since_last_plan", None)
         digest = hashlib.sha256(json.dumps(state, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
         assert digest == "9eb64ffe0600c962be54e1727c0e2034a6c1c79a0e43edd31c6c6e463b57d637"
         supplied = factory.household(happiness=0.31, morale=0.42)
