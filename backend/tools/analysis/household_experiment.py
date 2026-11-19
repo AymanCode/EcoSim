@@ -35,6 +35,8 @@ def run(args):
 
     if args.households > 1000:
         raise SystemExit("AGENTS.md: at most 1,000 households")
+    if args.sequence == "legacy":
+        raise SystemExit("AGENTS.md: never use the legacy payment sequence; income_first is the norm")
     overrides = json.loads(args.overrides or "{}")
     levers = json.loads(args.levers or "{}")
     setup = SimpleNamespace(num_households=args.households, num_firms=5, payment_sequence=args.sequence,
