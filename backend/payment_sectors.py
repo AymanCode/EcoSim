@@ -83,6 +83,7 @@ class PaymentGoodsMarket:
         self.purchases = economy.payment_book.purchases
         self.sales = economy.payment_book.receipts
         self.combined_services_units = defaultdict(float)
+        self.rerouted_service_units_by_firm = defaultdict(float)
         self._first_done = False
         self._second_done = False
         self._finished = False
@@ -213,6 +214,8 @@ class PaymentGoodsMarket:
                 continue
             if not self._commit_experiment_sale(household, alternative, alt_qty, alt_subsidy):
                 continue
+            if self.categories[alt_id] == "services" and self.economy.payment_book.timing == "income_first":
+                self.rerouted_service_units_by_firm[alt_id] += alt_qty
             spent = alt_qty * alt_price
             money_left = max(0.0, money_left - spent)
             if alt_price <= 0:

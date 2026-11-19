@@ -1973,6 +1973,18 @@ class FirmHealthSnapshot:
     category_wage_anchor_p75: float
 
 
+@dataclass(frozen=True, slots=True)
+class ServiceDemandObservation:
+    """Settled generic Services demand and the consecutive receiver sample."""
+
+    tick: int
+    sold_units: float
+    rerouted_units: float
+    funded_lost_units: float
+    output_capacity: float
+    rerouted_units_window: tuple[float, ...]
+
+
 # decision_diagnostics keys written only by the firm planners (plan_production_and_labor,
 # plan_capital_investment, plan_pricing, plan_wage and their helpers). Cleared at the
 # start of each tick's planning (audit B22). Other writers (labor apply, settlement,
@@ -2225,6 +2237,8 @@ class FirmAgent(AgentMixin):
     service_weak_demand_counted_tick: int = -1
     # Rolling firm-specific Services unmet-demand window (last 5 ticks).
     service_unmet_demand_window: List[float] = field(default_factory=list)
+    last_rerouted_service_units: float = field(default=0.0, init=False)
+    service_demand_observation: Optional[ServiceDemandObservation] = field(default=None, init=False)
     # Baseline Food: fire half of employees once at warmup→post-warmup transition.
     baseline_food_post_warmup_transition_done: bool = False
     working_capital_support_ticks: int = 0

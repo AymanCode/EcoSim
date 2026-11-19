@@ -1,12 +1,14 @@
 """Isolated checks for the optional household shopping experiment."""
 
 import random
+from types import SimpleNamespace
 
 import numpy as np
 import pytest
 
 from config import HouseholdBehaviorConfig, clone_config, use_config
 from household_shopping import ordered_plans
+from payment_loans import prepare_household_dues
 from payment_sectors import PaymentGoodsMarket
 from payments import PaymentBook
 
@@ -319,3 +321,94 @@ def test_zero_share_lost_sales_are_credited_by_remaining_affordability(factory):
         assert hh.cash_balance == pytest.approx(0.0)
         assert eco.food_unmet_demand == pytest.approx(0.0)
         assert eco.current_tick_unmet_demand_by_firm.get(1, 0.0) == pytest.approx(0.0)
+
+
+def test_settled_reroutes_use_receiver_units_and_reset_on_zero(factory):
+    cfg = clone_config()
+    cfg.payment_sequence = "income_first"
+    cfg.households.fix_spending_leak = True
+    with use_config(cfg):
+        eco, hh, firms = _world(factory, cfg, category="Services", stocks=(2, 0.5), prices=(10, 16))
+        third = factory.firm(firm_id=3, category="Services", good_name="Services3", price=20)
+        third.inventory_units = 10
+        firms.append(third)
+        hh.awareness_pool = {}
+        for firm in firms:
+            firm.last_units_produced = firm.inventory_units
+        initial = hh.cash_balance + sum(f.cash_balance for f in firms) + eco.government.cash_balance
+        eco.current_tick = 10
+        market = PaymentGoodsMarket(eco, {1: {"planned_purchases": {1: 7, 3: 0.75}}}, firms)
+        market.first_pass()
+        tick = SimpleNamespace(payment_arm=True, goods_market=market, per_firm_sales=market.sales)
+        prepare_household_dues(eco)
+        eco._phase_misc_and_healthcare(tick)
+
+        assert market.rerouted_service_units_by_firm == pytest.approx({2: 0.5, 3: 1.5})
+        assert market.substituted[1][1] == pytest.approx(3.8)
+        rerouted_revenue = sum(market.prices[fid] * qty for fid, qty in market.rerouted_service_units_by_firm.items())
+        assert rerouted_revenue == pytest.approx(market.substituted[1][1] * market.prices[1], abs=1e-6)
+        assert eco.services_unmet_demand_by_firm == pytest.approx({1: 5})
+        assert eco.services_unmet_demand == pytest.approx(1.2)
+        assert tick.per_household_purchases[1] == {"Services1": (2, 10), "Services2": (0.5, 16),
+                                                  "Services3": (2.25, 20)}
+        assert [market.remaining[f.firm_id] for f in firms] == pytest.approx([0, 0, 7.75])
+        assert [f.inventory_units for f in firms] == [2, 0.5, 10]
+        assert hh.services_consumed_this_tick == pytest.approx(4.75)
+        assert hh.cash_balance == pytest.approx(27)
+        for firm in firms:
+            eco.payment_book.release_firm_receipts(firm)
+        assert eco.payment_book.clearing_cash == pytest.approx(0)
+        assert hh.cash_balance + sum(f.cash_balance for f in firms) + eco.government.cash_balance == pytest.approx(initial)
+        audit = eco._capture_audit_firm_state()
+        assert audit[1]["last_rerouted_service_units"] == 0
+        assert audit[2]["last_rerouted_service_units"] == pytest.approx(0.5)
+        assert audit[3]["last_rerouted_service_units"] == pytest.approx(1.5)
+
+        eco.current_tick += 1
+        for firm in firms:
+            firm.age_in_ticks += 1
+        eco.services_unmet_demand_by_firm.clear()
+        eco.payment_book = PaymentBook(eco, timing="income_first")
+        market = PaymentGoodsMarket(eco, {}, firms)
+        market.first_pass()
+        prepare_household_dues(eco)
+        eco._phase_misc_and_healthcare(SimpleNamespace(payment_arm=True, goods_market=market, per_firm_sales=market.sales))
+        assert third.last_rerouted_service_units == 0
+
+
+@pytest.mark.parametrize("scenario", ["rejected", "free", "subsidized", "good_name", "off"])
+def test_only_committed_stockout_alternatives_count(factory, monkeypatch, scenario):
+    cfg = clone_config()
+    cfg.payment_sequence = "income_first"
+    cfg.households.fix_spending_leak = scenario != "off"
+    with use_config(cfg):
+        price = 0 if scenario == "free" else 20
+        origin_stock = 1 if scenario == "good_name" else 0
+        eco, hh, (origin, receiver) = _world(factory, cfg, category="Services", stocks=(origin_stock, 10),
+                                              prices=(10, price))
+        target = origin.firm_id
+        if scenario == "good_name":
+            origin.good_name = receiver.good_name = target = "Same service"
+        if scenario == "rejected":
+            monkeypatch.setattr(PaymentBook, "commit_sale", lambda *args, **kwargs: False)
+        if scenario == "subsidized":
+            eco.government.sector_subsidy_target = "Services"
+            eco.government._sector_subsidy_rate = 0.5
+            eco.government.cash_balance = 20
+            eco.payment_state["restrictions"]["G"] = 20
+            eco.sector_subsidy_remaining_this_tick = 20
+
+        market = PaymentGoodsMarket(eco, {1: {"planned_purchases": {target: 4}}}, [origin, receiver])
+        market.first_pass()
+        market.second_pass()
+        _, sales = market.finish()
+
+        expected = {"rejected": 0, "free": 4, "subsidized": 1.52, "good_name": 0, "off": 0}[scenario]
+        expected_sold = 3 if scenario == "good_name" else expected
+        assert market.rerouted_service_units_by_firm.get(receiver.firm_id, 0) == pytest.approx(expected)
+        assert sales.get(receiver.firm_id, {}).get("units_sold", 0) == pytest.approx(expected_sold)
+        if scenario == "subsidized":
+            assert hh.cash_balance == pytest.approx(84.8)
+            assert eco.government.cash_balance == pytest.approx(4.8)
+            assert eco.payment_state["restrictions"]["G"] == pytest.approx(4.8)
+            assert eco.payment_book.release_firm_receipts(receiver) == pytest.approx(30.4)

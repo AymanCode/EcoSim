@@ -34,8 +34,9 @@ Performance optimizations:
 import logging
 import os
 import random
-from dataclasses import dataclass, fields
+from dataclasses import asdict, dataclass, fields
 from collections import deque
+from statistics import median
 from typing import TYPE_CHECKING, Dict, List, Tuple, Optional
 
 from config import CONFIG, get_config, validate_health_episode_settings
@@ -58,6 +59,7 @@ from agents import (
     GovernmentAgent,
     FirmHealthSnapshot,
     LoanContract,
+    ServiceDemandObservation,
     build_awareness_market_views,
 )
 from utils.category_utils import build_good_category_lookup
@@ -663,6 +665,7 @@ class Economy:
                 "last_tick_actual_hires": int(getattr(firm, "last_tick_actual_hires", 0)),
                 "last_units_produced": float(getattr(firm, "last_units_produced", 0.0)),
                 "last_units_sold": float(getattr(firm, "last_units_sold", 0.0)),
+                "last_rerouted_service_units": float(getattr(firm, "last_rerouted_service_units", 0.0)),
                 "last_revenue": float(getattr(firm, "last_revenue", 0.0)),
                 "last_profit": float(getattr(firm, "last_profit", 0.0)),
                 "quality_level": float(getattr(firm, "quality_level", 0.0)),
@@ -3287,9 +3290,21 @@ class Economy:
             tick.per_household_purchases, tick.per_firm_sales = self.payment_book.purchases, self.payment_book.receipts
             self._misc_firm_add_beneficiary()
             self._misc_firm_redistribute_revenue()
+            track_service_demand = self._service_stockout_fallback_active()
             for firm in self.firms:
                 if (firm.good_category or "").lower() == "services":
-                    firm.consider_service_infrastructure_upgrade(economy=self, current_units_sold=tick.per_firm_sales.get(firm.firm_id, {}).get("units_sold", 0.0))
+                    units_sold = tick.per_firm_sales.get(firm.firm_id, {}).get("units_sold", 0.0)
+                    if self.payment_sequence == "income_first":
+                        firm.last_rerouted_service_units = goods_market.rerouted_service_units_by_firm.get(
+                            firm.firm_id, 0.0,
+                        )
+                    # Capture matching sales, lost demand and produced capacity before the late upgrade.
+                    if not firm.is_baseline:
+                        if track_service_demand:
+                            self._record_service_demand_observation(firm, units_sold)
+                        else:
+                            firm.service_demand_observation = None
+                    firm.consider_service_infrastructure_upgrade(economy=self, current_units_sold=units_sold)
             self._offer_service_infrastructure_loans()
         else:
             self._process_healthcare_services(tick.per_firm_sales)
@@ -7484,6 +7499,30 @@ class Economy:
             firm.needs_investment_loan = False
             firm.investment_loan_amount = 0.0
 
+    def _service_stockout_fallback_active(self) -> bool:
+        shopping = CONFIG.households
+        return (
+            self.payment_sequence == "income_first"
+            and shopping.fix_spending_leak
+            and shopping.stockout_substitution_share > 0
+        )
+
+    def _record_service_demand_observation(self, firm: FirmAgent, sold_units: float) -> None:
+        tick = self.current_tick
+        prior = getattr(firm, "service_demand_observation", None)
+        if prior is not None and prior.tick == tick:
+            return
+        window = prior.rerouted_units_window if prior is not None and prior.tick == tick - 1 else ()
+        rerouted_units = firm.last_rerouted_service_units
+        firm.service_demand_observation = ServiceDemandObservation(
+            tick=tick,
+            sold_units=sold_units,
+            rerouted_units=rerouted_units,
+            funded_lost_units=self.services_unmet_demand_by_firm.get(firm.firm_id, 0.0),
+            output_capacity=firm.last_units_produced,
+            rerouted_units_window=(*window[-4:], rerouted_units),
+        )
+
     def _maybe_offer_long_term_capital_loan(
         self,
         firm: "FirmAgent",
@@ -7518,6 +7557,9 @@ class Economy:
         preserved.
         """
         cfg = CONFIG.firms
+        category = (firm.good_category or "").lower()
+        if self.payment_sequence == "income_first" and category == "services":
+            firm.decision_diagnostics.pop("service_long_term_quote", None)
 
         if not bool(getattr(cfg, "long_term_capital_loans_enabled", True)):
             return False
@@ -7525,7 +7567,6 @@ class Economy:
             return False
         if self.payment_sequence != "legacy" and firm.payment_wage_arrears > MONEY_EPS:
             return False
-        category = (firm.good_category or "").lower()
         if category not in {"services", "housing"}:
             return False
         if category == "services" and not firm._service_space_expansion_supported():
@@ -7622,10 +7663,42 @@ class Economy:
         project_cost = loan_amount
         borrowed = loan_amount
         if category == "services" and self.payment_sequence != "legacy":
+            quote = None
+            if self.payment_sequence == "income_first":
+                observation = getattr(firm, "service_demand_observation", None)
+                if not self._service_stockout_fallback_active() or (
+                    observation is not None and observation.tick != self.current_tick - 1
+                ):
+                    observation = None
+                if (
+                    observation is not None
+                    and len(observation.rerouted_units_window) == 5
+                    and observation.rerouted_units > 0.0
+                    and observation.output_capacity > 0.0
+                ):
+                    rerouted = observation.rerouted_units
+                    typical = min(rerouted, median(observation.rerouted_units_window))
+                    direct = max(0.0, observation.sold_units - rerouted)
+                    # Count funded own orders that inbound reroutes may have crowded out.
+                    supported = direct + observation.funded_lost_units + typical
+                    if rerouted > typical + MONEY_EPS and supported < 0.95 * observation.output_capacity:
+                        step_cost = self._service_slot_upgrade_gain(firm) * float(cfg.services_capacity_cost_per_unit)
+                        project_cost = min(loan_amount, step_cost)
+                quote = {
+                    "tick": self.current_tick,
+                    "ordinary_cost": loan_amount,
+                    "project_cost": project_cost,
+                    "funded": None,
+                    # Preserve the evidence used here when this week's settlement replaces it.
+                    "observation": asdict(observation) if observation is not None else None,
+                }
+                firm.decision_diagnostics["service_long_term_quote"] = quote
             funded = self._fund_service_expansion(
                 firm, project_cost, rate, int(cfg.long_term_capital_term_ticks),
                 "long_term_capital", project_cost / float(cfg.services_capacity_cost_per_unit),
             )
+            if quote is not None:
+                quote["funded"] = funded is not None
             if funded is None:
                 return False
             borrowed = funded
@@ -7657,7 +7730,7 @@ class Economy:
         if category == "services":
             if self.payment_sequence != "legacy":
                 self._payment_record_capital_spend(firm, project_cost, "long_term_services")
-            capacity_added = loan_amount / float(cfg.services_capacity_cost_per_unit)
+            capacity_added = project_cost / float(cfg.services_capacity_cost_per_unit)
             firm._add_service_worker_slots(capacity_added)
             firm.capital_stock += capacity_added
         elif category == "housing":
@@ -7670,10 +7743,10 @@ class Economy:
                 units_added = int(loan_amount / float(cfg.housing_rental_unit_construction_cost))
                 firm.max_rental_units = int(firm.max_rental_units) + units_added
 
-        # Money flow: route loan amount through capital_investment_this_tick so
+        # Money flow: route project cost through capital_investment_this_tick so
         # the existing _recycle_capital_investment phase distributes it to
         # households as construction wages. Preserves money conservation.
-        capital_units_for_recycle = loan_amount / float(cfg.capital_cost_per_unit)
+        capital_units_for_recycle = project_cost / float(cfg.capital_cost_per_unit)
         if category != "housing" or self.payment_sequence == "legacy":
             firm.capital_investment_this_tick = float(firm.capital_investment_this_tick) + capital_units_for_recycle
 
