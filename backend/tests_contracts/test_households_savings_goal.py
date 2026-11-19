@@ -166,3 +166,20 @@ def test_spend_down_rate_applies_only_above_target(factory):
         _settle(ec)
         # Below target the rebuild rate (0.02) still applies: 100 + 0.02 * (100 - 180).
         assert _budget(ec) == pytest.approx(98.4)
+
+
+def test_spend_down_rate_inherits_the_adjust_rate_when_unset(factory):
+    # Plan 3 [A-2]: a caller that sets only savings_goal_adjust_rate gets it on both sides.
+    cfg, ec, _, _ = _world(factory, cash=300)
+    assert cfg.households.savings_goal_spend_down_rate is None
+    cfg.households.savings_goal_adjust_rate = 0.05
+    with use_config(cfg):
+        _settle(ec)
+        # E=30, T=180; 120 above target: 100 + 0.05 * 120.
+        assert _budget(ec) == pytest.approx(106.0)
+    cfg, ec, _, _ = _world(factory, cash=100)
+    cfg.households.savings_goal_adjust_rate = 0.05
+    with use_config(cfg):
+        _settle(ec)
+        # 80 below target: 100 + 0.05 * (100 - 180).
+        assert _budget(ec) == pytest.approx(96.0)

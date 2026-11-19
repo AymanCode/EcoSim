@@ -184,13 +184,15 @@ class HouseholdBehaviorConfig:
     # (2021, AEJ: Macro) find most windfall spending within a year; 2% weekly
     # closes about 65% of a gap in 52 weeks, a conversion to the model's tick.
     savings_goal_adjust_rate: float = 0.02
-    # savings_goal_spend_down_rate: default 0.02 per week, the rate at which
-    # savings above the target are spent (below it, savings_goal_adjust_rate
-    # rebuilds the cushion). Equal to the rebuild rate by default, so existing
-    # results are unchanged. Fagereng, Holm & Natvik (2021, AEJ: Macro) find
-    # low-liquidity winners spend nearly all of a small windfall within the
-    # year; 0.04/week spends about 88% of an excess in 52 weeks (conversion).
-    savings_goal_spend_down_rate: float = 0.02
+    # savings_goal_spend_down_rate: default None = inherit savings_goal_adjust_rate,
+    # so a caller that sets only the adjust rate gets it on both sides of the
+    # target. A float sets the rate at which savings above the target are spent.
+    # Fagereng, Holm & Natvik (2021, AEJ: Macro) find low-liquidity winners spend
+    # nearly all of a small windfall within the year; 0.04/week would spend about
+    # 88% of an excess in 52 weeks if the target stayed fixed and all planned
+    # spending were realized (conversion). Applying that low-liquidity estimate
+    # above the cushion is a tuning choice, not a study result.
+    savings_goal_spend_down_rate: Optional[float] = None
 
     # Spend dividends received since the previous plan as income; default off.
     # Default on since the owner decision of 2026-11-18 (AUD-005; evidence in docs/testing/household-realism-experiments.md); False restores the previous behavior.

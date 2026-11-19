@@ -347,3 +347,46 @@ def test_payment_passes_and_unmet_use_their_own_seeded_orders(factory, monkeypat
         eco._record_firm_unmet_demand = lambda fid, qty: order.append(fid)
         market.finish()
         assert order == [hid for hid, _ in ordered_plans(plans, 9, 3)]
+
+
+def test_zero_share_fundable_stockout_keeps_full_lost_sales_and_moves_no_money(factory):
+    # Plan 3 [A-3], income_first: with redirection off, a fully fundable stockout is the
+    # sold-out seller's full lost sale, also household unmet demand, and nothing is bought elsewhere.
+    cfg = clone_config()
+    cfg.payment_sequence = "income_first"
+    cfg.households.fix_spending_leak = True
+    cfg.households.stockout_substitution_share = 0.0
+    with use_config(cfg):
+        eco, hh, firms = _world(factory, cfg, cash=100.0, stocks=(0.0, 100.0), prices=(10.0, 20.0))
+        market = PaymentGoodsMarket(eco, {1: {"planned_purchases": {1: 10.0}}}, firms)
+        market.first_pass()
+        market.second_pass()
+        purchases, _sales = market.finish()
+        assert "Food2" not in purchases.get(1, {})
+        assert eco.food_unmet_demand == pytest.approx(10.0)
+        assert eco.current_tick_unmet_demand_by_firm[1] == pytest.approx(10.0)
+        assert hh.cash_balance == pytest.approx(100.0)
+        assert firms[1].cash_balance == pytest.approx(0.0)
+
+
+def test_zero_share_lost_sales_are_credited_by_remaining_affordability(factory):
+    # Plan 3 [A-3]: finish() credits a stockout only up to what the household can still
+    # fund after its other purchases; a later purchase that uses all the cash leaves none.
+    cfg = clone_config()
+    cfg.payment_sequence = "income_first"
+    cfg.households.fix_spending_leak = True
+    cfg.households.stockout_substitution_share = 0.0
+    with use_config(cfg):
+        eco, hh, firms = _world(factory, cfg, cash=100.0, stocks=(0.0, 100.0), prices=(10.0, 20.0))
+        services = factory.firm(firm_id=3, category="Services", good_name="Services3",
+                                inventory_units=100, price=10.0, cash_balance=0.0)
+        services.inventory_units = 100
+        firms.append(services)
+        market = PaymentGoodsMarket(eco, {1: {"planned_purchases": {1: 10.0, 3: 10.0}}}, firms)
+        market.first_pass()
+        market.second_pass()
+        purchases, _sales = market.finish()
+        assert purchases[1]["Services3"] == pytest.approx((10.0, 10.0))
+        assert hh.cash_balance == pytest.approx(0.0)
+        assert eco.food_unmet_demand == pytest.approx(0.0)
+        assert eco.current_tick_unmet_demand_by_firm.get(1, 0.0) == pytest.approx(0.0)

@@ -1267,7 +1267,9 @@ class Economy:
             gap = savings_liquidity - target
             # Above the target the excess is spent down at its own rate; below it
             # the cushion is rebuilt at savings_goal_adjust_rate.
-            rate = np.where(gap > 0.0, cfg.savings_goal_spend_down_rate, cfg.savings_goal_adjust_rate)
+            spend_down = (cfg.savings_goal_adjust_rate if cfg.savings_goal_spend_down_rate is None
+                          else cfg.savings_goal_spend_down_rate)
+            rate = np.where(gap > 0.0, spend_down, cfg.savings_goal_adjust_rate)
             budget = np.clip(income - obligations + rate * gap,
                              np.minimum(accessible_liquidity, food_floor), accessible_liquidity)
         else:
