@@ -205,6 +205,16 @@ class HouseholdBehaviorConfig:
     #   & Lindner (2025, AEJ: Applied 17(3)) find no measurable general-skill
     #   decline, so the loss is bounded to on-the-job gains by the floor.
     skill_loss_per_year_out_of_work: float = 0.04
+    # job_choices: bool, default False. Order hiring firms by their offers,
+    # protect switchers from pay cuts, and select layoffs by tenure. Sorkin
+    # (2018, QJE) finds earnings declines in about 37% of US job-to-job moves,
+    # mostly for non-wage reasons. EcoSim has no non-wage job features and
+    # search is pay-driven, so prohibiting those declines deliberately departs
+    # from that evidence. Abraham & Medoff (1984, ILR Review) find seniority
+    # protects workers against layoffs in about 97% of union and 86% of
+    # non-union work groups, controlling for worker value. Lower pay as a
+    # tenure tie-break is a model choice, used as a productivity proxy.
+    job_choices: bool = False
     initial_happiness_range: Tuple[float, float] = (0.60, 0.80)
     initial_morale_range: Tuple[float, float] = (0.60, 0.80)
     happiness_decay_rate_range: Tuple[float, float] = (0.0015, 0.0025)
@@ -1189,7 +1199,7 @@ class SimulationConfig:
             raise ValueError("services_expansion_min_excess_demand_ratio must be finite and non-negative")
 
         # Skills dynamics (households skills PR)
-        for name in ("skills_dynamics", "skills_weekly_learning"):
+        for name in ("skills_dynamics", "skills_weekly_learning", "job_choices"):
             if not isinstance(getattr(self.households, name), bool):
                 raise ValueError(f"households.{name} must be a bool")
         loss = self.households.skill_loss_per_year_out_of_work

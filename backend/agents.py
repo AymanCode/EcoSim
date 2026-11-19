@@ -2040,6 +2040,7 @@ class FirmAgent(AgentMixin):
     is_baseline: bool = False
     baseline_production_quota: float = 500.0
     actual_wages: Dict[int, float] = field(default_factory=dict)
+    employee_hire_ticks: Dict[int, int] = field(default_factory=dict)
     # (employees list, its length, actual_wages dict, its length, wage_offer, bill);
     # see _current_wage_bill. Cleared by _invalidate_wage_bill_cache.
     _wage_bill_cache: Optional[tuple] = field(default=None, init=False, repr=False, compare=False)
@@ -3237,7 +3238,7 @@ class FirmAgent(AgentMixin):
         elif delta < 0:
             layoff_count = min(-delta, layoff_limit)
             if layoff_count > 0:
-                planned_layoffs = self.employees[:layoff_count]
+                planned_layoffs = self._layoff_candidates(layoff_count)
 
         self.planned_hires_count = planned_hires
         self.planned_layoffs_ids = planned_layoffs
@@ -3332,7 +3333,7 @@ class FirmAgent(AgentMixin):
 
         planned_layoffs: List[int] = []
         if current_workers > useful_workers:
-            planned_layoffs = self.employees[:current_workers - useful_workers]
+            planned_layoffs = self._layoff_candidates(current_workers - useful_workers)
 
         turnaround_allowed, turnaround_payload = self._survival_turnaround_gate(
             health_snapshot,
@@ -3589,7 +3590,7 @@ class FirmAgent(AgentMixin):
             planned_layoffs = []
             if current_workers > min_staff:
                 excess = current_workers - min_staff
-                planned_layoffs = list(self.employees[:excess])
+                planned_layoffs = self._layoff_candidates(excess)
             return self._stamp_labor_plan(
                 0.0, max(0, min_staff - current_workers), planned_layoffs
             )
@@ -3724,7 +3725,7 @@ class FirmAgent(AgentMixin):
             target_workers = min(target_workers, current_workers)
             layoff_count = current_workers - target_workers
             if layoff_count > 0:
-                planned_layoffs = self.employees[:layoff_count]
+                planned_layoffs = self._layoff_candidates(layoff_count)
             # Minimal production during survival mode
             planned_production_units = min(
                 self._capacity_for_workers(target_workers),
@@ -3924,7 +3925,7 @@ class FirmAgent(AgentMixin):
                         if current_workers > 0:
                             transition_layoff_count = current_workers // 2
                             if transition_layoff_count > 0:
-                                planned_layoffs = list(self.employees[:transition_layoff_count])
+                                planned_layoffs = self._layoff_candidates(transition_layoff_count)
                                 target_workers = current_workers - transition_layoff_count
                                 planned_production_units = min(
                                     self._capacity_for_workers(max(target_workers, firm_config.min_target_workers)),
@@ -3976,7 +3977,7 @@ class FirmAgent(AgentMixin):
                 elif delta < 0:
                     layoff_count = min(-delta, fire_limit)
                     if layoff_count > 0:
-                        planned_layoffs = self.employees[:layoff_count]
+                        planned_layoffs = self._layoff_candidates(layoff_count)
         else:
             additional_output = (
                     self._capacity_for_workers(current_workers + 1) -
@@ -4092,7 +4093,7 @@ class FirmAgent(AgentMixin):
             elif delta < 0:
                 layoff_count = min(-delta, fire_limit)
                 if layoff_count > 0:
-                    planned_layoffs = self.employees[:layoff_count]
+                    planned_layoffs = self._layoff_candidates(layoff_count)
 
         # Inventory governor: sets planned production for every firm that
         # reaches this point.
@@ -4940,7 +4941,20 @@ class FirmAgent(AgentMixin):
     # -------------------------------------------------------------------------
     # Section: FirmAgent outcomes, expansion, and distributions
     # -------------------------------------------------------------------------
-    def apply_labor_outcome(self, outcome: Dict[str, object]) -> None:
+    def _layoff_candidates(self, n: int) -> List[int]:
+        """Select workers for layoff, preserving roster order when disabled."""
+        if not CONFIG.households.job_choices:
+            return self.employees[:n]
+        return sorted(
+            self.employees,
+            key=lambda worker_id: (
+                -self.employee_hire_ticks.get(worker_id, 0),
+                self.actual_wages.get(worker_id, self.wage_offer),
+                worker_id,
+            ),
+        )[:n]
+
+    def apply_labor_outcome(self, outcome: Dict[str, object], current_tick: int = 0) -> None:
         """
         Update workforce based on labor market outcome.
 
@@ -4972,11 +4986,13 @@ class FirmAgent(AgentMixin):
                 self.employees.remove(worker_id)
             if worker_id in self.actual_wages:
                 del self.actual_wages[worker_id]
+            self.employee_hire_ticks.pop(worker_id, None)
 
         # Add new hires (avoid duplicates)
         for worker_id in hired_households_ids:
             if worker_id not in self.employees:
                 self.employees.append(worker_id)
+            self.employee_hire_ticks.setdefault(worker_id, current_tick)
             self.actual_wages[worker_id] = wage_map.get(worker_id, self.wage_offer)
 
         # Ensure existing workers' wages meet minimum wage floor
