@@ -1230,16 +1230,28 @@ class Economy:
                 ), 0.0) + np.array(
                     [h.last_transfer_income for h in self.households], dtype=np.float64,
                 ) + dividend_incomes
-                savings_access = accessible_liquidity
-                if not settled_income:
-                    savings_access = np.maximum(accessible_liquidity - self._legacy_obligations_due(), 0.0)
-                savings_liquidity = np.maximum(savings_access - income, 0.0)
+                # Rent and loan installments are paid out of this week's
+                # resources before shopping, so the goods budget starts from
+                # income after them; the cushion is measured before them.
+                obligations = self._legacy_obligations_due()
+                gross_access = accessible_liquidity_array(np.maximum(cash_balances, 0.0), bank_deposits)
+                savings_liquidity = np.maximum(gross_access - (income if settled_income else 0.0), 0.0)
             else:
                 # Later-pay planning occurs before wages and benefits are paid.
                 income = (wage_income + benefit_income if settled_income
                           else np.zeros(len(self.households), dtype=np.float64)) + dividend_incomes
-                # Dividends since the last plan are already in cash, so the
-                # savings stock excludes them while they count as income.
+                obligations = np.fromiter(
+                    (pressure[h.household_id]["rent_due"] + pressure[h.household_id]["loan_due"]
+                     for h in self.households), dtype=np.float64, count=len(self.households),
+                )
+                # The cushion is measured before this week's rent and loan
+                # payments (they come out of income below). Dividends since
+                # the last plan are already in cash, so the stock excludes them
+                # while they count as income.
+                savings_liquidity = np.fromiter(
+                    (pressure[h.household_id]["savings_access"] for h in self.households),
+                    dtype=np.float64, count=len(self.households),
+                )
                 savings_liquidity = np.maximum(savings_liquidity - dividend_incomes, 0.0)
             u_ema = (self.savings_goal_unemployment_ema
                      if self.savings_goal_unemployment_ema is not None else unemployment_rate)
@@ -1252,7 +1264,7 @@ class Economy:
                               0.0)
             food_floor = np.fromiter((max(0.0, h.min_food_per_tick) for h in self.households),
                                      dtype=np.float64, count=len(self.households)) * food_reference_price(self)
-            budget = np.clip(income + cfg.savings_goal_adjust_rate * (savings_liquidity - target),
+            budget = np.clip(income - obligations + cfg.savings_goal_adjust_rate * (savings_liquidity - target),
                              np.minimum(accessible_liquidity, food_floor), accessible_liquidity)
         else:
             drawdown = drawdown_rates * savings_liquidity

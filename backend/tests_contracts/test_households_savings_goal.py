@@ -108,8 +108,21 @@ def test_legacy_unsettled_savings_still_nets_obligations(factory):
         ec = factory.economy(households=[hh], firms=[factory.firm(price=10),
                             factory.firm(firm_id=2, category="Housing", price=30)])
         ec.savings_goal_unemployment_ema = 0.05
-        # E=50, T=300, A=400-30 rent-100 paid wage=270.
-        assert ec._household_consumption_budgets(0, 0)[0] == pytest.approx(99.4)
+        # E=50, T=300. Unsettled: cash 400 excludes this week's wage, so the
+        # cushion is 400 before rent; budget = 100 income - 30 rent + 0.02*(400-300).
+        assert ec._household_consumption_budgets(0, 0)[0] == pytest.approx(72.0)
+
+
+def test_rent_comes_out_of_income_not_two_percent_of_savings(factory):
+    cfg, ec, hh, _ = _world(factory, cash=300)
+    with use_config(cfg):
+        hh.renting_from_firm_id = 2
+        hh.monthly_rent = 30
+        _settle(ec)
+        # E=2*10+30=50, T=6*(0.5+0.5)*50=300, cushion before rent = 300:
+        # budget = 100 income - 30 rent + 0.02*(300-300) = 70, so spending
+        # including rent equals income at the target.
+        assert _budget(ec) == pytest.approx(70)
 
 
 def test_unemployment_ema_updates_once_per_tick_and_risk_is_capped(factory):

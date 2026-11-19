@@ -139,6 +139,7 @@ def planning_inputs(
             "expected_pre_shopping_income": expected_income,
             "received_pre_shopping_income": received_income,
             "estimated_savings_liquidity": max(0.0, savings_access - obligations),
+            "savings_access": max(0.0, savings_access),
             "obligation_pressure": obligations / max(nominal_access, 1.0),
             "estimated_discretionary_liquidity": available[-1],
         }
