@@ -2470,7 +2470,7 @@ class SimulationManager:
             h.unemployment_duration * hh_cfg.duration_pressure_rate,
         )
         cash_pressure = 0.0
-        poverty_threshold = max(1.0, float(hh_cfg.poverty_threshold))
+        poverty_threshold = h._money_line(hh_cfg.poverty_weeks, hh_cfg.poverty_threshold)
         if h.cash_balance < poverty_threshold:
             cash_pressure = min(
                 hh_cfg.happiness_pressure_cap,

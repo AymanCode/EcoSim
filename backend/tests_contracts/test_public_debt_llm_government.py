@@ -358,7 +358,7 @@ def test_deficit_ratio_metric_is_net_of_debt(runs):
 # GOVERNMENT-SURPLUS-01 explicitly selects on to retain that economic baseline.
 # Main's 85129748...7e901 digest was reproduced; the reviewed prompt adds only
 # the surplus_distribution schema and effect lines, with identical macro metrics.
-EXPECTED_FLAG_OFF_PROMPT_SHA256 = "e7254862ef9a651e942e3b07e96279580ab544b5f653282d2a4e32f9aaa1fd4d"
+EXPECTED_INCOME_FIRST_PROMPT_SHA256 = "6645a505d0848203e815e1e9a47f37f0469b744fe837edde2a3ab7c5e7e878cc"
 
 
 def _prompt_bundle(economy, tick):
@@ -392,18 +392,20 @@ def _seeded_economy(ticks, *, surplus_distribution=None):
     return economy
 
 
-def test_flag_off_prompt_bundle_matches_selected_economic_baseline():
+def test_income_first_prompt_bundle_matches_household_baseline():
     import hashlib
 
     with use_config(clone_config()):
         CONFIG.government.public_debt_enabled = False
+        CONFIG.payment_sequence = "income_first"
         # The stored pre-tax-reform trajectory isolates public-debt changes.
         CONFIG.government.profit_tax_style = "legacy_cash_rank"
         CONFIG.firms.price_on_effective_profit_tax = False
         # Keep the historical automatic-sweep trajectory to isolate debt changes.
         economy = _seeded_economy(20, surplus_distribution="on")
+        assert economy.payment_sequence == "income_first"
         text = _prompt_bundle(economy, 20)
-    assert hashlib.sha256(text.encode()).hexdigest() == EXPECTED_FLAG_OFF_PROMPT_SHA256
+    assert hashlib.sha256(text.encode()).hexdigest() == EXPECTED_INCOME_FIRST_PROMPT_SHA256
 
 
 @pytest.mark.parametrize("sequence", ["income_first", "income_late"])

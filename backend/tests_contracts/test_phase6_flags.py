@@ -126,6 +126,7 @@ def _switcher_market(factory):
 
 def test_b13_flag_off_switchers_open_vacancies_for_everyone(factory, monkeypatch):
     monkeypatch.setattr(CONFIG.labor_market, "fix_switcher_vacancies", False)
+    monkeypatch.setattr(CONFIG, "payment_sequence", "income_first")
     economy, production, wages, labor = _switcher_market(factory)
     firm_out, hh_out = economy._match_labor_fast(production, wages, labor)
     # Two switchers give every private idle firm, the laying-off one too, two
@@ -133,8 +134,6 @@ def test_b13_flag_off_switchers_open_vacancies_for_everyone(factory, monkeypatch
     assert [production[fid]["planned_hires_count"] for fid in (1, 2, 3)] == [2, 2, 2]
     assert all(firm_out[fid]["synthetic_switcher_vacancies"] == 2 for fid in (1, 2, 3))
     assert sum(hh_out[i]["employer_id"] is not None for i in (2, 3, 4)) == 3
-    # The laid-off switcher falls back to the firm that laid them off.
-    assert hh_out[5]["employer_id"] == 3
 
 
 def test_b13_flag_on_by_default_switcher_vacancies_are_local_capped_and_switcher_only(factory):

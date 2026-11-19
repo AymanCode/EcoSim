@@ -113,6 +113,38 @@ class HouseholdBehaviorConfig:
     #   Off: identical to main.
     healthcare_food_first_reserve: bool = True
 
+    # Household thresholds in weeks of food and rent.
+    # poverty_weeks: default 13.0 weeks. Prosperity Now defines liquid asset
+    # poverty as under three months of poverty-level expenses; essentials
+    # approximate those expenses. This widens the old 200 line from about 6.7
+    # weeks at the settled baseline.
+    poverty_weeks: float = 13.0
+    # wage_floor_weeks: default 0.33 weeks; no study, converted from the old 10
+    # wage floor at settled essential costs of about 30 per week.
+    wage_floor_weeks: float = 0.33
+    # subsistence_weeks: default 1.0 week, one week of essentials by definition;
+    # no study or departure is needed for this definition.
+    subsistence_weeks: float = 1.0
+    # consumption_loan_weeks: default 2.0 weeks. CFPB (2013), Payday Loans and
+    # Deposit Advance Products, reports a roughly $350 median payday loan;
+    # two weeks of poverty-line single-adult essentials approximate that amount.
+    consumption_loan_weeks: float = 2.0
+    # education_fee_weeks: default 3.3 weeks; no study, converted from 100 at
+    # settled essentials of about 30 per week.
+    education_fee_weeks: float = 3.3
+    # education_trigger_weeks: default 10.0 weeks; no study, converted from 300
+    # at settled essentials of about 30 per week.
+    education_trigger_weeks: float = 10.0
+    # affordability_cash_weeks: default 13.3 weeks; no study, converted from
+    # the cash divider 400 at settled essentials of about 30 per week.
+    affordability_cash_weeks: float = 13.3
+    # affordability_wage_weeks: default 1.33 weeks; no study, converted from
+    # the wage divider 40 at settled essentials of about 30 per week.
+    affordability_wage_weeks: float = 1.33
+    # price_cap_floor_weeks: default 0.83 weeks; no study, converted from the
+    # price-cap liquid floor 25 at settled essentials of about 30 per week.
+    price_cap_floor_weeks: float = 0.83
+
     # Job acceptance (H1 - no job worse than benefits)
     min_job_premium_over_unemployment: float = 1.05  # Jobs must pay 5% more than unemployment benefits
 
@@ -267,15 +299,10 @@ class HouseholdBehaviorConfig:
     morale_decay_rate: float = 0.02
     health_decay_rate: float = 0.005
 
-    # Wellbeing Updates - Employment (Feature 2: symmetric labor effects)
     employed_happiness_boost: float = 0.03   # Was 0.02; symmetric with unemployment
-    unemployed_happiness_penalty: float = 0.003  # Per-tick penalty for unemployment (was 0.03 — unused; now used)
 
-    # Wellbeing Updates - Relative wealth loss and food shortfall
     # Relative wealth-loss: losing X% of cash hurts regardless of absolute level
     wealth_loss_happiness_scaling: float = 0.01   # 10% cash loss → 0.001 happiness loss per tick
-    # Food shortfall: not meeting minimum food requirement hurts proportionally
-    food_shortfall_happiness_scaling: float = 0.003  # 100% food shortfall → 0.003 happiness loss per tick
 
     # Wellbeing Updates - Consumption (food/services/healthcare)
     food_health_high_threshold: float = 5.0
@@ -342,19 +369,14 @@ class HouseholdBehaviorConfig:
     # Wellbeing Updates - Housing (Feature 2: reduced ongoing penalty)
     unhoused_happiness_penalty: float = 0.02  # Was 0.05; one-time eviction shock is separate
 
-    # Wellbeing Updates - Poverty (Feature 1: exclusive if/elif, no stacking)
+    # Liquid-wealth reporting and wage-expectation fallback.
     extreme_poverty_threshold: float = 100.0
-    extreme_poverty_penalty: float = 0.05
     poverty_threshold: float = 200.0
-    poverty_penalty: float = 0.03
 
     # Wellbeing Updates - Government
-    government_happiness_scaling: float = 0.05
     government_health_scaling: float = 0.03
 
     # Wellbeing Updates - Morale
-    wage_satisfaction_boost: float = 0.03
-    wage_dissatisfaction_scaling: float = 0.05
     unemployment_morale_penalty: float = 0.05
 
     # Wellbeing Updates - Health
@@ -363,15 +385,57 @@ class HouseholdBehaviorConfig:
     health_high_goods_boost: float = 0.01
     health_low_goods_penalty: float = 0.02
 
-    # Feature 3: Mercy Floor
-    mercy_floor_threshold: float = 0.25     # Below this, natural decay pauses
-
     # Performance Multiplier (Feature 4: raised floor from 0.5 to 0.75)
     performance_morale_weight: float = 0.5
     performance_health_weight: float = 0.3
     performance_happiness_weight: float = 0.2
     performance_min_multiplier: float = 0.75  # Was 0.5; prevents doom loop
     performance_max_multiplier: float = 1.5
+
+    # wellbeing_unemployment_weight: default 0.10 on the 0-1 happiness scale.
+    # Winkelmann & Winkelmann (1998, Economica) find roughly one point on a
+    # 0-10 life-satisfaction scale. Lucas et al. (2004, Psychological Science)
+    # and Clark et al. (2008, Economic Journal) find little or no adaptation,
+    # so this is a persistent level term rather than a decaying shock.
+    wellbeing_unemployment_weight: float = 0.10
+    # wellbeing_security_weight: default 0.12, the happiness reduction at zero
+    # liquid security. Simetrica-Jacobs for the FCA (2020) estimate debt
+    # arrears at about -0.36 to -0.40 points on a 0-10 scale. Tuned upward
+    # because savings are the model's only wealth channel.
+    wellbeing_security_weight: float = 0.12
+    # wellbeing_security_full_weeks: default 13.0 weeks of essential costs.
+    # Prosperity Now defines liquid-asset poverty as less than three months;
+    # converted here to 13 weeks as the point of full security.
+    wellbeing_security_full_weeks: float = 13.0
+    # wellbeing_food_weight: default 0.15 for a complete food shortfall;
+    # no comparable-units study was found, so this weight is tuned.
+    wellbeing_food_weight: float = 0.15
+    # wellbeing_unhoused_weight: default 0.10 for being unhoused;
+    # no comparable-units study was found, so this weight is tuned.
+    wellbeing_unhoused_weight: float = 0.10
+    # wellbeing_social_weight: default 0.5 times (social multiplier - 1).
+    # Tuned to retain the old program boost as a level: the old weekly
+    # 0.05*(m-1) nudge becomes 0.5*(m-1), or 0.025 at m=1.05.
+    wellbeing_social_weight: float = 0.5
+    # happiness_adjust_rate: default 0.05 per week, half-life about 13.5 weeks.
+    # Clark et al. (2008) find most event response within the first year;
+    # converted to weekly and tuned. Income adaptation (Di Tella, Haisken-DeNew
+    # & MacCulloch 2010: about 65% fades within four years) is not modeled.
+    happiness_adjust_rate: float = 0.05
+    # Morale pay comparison follows Clark & Oswald (1996, J. Public Economics):
+    # job satisfaction depends on pay relative to a comparison wage, here the
+    # household's expected wage. All morale weights below are tuned.
+    # morale_fair_pay_weight: default 0.15, level increase at or above expectation.
+    morale_fair_pay_weight: float = 0.15
+    # morale_underpay_weight: default 0.30, level reduction for a full wage gap.
+    morale_underpay_weight: float = 0.30
+    # morale_unemployment_weight: default 0.15, level reduction when unemployed.
+    morale_unemployment_weight: float = 0.15
+    # morale_unhoused_weight: default 0.05, level reduction when unhoused.
+    morale_unhoused_weight: float = 0.05
+    # morale_adjust_rate: default 0.10 per week. No study of adjustment speed
+    # was found; tuned assuming job satisfaction moves faster than life satisfaction.
+    morale_adjust_rate: float = 0.10
 
     # Goods Consumption
     consumption_rate: float = 0.1  # 10% per tick

@@ -8,8 +8,10 @@ paid dividends. It does not expose the older ``last_after_tax_income`` or
 import pytest
 
 from agents import GovernmentAgent, HouseholdAgent
-from config import CONFIG
+from config import CONFIG, clone_config, use_config
 from economy import Economy
+from payment_loans import prepare_household_dues
+from payments import PaymentBook
 from tests_contracts.factories import make_firm, make_household
 
 
@@ -23,7 +25,11 @@ def _economy(hh: HouseholdAgent) -> Economy:
 
 def _plan(hh: HouseholdAgent) -> dict:
     """Plan through the live batch path (Economy._batch_plan_consumption)."""
-    plans = _economy(hh)._batch_plan_consumption(
+    economy = _economy(hh)
+    if economy.payment_sequence == "income_first":
+        economy.payment_book = PaymentBook(economy, "income_first")
+        prepare_household_dues(economy)
+    plans = economy._batch_plan_consumption(
         PRICES,
         {},
         unemployment_rate=0.05,
@@ -36,49 +42,61 @@ def _planned_spend(plan: dict) -> float:
     return sum(float(qty) * PRICES[good] for good, qty in purchases.items())
 
 
-def test_contract_unemployed_with_dividends_plans_more_spending_than_zero_dividend():
+@pytest.fixture
+def income_first():
+    cfg = clone_config()
+    cfg.payment_sequence = "income_first"
+    with use_config(cfg):
+        yield
+
+
+def _set_planning_dividend(household, amount):
+    household.dividends_since_last_plan = amount
+
+
+def test_contract_unemployed_with_dividends_plans_more_spending_than_zero_dividend(income_first):
     hh_no_income = make_household(cash_balance=1_000.0)
     hh_no_income.employer_id = None
     hh_no_income.wage = 0.0
-    hh_no_income.last_dividend_income = 0.0
+    _set_planning_dividend(hh_no_income, 0.0)
     hh_no_income.bank_deposit = 0.0
 
     hh_dividend = make_household(cash_balance=1_000.0)
     hh_dividend.employer_id = None
     hh_dividend.wage = 0.0
-    hh_dividend.last_dividend_income = 200.0
+    _set_planning_dividend(hh_dividend, 200.0)
     hh_dividend.bank_deposit = 0.0
 
     assert _planned_spend(_plan(hh_dividend)) > _planned_spend(_plan(hh_no_income))
 
 
-def test_contract_employed_with_dividends_plans_more_spending_than_wage_alone():
+def test_contract_employed_with_dividends_plans_more_spending_than_wage_alone(income_first):
     hh_wage_only = make_household(cash_balance=1_000.0)
     hh_wage_only.employer_id = 1
     hh_wage_only.wage = 300.0
-    hh_wage_only.last_dividend_income = 0.0
+    _set_planning_dividend(hh_wage_only, 0.0)
     hh_wage_only.bank_deposit = 0.0
 
     hh_wage_div = make_household(cash_balance=1_000.0)
     hh_wage_div.employer_id = 1
     hh_wage_div.wage = 300.0
-    hh_wage_div.last_dividend_income = 100.0
+    _set_planning_dividend(hh_wage_div, 100.0)
     hh_wage_div.bank_deposit = 0.0
 
     assert _planned_spend(_plan(hh_wage_div)) > _planned_spend(_plan(hh_wage_only))
 
 
-def test_contract_unemployed_full_dividend_cover_not_maximally_frugal():
+def test_contract_unemployed_full_dividend_cover_not_maximally_frugal(income_first):
     hh_no_div = make_household(cash_balance=0.0)
     hh_no_div.employer_id = None
     hh_no_div.wage = 0.0
-    hh_no_div.last_dividend_income = 0.0
+    _set_planning_dividend(hh_no_div, 0.0)
     hh_no_div.bank_deposit = 0.0
 
     hh_full_div = make_household(cash_balance=0.0)
     hh_full_div.employer_id = None
     hh_full_div.wage = 0.0
-    hh_full_div.last_dividend_income = BENEFIT
+    _set_planning_dividend(hh_full_div, BENEFIT)
     hh_full_div.bank_deposit = 0.0
 
     assert _planned_spend(_plan(hh_full_div)) >= _planned_spend(_plan(hh_no_div))
@@ -124,27 +142,6 @@ def test_contract_multiple_firms_track_distinct_paying_firm_ids():
 
     assert household.last_dividend_firm_ids == [10, 20]
     assert household.last_dividend_income == pytest.approx(paid_a + paid_b)
-
-
-def test_contract_services_consumption_improves_happiness_without_wage_income():
-    without_services = make_household(cash_balance=200.0)
-    with_services = make_household(cash_balance=200.0)
-    for household in (without_services, with_services):
-        household.employer_id = None
-        household.wage = 0.0
-        household.last_wage_income = 0.0
-        household.last_transfer_income = 0.0
-        household.last_dividend_income = 500.0
-        household.met_housing_need = True
-        household.food_consumed_this_tick = household.min_food_per_tick
-
-    without_services.services_consumed_this_tick = 0.0
-    with_services.services_consumed_this_tick = 1.0
-
-    _economy(without_services)._batch_update_wellbeing(happiness_multiplier=1.0)
-    _economy(with_services)._batch_update_wellbeing(happiness_multiplier=1.0)
-
-    assert with_services.happiness > without_services.happiness
 
 
 def test_contract_desperation_drawdown_never_lowers_the_budget():

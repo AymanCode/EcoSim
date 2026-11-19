@@ -292,7 +292,8 @@ def test_retired_keys_are_gone():
 
 
 def test_paid_education_raises_the_floor_so_it_is_not_worn_off():
-    with _flags(True):
+    with _flags(True) as cfg:
+        cfg.payment_sequence = "income_first"
         economy = _seeded_economy(households=40)
         _run(economy, 1)
         h = economy.households[0]
@@ -300,6 +301,9 @@ def test_paid_education_raises_the_floor_so_it_is_not_worn_off():
         h.skills_level = 0.3
         h.skill_floor = 0.3
         h.cash_balance = 1_000.0
-        assert h.maybe_active_education() == 100.0
+        h.essential_weekly_cost = 40.0
+        # $1,000 clears the 10 * $40 trigger. The fee is 3.3 * $40.
+        assert h.maybe_active_education() == pytest.approx(132.0)
+        assert h.cash_balance == pytest.approx(868.0)
         assert h.skills_level == pytest.approx(0.305)
         assert h.skill_floor == pytest.approx(0.305)
