@@ -69,6 +69,7 @@ from household_liquidity import (
     liquid_wealth as household_liquid_wealth,
     withdrawable_deposit,
 )
+from household_shopping import alternative_sellers, ordered_plans
 
 if TYPE_CHECKING:  # typing only; the payment arm imports it lazily at run time
     from payment_sectors import PaymentGoodsMarket
@@ -5508,11 +5509,14 @@ class Economy:
         # so advancing past a sold-out prefix never skips a firm with stock.
         good_cursor: Dict[str, int] = {}
 
-        # Process households in insertion order. Plans are constructed by household order,
-        # so this avoids an O(H log H) sort each tick.
+        # The original path keeps insertion order; the experiment randomizes it.
         household_lookup = self.household_lookup
         integer_targets = (int, np.integer)
-        for household_id, consumption_plan in household_consumption_plans.items():
+        leak_fix = CONFIG.households.fix_spending_leak
+        prices_by_id = dict(zip(firm_ids, firm_prices)) if leak_fix else None
+        if leak_fix:
+            from payment_sectors import _sale_quantity
+        for household_id, consumption_plan in ordered_plans(household_consumption_plans, self.current_tick, 4):
             per_household_purchases[household_id] = {}
             planned = consumption_plan["planned_purchases"]
             # Performance-mode cached plan (legacy): quantities are reference
@@ -5561,6 +5565,104 @@ class Economy:
                         if desired_qty <= 0:
                             continue
                     available = firm_remaining[idx]
+                    if leak_fix:
+                        household = household_lookup[household_id]
+                        category = firm_cat_by_idx[idx]
+                        price = firm_prices[idx]
+                        subsidy_target = str(self.government.sector_subsidy_target or "").lower()
+                        subsidy_rate = max(0.0, min(1.0, float(self.government._sector_subsidy_rate or 0.0)))
+                        subsidy_left = self.sector_subsidy_budget_left()
+                        reserved_cash = 0.0
+                        # The legacy market records purchases before the phase
+                        # that charges them. Estimate money already committed by
+                        # this household using that same subsidy cap.
+                        for good, (prior_qty, prior_price) in per_household_purchases[household_id].items():
+                            cost = prior_qty * prior_price
+                            public = (min(cost * subsidy_rate, subsidy_left)
+                                      if _good_name_to_cat.get(good) == subsidy_target else 0.0)
+                            subsidy_left -= public
+                            reserved_cash += cost - public
+                        cash_left = max(0.0, household.cash_balance - reserved_cash)
+                        share = subsidy_rate if category == subsidy_target else 0.0
+                        fundable = _sale_quantity(price, desired_qty, desired_qty, cash_left, share, subsidy_left)
+                        qty = min(desired_qty, available)
+                        if qty > 0:
+                            firm_remaining[idx] -= qty
+                            firm_units_sold[idx] += qty
+                            firm_revenue[idx] += qty * price
+                            gname = firm_goods[idx]
+                            prev_qty, prev_price = per_household_purchases[household_id].get(gname, (0.0, 0.0))
+                            total_qty = prev_qty + qty
+                            per_household_purchases[household_id][gname] = (
+                                total_qty, (prev_qty * prev_price + qty * price) / total_qty
+                            )
+                            if purchase_scale is not None:
+                                budget_remaining -= qty * price
+                                if category == "food":
+                                    food_remaining -= qty * price
+                                    food_floor_remaining = max(0.0, food_floor_remaining - qty * price)
+                                elif category == "housing":
+                                    housing_remaining -= qty
+                            public = min(qty * price * share, subsidy_left)
+                            subsidy_left -= public
+                            cash_left = max(0.0, cash_left - (qty * price - public))
+
+                        shortage = max(0.0, fundable - qty)
+                        money_left = CONFIG.households.stockout_substitution_share * shortage * price
+                        if purchase_scale is not None:
+                            limit = (min(budget_remaining, food_remaining) if category == "food"
+                                     else budget_remaining - food_floor_remaining)
+                            money_left = min(money_left, max(0.0, limit))
+                        if money_left > 0 and price > 0:
+                            remaining_by_id = dict(zip(firm_ids, firm_remaining))
+                            alternatives = alternative_sellers(household, self, firms[idx], firms,
+                                                               prices_by_id, remaining_by_id)
+                            free_units_left = shortage
+                            for alternative in alternatives:
+                                alt_idx = id_to_idx[alternative.firm_id]
+                                alt_price = firm_prices[alt_idx]
+                                # Free stock is bounded by the original unfilled
+                                # units, as there is no price to divide by.
+                                wanted_alt = money_left / alt_price if alt_price > 0 else free_units_left
+                                alt_qty = _sale_quantity(alt_price, wanted_alt,
+                                                         firm_remaining[alt_idx], cash_left,
+                                                         share, subsidy_left)
+                                if alt_qty <= 0:
+                                    continue
+                                cost = alt_qty * alt_price
+                                if alt_price <= 0:
+                                    free_units_left = max(0.0, free_units_left - alt_qty)
+                                public = min(cost * share, subsidy_left)
+                                subsidy_left -= public
+                                cash_left = max(0.0, cash_left - (cost - public))
+                                firm_remaining[alt_idx] -= alt_qty
+                                firm_units_sold[alt_idx] += alt_qty
+                                firm_revenue[alt_idx] += cost
+                                gname = firm_goods[alt_idx]
+                                prev_qty, prev_price = per_household_purchases[household_id].get(gname, (0.0, 0.0))
+                                total_qty = prev_qty + alt_qty
+                                per_household_purchases[household_id][gname] = (
+                                    total_qty, (prev_qty * prev_price + cost) / total_qty
+                                )
+                                if purchase_scale is not None:
+                                    budget_remaining -= cost
+                                    if category == "food":
+                                        food_remaining -= cost
+                                        food_floor_remaining = max(0.0, food_floor_remaining - cost)
+                                shortage = max(0.0, shortage - cost / price)
+                                money_left = max(0.0, money_left - cost)
+                                if money_left <= 0:
+                                    break
+                        if shortage > 0:
+                            if category == "food":
+                                _unmet_food += shortage
+                            elif category == "services":
+                                _unmet_services += shortage
+                                services_unmet_by_firm[firm_ids[idx]] = (
+                                    services_unmet_by_firm.get(firm_ids[idx], 0.0) + shortage
+                                )
+                            record_firm_unmet(firm_ids[idx], shortage)
+                        continue
                     if available <= 0:
                         _cat = firm_cat_by_idx[idx]
                         if _cat == "food":

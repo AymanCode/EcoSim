@@ -410,6 +410,16 @@ class HouseholdBehaviorConfig:
     # does not invert for negative utilities.
     fix_seller_choice_noise: bool = False
     tie_break_scale: float = 1e-3
+    # Experimental household shopping fixes; both preserve the previous path
+    # by default. Rent remains a separate housing-market payment.
+    fix_spending_leak: bool = False
+    fix_food_tracker_lag: bool = False
+    # Default 0.76 of a stockout's spending is offered to other sellers.
+    # Gruen, Corsten & Bharadwaj (2002), Retail Out-of-Stocks, report 31%
+    # buying elsewhere, 26% changing brand, and 19% substituting within a
+    # brand. EcoSim has one product per category, so all three are represented
+    # as buying from another seller (a model conversion, not an extra response).
+    stockout_substitution_share: float = 0.76
     # Remediation phase 6 (audit B10), on by default since the owner decision of
     # 2026-10-02 (False restores the old behavior): the batch consumption
     # planner uses category_weights as stored (already normalize(base *
@@ -1182,6 +1192,9 @@ class SimulationConfig:
                 raise ValueError(f"government.{name} must be finite and >= 0")
         if not (math.isfinite(self.households.tie_break_scale) and self.households.tie_break_scale >= 0.0):
             raise ValueError("tie_break_scale must be finite and non-negative")
+        substitution = self.households.stockout_substitution_share
+        if not (math.isfinite(substitution) and 0.0 <= substitution <= 1.0):
+            raise ValueError("stockout_substitution_share must be finite and in [0, 1]")
         if self.labor_market.switcher_vacancy_cap_per_firm < 0:
             raise ValueError("switcher_vacancy_cap_per_firm must be non-negative")
         ratio = self.firms.services_expansion_min_excess_demand_ratio

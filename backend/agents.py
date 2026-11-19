@@ -1086,12 +1086,22 @@ class HouseholdAgent(AgentMixin):
                 return planned
             fractions = {cat: weight / total_bias for cat, weight in biased.items() if weight > 0}
 
+        if household_cfg.fix_spending_leak:
+            fractions.pop("housing", None)
+            shopping_total = sum(max(0.0, share) for share in fractions.values())
+            if shopping_total <= 0:
+                return planned
+            fractions = {category: max(0.0, share) / shopping_total
+                         for category, share in fractions.items() if share > 0}
+
         # Proportional food priority: the less food eaten relative to the
         # health-sustaining threshold, the more budget shifts to food from
         # other categories.  At zero food, all discretionary budget goes to food.
         food_target = max(self.min_food_per_tick, household_cfg.food_health_high_threshold)
-        if self.food_consumed_last_tick < food_target:
-            shortfall = 1.0 - (self.food_consumed_last_tick / max(0.1, food_target))
+        recent_food = (self.food_consumed_this_tick if household_cfg.fix_food_tracker_lag
+                       else self.food_consumed_last_tick)
+        if recent_food < food_target:
+            shortfall = 1.0 - (recent_food / max(0.1, food_target))
             # Shift from services first (luxury), then housing (partial)
             services_share = max(0.0, fractions.get("services", 0.0))
             services_shift = shortfall * services_share
@@ -1105,8 +1115,10 @@ class HouseholdAgent(AgentMixin):
         # Services comfort floor: if services were under-consumed last tick, pull a
         # moderate share from housing (not food) back into services.
         services_target = max(0.1, self.min_services_per_tick)
-        if self.services_consumed_last_tick < services_target:
-            shortfall = 1.0 - (self.services_consumed_last_tick / services_target)
+        recent_services = (self.services_consumed_this_tick if household_cfg.fix_food_tracker_lag
+                           else self.services_consumed_last_tick)
+        if recent_services < services_target:
+            shortfall = 1.0 - (recent_services / services_target)
             housing_share = max(0.0, fractions.get("housing", 0.0))
             shift = 0.5 * shortfall * housing_share
             fractions["housing"] = housing_share - shift
@@ -1137,7 +1149,7 @@ class HouseholdAgent(AgentMixin):
         remaining_budget = budget - food_floor
         housing_qty_remaining = 1.0
 
-        if housing_budget_cap > 0 and remaining_budget > 0:
+        if not household_cfg.fix_spending_leak and housing_budget_cap > 0 and remaining_budget > 0:
             h_arrays = category_array_cache.get("housing") if category_array_cache else None
             if h_arrays is not None:
                 h_firm_ids, h_prices, h_qualities = self._filter_category_arrays_to_awareness_pool(

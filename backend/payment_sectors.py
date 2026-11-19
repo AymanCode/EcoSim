@@ -11,6 +11,7 @@ from collections import defaultdict
 
 from config import CONFIG
 from household_liquidity import accessible_liquidity
+from household_shopping import alternative_sellers, ordered_plans
 from utils.category_utils import get_good_category
 
 EPS = 1e-6
@@ -76,6 +77,9 @@ class PaymentGoodsMarket:
         # Largest cumulative fundable quote needing feedback, across both
         # passes. Fully served quotes need no additional per-order record.
         self.considered = defaultdict(lambda: defaultdict(float))
+        # Track stockout quotes already offered across the food/general passes.
+        self.stockout_seen = defaultdict(lambda: defaultdict(float))
+        self.substituted = defaultdict(lambda: defaultdict(float))
         self.purchases = economy.payment_book.purchases
         self.sales = economy.payment_book.receipts
         self.combined_services_units = defaultdict(float)
@@ -106,6 +110,9 @@ class PaymentGoodsMarket:
         return result
 
     def _buy(self, household, target, wanted):
+        if (CONFIG.households.fix_spending_leak
+                and (isinstance(target, int) or getattr(type(target), "__module__", "").startswith("numpy"))):
+            return self._buy_with_substitution(household, target, wanted)
         bought = 0.0
         hid = household.household_id
         for firm in self._targets(target):
@@ -150,11 +157,95 @@ class PaymentGoodsMarket:
         self.accepted[hid][target] += bought
         return bought
 
+    def _buy_with_substitution(self, household, target, wanted):
+        """Fill a firm order and offer its newly encountered stockout once."""
+        candidates = self._targets(target)
+        if not candidates:
+            return 0.0
+        firm = candidates[0]
+        fid = firm.firm_id
+        hid = household.household_id
+        price = self.prices[fid]
+        share = self.subsidy_shares[fid]
+        subsidy = _goods_subsidy_available(self.economy) if share else 0.0
+        fundable = (_sale_quantity(price, wanted, wanted, _spendable(household), share, subsidy)
+                    if share else _private_quantity(price, wanted, _spendable(household)))
+        if fundable <= EPS:
+            return 0.0
+        stock = self.remaining[fid]
+        qty = min(stock, fundable)
+        if qty <= EPS or qty < fundable:
+            self.considered[hid][target] = max(
+                self.considered[hid][target], self.accepted[hid][target] + fundable,
+            )
+        actual_bought = 0.0
+        if qty > EPS:
+            if not self._commit_experiment_sale(household, firm, qty, subsidy):
+                return 0.0  # A failed payment is not a stockout.
+            self.accepted[hid][target] += qty
+            actual_bought += qty
+        else:
+            qty = 0.0
+
+        if stock >= fundable or price <= EPS:
+            return actual_bought
+        # The second pass includes the part declined or unavailable in the
+        # first pass. Do not apply the substitution percentage to it again.
+        previously_unfilled = max(0.0, self.stockout_seen[hid][target] - self.substituted[hid][target])
+        new_shortfall = max(0.0, fundable - qty - previously_unfilled)
+        self.stockout_seen[hid][target] += new_shortfall
+        money_left = CONFIG.households.stockout_substitution_share * new_shortfall * price
+        if money_left <= EPS:
+            return actual_bought
+        free_units_left = new_shortfall
+        for alternative in alternative_sellers(household, self.economy, firm, self.firms,
+                                                self.prices, self.remaining):
+            alt_id = alternative.firm_id
+            alt_price = self.prices[alt_id]
+            alt_share = self.subsidy_shares[alt_id]
+            alt_subsidy = _goods_subsidy_available(self.economy) if alt_share else 0.0
+            # A free seller has no money-derived quantity; cap its units at
+            # the newly encountered shortage instead of dividing by zero.
+            wanted_alt = money_left / alt_price if alt_price > 0 else free_units_left
+            alt_qty = _sale_quantity(alt_price, wanted_alt, self.remaining[alt_id],
+                                     _spendable(household), alt_share, alt_subsidy)
+            if alt_qty <= EPS:
+                continue
+            if not self._commit_experiment_sale(household, alternative, alt_qty, alt_subsidy):
+                continue
+            spent = alt_qty * alt_price
+            money_left = max(0.0, money_left - spent)
+            if alt_price <= 0:
+                free_units_left = max(0.0, free_units_left - alt_qty)
+            equivalent = spent / price
+            self.accepted[hid][target] += equivalent
+            self.substituted[hid][target] += equivalent
+            actual_bought += alt_qty
+            if money_left <= EPS:
+                break
+        return actual_bought
+
+    def _commit_experiment_sale(self, household, firm, qty, subsidy):
+        fid = firm.firm_id
+        price = self.prices[fid]
+        share = self.subsidy_shares[fid]
+        public = min(max(0.0, share) * price * qty, subsidy) if share else 0.0
+        if not self.economy.payment_book.commit_sale(household, firm, qty, price, public_amount=public):
+            return False
+        self.remaining[fid] -= qty
+        if self.categories[fid] != "services":
+            firm.inventory_units = max(0.0, firm.inventory_units - qty)
+            household.goods_inventory[firm.good_name] = household.goods_inventory.get(firm.good_name, 0.0) + qty
+        else:
+            household.services_consumed_this_tick += qty
+            self.combined_services_units[fid] += qty
+        return True
+
     def first_pass(self):
         if self._first_done:
             raise RuntimeError("Food pass already settled")
         self._first_done = True
-        for hid, targets in self.desired.items():
+        for hid, targets in ordered_plans(self.desired, self.economy.current_tick, 1):
             household = self.economy.household_lookup.get(hid)
             if household is None:
                 continue
@@ -175,7 +266,7 @@ class PaymentGoodsMarket:
         if not self._first_done or self._second_done:
             raise RuntimeError("Goods passes out of order")
         self._second_done = True
-        for hid, targets in self.desired.items():
+        for hid, targets in ordered_plans(self.desired, self.economy.current_tick, 2):
             household = self.economy.household_lookup.get(hid)
             if household is None:
                 continue
@@ -194,7 +285,7 @@ class PaymentGoodsMarket:
         # Allocate the remaining resources once, observationally, across the
         # existing order sequence. No cash/subsidy is reserved or spent here.
         subsidy = _goods_subsidy_available(self.economy)
-        for hid, targets in self.desired.items():
+        for hid, targets in ordered_plans(self.desired, self.economy.current_tick, 3):
             household = self.economy.household_lookup.get(hid)
             if household is None:
                 continue
