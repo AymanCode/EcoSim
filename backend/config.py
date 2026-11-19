@@ -373,6 +373,55 @@ class HouseholdBehaviorConfig:
     performance_min_multiplier: float = 0.75  # Was 0.5; prevents doom loop
     performance_max_multiplier: float = 1.5
 
+    # Opt-in level-seeking happiness and morale; off preserves weekly nudges.
+    wellbeing_targets: bool = False
+    # Opt-in snapshot before payment-arm wage/benefit settlement; legacy is unchanged.
+    fix_wellbeing_cash_snapshot: bool = False
+    # wellbeing_unemployment_weight: default 0.10 on the 0-1 happiness scale.
+    # Winkelmann & Winkelmann (1998, Economica) find roughly one point on a
+    # 0-10 life-satisfaction scale. Lucas et al. (2004, Psychological Science)
+    # and Clark et al. (2008, Economic Journal) find little or no adaptation,
+    # so this is a persistent level term rather than a decaying shock.
+    wellbeing_unemployment_weight: float = 0.10
+    # wellbeing_security_weight: default 0.12, the happiness reduction at zero
+    # liquid security. Simetrica-Jacobs for the FCA (2020) estimate debt
+    # arrears at about -0.36 to -0.40 points on a 0-10 scale. Tuned upward
+    # because savings are the model's only wealth channel.
+    wellbeing_security_weight: float = 0.12
+    # wellbeing_security_full_weeks: default 13.0 weeks of essential costs.
+    # Prosperity Now defines liquid-asset poverty as less than three months;
+    # converted here to 13 weeks as the point of full security.
+    wellbeing_security_full_weeks: float = 13.0
+    # wellbeing_food_weight: default 0.15 for a complete food shortfall;
+    # no comparable-units study was found, so this weight is tuned.
+    wellbeing_food_weight: float = 0.15
+    # wellbeing_unhoused_weight: default 0.10 for being unhoused;
+    # no comparable-units study was found, so this weight is tuned.
+    wellbeing_unhoused_weight: float = 0.10
+    # wellbeing_social_weight: default 0.5 times (social multiplier - 1).
+    # Tuned to retain the old program boost as a level: the old weekly
+    # 0.05*(m-1) nudge becomes 0.5*(m-1), or 0.025 at m=1.05.
+    wellbeing_social_weight: float = 0.5
+    # happiness_adjust_rate: default 0.05 per week, half-life about 13.5 weeks.
+    # Clark et al. (2008) find most event response within the first year;
+    # converted to weekly and tuned. Income adaptation (Di Tella, Haisken-DeNew
+    # & MacCulloch 2010: about 65% fades within four years) is not modeled.
+    happiness_adjust_rate: float = 0.05
+    # Morale pay comparison follows Clark & Oswald (1996, J. Public Economics):
+    # job satisfaction depends on pay relative to a comparison wage, here the
+    # household's expected wage. All morale weights below are tuned.
+    # morale_fair_pay_weight: default 0.15, level increase at or above expectation.
+    morale_fair_pay_weight: float = 0.15
+    # morale_underpay_weight: default 0.30, level reduction for a full wage gap.
+    morale_underpay_weight: float = 0.30
+    # morale_unemployment_weight: default 0.15, level reduction when unemployed.
+    morale_unemployment_weight: float = 0.15
+    # morale_unhoused_weight: default 0.05, level reduction when unhoused.
+    morale_unhoused_weight: float = 0.05
+    # morale_adjust_rate: default 0.10 per week. No study of adjustment speed
+    # was found; tuned assuming job satisfaction moves faster than life satisfaction.
+    morale_adjust_rate: float = 0.10
+
     # Goods Consumption
     consumption_rate: float = 0.1  # 10% per tick
     housing_maintenance_rate: float = 0.01  # 1% per tick (10x faster - fixes housing glut)

@@ -298,6 +298,9 @@ class HouseholdAgent(AgentMixin):
     _firm_tie_break_noise_cache: Dict[str, tuple[bytes, float, np.ndarray]] = field(
         default_factory=dict, init=False, repr=False
     )
+    # Initial personal baselines for the opt-in wellbeing target model.
+    happiness_set_point: Optional[float] = None
+    morale_set_point: Optional[float] = None
 
     def __post_init__(self) -> None:
         """Validate invariants after initialization and set derived state.
@@ -636,6 +639,8 @@ class HouseholdAgent(AgentMixin):
         keep("skill_growth_rate", sample_range(config.skill_growth_rate_range, clip_min=0.0, clip_max=0.01))
         keep("happiness", sample_range(config.initial_happiness_range, clip_min=0.0, clip_max=1.0))
         keep("morale", sample_range(config.initial_morale_range, clip_min=0.0, clip_max=1.0))
+        keep("happiness_set_point", self.happiness)
+        keep("morale_set_point", self.morale)
         keep("happiness_decay_rate", sample_range(config.happiness_decay_rate_range, clip_min=0.0, clip_max=0.1))
         keep("morale_decay_rate", sample_range(config.morale_decay_rate_range, clip_min=0.0, clip_max=0.1))
         keep("min_food_per_tick", sample_range(config.min_food_per_tick_range, clip_min=0.5, clip_max=10.0))
