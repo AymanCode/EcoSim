@@ -38,7 +38,8 @@ from dataclasses import dataclass, fields
 from collections import deque
 from typing import TYPE_CHECKING, Dict, List, Tuple, Optional
 
-from config import CONFIG, get_config
+from config import CONFIG, get_config, validate_health_episode_settings
+from household_health import health_condition_step, health_recovery_step
 from fiscal_guards import (
     annualized_debt_to_gdp,
     fiscal_reserve_floor,
@@ -210,6 +211,9 @@ class Economy:
             - Consider using composition: extracting LaborMarketState, HousingState,
               BankingState, DiagnosticState, etc. into separate classes.
         """
+        if CONFIG.households.health_episodes:
+            validate_health_episode_settings(CONFIG.households)
+
         # SOLID: SRP Violation - Simulation core state
         self.households = households
         self.firms = firms
@@ -363,6 +367,7 @@ class Economy:
 
         # SOLID: SRP Violation - Healthcare state should be in HealthcareSystem class
         self.healthcare_requests_this_tick: float = 0.0
+        self.health_illnesses_this_tick = 0
         self.healthcare_attempted_slots_this_tick: float = 0.0
         self.healthcare_completed_visits_this_tick: float = 0.0
         self.healthcare_affordability_rejects_this_tick: float = 0.0
@@ -2443,6 +2448,8 @@ class Economy:
             self._batch_update_wellbeing(
                 happiness_multiplier=self.government.social_happiness_multiplier
             )
+        if CONFIG.households.health_episodes:
+            self._apply_health_conditions_weekly()
         self._apply_doctor_health_lock()
 
         self._phase_lifecycle_and_statistics(tick)
@@ -2574,6 +2581,8 @@ class Economy:
             self.wage_reviews = {fid: review for fid, review in self.wage_reviews.items() if fid in live_ids}
         self._reset_healthcare_tick_state()
         self._apply_doctor_health_lock()
+        if CONFIG.households.health_episodes:
+            self._apply_health_illnesses_weekly()
         if payment_arm:
             from payment_loans import prepare_household_dues
             from payment_sectors import enqueue_payment_care_requests, requeue_payment_care_due
@@ -6096,8 +6105,56 @@ class Economy:
     # -------------------------------------------------------------------------
     # Section: Wellbeing, tax snapshots, production, and firm lifecycle
     # -------------------------------------------------------------------------
+    @staticmethod
+    def _health_food_shortfall(household: HouseholdAgent) -> float:
+        minimum = float(household.min_food_per_tick)
+        consumed = float(household.food_consumed_this_tick)
+        return max(0.0, min(1.0, (minimum - consumed) / max(minimum, 0.1)))
+
+    def _apply_health_illnesses_weekly(self) -> None:
+        """Apply opening illnesses before the existing care request decision."""
+        if not self.households:
+            return
+        hc = CONFIG.households
+        mean_decay = sum(float(h.health_decay_per_year) for h in self.households) / len(self.households)
+        for household in self.households:
+            if hc.doctor_health_lock_enabled and household.medical_training_status == "doctor":
+                continue
+            # Tick zero has no completed week. Later openings read food eaten
+            # and shelter used last week, including shelter without a lease.
+            food_short = self._health_food_shortfall(household) if self.current_tick else 0.0
+            unhoused = self.current_tick != 0 and not household.met_housing_need
+            frailty = float(household.health_decay_per_year) / mean_decay if mean_decay > 0.0 else 1.0
+            p = hc.health_illness_base_rate * frailty * (
+                1.0 + hc.health_illness_condition_boost * (food_short + unhoused)
+            )
+            if household._mixed_unit_random(self.current_tick, 601) < max(0.0, min(1.0, p)):
+                severity = hc.health_illness_severity_min + (
+                    hc.health_illness_severity_max - hc.health_illness_severity_min
+                ) * household._mixed_unit_random(self.current_tick, 602)
+                household.health = max(0.0, min(1.0, float(household.health) - severity))
+                self.health_illnesses_this_tick += 1
+
+    def _apply_health_conditions_weekly(self) -> None:
+        """Apply this week's observed conditions after consumption and care."""
+        hc = CONFIG.households
+        for household in self.households:
+            if hc.doctor_health_lock_enabled and household.medical_training_status == "doctor":
+                continue
+            food_short = self._health_food_shortfall(household)
+            unhoused = not household.met_housing_need
+            B = max(0.0, min(1.0, 1.0 - hc.health_food_shortfall_weight * food_short
+                            - hc.health_unhoused_weight * unhoused))
+            Bd = max(B, hc.health_recovery_floor)
+            F = max(hc.health_recovery_floor, min(B, hc.health_self_recovery_ceiling))
+            health = float(household.health)
+            if health > Bd:
+                household.health = health_condition_step(health, Bd, hc.health_condition_rate)
+            elif health < F:
+                household.health = health_recovery_step(health, F, hc.health_self_recovery_rate)
+
     def _batch_update_wellbeing(self, happiness_multiplier: float) -> None:
-        """Vectorized wellbeing update; the only wellbeing implementation (per-agent update_wellbeing was removed).
+        """Vectorized happiness and morale update, plus health with episodes off.
 
         The poverty penalties and the wealth-loss term read liquid wealth:
         ``cash_balance + max(0, bank_deposit)`` now, against
@@ -6124,11 +6181,9 @@ class Economy:
 
         happiness = np.fromiter((h.happiness for h in households), dtype=np.float64, count=n)
         morale = np.fromiter((h.morale for h in households), dtype=np.float64, count=n)
-        health = np.fromiter((h.health for h in households), dtype=np.float64, count=n)
 
         happiness_decay = np.fromiter((h.happiness_decay_rate for h in households), dtype=np.float64, count=n)
         morale_decay = np.fromiter((h.morale_decay_rate for h in households), dtype=np.float64, count=n)
-        health_decay = np.fromiter((h.health_decay_rate for h in households), dtype=np.float64, count=n)
 
         # Poverty and wealth loss read liquid wealth (cash + bank deposits).
         # The deposit sweep and bank withdrawals move money between the two
@@ -6300,33 +6355,38 @@ class Economy:
             morale_change -= morale_decay
             morale_next = np.clip(morale + morale_change, 0.0, 1.0)
 
-        # --- Health ---
-        # Non-linear food→health: harsh penalty for no food, gentle near threshold.
-        # Uses ratio^0.6 curve so partial eating is mostly OK but starvation hurts.
-        food_threshold = max(0.1, hc.food_health_high_threshold)
-        food_ratio = np.minimum(1.0, food_consumed / food_threshold)
-        # Curve the ratio: steep near 0 (starvation), gentle near 1 (well-fed)
-        curved_ratio = np.power(food_ratio, 0.6)
-        # At curved_ratio=0: effect = -starvation_penalty
-        # At curved_ratio=1: effect = +high_boost
-        health_food_effect = (
-            curved_ratio * (hc.food_health_high_boost + hc.food_starvation_penalty)
-            - hc.food_starvation_penalty
-        )
-        positive_food_effect = np.maximum(0.0, health_food_effect)
-        food_offset_share = max(0.0, min(1.0, hc.food_health_decay_offset_share))
-        food_offset_ratio = np.minimum(1.0, positive_food_effect / max(hc.food_health_high_boost, 1e-9))
-        health_positive = health_decay * food_offset_share * food_offset_ratio
-        health_negative = np.minimum(0.0, health_food_effect)
+        health_next = None
+        if not hc.health_episodes:
+            # --- Health ---
+            health = np.fromiter((h.health for h in households), dtype=np.float64, count=n)
+            health_decay = np.fromiter((h.health_decay_rate for h in households), dtype=np.float64, count=n)
+            # Non-linear food→health: harsh penalty for no food, gentle near threshold.
+            # Uses ratio^0.6 curve so partial eating is mostly OK but starvation hurts.
+            food_threshold = max(0.1, hc.food_health_high_threshold)
+            food_ratio = np.minimum(1.0, food_consumed / food_threshold)
+            # Curve the ratio: steep near 0 (starvation), gentle near 1 (well-fed)
+            curved_ratio = np.power(food_ratio, 0.6)
+            # At curved_ratio=0: effect = -starvation_penalty
+            # At curved_ratio=1: effect = +high_boost
+            health_food_effect = (
+                curved_ratio * (hc.food_health_high_boost + hc.food_starvation_penalty)
+                - hc.food_starvation_penalty
+            )
+            positive_food_effect = np.maximum(0.0, health_food_effect)
+            food_offset_share = max(0.0, min(1.0, hc.food_health_decay_offset_share))
+            food_offset_ratio = np.minimum(1.0, positive_food_effect / max(hc.food_health_high_boost, 1e-9))
+            health_positive = health_decay * food_offset_share * food_offset_ratio
+            health_negative = np.minimum(0.0, health_food_effect)
 
-        health_change = health_positive + health_negative - health_decay
-        health_next = np.clip(health + health_change, 0.0, 1.0)
+            health_change = health_positive + health_negative - health_decay
+            health_next = np.clip(health + health_change, 0.0, 1.0)
 
         # Write back
         for idx, household in enumerate(households):
             household.happiness = float(happiness_next[idx])
             household.morale = float(morale_next[idx])
-            household.health = float(health_next[idx])
+            if health_next is not None:
+                household.health = float(health_next[idx])
 
     def _sync_warmup_expectations(self, current_prices: Dict[str, float]) -> None:
         """During warm-up, force beliefs/expectations to current observed values."""
@@ -8846,6 +8906,7 @@ class Economy:
         nothing and was deleted in remediation phase 2.
         """
         self.healthcare_requests_this_tick = 0.0
+        self.health_illnesses_this_tick = 0
         self.healthcare_attempted_slots_this_tick = 0.0
         self.healthcare_completed_visits_this_tick = 0.0
         self.healthcare_affordability_rejects_this_tick = 0.0

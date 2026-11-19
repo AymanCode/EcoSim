@@ -13,6 +13,8 @@ from contextvars import ContextVar
 from dataclasses import dataclass, field
 from typing import Dict, Iterator, Optional, Tuple
 
+from household_health import health_recovery_step
+
 
 @dataclass
 class TimeConfig:
@@ -519,6 +521,31 @@ class HouseholdBehaviorConfig:
     # morale_adjust_rate: default 0.10 per week. No study of adjustment speed
     # was found; tuned assuming job satisfaction moves faster than life satisfaction.
     morale_adjust_rate: float = 0.10
+
+    # Illness episodes use the rollout rule: opt in until calibrated and approved.
+    health_episodes: bool = False
+    # Tuned without a comparable-units study: eating nothing pulls toward 0.5.
+    health_food_shortfall_weight: float = 0.5
+    # Tuned without a study. Homelessness also boosts illness incidence.
+    health_unhoused_weight: float = 0.1
+    # Tuned weekly rate, matching the adopted happiness half-life (~13.5 weeks).
+    health_condition_rate: float = 0.05
+    # Tuned above the 0.10 work threshold and below the 0.5 desperation threshold.
+    # Self-limiting illness allows a return to function, with care for full recovery.
+    health_self_recovery_ceiling: float = 0.40
+    # Tuned weekly rate without a study (~13.5-week half-life).
+    health_self_recovery_rate: float = 0.05
+    # Tuned above the work threshold so even deprived households can recover.
+    health_recovery_floor: float = 0.15
+    # Starting estimate only: 0.6 * 0.24 / 0.20 = 0.72 episodes/year (~0.0138/week)
+    # from fed-household loss and mean severity. Calibrate over 0.010/0.014/0.020.
+    health_illness_base_rate: float = 0.014
+    # Tuned direction only: poor nutrition and housing raise illness incidence.
+    health_illness_condition_boost: float = 1.0
+    # Tuned near the size of external shocks (0.05-0.20). Visits depend on
+    # pre-illness health as well, and the illness still needs a care request.
+    health_illness_severity_min: float = 0.10
+    health_illness_severity_max: float = 0.30
 
     # Goods Consumption
     consumption_rate: float = 0.1  # 10% per tick
@@ -1201,6 +1228,38 @@ class LLMConfig:
     enable_llm_agents: bool = False
 
 
+def validate_health_episode_settings(households_config: HouseholdBehaviorConfig) -> None:
+    """Validate the weekly health rules using the runtime recovery step."""
+    hc = households_config
+    for name in (
+        "health_condition_rate", "health_illness_base_rate",
+        "health_food_shortfall_weight", "health_unhoused_weight",
+    ):
+        if not 0.0 <= getattr(hc, name) <= 1.0:
+            raise ValueError(f"{name} must be finite and in [0, 1]")
+    if not 0.10 < hc.health_recovery_floor <= hc.health_self_recovery_ceiling <= 1.0:
+        raise ValueError("health_recovery_floor and ceiling must satisfy 0.10 < floor <= ceiling <= 1")
+    if not 0.0 < hc.health_self_recovery_rate <= 1.0:
+        raise ValueError("health_self_recovery_rate must be in (0, 1]")
+    if not 0.0 <= hc.health_illness_severity_min <= hc.health_illness_severity_max <= 1.0:
+        raise ValueError("health illness severity bounds must satisfy 0 <= min <= max <= 1")
+    if not math.isfinite(hc.health_illness_condition_boost) or hc.health_illness_condition_boost < 0.0:
+        raise ValueError("health_illness_condition_boost must be finite and nonnegative")
+    if hc.doctor_health_lock_enabled:
+        lock = hc.doctor_health_lock_value
+        if not math.isfinite(lock) or max(0.0, min(1.0, lock)) < 0.10:
+            raise ValueError("doctor_health_lock_value must be finite and at least 0.10")
+
+    # At week close, the slowest illness-free path must meet can_work.
+    # Labor matching can then consider that household the following week.
+    health = 0.0
+    for _ in range(52):
+        health = health_recovery_step(health, hc.health_recovery_floor, hc.health_self_recovery_rate)
+        if health >= 0.10:
+            return
+    raise ValueError("health recovery must reach 0.10 within 52 weeks")
+
+
 @dataclass
 class SimulationConfig:
     """Master configuration for the entire simulation."""
@@ -1257,6 +1316,8 @@ class SimulationConfig:
 
     def __post_init__(self):
         """Validation and derived values."""
+        if self.households.health_episodes:
+            validate_health_episode_settings(self.households)
         if self.firms.quality_research_model not in {
             "instant", "scale_only", "project_outcome", "project_cost", "project_cash",
         }:

@@ -1623,6 +1623,23 @@ class HouseholdAgent(AgentMixin):
     # -------------------------------------------------------------------------
     # Section: HouseholdAgent healthcare demand and medical finance
     # -------------------------------------------------------------------------
+    def _mixed_unit_random(self, tick: int, salt: int) -> float:
+        """SplitMix64 draw for illness episodes without touching shared RNGs."""
+        mask = (1 << 64) - 1
+        tick_mix = 0x9E3779B97F4A7C15
+        salt_mix = 0xBF58476D1CE4E5B9
+
+        def splitmix64(value: int) -> int:
+            z = (value + tick_mix) & mask
+            z = ((z ^ (z >> 30)) * salt_mix) & mask
+            z = ((z ^ (z >> 27)) * 0x94D049BB133111EB) & mask
+            return z ^ (z >> 31)
+
+        key = ((int(CONFIG.random_seed) & 0xFFFFFFFF) << 32) | (self.household_id & 0xFFFFFFFF)
+        z = splitmix64(key ^ (((tick & 0xFFFFFFFF) * tick_mix) & mask))
+        z = splitmix64(z ^ (((salt & 0xFFFFFFFF) * salt_mix) & mask))
+        return (z >> 11) / (1 << 53)
+
     def _deterministic_unit_random(self, current_tick: int, salt: int = 0) -> float:
         """
         Fast deterministic pseudo-random draw in [0, 1) without object allocation.
