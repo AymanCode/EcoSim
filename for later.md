@@ -1,0 +1,35 @@
+# Tax revenue and grocery benefits in EcoSim
+
+The policy question was what happens **after** the government collects wage tax. A higher rate changes take-home pay immediately. What happens to food access, hiring and prices also depends on who gets the money next and what firms can supply. The clearest finding so far is that grocery credit improved food access in the historical comparisons. We have less evidence for a town-wide employment effect or a predictable inflation response.
+
+## What the spending experiments showed
+
+These were matched `income_first` towns with 1,000 households each. The archived experiments used seeds 42–44. Each set shared the first 52 weeks, changed policy before week 53, and observed 260 weeks after the change. “Year five” below means weeks 261–312. Unemployment is the share of households able to work that have no job.
+
+| Question | Comparison | What happened |
+| --- | --- | --- |
+| Where did the extra wage tax go? | 15% versus 20% base wage tax, with existing programs | In the first policy week, gross payroll matched and ordinary take-home pay fell by $1,047 per town on average. Shopping budgets fell by $919. In year five, unemployment averaged 32.1% at 15% tax and 37.7% at 20%. Higher unemployment also raised ordinary benefit spending. |
+| Did sending money back help? | At 20% tax, rebate half the extra wage withholding to the least-liquid fifth | Relative to 20% with existing programs, final-year weekly business sales excluding rent rose by about $1,995 on average. The original low-cash group bought more in all three towns. |
+| Was general work better than a rebate? | At 20% tax, spend the same $500 per week on a rebate, general work, or work that adds productive capital at a food firm | It depended on the objective. Rebates gave the initial low-cash group the largest first-year increase in food eaten. General work had the lowest average final-year unemployment. Food projects had the lowest average final-year price paid per food unit. The general-work experiment paid ten people per week and assigned no value to the community services they might deliver. |
+| Did restricting the benefit to food matter? | Give the same 200 recipients $2.50 each in cash or on a grocery card | Over five years, recipients fell below their own weekly food minimum 5.68% of the time with cash and 4.24% with credit. Per $2.50 delivered as credit, recipients spent $2.02 less of their own money on groceries and bought $0.48 more groceries by value. |
+
+**Why food hiring rose while overall unemployment barely moved.** At 20% tax, adding $500 in weekly grocery credit increased average food employment by 2.9–4.7 workers and raised sales excluding rent in every town. Average unemployment across towns was 47.98% with existing programs and 47.34% with credit. The direction varied by seed. Firms hired before that week’s benefit and shopping, so the first week showed higher sales with identical employment.
+
+Households kept buying services. In town 43, where service employment fell, about 997 households a week still bought them under grocery credit. They paid a higher realized price and bought fewer units. In 18 of 20 firm-weeks with planned service layoffs, that seller had sold less than three quarters of its available units in the preceding week. The decision was to leave service expansion alone. For future comparisons, keep units sold, prices paid, hiring and layoffs separate.
+
+**Inflation.** Raising the base tax from 15% to 20% moved year-five annual inflation up in two towns and down in one. Housing and services accounted for most of the variation. The CPI measures a basket of posted prices. The price a household paid for food is a separate outcome. The first annual reading was week 63, and by week 105 the comparison spanned an entirely post-policy year. Prices and employment were still moving near the end. These runs did not establish an equilibrium unemployment rate.
+
+## What the grocery-benefit PR implements
+
+- The government can open or close the program and choose a weekly cap in dollars and cents. Both settings are available to the player and AI government in `income_first`. Funds come from free treasury cash. The government can choose the program at any wage-tax rate.
+- Each week the town ranks households by cash plus withdrawable deposits and selects the least-liquid fifth, using household ID to break ties. Recipients share the lesser of the weekly cap, available treasury cash, and $2.50 times the eligible count. In the 1,000-household check, a $300 cap issued $1.50 each to 200 households. An $800 cap issued $2.50 each.
+- Households plan with separate grocery credit and unrestricted cash. Current and carried-over card balances can fund food purchases. Rent, services, medical bills and debt payments draw on their usual funding sources. Closing the program or setting the cap to zero stops new grants. Previously issued credit remains spendable on food.
+- Government shows issuance, redemption and outstanding credit. Population shows the tracked household’s card balance and spending. Weekly balances reconcile as opening balance plus grants minus food redemptions. The PR includes household checkout tests, server-frame tests and tests for AI policy changes. [Grocery-benefit PR #77](https://github.com/AymanCode/EcoSim/pull/77)
+
+## Where to resume
+
+The cash-versus-credit experiment fixed the weekly recipient list across both towns. Its prototype also pooled some credit into the shopping budget before enforcing the restriction at checkout. PR #77 changed both details. Each town now selects its own recipients, and the planner respects the food restriction before checkout. The archived percentages describe the prototype. The PR checks establish how the delivered policy pays and settles.
+
+For a fresh estimate of what a higher tax **funds**, the outstanding comparison is 15% with existing programs, 20% with existing programs, and 20% with the grocery benefit on the delivered engine. The first pair isolates the tax increase, the last pair isolates the benefit at the higher rate, and the endpoints show the combined effect. Use the same starting towns, at most two seeds and 1,000 households per run, with `income_first` explicit. Record the engine revision and policy start week. Follow recipients’ food shortfalls and cash first, then sector sales, employment, CPI and the treasury over hundreds of weeks. Household behavior has also been developed separately, so record which version is in use before comparing wellbeing across runs.
+
+The original evidence is saved locally under `benchmarks/results/` in the main EcoSim checkout. Start with `tax-recycling-2026-11-18/findings.md`, `tax-spending-2026-11-18/findings.md`, and `food-credit-2026-11-18/findings.md`. The last folder also has `employment-findings.md`, `service-purchases.md` and `wallet-findings.md`. The later checkout verification is in `food-credit-budget-validation/validation.json`. The PR’s repeatable mechanism tests are in [the household contracts](backend/tests_contracts/test_food_credit.py) and [the server-frame tests](backend/tests_server/test_food_credit_frame.py).
