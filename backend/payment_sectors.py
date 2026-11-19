@@ -408,6 +408,7 @@ def settle_payment_rent(economy):
             household.rent_arrears = 0.0
             household.rent_notice_remaining = 0
             evictions += 1
+            economy.evicted_household_ids_this_tick.append(household.household_id)
             continue
         old = max(0.0, float(getattr(household, "rent_arrears", 0.0)))
         current = max(0.0, float(household.monthly_rent))
@@ -454,6 +455,7 @@ def settle_payment_rent(economy):
                         firm.current_tenants.remove(household.household_id)
                     excluded.add(household.household_id)
                     evictions += 1
+                    economy.evicted_household_ids_this_tick.append(household.household_id)
         else:
             receivables.pop(household.household_id, None)
             household.rent_notice_remaining = 0
@@ -592,6 +594,8 @@ def enqueue_payment_care_requests(economy):
                 continue
             maximum = max(1, int(CONFIG.households.healthcare_episode_max_visits))
             household.pending_healthcare_visits = max(1, min(maximum, 1 + int(round(missing_pct / 100.0 * (maximum - 1)))))
+            economy.care_episodes_opened_this_tick += 1
+            economy.care_visits_scheduled_this_tick += household.pending_healthcare_visits
             household.payment_care_episode_id += 1
             household.payment_care_due_tick = tick
             household.pending_visit_heal_delta = max(0.0, 1.0 - household.health) / household.pending_healthcare_visits
@@ -626,6 +630,8 @@ def enqueue_payment_care_requests(economy):
             continue
         if household.household_id not in provider.healthcare_queue:
             provider.healthcare_queue.append(household.household_id)
+            if retry:
+                economy.care_queue_admissions_retry_this_tick += 1
         household.queued_healthcare_firm_id = provider.firm_id
         household.healthcare_queue_enter_tick = tick
         household.payment_care_accepted_quote = price
@@ -666,6 +672,7 @@ def settle_payment_care(economy, per_firm_sales):
         capacity = _qualified_capacity(economy, firm)
         available = capacity + min(1.0 - EPS, max(0.0, float(firm.healthcare_capacity_carryover)))
         slots = int(math.floor(available + 1e-9)) if capacity > EPS else 0
+        economy.care_visit_slots_this_tick += slots
         firm.healthcare_capacity_carryover = max(0.0, available - slots)
         economy.healthcare_attempted_slots_this_tick += capacity
         if slots <= 0 or not firm.healthcare_queue:

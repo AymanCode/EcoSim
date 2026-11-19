@@ -28,12 +28,52 @@ from typing import Dict, List, Optional
 import numpy as np
 
 from agents import BankAgent, HouseholdAgent, FirmAgent, GovernmentAgent
-from config import CONFIG
+from config import CONFIG, validate_initial_population_settings
 from economy import Economy
 from firm_research import RESEARCH_CATEGORIES, sample_initial_quality
 
 if sys.platform == "win32":
     sys.stdout.reconfigure(encoding="utf-8")
+
+
+def _allocate_initial_cash(weights, total_units, cap_multiple):
+    """Water-fill exactly in binary-representable 1/128 currency units."""
+    n = len(weights)
+    if not n or any(not math.isfinite(w) or w <= 0 for w in weights):
+        raise ValueError("savings weights must be finite and positive")
+    cap_num, cap_den = float(cap_multiple).as_integer_ratio()
+    cap = cap_num * total_units // (cap_den * n)
+    if n * cap < total_units:
+        raise ValueError("initial savings cap cannot accommodate the starting total")
+
+    ratios = [float(w).as_integer_ratio() for w in weights]
+    common_den = max(den for _, den in ratios)  # float denominators are powers of two
+    integer_weights = [num * (common_den // den) for num, den in ratios]
+    remaining = total_units
+    uncapped = list(range(n))
+    allocation = [0] * n
+    while uncapped:
+        weight_sum = sum(integer_weights[i] for i in uncapped)
+        binding = [i for i in uncapped if remaining * integer_weights[i] > cap * weight_sum]
+        if not binding:
+            fractions = []
+            for i in uncapped:
+                allocation[i], remainder = divmod(remaining * integer_weights[i], weight_sum)
+                if allocation[i] < cap:
+                    fractions.append((remainder, i))
+            leftover = total_units - sum(allocation)
+            fractions.sort(key=lambda item: (-item[0], item[1]))
+            if leftover > len(fractions):
+                raise ValueError("initial savings allocation has insufficient headroom")
+            for _, i in fractions[:leftover]:
+                allocation[i] += 1
+            break
+        for i in binding:
+            allocation[i] = cap
+        remaining -= len(binding) * cap
+        bound = set(binding)
+        uncapped = [i for i in uncapped if i not in bound]
+    return [units / 128 for units in allocation]
 
 
 def create_large_economy(num_households: int = 10000, num_firms_per_category: int = 10):
@@ -178,19 +218,35 @@ def create_large_economy(num_households: int = 10000, num_firms_per_category: in
             queued_firms.append(competitive_firm)
             next_firm_id += 1
 
+    validate_initial_population_settings(CONFIG.households)
+    # Draw the complete population first, on a stream private to this feature.
+    population = None
+    if CONFIG.households.realistic_initial_population:
+        rng = random.Random((CONFIG.random_seed * 1_000_003 + 271_828) & 0xFFFFFFFF)
+        beta_a, beta_b = CONFIG.households.initial_skill_beta
+        try:
+            draws = [(min(0.95, max(0.2, 0.2 + 0.75 * rng.betavariate(beta_a, beta_b))),
+                      rng.randint(22, 61), rng.lognormvariate(0, CONFIG.households.initial_savings_sigma))
+                     for _ in range(num_households)]
+        except (OverflowError, ZeroDivisionError) as exc:
+            raise ValueError("initial population settings produced invalid draws") from exc
+        total_units = 128 * sum(500 + 15 * (i % 100) for i in range(num_households))
+        cash = _allocate_initial_cash([draw[2] for draw in draws], total_units,
+                                      CONFIG.households.initial_savings_cap_multiple)
+        population = [(skill, age, balance) for (skill, age, _), balance in zip(draws, cash)]
+
     # Create households with distributed characteristics
     print(f"Creating {num_households} households...")
     households = []
 
     for i in range(num_households):
-        # Distribute skills across population (0.2 to 0.95)
-        skill_level = min(0.95, 0.2 + (i / num_households) * 0.75)
-
-        # Distribute ages (22 to 62)
-        age = 22 + (i % 40)
-
-        # Distribute starting cash (500 to 2000)
-        base_cash = 500.0 + (i % 100) * 15.0
+        if population is None:
+            # Keep the old construction path unchanged when the switch is off.
+            skill_level = min(0.95, 0.2 + (i / num_households) * 0.75)
+            age = 22 + (i % 40)
+            base_cash = 500.0 + (i % 100) * 15.0
+        else:
+            skill_level, age, base_cash = population[i]
 
         households.append(
             HouseholdAgent(

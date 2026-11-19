@@ -244,6 +244,9 @@ class PaymentBook:
             self.household_purchase_cost[household.household_id][firm.good_name] += private
         if public_amount:
             self.economy._payment_spend_restriction(restriction, public_amount)
+            if kind == "care":
+                from household_diagnostics import record_healthcare_support
+                record_healthcare_support(self.economy, firm, "subsidies", public_amount)
         self.clearing_cash += total
         self.clearing_payables[firm.firm_id] += total
         self.receipts[firm.firm_id]["units_sold"] += qty

@@ -301,6 +301,18 @@ class HouseholdBehaviorConfig:
     # tenure tie-break is a model choice, used as a productivity proxy.
     # Default on since the owner decision of 2026-11-18 (AUD-005; evidence in docs/testing/household-realism-experiments.md); False restores the previous behavior.
     job_choices: bool = True
+    # Rollout switch: preserve the existing population unless explicitly enabled.
+    realistic_initial_population: bool = False
+    # Abstract skill index: Beta(2, 2) keeps the old range and mean; no study.
+    initial_skill_beta: Tuple[float, float] = (2.0, 2.0)
+    # Fed, Changes in U.S. Family Finances 2019–2022 (2023), Table 3:
+    # transaction account mean/median $62,500/$8,000 implies lognormal
+    # sigma sqrt(2 ln(7.8125)) = 2.03, rounded to 2.0. Kaplan, Violante &
+    # Weidner (2014) estimate about 30% hand-to-mouth; the week-26 measure
+    # is a simulation proxy, not the same measure.
+    initial_savings_sigma: float = 2.0
+    # Numerical guard against the final population mean, not a fitted target.
+    initial_savings_cap_multiple: float = 50.0
     initial_happiness_range: Tuple[float, float] = (0.60, 0.80)
     initial_morale_range: Tuple[float, float] = (0.60, 0.80)
     happiness_decay_rate_range: Tuple[float, float] = (0.0015, 0.0025)
@@ -1350,9 +1362,10 @@ class SimulationConfig:
             raise ValueError("services_expansion_min_excess_demand_ratio must be finite and non-negative")
 
         # Skills dynamics (households skills PR)
-        for name in ("skills_dynamics", "skills_weekly_learning", "job_choices"):
+        for name in ("skills_dynamics", "skills_weekly_learning", "job_choices", "realistic_initial_population"):
             if not isinstance(getattr(self.households, name), bool):
                 raise ValueError(f"households.{name} must be a bool")
+        validate_initial_population_settings(self.households)
         loss = self.households.skill_loss_per_year_out_of_work
         if isinstance(loss, bool) or not isinstance(loss, (int, float)) or not (math.isfinite(loss) and 0.0 <= loss <= 1.0):
             raise ValueError("skill_loss_per_year_out_of_work must be finite with 0 <= a <= 1")
@@ -1370,6 +1383,23 @@ class SimulationConfig:
         ]:
             if lo > hi:
                 raise ValueError(f"{name} low ({lo}) must be <= high ({hi})")
+
+
+def validate_initial_population_settings(households: HouseholdBehaviorConfig) -> None:
+    """Validate these settings again at factory use, after overrides."""
+    if not isinstance(households.realistic_initial_population, bool):
+        raise ValueError("households.realistic_initial_population must be a bool")
+    beta = households.initial_skill_beta
+    if not isinstance(beta, (tuple, list)) or len(beta) != 2 or any(
+        isinstance(x, bool) or not isinstance(x, (int, float)) or not math.isfinite(x) or x <= 0
+        for x in beta
+    ):
+        raise ValueError("households.initial_skill_beta must contain two finite positive numbers")
+    for name, allow_zero in (("initial_savings_sigma", True), ("initial_savings_cap_multiple", False)):
+        value = getattr(households, name)
+        if (isinstance(value, bool) or not isinstance(value, (int, float))
+                or not math.isfinite(value) or value < 0 or (not allow_zero and value == 0)):
+            raise ValueError(f"households.{name} must be finite and {'nonnegative' if allow_zero else 'positive'}")
 
 
 _DEFAULT_CONFIG = SimulationConfig()

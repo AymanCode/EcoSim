@@ -366,6 +366,14 @@ class Economy:
         self.healthcare_attempted_slots_this_tick: float = 0.0
         self.healthcare_completed_visits_this_tick: float = 0.0
         self.healthcare_affordability_rejects_this_tick: float = 0.0
+        self.care_episodes_opened_this_tick = 0
+        self.care_visits_scheduled_this_tick = 0
+        self.care_queue_admissions_retry_this_tick = 0
+        self.care_visit_slots_this_tick = 0
+        self.evicted_household_ids_this_tick = []
+        self.household_loan_writeoffs_this_tick = {}
+        self.household_unpaid_dues_this_tick = {}
+        self.healthcare_support_this_tick = {}
 
         # SOLID: SRP Violation - Labor market config should be in LaborMarketConfig
         self.last_tick_pre_purchase_deposit_withdrawals: float = 0.0
@@ -2456,6 +2464,14 @@ class Economy:
 
     def _phase_reset_and_shocks(self, tick: _TickScratch) -> None:
         """Open the tick: payment book, warm-up flag, resets, shocks, care queue, audit before-state."""
+        self.care_episodes_opened_this_tick = 0
+        self.care_visits_scheduled_this_tick = 0
+        self.care_queue_admissions_retry_this_tick = 0
+        self.care_visit_slots_this_tick = 0
+        self.evicted_household_ids_this_tick = []
+        self.household_loan_writeoffs_this_tick = {}
+        self.household_unpaid_dues_this_tick = {}
+        self.healthcare_support_this_tick = {}
         payment_arm = tick.payment_arm
         if payment_arm:
             from payment_loans import preflight_loans
@@ -7309,6 +7325,8 @@ class Economy:
             firm.government_loan_remaining += due
             firm.loan_payment_per_tick += due / max(1, term_ticks)
             self.government.cash_balance -= amount
+            from household_diagnostics import record_healthcare_support
+            record_healthcare_support(self, firm, "government_loans", amount)
             return amount
 
         if bank is not None:
@@ -8194,6 +8212,8 @@ class Economy:
             firm.loan_payment_per_tick += installment
             gov.cash_balance -= loan_amount
             gov.record_bailout(firm.good_category, firm.firm_id, loan_amount)
+            from household_diagnostics import record_healthcare_support
+            record_healthcare_support(self, firm, "bailouts", loan_amount)
             firm.received_bailout_this_tick = True
             self.last_tick_gov_bailouts += loan_amount
             self.bailout_received_by_firm_id[int(firm.firm_id)] = (

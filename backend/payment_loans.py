@@ -298,6 +298,10 @@ def _write_off(economy: Any, loan: dict) -> None:
     amount = _remaining(loan)
     if amount <= TOL:
         return
+    if loan.get("borrower_type") == "household":
+        subtype = loan.get("subtype", "medical")
+        counts = economy.household_loan_writeoffs_this_tick
+        counts[subtype] = counts.get(subtype, 0) + 1
     if _funder(loan) == "treasury":
         bank.government_loan_writeoffs += amount
         bank.last_tick_government_defaults += amount
@@ -378,6 +382,7 @@ def collect_household_dues(economy: Any) -> float:
             bank.update_household_credit_score(hid, -0.20)
             continue
         cash = max(0.0, _finite(hh.cash_balance, "household cash", nonnegative=False))
+        unpaid = 0.0
         for (_, loan, due), amount in zip(claims, _allocate(claims, cash)):
             paid = _post_payment(economy, loan, amount)
             hh.cash_balance -= paid
@@ -397,6 +402,11 @@ def collect_household_dues(economy: Any) -> float:
                 if _version(loan) == 2 and loan.get("term_remaining", 0) > 0:
                     loan["term_remaining"] -= 1
                 bank.update_household_credit_score(hid, +0.01)
+            # A written-off claim is discharged and no longer due at close.
+            if _remaining(loan) > TOL:
+                unpaid += max(0.0, due - paid)
+        if unpaid > 0:
+            economy.household_unpaid_dues_this_tick[hid] = unpaid
         _sync_mirrors(hh, all_claims[hid], "household")
     return total_paid
 
@@ -733,6 +743,10 @@ def originate_v2(
     bank.last_tick_new_loans += amount
     bank.active_loans.append(claim)
     bank._index_appended_loan(claim)
+    if borrower_type == "firm":
+        from household_diagnostics import record_healthcare_support
+        record_healthcare_support(economy, borrower,
+                                  "bank_loans" if funder == "bank" else "government_loans", amount)
     due_index = _underwriting_due_index(economy)
     due_index[(borrower_type, borrower_id)] += payment
     if borrower_type == "household":
